@@ -161,7 +161,8 @@ class CompetitorDetailBatchTerminalOwnershipTest {
                         + "AND run.status IN ('SUCCEEDED', 'PARTIAL_FAILED')"
         ));
         assertTrue(sql.contains(
-                "task.status = 'FAILED' AND run.status = 'FAILED'"
+                "task.status = 'FAILED' "
+                        + "AND run.status IN ('FAILED', 'PARTIAL_FAILED')"
         ));
     }
 
@@ -194,6 +195,7 @@ class CompetitorDetailBatchTerminalOwnershipTest {
                 Arguments.of("RUNNING", "RUNNING"),
                 Arguments.of("SUCCEEDED", "SUCCEEDED"),
                 Arguments.of("SUCCEEDED", "PARTIAL_FAILED"),
+                Arguments.of("FAILED", "PARTIAL_FAILED"),
                 Arguments.of("FAILED", "FAILED")
         );
     }
@@ -201,6 +203,7 @@ class CompetitorDetailBatchTerminalOwnershipTest {
     private static Stream<Arguments> terminalOwnershipPairs() {
         return Stream.of(
                 Arguments.of("SUCCEEDED", "PARTIAL_FAILED"),
+                Arguments.of("FAILED", "PARTIAL_FAILED"),
                 Arguments.of("FAILED", "FAILED")
         );
     }

@@ -259,7 +259,9 @@ class CompetitorDetailBatchTakeover {
                 || ("SUCCEEDED".equals(taskStatus)
                         && ("SUCCEEDED".equals(runStatus)
                                 || "PARTIAL_FAILED".equals(runStatus)))
-                || ("FAILED".equals(taskStatus) && "FAILED".equals(runStatus));
+                || ("FAILED".equals(taskStatus)
+                        && ("FAILED".equals(runStatus)
+                                || "PARTIAL_FAILED".equals(runStatus)));
     }
 
     private boolean active(String status) {
