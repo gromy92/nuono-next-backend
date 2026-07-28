@@ -9,6 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class CompetitorRefreshExecutionFinalizer {
+    private static final String CLAIM_CONFLICT =
+            "COMPETITOR_SEARCH_RUN_CLAIM_CONFLICT";
+    private static final String CLAIM_CONFLICT_MESSAGE =
+            "刷新执行记录状态冲突，任务未执行。";
+
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorRefreshLeaseGuard leaseGuard;
@@ -32,6 +37,26 @@ class CompetitorRefreshExecutionFinalizer {
                 operationalTaskService,
                 CompetitorRefreshLeaseGuard.disabled(mapper)
         );
+    }
+
+    @Transactional
+    public boolean claimQueued(
+            Long taskId,
+            Long runId,
+            String runningMessage
+    ) {
+        if (!operationalTaskService.claimQueued(taskId, runningMessage)) {
+            return false;
+        }
+        if (mapper.markSearchRunRunning(runId) == 1) {
+            return true;
+        }
+        operationalTaskService.fail(
+                taskId,
+                CLAIM_CONFLICT,
+                CLAIM_CONFLICT_MESSAGE
+        );
+        return false;
     }
 
     @Transactional

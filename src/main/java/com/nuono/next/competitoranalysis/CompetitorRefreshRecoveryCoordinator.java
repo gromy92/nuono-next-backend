@@ -159,12 +159,12 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorRefreshExecutionMode mode
     ) {
         try {
-            return CompetitorDetailRetryPayload.fromJson(
+            CompetitorDetailRetryPayload.fromJson(
                     task == null ? null : task.getPayloadJson()
-            ).isInitialized()
-                    && CompetitorRefreshRecoveryPayload.matchesIdentity(
-                            task, watchProductId, mode
-                    );
+            );
+            return CompetitorRefreshRecoveryPayload.matchesIdentity(
+                    task, watchProductId, mode
+            );
         } catch (CompetitorDetailRetryPayloadException
                 | CompetitorRefreshRecoveryPayloadException exception) {
             return false;

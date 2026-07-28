@@ -245,7 +245,7 @@ public class CompetitorAnalysisRefreshService {
         this.refreshTaskDispatcher = new CompetitorRefreshTaskDispatcher(
                 mapper,
                 operationalTaskService,
-                this.taskSubmitter
+                this.taskSubmitter, refreshTaskFactory.executionFinalizer()
         );
         this.refreshRecoveryCoordinator = new CompetitorRefreshRecoveryCoordinator(
                 mapper,

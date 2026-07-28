@@ -12,9 +12,8 @@ import java.util.function.BooleanSupplier;
 final class CompetitorRefreshTaskDispatcher {
     private static final int MAX_SUBMITTED_TASKS = 1000;
     private static final int MAX_SUBMITTED_PER_ACCOUNT = 50;
-    private final CompetitorAnalysisMapper mapper;
-    private final OperationalTaskService operationalTaskService;
     private final CompetitorTaskSubmitter taskSubmitter;
+    private final CompetitorRefreshExecutionFinalizer executionFinalizer;
     private final Set<Long> submittedTaskIds = ConcurrentHashMap.newKeySet();
     private final Map<String, Integer> submittedByAccount = new HashMap<>();
     private final Object reservationLock = new Object();
@@ -24,9 +23,24 @@ final class CompetitorRefreshTaskDispatcher {
             OperationalTaskService operationalTaskService,
             CompetitorTaskSubmitter taskSubmitter
     ) {
-        this.mapper = mapper;
-        this.operationalTaskService = operationalTaskService;
+        this(
+                mapper,
+                operationalTaskService,
+                taskSubmitter,
+                CompetitorRefreshExecutionFinalizer.unfenced(
+                        mapper, operationalTaskService
+                )
+        );
+    }
+
+    CompetitorRefreshTaskDispatcher(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorTaskSubmitter taskSubmitter,
+            CompetitorRefreshExecutionFinalizer executionFinalizer
+    ) {
         this.taskSubmitter = taskSubmitter;
+        this.executionFinalizer = executionFinalizer;
     }
 
     int availableCapacity(int maximumSubmittedTasks) {
@@ -80,15 +94,9 @@ final class CompetitorRefreshTaskDispatcher {
             if (!executionAllowed.getAsBoolean()) {
                 return;
             }
-            if (!operationalTaskService.claimQueued(task.getId(), runningMessage)) {
-                return;
-            }
-            if (mapper.markSearchRunRunning(run.getId()) != 1) {
-                operationalTaskService.fail(
-                        task.getId(),
-                        "COMPETITOR_SEARCH_RUN_CLAIM_CONFLICT",
-                        "刷新执行记录状态冲突，任务未执行。"
-                );
+            if (!executionFinalizer.claimQueued(
+                    task.getId(), run.getId(), runningMessage
+            )) {
                 return;
             }
             execution.run();

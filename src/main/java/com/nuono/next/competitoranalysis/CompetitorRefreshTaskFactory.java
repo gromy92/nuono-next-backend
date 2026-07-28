@@ -140,7 +140,7 @@ class CompetitorRefreshTaskFactory {
             return reconciledTerminal(staleTask);
         }
         String replacementPayload = CompetitorRefreshRecoveryPayload.replacement(
-                staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
+                staleTask, watchProduct.getId(), keywordTotal, mode, batchKey, staleRun.getId()
         );
         CompetitorStaleTaskReconciler.Outcome claim = staleTaskReconciler.claim(
                 staleTask,
