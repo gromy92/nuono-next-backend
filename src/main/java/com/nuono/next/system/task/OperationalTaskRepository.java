@@ -15,6 +15,14 @@ public interface OperationalTaskRepository {
 
     OperationalTask selectLatestByNaturalKey(String taskType, String naturalKey);
 
+    default OperationalTask selectLatestByNaturalKeyAndBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        return null;
+    }
+
     void update(OperationalTask task);
 
     default boolean claimQueued(Long taskId, String message, LocalDateTime startedAt) {

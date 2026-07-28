@@ -1,5 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -10,6 +12,7 @@ final class CompetitorMonitoringPlanFactory {
     private static final String STORE_NATURAL_KEY_PREFIX = "store:";
     private static final String CYCLE_NATURAL_KEY_PREFIX = "cycle:";
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final Clock clock;
 
     CompetitorMonitoringPlanFactory(Clock clock) {
@@ -66,7 +69,33 @@ final class CompetitorMonitoringPlanFactory {
     }
 
     String storeNaturalKey(Long owner, String store, String site, CompetitorRefreshExecutionMode mode) {
-        return STORE_NATURAL_KEY_PREFIX + owner + ":" + store + ":" + site + ":" + mode.taskKey();
+        String base = STORE_NATURAL_KEY_PREFIX + owner + ":" + store + ":" + site;
+        return mode == CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR
+                ? base
+                : base + ":" + mode.taskKey();
+    }
+
+    CompetitorRefreshExecutionMode legacyStoreMode(String payloadJson) {
+        try {
+            JsonNode payload = JSON.readTree(payloadJson);
+            if (payload == null
+                    || payload.hasNonNull("batchKind")
+                    || !payload.has("watchProductTotal")) {
+                return null;
+            }
+            String triggerMode = payload.path("triggerMode").asText("");
+            String executionMode = payload.path("executionMode").asText("");
+            for (CompetitorRefreshExecutionMode mode : CompetitorRefreshExecutionMode.values()) {
+                if (mode != CompetitorRefreshExecutionMode.FULL_MANUAL
+                        && mode.triggerMode().equals(triggerMode)
+                        && mode.taskKey().equals(executionMode)) {
+                    return mode;
+                }
+            }
+            return null;
+        } catch (RuntimeException | java.io.IOException exception) {
+            return null;
+        }
     }
 
     long eligibleTotal(CompetitorMonitoringBoundaryRow boundary) {

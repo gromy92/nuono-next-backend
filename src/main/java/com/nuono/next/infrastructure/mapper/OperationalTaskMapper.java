@@ -85,6 +85,29 @@ public interface OperationalTaskMapper {
             @Param("naturalKey") String naturalKey
     );
 
+    @Select({
+            "SELECT",
+            "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",
+            "  progress_percent, message, payload_json, result_json, error_code,",
+            "  started_at, finished_at, gmt_create AS created_at, gmt_updated AS updated_at",
+            "FROM operational_task",
+            "WHERE task_type = #{taskType}",
+            "  AND natural_key = #{naturalKey}",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(",
+            "      CASE WHEN JSON_VALID(payload_json) THEN payload_json ELSE NULL END,",
+            "      '$.batchKey'",
+            "  )) = #{batchKey}",
+            "  AND (status <> 'FAILED' OR COALESCE(error_code, '') <> 'FAILED_STALE')",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id DESC",
+            "LIMIT 1"
+    })
+    OperationalTask selectLatestByNaturalKeyAndBatchKey(
+            @Param("taskType") String taskType,
+            @Param("naturalKey") String naturalKey,
+            @Param("batchKey") String batchKey
+    );
+
     @Update({
             "UPDATE operational_task",
             "SET",

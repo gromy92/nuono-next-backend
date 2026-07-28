@@ -144,6 +144,19 @@ public class OperationalTaskService {
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
 
+    public Optional<OperationalTask> findLatestByBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        OperationalTask task = repository.selectLatestByNaturalKeyAndBatchKey(
+                requireText(taskType, "taskType"),
+                requireText(naturalKey, "naturalKey"),
+                requireText(batchKey, "batchKey")
+        );
+        return task == null ? Optional.empty() : Optional.of(task.copy());
+    }
+
     public List<OperationalTask> listRecent(String taskType, int limit) {
         return repository.listRecent(normalize(taskType), Math.max(1, Math.min(limit, 200))).stream()
                 .map(OperationalTask::copy)

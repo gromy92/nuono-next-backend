@@ -199,15 +199,43 @@ final class CompetitorMonitoringBatchService {
         }
         return recovered;
     }
-
     private OperationalTask replaceStale(OperationalTask task) {
+        String replacementPayloadJson = replacementPayload(task);
         return recoveryService.replaceStale(
                 task,
                 LocalDateTime.now(clock).minus(STALE_AFTER),
                 "FAILED_STALE",
                 STALE_MESSAGE,
-                QUEUED_MESSAGE
+                QUEUED_MESSAGE,
+                replacementPayloadJson
         );
+    }
+    private String replacementPayload(OperationalTask task) {
+        if (!STORE_TASK_TYPE.equals(task.getTaskType())) {
+            return task.getPayloadJson();
+        }
+        CompetitorRefreshExecutionMode legacyMode = plans.legacyStoreMode(task.getPayloadJson());
+        if (legacyMode == null) {
+            return task.getPayloadJson();
+        }
+        CompetitorMonitoringBoundaryRow boundary = mapper.selectRefreshableWatchProductBoundary(
+                task.getOwnerUserId(),
+                task.getStoreCode(),
+                task.getSiteCode()
+        );
+        if (boundary == null || boundary.getUpperWatchProductId() == null) {
+            boundary = new CompetitorMonitoringBoundaryRow();
+            boundary.setEligibleTotal(0L);
+            boundary.setUpperWatchProductId(0L);
+        }
+        return plans.storeCheckpoint(
+                task.getOwnerUserId(),
+                task.getStoreCode(),
+                task.getSiteCode(),
+                null,
+                legacyMode,
+                boundary
+        ).toJson();
     }
     private boolean submitStore(OperationalTask task) {
         if (submittedStoreTaskIds.size() >= RECOVERY_LIMIT) {

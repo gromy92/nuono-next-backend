@@ -21,7 +21,8 @@ class CompetitorMonitoringRecoveryService {
             LocalDateTime staleBefore,
             String errorCode,
             String staleMessage,
-            String queuedMessage
+            String queuedMessage,
+            String replacementPayloadJson
     ) {
         if (staleTask == null || !operationalTaskService.failStaleRunning(
                 staleTask.getId(),
@@ -38,7 +39,7 @@ class CompetitorMonitoringRecoveryService {
                         .ownerUserId(staleTask.getOwnerUserId())
                         .storeCode(staleTask.getStoreCode())
                         .siteCode(staleTask.getSiteCode())
-                        .payloadJson(staleTask.getPayloadJson())
+                        .payloadJson(replacementPayloadJson)
                         .message(queuedMessage)
                         .build()
         );
