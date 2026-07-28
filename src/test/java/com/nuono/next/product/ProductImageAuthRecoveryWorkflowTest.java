@@ -76,9 +76,32 @@ class ProductImageAuthRecoveryWorkflowTest {
                 "sha-size",
                 20
         );
+        ProductImageSuiteAssetRecord feature = asset(
+                5003L,
+                "/api/product-images/assets/STR108065-NAE/feature.png",
+                "sha-feature",
+                30
+        );
+        feature.setImageRole(ProductImageSuiteAssetRole.CORE_FEATURE);
+        ProductImageSuiteAssetRecord detail = asset(
+                5004L,
+                "/api/product-images/assets/STR108065-NAE/detail.png",
+                "sha-detail",
+                40
+        );
+        detail.setImageRole(ProductImageSuiteAssetRole.MATERIAL_DETAIL);
+        ProductImageSuiteAssetRecord scene = asset(
+                5005L,
+                "/api/product-images/assets/STR108065-NAE/scene.png",
+                "sha-scene",
+                50
+        );
+        scene.setImageRole(ProductImageSuiteAssetRole.USAGE_SCENE);
+        main.setImageRole(ProductImageSuiteAssetRole.MAIN);
+        size.setImageRole(ProductImageSuiteAssetRole.SIZE);
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(mapper.selectSuiteByIdForUpdate(9901L, 7001L)).thenReturn(suite);
-        when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of(main, size));
+        when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of(main, size, feature, detail, scene));
         when(mapper.selectSkuParentByProductMasterId(9001L)).thenReturn("PARENT-1");
         when(mapper.startSuitePublishWorkflow(
                 eq(9901L), eq(7001L), anyString(), eq(10003L)
@@ -95,7 +118,13 @@ class ProductImageAuthRecoveryWorkflowTest {
         ProductImagePublishCheckpoint checkpoint =
                 ProductImagePublishCheckpoint.parse(new ObjectMapper(), manifest.getValue());
         assertEquals(
-                List.of(main.getImageUrl(), size.getImageUrl()),
+                List.of(
+                        main.getImageUrl(),
+                        size.getImageUrl(),
+                        feature.getImageUrl(),
+                        detail.getImageUrl(),
+                        scene.getImageUrl()
+                ),
                 checkpoint.approvedImageUrls()
         );
         assertTrue(manifest.getValue().contains("\"assetId\":5001"));
@@ -106,6 +135,31 @@ class ProductImageAuthRecoveryWorkflowTest {
                 ArgumentCaptor.forClass(ProductImagePublishSubmittedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertTrue(checkpoint.matchesAttempt(event.getValue().attemptId()));
+    }
+
+    @Test
+    void approvalShouldRejectSuiteUntilEveryReviewImageIsComplete() {
+        ProductImageProfileRecord profile = profile();
+        profile.setProductMasterId(9001L);
+        ProductImageSuiteRecord suite = suite(ProductImageSuiteStatus.PENDING_REVIEW);
+        ProductImageSuiteAssetRecord main = asset(
+                5001L,
+                "/api/product-images/assets/STR108065-NAE/main.png",
+                "sha-main",
+                10
+        );
+        main.setImageRole(ProductImageSuiteAssetRole.MAIN);
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(mapper.selectSuiteByIdForUpdate(9901L, 7001L)).thenReturn(suite);
+        when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of(main));
+
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.approveSuite(307L, "STR108065-NAE", 7001L, 9901L, 10003L)
+        );
+
+        assertTrue(failure.getMessage().contains("尚未全部制作完成"));
+        verify(mapper, never()).startSuitePublishWorkflow(any(), any(), anyString(), any());
     }
 
     @Test
