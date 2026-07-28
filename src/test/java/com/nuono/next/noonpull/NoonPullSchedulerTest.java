@@ -153,39 +153,6 @@ class NoonPullSchedulerTest {
     }
 
     @Test
-    void shouldRequeueManualAsnTaskAfterPersisted502BackoffIsDue() {
-        NoonPullPlanRecord plan = createPlan(
-                NoonPullType.INTERFACE,
-                NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN,
-                NoonPullTriggerMode.MANUAL_REFRESH,
-                "manual"
-        );
-        NoonPullTaskRecord task = foundationService.createTaskForPlan(plan.getId(), NoonPullTaskDraft.builder()
-                .ownerUserId(plan.getOwnerUserId())
-                .storeCode(plan.getStoreCode())
-                .siteCode(plan.getSiteCode())
-                .pullType(plan.getPullType())
-                .dataDomain(plan.getDataDomain())
-                .triggerMode(plan.getTriggerMode())
-                .targetIdentity("official-warehouse-asn-list")
-                .build()).orElseThrow();
-        foundationService.markRunning(task.getId(), "official-warehouse-asn-list-sync");
-        foundationService.markFailedWithPolicy(task.getId(), "HTTP 502 Bad Gateway", 1);
-        NoonPullPlanRecord duePlan = repository.selectPlan(plan.getId());
-        duePlan.setNextRetryAt(LocalDateTime.ofInstant(clock.instant(), clock.getZone()).minusMinutes(1));
-        repository.updatePlan(duePlan);
-
-        NoonPullSchedulerResult result = scheduler().runDuePlans();
-
-        assertEquals(1, result.getCreatedTaskCount());
-        assertEquals(2, repository.listTasks().size());
-        NoonPullTaskRecord retry = repository.selectLatestTaskByLockKey(task.getActiveLockKey());
-        assertTrue(!retry.getId().equals(task.getId()));
-        assertEquals(NoonPullTaskStatus.QUEUED, retry.getStatus());
-        assertEquals(task.getTargetIdentity(), retry.getTargetIdentity());
-    }
-
-    @Test
     void shouldNotRecreateCompletedSalesDailyTargetsOnRepeatedTicks() {
         clock = Clock.fixed(Instant.parse("2026-05-22T12:01:00Z"), SHANGHAI);
         repository = new InMemoryNoonPullRepository();

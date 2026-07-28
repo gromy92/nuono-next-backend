@@ -7,7 +7,6 @@ import com.nuono.next.noonmaintenance.StoreSiteMaintenanceGate;
 import com.nuono.next.orderfinance.NoonFinanceTransactionReportAdapter;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportQueryService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportService;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListPullService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseInventorySyncService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnExportCreateCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnReceivedImportCommand;
@@ -62,7 +61,7 @@ public class NoonPullScheduledExecutionService {
     private final Supplier<? extends NoonAdvertisingReportProvider> advertisingProvider;
     private final Supplier<? extends NoonSalesPageQueryProvider> salesPageQueryProvider;
     private final Supplier<? extends NoonProductInterfaceSmokeProvider> productProvider;
-    private OfficialWarehouseAsnListPullService officialWarehouseAsnListPullService;
+    private NoonPullRetryExecutor retryExecutor;
     private final boolean enabled;
     private final int salesReportExecutionsPerTick;
     private final int productInterfaceExecutionsPerTick;
@@ -498,6 +497,9 @@ public class NoonPullScheduledExecutionService {
             result.setEnabled(false);
             return result;
         }
+        if (retryExecutor != null) {
+            result.created(retryExecutor.retryDueTasks());
+        }
         NoonPullSchedulerResult schedulerResult = scheduler.runDuePlans();
         result.created(schedulerResult.getCreatedTaskCount());
         int salesReportExecutions = 0;
@@ -527,10 +529,8 @@ public class NoonPullScheduledExecutionService {
     }
 
     @Autowired(required = false)
-    void setOfficialWarehouseAsnListPullService(
-            OfficialWarehouseAsnListPullService officialWarehouseAsnListPullService
-    ) {
-        this.officialWarehouseAsnListPullService = officialWarehouseAsnListPullService;
+    void setRetryExecutor(NoonPullRetryExecutor retryExecutor) {
+        this.retryExecutor = retryExecutor;
     }
 
     private boolean isScheduledMaintenance(NoonPullTaskRecord task) {
@@ -611,20 +611,16 @@ public class NoonPullScheduledExecutionService {
         if (task.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION && task.getPullType() == NoonPullType.REPORT) {
             return 4;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN
+        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
                 && task.getPullType() == NoonPullType.INTERFACE) {
             return 5;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
-                && task.getPullType() == NoonPullType.INTERFACE) {
-            return 6;
-        }
         if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED
                 && task.getPullType() == NoonPullType.REPORT) {
-            return 7;
+            return 6;
         }
         if (task.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING && task.getPullType() == NoonPullType.REPORT) {
-            return 8;
+            return 7;
         }
         return 10;
     }
@@ -644,7 +640,11 @@ public class NoonPullScheduledExecutionService {
         }
         if (task.getPullType() == NoonPullType.INTERFACE
                 && task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN) {
-            executeOfficialWarehouseAsnTask(task, result);
+            if (retryExecutor == null) {
+                result.failed();
+            } else {
+                retryExecutor.executeAsn(task, result);
+            }
             return;
         }
         if (task.getPullType() == NoonPullType.INTERFACE
@@ -677,29 +677,6 @@ public class NoonPullScheduledExecutionService {
             return;
         }
         result.skipped();
-    }
-
-    private void executeOfficialWarehouseAsnTask(
-            NoonPullTaskRecord task,
-            NoonPullScheduledExecutionResult result
-    ) {
-        if (officialWarehouseAsnListPullService == null) {
-            foundationService.markFailedWithPolicy(
-                    task.getId(),
-                    "provider not configured: scheduled official warehouse ASN list service is disabled",
-                    foundationService.attemptNumber(task)
-            );
-            result.failed();
-            return;
-        }
-        NoonPullTaskStatus status = officialWarehouseAsnListPullService.executeScheduled(task);
-        if (status == NoonPullTaskStatus.SUCCEEDED) {
-            result.executed();
-        } else if (status == NoonPullTaskStatus.BLOCKED_AUTH) {
-            result.skipped();
-        } else {
-            result.failed();
-        }
     }
 
     private void executeFinanceReportTask(NoonPullTaskRecord task, NoonPullScheduledExecutionResult result) {
@@ -765,7 +742,8 @@ public class NoonPullScheduledExecutionService {
             command.storeCode = task.getStoreCode();
             command.siteCode = task.getSiteCode();
             InventorySyncResultView syncResult = officialWarehouseInventorySyncService.sync(accessForTask(task), command);
-            String sourceBatchId = "official-warehouse-inventory-" + task.getId() + "-" + valueOrUnknown(syncResult.syncBatchId);
+            String sourceBatchId = "official-warehouse-inventory-" + task.getId() + "-"
+                    + NoonPullScheduledExecutionSupport.valueOrUnknown(syncResult.syncBatchId);
             foundationService.markSucceeded(task.getId(),
                     sourceBatchId,
                     "official warehouse inventory synced; fetched=" + syncResult.fetchedRows
@@ -878,7 +856,8 @@ public class NoonPullScheduledExecutionService {
             FbnReceivedImportResultView importResult =
                     officialWarehouseFbnReceivedReportImportService.importByExportCode(access, exportCode, importCommand);
             String importId = importResult == null ? null : importResult.importId;
-            String sourceBatchId = "official-warehouse-fbn-received-" + task.getId() + "-" + valueOrUnknown(importId);
+            String sourceBatchId = "official-warehouse-fbn-received-" + task.getId() + "-"
+                    + NoonPullScheduledExecutionSupport.valueOrUnknown(importId);
             foundationService.markSucceeded(task.getId(),
                     sourceBatchId,
                     "official warehouse FBN received imported; rows="
@@ -957,7 +936,7 @@ public class NoonPullScheduledExecutionService {
             if (productListAdapter != null) {
                 productListAdapter.apply(NoonProductListApplyCommand.builder()
                         .ownerUserId(task.getOwnerUserId())
-                        .projectCode(deriveProjectCode(task.getStoreCode()))
+                        .projectCode(NoonPullScheduledExecutionSupport.deriveProjectCode(task.getStoreCode()))
                         .storeCode(task.getStoreCode())
                         .siteCode(task.getSiteCode())
                         .sourceBatchId(pullResult.getSourceBatchId())
@@ -1075,37 +1054,13 @@ public class NoonPullScheduledExecutionService {
             return NoonReportExportStatus.pending();
         }
         String status = statusView.status;
-        if (isFbnExportComplete(status)) {
+        if (NoonPullScheduledExecutionSupport.isFbnExportComplete(status)) {
             return NoonReportExportStatus.ready(statusView.downloadUrl, statusView.totalRows);
         }
-        if (isFbnExportFailed(status)) {
+        if (NoonPullScheduledExecutionSupport.isFbnExportFailed(status)) {
             return NoonReportExportStatus.failed(statusView.message);
         }
         return NoonReportExportStatus.pending(status);
-    }
-
-    private boolean isFbnExportComplete(String status) {
-        if (!StringUtils.hasText(status)) {
-            return false;
-        }
-        String normalized = status.trim().toUpperCase();
-        return "COMPLETE".equals(normalized)
-                || "COMPLETED".equals(normalized)
-                || "SUCCESS".equals(normalized)
-                || "READY".equals(normalized)
-                || "DONE".equals(normalized);
-    }
-
-    private boolean isFbnExportFailed(String status) {
-        if (!StringUtils.hasText(status)) {
-            return false;
-        }
-        String normalized = status.trim().toUpperCase();
-        return "FAILED".equals(normalized)
-                || "FAILURE".equals(normalized)
-                || "ERROR".equals(normalized)
-                || "CANCELLED".equals(normalized)
-                || "CANCELED".equals(normalized);
     }
 
     private void markInterfaceFailureOrRiskBackoff(
@@ -1169,23 +1124,4 @@ public class NoonPullScheduledExecutionService {
         return StringUtils.hasText(exception.getMessage()) ? exception.getMessage() : exception.getClass().getSimpleName();
     }
 
-    private String valueOrUnknown(String value) {
-        return StringUtils.hasText(value) ? value.trim() : "unknown";
-    }
-
-    private String deriveProjectCode(String storeCode) {
-        if (storeCode == null) {
-            return null;
-        }
-        String normalized = storeCode.trim().toUpperCase();
-        if (normalized.startsWith("PRJ")) {
-            return normalized;
-        }
-        if (normalized.startsWith("STR")) {
-            int dashIndex = normalized.indexOf('-');
-            String partnerId = dashIndex > 3 ? normalized.substring(3, dashIndex) : normalized.substring(3);
-            return partnerId.isBlank() ? null : "PRJ" + partnerId;
-        }
-        return null;
-    }
 }

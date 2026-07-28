@@ -1,6 +1,5 @@
 package com.nuono.next.officialwarehouse;
 
-import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noonauth.NoonAuthRecoveryTriggerPolicy;
 import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -48,14 +47,13 @@ public class OfficialWarehouseAppointmentAuthRecovery {
             Long ownerUserId,
             String projectCode,
             String storeCode,
-            Throwable failure
+            String rawFailure
     ) {
-        String rawFailure = failureMessage(failure);
         if (recoveryQueue == null
                 || ownerUserId == null
                 || !StringUtils.hasText(projectCode)
                 || !StringUtils.hasText(storeCode)
-                || !isExplicitAuthFailure(failure, rawFailure)) {
+                || !NoonAuthRecoveryTriggerPolicy.isExplicitAuthExpiry(rawFailure)) {
             return null;
         }
         try {
@@ -67,43 +65,13 @@ public class OfficialWarehouseAppointmentAuthRecovery {
         }
     }
 
-    boolean isExplicitAuthFailure(Throwable failure) {
-        return isExplicitAuthFailure(failure, failureMessage(failure));
-    }
-
-    private boolean isExplicitAuthFailure(Throwable failure, String rawFailure) {
-        if (NoonAuthenticationFailureClassifier.hasPermanentAuthenticationFailureEvidence(failure)) {
-            return false;
-        }
-        return NoonAuthenticationFailureClassifier.isAuthenticationFailure(failure)
-                || NoonAuthRecoveryTriggerPolicy.isExplicitAuthExpiry(rawFailure);
-    }
-
-    private String failureMessage(Throwable failure) {
-        StringBuilder details = new StringBuilder();
-        Throwable current = failure;
-        while (current != null) {
-            if (StringUtils.hasText(current.getMessage())) {
-                details.append(' ').append(current.getMessage());
-            }
-            Throwable cause = current.getCause();
-            if (cause == current) {
-                break;
-            }
-            current = cause;
-        }
-        return details.toString().trim();
-    }
-
     static final class AuthWait {
-        final Long recoveryId;
         final int retrySeconds;
         final String errorStage;
         final String failureType;
         final String message;
 
         private AuthWait(Long recoveryId) {
-            this.recoveryId = recoveryId;
             retrySeconds = RETRY_SECONDS;
             errorStage = ERROR_STAGE;
             failureType = FAILURE_TYPE;

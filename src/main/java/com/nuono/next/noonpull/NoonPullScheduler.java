@@ -133,9 +133,6 @@ public class NoonPullScheduler {
         NoonPullSchedulerResult result = new NoonPullSchedulerResult();
         foundationService.recoverStaleRunningTasks(staleRunningTaskMaxAge);
         foundationService.recoverStaleQueuedTasks(staleQueuedTaskMaxAge);
-        for (NoonPullTaskRecord retriedTask : foundationService.retryDueFailedTasks()) {
-            result.created(retriedTask);
-        }
         for (NoonPullPlanRecord plan : foundationService.listPlans()) {
             result.scanned();
             if (isScheduledMaintenance(plan)) {

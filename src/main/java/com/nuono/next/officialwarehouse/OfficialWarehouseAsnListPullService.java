@@ -5,6 +5,7 @@ import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullFoundationService;
 import com.nuono.next.noonpull.NoonPullPlanDraft;
 import com.nuono.next.noonpull.NoonPullPlanRecord;
+import com.nuono.next.noonpull.NoonPullRetryCoordinator;
 import com.nuono.next.noonpull.NoonPullTaskDraft;
 import com.nuono.next.noonpull.NoonPullTaskRecord;
 import com.nuono.next.noonpull.NoonPullTaskStatus;
@@ -26,13 +27,16 @@ public class OfficialWarehouseAsnListPullService {
     static final String TARGET_IDENTITY = "official-warehouse-asn-list";
 
     private final NoonPullFoundationService foundationService;
+    private final NoonPullRetryCoordinator retryCoordinator;
     private final ObjectProvider<OfficialWarehouseAsnListTaskExecutor> executorProvider;
 
     public OfficialWarehouseAsnListPullService(
             NoonPullFoundationService foundationService,
+            NoonPullRetryCoordinator retryCoordinator,
             ObjectProvider<OfficialWarehouseAsnListTaskExecutor> executorProvider
     ) {
         this.foundationService = foundationService;
+        this.retryCoordinator = retryCoordinator;
         this.executorProvider = executorProvider;
     }
 
@@ -82,7 +86,7 @@ public class OfficialWarehouseAsnListPullService {
         } catch (RuntimeException ignored) {
             // The durable task record is the scheduled worker's result contract.
         }
-        return foundationService.getTask(task.getId()).getStatus();
+        return retryCoordinator.task(task.getId()).getStatus();
     }
 
     private AsnListSyncView execute(
@@ -111,12 +115,13 @@ public class OfficialWarehouseAsnListPullService {
                             + "; updated=" + result.updated
                             + "; pages=" + result.pages
             );
+            retryCoordinator.clearBackoffAfterSuccess(task);
             return result;
         } catch (RuntimeException failure) {
             NoonPullTaskRecord failed = foundationService.markFailedWithPolicy(
                     task.getId(),
                     failureEvidence(failure),
-                    foundationService.attemptNumber(task)
+                    retryCoordinator.attemptNumber(task)
             );
             if (failed.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
                 throw authRecoveryPending(failed, failure);

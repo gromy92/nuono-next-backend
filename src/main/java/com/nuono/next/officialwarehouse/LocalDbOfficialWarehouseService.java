@@ -3,6 +3,7 @@ package com.nuono.next.officialwarehouse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.infrastructure.mapper.OfficialWarehouseAsnSyncThrottleMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.noon.NoonSessionGateway;
@@ -23,7 +24,6 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnListSyncThrottleRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
@@ -67,7 +67,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -77,8 +76,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpStatus;
@@ -96,10 +96,6 @@ public class LocalDbOfficialWarehouseService implements
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
-    private static final int DEFAULT_ASN_LIST_SYNC_PER_PAGE = 50;
-    private static final int DEFAULT_ASN_LIST_SYNC_MAX_PAGES = 50;
-    private static final int ASN_LIST_SYNC_COOLDOWN_MINUTES = 60;
-    private static final DateTimeFormatter SYNC_RETRY_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
     private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
     private final OfficialWarehouseMapper mapper;
@@ -112,7 +108,8 @@ public class LocalDbOfficialWarehouseService implements
     private final NoonRiskBackoffGuard riskBackoffGuard;
     private final NoonPullFailurePolicy failurePolicy;
     private final OfficialWarehouseAppointmentAuthRecovery appointmentAuthRecovery;
-    private final OfficialWarehouseAsnSyncAuthRecovery asnSyncAuthRecovery;
+    private final OfficialWarehouseAsnListRemoteExecutor asnListRemoteExecutor;
+    private ObjectProvider<OfficialWarehouseAsnListPullService> asnListPullServiceProvider;
     @Value("${nuono.official-warehouse.appointment.scheduler.enabled:false}")
     private boolean appointmentSchedulerEnabled;
     @Value("${nuono.official-warehouse.appointment.scheduler.max-items-per-tick:20}")
@@ -149,7 +146,19 @@ public class LocalDbOfficialWarehouseService implements
         this.appointmentAuthRecovery = appointmentAuthRecovery == null
                 ? OfficialWarehouseAppointmentAuthRecovery.disabled()
                 : appointmentAuthRecovery;
-        this.asnSyncAuthRecovery = new OfficialWarehouseAsnSyncAuthRecovery(this.appointmentAuthRecovery);
+        this.asnListRemoteExecutor = new OfficialWarehouseAsnListRemoteExecutor(
+                mapper, noonInboundClient, objectMapper, this.failurePolicy
+        );
+    }
+
+    @Autowired(required = false)
+    void setAsnListPullServiceProvider(ObjectProvider<OfficialWarehouseAsnListPullService> provider) {
+        this.asnListPullServiceProvider = provider;
+    }
+
+    @Autowired(required = false)
+    void setAsnSyncThrottleMapper(OfficialWarehouseAsnSyncThrottleMapper throttleMapper) {
+        asnListRemoteExecutor.setThrottleMapper(throttleMapper);
     }
 
     public List<AsnView> listAsns(
@@ -186,18 +195,12 @@ public class LocalDbOfficialWarehouseService implements
             String storeCode,
             String siteCode
     ) {
-        String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
-        String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
-        Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
-        StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
-        NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
-        return asnSyncAuthRecovery.execute(
-                ownerUserId,
-                binding.getProjectCode(),
-                site,
-                "SYNC_ASN_LIST",
-                () -> executeNoonAsnListSync(access, ownerUserId, site, binding)
-        );
+        OfficialWarehouseAsnListPullService pullService = asnListPullServiceProvider == null
+                ? null
+                : asnListPullServiceProvider.getIfAvailable();
+        return pullService == null
+                ? syncNoonAsnListForTask(access, storeCode, siteCode)
+                : pullService.sync(access, storeCode, siteCode);
     }
 
     @Override
@@ -211,151 +214,22 @@ public class LocalDbOfficialWarehouseService implements
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
-        return executeNoonAsnListSync(access, ownerUserId, site, binding);
-    }
-
-    private AsnListSyncView executeNoonAsnListSync(
-            BusinessAccessContext access,
-            Long ownerUserId,
-            StoreSiteRecord site,
-            NoonSalesReportBinding binding
-    ) {
         NoonSession session = openNoonSession(ownerUserId, binding);
-        String claimToken = claimOfficialWarehouseAsnListSync(ownerUserId, site, access.getSessionUserId());
-        try {
-            AsnListSyncView result = new AsnListSyncView();
-            int page = 1;
-            int totalPages = 1;
-            while (page <= totalPages && page <= DEFAULT_ASN_LIST_SYNC_MAX_PAGES) {
-                ObjectNode body = OfficialWarehouseAsnListSyncSupport.buildListRequest(
-                        objectMapper,
-                        binding.getPartnerId(),
-                        page,
-                        DEFAULT_ASN_LIST_SYNC_PER_PAGE,
-                        totalPages
-                );
-                JsonNode response = noonInboundClient.syncAsnList(
-                        session,
-                        binding,
-                        NoonCallContext.appointment(
-                                "OFFICIAL_WAREHOUSE_ASN_SYNC",
-                                binding.getStoreCode() + "/" + binding.getSiteCode(),
-                                "ASN_LIST"
-                        ),
-                        body
-                );
-                JsonNode data = response.path("data");
-                JsonNode rows = data.path("rows");
-                if (rows.isArray()) {
-                    result.fetched += rows.size();
-                    for (JsonNode rowNode : rows) {
-                        NoonAsnListRow remoteRow = OfficialWarehouseAsnListSyncSupport.parseRow(rowNode);
-                        syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, false, access.getSessionUserId());
-                    }
-                }
-                JsonNode pagination = data.path("pagination");
-                Integer parsedTotalPages = intValue(pagination, "totalPages");
-                if (parsedTotalPages != null && parsedTotalPages > 0) {
-                    totalPages = parsedTotalPages;
-                }
-                result.pages = page;
-                Boolean hasNextPage = booleanValue(pagination, "hasNextPage");
-                if (Boolean.FALSE.equals(hasNextPage) && page >= totalPages) {
-                    break;
-                }
-                page++;
-            }
-            return result;
-        } catch (RuntimeException exception) {
-            if (shouldReleaseAsnListSyncClaim(exception)) {
-                releaseOfficialWarehouseAsnListSync(ownerUserId, site, claimToken);
-            }
-            throw exception;
-        }
-    }
-
-    private boolean shouldReleaseAsnListSyncClaim(RuntimeException failure) {
-        if (appointmentAuthRecovery.isExplicitAuthFailure(failure)) {
-            return true;
-        }
-        NoonPullFailureType failureType = failurePolicy.classify(failureDetails(failure));
-        return failureType == NoonPullFailureType.PROVIDER_UNAVAILABLE
-                || failureType == NoonPullFailureType.TIMEOUT;
-    }
-
-    private String failureDetails(Throwable failure) {
-        StringBuilder details = new StringBuilder();
-        Throwable current = failure;
-        while (current != null) {
-            if (StringUtils.hasText(current.getMessage())) {
-                details.append(' ').append(current.getMessage());
-            }
-            Throwable cause = current.getCause();
-            if (cause == current) {
-                break;
-            }
-            current = cause;
-        }
-        return details.toString().trim();
+        return asnListRemoteExecutor.execute(
+                session,
+                binding,
+                ownerUserId,
+                site,
+                access.getSessionUserId(),
+                (result, rowOwnerId, rowSite, rowBinding, rowSession, row, operatorUserId) ->
+                        syncNoonAsnListRow(
+                                result, rowOwnerId, rowSite, rowBinding, rowSession, row, false, operatorUserId
+                        )
+        );
     }
 
     String claimOfficialWarehouseAsnListSync(Long ownerUserId, StoreSiteRecord site, Long operatorUserId) {
-        String claimToken = UUID.randomUUID().toString();
-        mapper.claimOfficialWarehouseAsnListSync(
-                ownerUserId,
-                site.storeCode,
-                site.siteCode,
-                claimToken,
-                operatorUserId
-        );
-        AsnListSyncThrottleRecord throttle = mapper.selectOfficialWarehouseAsnListSyncThrottle(
-                ownerUserId,
-                site.storeCode,
-                site.siteCode
-        );
-        if (throttle != null && claimToken.equals(throttle.claimToken)) {
-            return claimToken;
-        }
-
-        LocalDateTime lastStartedAt = throttle == null || throttle.lastStartedAt == null
-                ? LocalDateTime.now()
-                : throttle.lastStartedAt;
-        LocalDateTime nextAllowedAt = lastStartedAt.plusMinutes(ASN_LIST_SYNC_COOLDOWN_MINUTES);
-        long retryAfterSeconds = Math.max(1L, Duration.between(LocalDateTime.now(), nextAllowedAt).getSeconds());
-        long retryAfterMinutes = Math.max(1L, (retryAfterSeconds + 59L) / 60L);
-        throw new ApiProblemException(
-                HttpStatus.TOO_MANY_REQUESTS,
-                "OFFICIAL_WAREHOUSE_ASN_SYNC_RATE_LIMITED",
-                "RATE_LIMITED",
-                "SYNC_ASN_LIST",
-                "ASN 列表每小时最多同步一次，请在 " + retryAfterMinutes + " 分钟后重试。",
-                true,
-                false,
-                null,
-                Map.of(
-                        "cooldownMinutes", ASN_LIST_SYNC_COOLDOWN_MINUTES,
-                        "retryAfterSeconds", retryAfterSeconds,
-                        "nextAllowedAt", nextAllowedAt.format(SYNC_RETRY_TIME_FORMATTER)
-                ),
-                null
-        );
-    }
-
-    private void releaseOfficialWarehouseAsnListSync(
-            Long ownerUserId,
-            StoreSiteRecord site,
-            String claimToken
-    ) {
-        try {
-            mapper.releaseOfficialWarehouseAsnListSync(
-                    ownerUserId,
-                    site.storeCode,
-                    site.siteCode,
-                    claimToken
-            );
-        } catch (RuntimeException ignored) {
-            // Recovery still proceeds; the CAS release is best effort and never masks the auth failure.
-        }
+        return asnListRemoteExecutor.claim(ownerUserId, site, operatorUserId);
     }
 
     @Override
@@ -371,30 +245,6 @@ public class LocalDbOfficialWarehouseService implements
         Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
         StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
         NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
-        return asnSyncAuthRecovery.execute(
-                ownerUserId,
-                binding.getProjectCode(),
-                site,
-                "SYNC_ASN_NUMBERS",
-                () -> executeNoonAsnNumberSync(
-                        access,
-                        ownerUserId,
-                        site,
-                        binding,
-                        asnNumbers,
-                        dryRun
-                )
-        );
-    }
-
-    private AsnListSyncView executeNoonAsnNumberSync(
-            BusinessAccessContext access,
-            Long ownerUserId,
-            StoreSiteRecord site,
-            NoonSalesReportBinding binding,
-            Collection<String> asnNumbers,
-            boolean dryRun
-    ) {
         NoonSession session = openNoonSession(ownerUserId, binding);
 
         AsnListSyncView result = new AsnListSyncView();
@@ -1267,7 +1117,7 @@ public class LocalDbOfficialWarehouseService implements
         return noonHttpCallLogService.listRecent("OFFICIAL_WAREHOUSE_ASN", asn.id, asn.localAsnNo, 50);
     }
 
-    private void syncNoonAsnListRow(
+    void syncNoonAsnListRow(
             AsnListSyncView result,
             Long ownerUserId,
             StoreSiteRecord site,
@@ -1950,7 +1800,7 @@ public class LocalDbOfficialWarehouseService implements
                                     appointment.ownerUserId,
                                     binding == null ? null : binding.getProjectCode(),
                                     appointment.storeCode,
-                                    exception
+                                    message
                             )
                             : null;
             if (authWait != null) {

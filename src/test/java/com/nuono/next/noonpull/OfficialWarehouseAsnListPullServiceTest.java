@@ -28,6 +28,7 @@ import org.springframework.beans.factory.ObjectProvider;
 class OfficialWarehouseAsnListPullServiceTest {
     private InMemoryNoonPullRepository repository;
     private NoonPullFoundationService foundationService;
+    private NoonPullRetryCoordinator retryCoordinator;
     private OfficialWarehouseAsnListTaskExecutor executor;
     private OfficialWarehouseAsnListPullService service;
     private BusinessAccessContext access;
@@ -38,10 +39,11 @@ class OfficialWarehouseAsnListPullServiceTest {
         Clock clock = Clock.fixed(Instant.parse("2026-07-28T04:00:00Z"), ZoneOffset.UTC);
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        retryCoordinator = new NoonPullRetryCoordinator(repository, foundationService, clock);
         executor = mock(OfficialWarehouseAsnListTaskExecutor.class);
         ObjectProvider<OfficialWarehouseAsnListTaskExecutor> provider = mock(ObjectProvider.class);
         when(provider.getIfAvailable()).thenReturn(executor);
-        service = new OfficialWarehouseAsnListPullService(foundationService, provider);
+        service = new OfficialWarehouseAsnListPullService(foundationService, retryCoordinator, provider);
         access = BusinessAccessContext.builder()
                 .sessionUserId(65267L)
                 .businessOwnerUserId(65267L)
