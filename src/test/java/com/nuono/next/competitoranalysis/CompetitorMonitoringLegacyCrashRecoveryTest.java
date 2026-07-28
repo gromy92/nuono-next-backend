@@ -152,7 +152,29 @@ class CompetitorMonitoringLegacyCrashRecoveryTest {
 
         assertTrue(sql.contains("WHERE id = #{taskId}"));
         assertTrue(sql.contains("status = 'QUEUED'"));
-        assertTrue(sql.contains("payload_json <=> #{expectedPayloadJson}"));
+        assertTrue(sql.contains("BINARY payload_json <=> BINARY #{expectedPayloadJson}"));
+    }
+
+    @Test
+    void queuedPayloadCasMissReloadsWinnerAndRunningWinnerStopsTheLoser() {
+        repository.insert(queuedLegacyParent());
+        OperationalTask expected = repository.selectById(150000L);
+        String winnerPayload = "{\"batchKind\":\"STORE\",\"batchKey\":\"winner\"}";
+        String loserPayload = "{\"batchKind\":\"STORE\",\"batchKey\":\"loser\"}";
+
+        OperationalTask winner = taskService.prepareQueuedPayload(
+                expected, winnerPayload, "winner"
+        ).orElseThrow();
+        OperationalTask reloadedWinner = taskService.prepareQueuedPayload(
+                expected, loserPayload, "loser"
+        ).orElseThrow();
+
+        assertEquals(winnerPayload, winner.getPayloadJson());
+        assertEquals(winnerPayload, reloadedWinner.getPayloadJson());
+        assertTrue(taskService.claimQueued(150000L, "running"));
+        assertTrue(taskService.prepareQueuedPayload(
+                expected, loserPayload, "loser"
+        ).isEmpty());
     }
 
     private CompetitorMonitoringBatchService service(

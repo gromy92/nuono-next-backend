@@ -247,8 +247,9 @@ final class CompetitorMonitoringBatchService {
         try {
             taskSubmitter.submit(accountKey(task), () -> {
                 try {
-                    task.setPayloadJson(replacementPayload(task));
-                    runner.run(task);
+                    operationalTaskService.prepareQueuedPayload(
+                            task, replacementPayload(task), QUEUED_MESSAGE
+                    ).ifPresent(runner::run);
                 } finally {
                     submittedStoreTaskIds.remove(task.getId());
                 }
@@ -287,7 +288,6 @@ final class CompetitorMonitoringBatchService {
     private List<OperationalTask> activeBatchPage(String taskType, long afterTaskId) {
         return operationalTaskService.listActiveAfter(taskType, afterTaskId, RECOVERY_LIMIT);
     }
-
     private String accountKey(OperationalTask task) {
         return task.getOwnerUserId() + "::" + task.getStoreCode();
     }

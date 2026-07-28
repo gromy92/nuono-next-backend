@@ -63,6 +63,19 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public boolean compareAndSetQueuedPayload(
+            Long taskId,
+            String expectedPayloadJson,
+            String payloadJson,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return mapper.compareAndSetQueuedPayload(
+                taskId, expectedPayloadJson, payloadJson, message, updatedAt
+        ) == 1;
+    }
+
+    @Override
     public boolean checkpointRunning(
             Long taskId,
             String payloadJson,

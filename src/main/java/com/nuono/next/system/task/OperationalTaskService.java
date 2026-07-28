@@ -3,6 +3,7 @@ package com.nuono.next.system.task;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,11 +85,34 @@ public class OperationalTaskService {
         return repository.claimQueued(taskId, normalize(message), now());
     }
 
+    public Optional<OperationalTask> prepareQueuedPayload(
+            OperationalTask expected,
+            String payloadJson,
+            String message
+    ) {
+        if (expected == null || expected.getId() == null) {
+            throw new IllegalArgumentException("expected task is required");
+        }
+        String normalizedPayload = normalize(payloadJson);
+        if (!Objects.equals(expected.getPayloadJson(), normalizedPayload)) {
+            repository.compareAndSetQueuedPayload(
+                    expected.getId(),
+                    expected.getPayloadJson(),
+                    normalizedPayload,
+                    normalize(message),
+                    now()
+            );
+        }
+        OperationalTask task = repository.selectById(expected.getId());
+        return task == null || task.getStatus() != OperationalTaskStatus.QUEUED
+                ? Optional.empty()
+                : Optional.of(task.copy());
+    }
+
     public Optional<OperationalTask> find(Long taskId) {
         OperationalTask task = repository.selectById(taskId);
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
-
     public boolean checkpointRunning(Long taskId, String payloadJson, Integer progressPercent, String message) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId is required");

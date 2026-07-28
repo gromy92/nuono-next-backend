@@ -144,6 +144,24 @@ public interface OperationalTaskMapper {
     @Update({
             "UPDATE operational_task",
             "SET payload_json = #{payloadJson},",
+            "    message = #{message},",
+            "    gmt_updated = #{updatedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'QUEUED'",
+            "  AND BINARY payload_json <=> BINARY #{expectedPayloadJson}",
+            "  AND is_deleted = b'0'"
+    })
+    int compareAndSetQueuedPayload(
+            @Param("taskId") Long taskId,
+            @Param("expectedPayloadJson") String expectedPayloadJson,
+            @Param("payloadJson") String payloadJson,
+            @Param("message") String message,
+            @Param("updatedAt") java.time.LocalDateTime updatedAt
+    );
+
+    @Update({
+            "UPDATE operational_task",
+            "SET payload_json = #{payloadJson},",
             "    progress_percent = #{progressPercent},",
             "    message = #{message},",
             "    gmt_updated = #{updatedAt}",
