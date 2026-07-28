@@ -246,7 +246,6 @@ class ProductProjectSiteResolver {
         }
         return "store:" + normalize(store.getStoreCode());
     }
-
     private JsonNode safePost(
             NoonSession session,
             String url,
@@ -258,11 +257,11 @@ class ProductProjectSiteResolver {
         try {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }
-
     private String noonFailureMessage(RuntimeException exception) {
         if (productNoonAdapter == null) {
             return shrink(exception.getMessage());

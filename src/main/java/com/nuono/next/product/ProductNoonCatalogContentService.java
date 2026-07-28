@@ -41,7 +41,6 @@ public class ProductNoonCatalogContentService {
         if (session == null || !isLikelyCatalogSku(normalizedSku)) {
             return Optional.empty();
         }
-
         String country = countryCode(site);
         String url = CATALOG_DETAIL_URL_PREFIX + normalizedSku + "/p";
         try {
@@ -50,11 +49,11 @@ public class ProductNoonCatalogContentService {
             if (!content.hasUsableContent()) {
                 return Optional.empty();
             }
-
             try {
                 JsonNode arRoot = getJson(session, url, localeHeaders("ar", country));
                 content.mergeMissing(parseCatalogContent(arRoot, "ar"));
             } catch (RuntimeException exception) {
+                ProductWriteAuthRequiredException.rethrowIfPresent(exception);
                 log.debug(
                         "product-management follow-sell Arabic catalog fallback failed context={} sku={} message={}",
                         context,
@@ -64,6 +63,7 @@ public class ProductNoonCatalogContentService {
             }
             return Optional.of(content);
         } catch (RuntimeException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             log.debug(
                     "product-management follow-sell catalog fallback failed context={} sku={} message={}",
                     context,
@@ -73,14 +73,12 @@ public class ProductNoonCatalogContentService {
             return Optional.empty();
         }
     }
-
     private JsonNode getJson(NoonSession session, String url, Map<String, String> headers) {
         if (productNoonAdapter == null) {
             return session.getJson(url, false, headers);
         }
         return productNoonAdapter.getJson(session, url, false, headers);
     }
-
     public CatalogContent parseCatalogContent(JsonNode root, String language) {
         JsonNode product = root == null ? null : root.path("product");
         if (product == null || product.isMissingNode() || product.isNull()) {

@@ -23,7 +23,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
@@ -757,7 +756,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         result.setProviderSourceUrl(providerSourceUrl);
         result.setProviderResponseHash(providerResponseHash);
         result.setProviderParserVersion(providerParserVersion);
-        result.setFetchedAt(LocalDateTime.now());
+        result.setFetchedAt(com.nuono.next.noon.NoonShanghaiBusinessTime.now());
         return result;
     }
 

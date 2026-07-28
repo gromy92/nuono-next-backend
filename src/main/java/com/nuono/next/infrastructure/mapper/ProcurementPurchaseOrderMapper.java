@@ -1610,7 +1610,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       site_code AS siteCode, transport_mode AS transportMode,",
             "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
             "       route_code AS routeCode, route_name AS routeName, service_code AS serviceCode, service_name AS serviceName,",
-            "       quote_status AS quoteStatus, shipping_submit_status AS shippingSubmitStatus,",
+            "       quote_status AS quoteStatus, shipping_submit_status AS shippingSubmitStatus, (SELECT COUNT(DISTINCT sol.purchase_order_id) FROM procurement_shipping_order_line sol WHERE sol.shipping_order_segment_id = procurement_shipping_order_segment.id AND sol.is_deleted = b'0') AS purchaseOrderCount, (SELECT GROUP_CONCAT(DISTINCT COALESCE(NULLIF(TRIM(sol.purchase_order_title), ''), NULLIF(TRIM(sol.purchase_order_no), '')) ORDER BY COALESCE(NULLIF(TRIM(sol.purchase_order_title), ''), NULLIF(TRIM(sol.purchase_order_no), '')) SEPARATOR '、') FROM procurement_shipping_order_line sol WHERE sol.shipping_order_segment_id = procurement_shipping_order_segment.id AND sol.is_deleted = b'0') AS purchaseOrderNames,",
             "       line_count AS lineCount, sku_count AS skuCount, total_quantity AS totalQuantity,",
             "       missing_yite_material_count AS missingYiteMaterialCount,",
             "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i') AS submittedAt,",

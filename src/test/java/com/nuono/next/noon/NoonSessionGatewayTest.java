@@ -157,15 +157,15 @@ class NoonSessionGatewayTest {
         }
     }
     @Test
-    void shouldRefreshProxySessionForTunnelFailureStatus() throws Exception {
+    void shouldNotRefreshProxySessionForUnlistedTunnelFailureStatus() throws Exception {
         NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
         Method method = NoonSessionGateway.class.getDeclaredMethod(
                 "shouldRefreshAfterTransientTransportFailure",
                 IllegalStateException.class
         );
         method.setAccessible(true);
-        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
-        assertTrue((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
+        assertFalse((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
+        assertFalse((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
     }
     @Test
     void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {

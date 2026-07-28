@@ -3,26 +3,25 @@ package com.nuono.next.competitoranalysis.noon;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
+import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailAdapter;
+import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailResult;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class HttpNoonProductDetailAdapterTest {
 
     @Test
-    void fetchesProductDetailByExactSkuSearchResult() {
+    void fetchesProductDetailFromConsumerFrontendDetailCapability() {
         LocalDateTime capturedAt = LocalDateTime.parse("2026-06-11T07:31:20");
-        HttpNoonProductDetailAdapter adapter = new HttpNoonProductDetailAdapter(request -> {
-            assertEquals("ZF47007A9D75977AB9A83Z", request.getKeyword());
+        NoonPublicProductDetailAdapter publicDetailAdapter = request -> {
+            assertEquals("ZF47007A9D75977AB9A83Z", request.getNoonProductCode());
             assertEquals("SA", request.getSiteCode());
             assertEquals("en-SA", request.getLocale());
-            assertEquals(20, request.getLimit());
-            return page(capturedAt, List.of(
-                    result("ZOTHER001", "Other product"),
-                    result("ZF47007A9D75977AB9A83Z", "30 Pcs Wooden Black HB Pencils")
-            ));
-        });
+            return detailResult(ProductPublicDetailSyncStatus.SUCCEEDED, capturedAt);
+        };
+        HttpNoonProductDetailAdapter adapter = new HttpNoonProductDetailAdapter(publicDetailAdapter);
         NoonProductDetailRequest request = new NoonProductDetailRequest();
         request.setSiteCode("AE");
         request.setLocale("en-AE");
@@ -46,10 +45,15 @@ class HttpNoonProductDetailAdapterTest {
     }
 
     @Test
-    void failsWhenSkuSearchDoesNotReturnExactProductCode() {
-        HttpNoonProductDetailAdapter adapter = new HttpNoonProductDetailAdapter(request ->
-                page(LocalDateTime.parse("2026-06-11T07:31:20"), List.of(result("ZOTHER001", "Other product")))
-        );
+    void preservesConsumerFrontendFailureWithoutSearchFallback() {
+        NoonPublicProductDetailResult failed = new NoonPublicProductDetailResult();
+        failed.setStatus(ProductPublicDetailSyncStatus.FAILED);
+        failed.setFailureCode("BLOCKED_BY_RISK_CONTROL");
+        failed.setFailureMessage("Noon 前台详情被风控阻断。");
+        failed.setProviderHttpStatus(403);
+        failed.setProviderSourceUrl("https://www.noon.com/_vs/catalog/detail");
+        failed.setProviderResponseHash("response-hash");
+        HttpNoonProductDetailAdapter adapter = new HttpNoonProductDetailAdapter(request -> failed);
         NoonProductDetailRequest request = new NoonProductDetailRequest();
         request.setSiteCode("SA");
         request.setLocale("en-SA");
@@ -57,32 +61,53 @@ class HttpNoonProductDetailAdapterTest {
 
         NoonSearchProviderException error = assertThrows(NoonSearchProviderException.class, () -> adapter.fetch(request));
 
-        assertEquals("PARSE_FAILED", error.getErrorCode());
-        assertEquals(200, error.getProviderHttpStatus());
+        assertEquals("BLOCKED_BY_RISK_CONTROL", error.getErrorCode());
+        assertEquals(403, error.getProviderHttpStatus());
+        assertEquals("https://www.noon.com/_vs/catalog/detail", error.getSourceUrl());
+        assertEquals("response-hash", error.getResponseHash());
     }
 
-    private static NoonSearchPage page(LocalDateTime capturedAt, List<NoonSearchResult> results) {
-        NoonSearchPage page = new NoonSearchPage();
-        page.setSourceUrl("http://123.60.15.70/nuono-noon-v3-gateway/search?q=ZF47007A9D75977AB9A83Z");
-        page.setProviderHttpStatus(200);
-        page.setCapturedAt(capturedAt);
-        page.setResults(results);
-        return page;
+    @Test
+    void rejectsSearchOnlyPartialResultAsProductDetail() {
+        NoonPublicProductDetailResult partial = detailResult(
+                ProductPublicDetailSyncStatus.PARTIAL,
+                LocalDateTime.parse("2026-06-11T07:31:20")
+        );
+        partial.setFailureCode("PARTIAL_DETAIL");
+        partial.setFailureMessage("exact search 只返回基础公开字段");
+        partial.setProviderParserVersion("noon-catalog-search-v3");
+        HttpNoonProductDetailAdapter adapter = new HttpNoonProductDetailAdapter(request -> partial);
+        NoonProductDetailRequest request = new NoonProductDetailRequest();
+        request.setSiteCode("SA");
+        request.setLocale("en-SA");
+        request.setNoonProductCode("ZF47007A9D75977AB9A83Z");
+
+        NoonSearchProviderException error = assertThrows(NoonSearchProviderException.class, () -> adapter.fetch(request));
+
+        assertEquals("DETAIL_SOURCE_NOT_PRODUCT_DETAIL", error.getErrorCode());
     }
 
-    private static NoonSearchResult result(String code, String title) {
-        NoonSearchResult result = new NoonSearchResult();
-        result.setNoonProductCode(code);
+    private static NoonPublicProductDetailResult detailResult(
+            ProductPublicDetailSyncStatus status,
+            LocalDateTime capturedAt
+    ) {
+        NoonPublicProductDetailResult result = new NoonPublicProductDetailResult();
+        result.setStatus(status);
+        result.setNoonProductCode("ZF47007A9D75977AB9A83Z");
         result.setCodeType("Z_CODE");
-        result.setCanonicalUrl("https://www.noon.com/saudi-en/30-pcs/" + code + "/p/");
-        result.setTitle(title);
+        result.setTitleEn("30 Pcs Wooden Black HB Pencils");
         result.setBrand("EduPrint Hub");
-        result.setImageUrl("https://f.nooncdn.com/p/pzsku/" + code + "/45/main.jpg");
         result.setPriceAmount(new BigDecimal("32.95"));
         result.setCurrencyCode("SAR");
         result.setRating(new BigDecimal("4.40"));
         result.setReviewCount(47);
-        result.setRawResultJson("{\"sku\":\"" + code + "\"}");
+        result.setAvailabilityText("IN_STOCK");
+        result.setMainImageUrl("https://f.nooncdn.com/p/pzsku/ZF47007A9D75977AB9A83Z/45/main.jpg");
+        result.setDetailUrl("https://www.noon.com/saudi-en/30-pcs/ZF47007A9D75977AB9A83Z/p/");
+        result.setRawPayloadJson("{\"sku\":\"ZF47007A9D75977AB9A83Z\"}");
+        result.setProviderHttpStatus(200);
+        result.setProviderParserVersion("noon-frontend-catalog-detail-v1");
+        result.setFetchedAt(capturedAt);
         return result;
     }
 }

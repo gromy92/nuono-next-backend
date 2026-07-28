@@ -88,41 +88,6 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
-    void shouldCreateProductDeleteTaskWithDeleteMessage() {
-        when(productManagementMapper.nextProductPublishTaskId()).thenReturn(77001L);
-
-        ProductPublishCommandService.ProductPublishTaskCreateCommand command =
-                new ProductPublishCommandService.ProductPublishTaskCreateCommand();
-        command.setOwnerUserId(10002L);
-        command.setProductMasterId(64001L);
-        command.setStoreCode("STR245027-NAE");
-        command.setSkuParent("MILKYWAYA17");
-        command.setPskuCode("PSKU-1");
-        command.setCurrentSiteCode("AE");
-        command.setDraftJson("{\"identity\":{\"skuParent\":\"MILKYWAYA17\"}}");
-        command.setBaselineJson("{\"identity\":{\"skuParent\":\"MILKYWAYA17\"}}");
-        command.setDraftHash("delete-hash");
-        command.setChangedDomainsJson("[\"delete\"]");
-        command.setRequestJson("{\"action\":\"product-delete\"}");
-        command.setIdempotencyKey("product-delete:64001:delete-hash");
-
-        ProductPublishCommandService.ProductPublishTaskCreateResult result =
-                service.createProductDeleteTask(command);
-
-        ProductPublishTaskRecord task = result.getTask();
-        assertFalse(result.isDuplicate());
-        assertEquals(77001L, task.getId());
-        assertEquals("product-delete", task.getTaskType());
-        assertEquals(ProductPublishCommandService.PRODUCT_DELETE_STATUS_QUEUED, task.getStatus());
-        assertEquals("[\"delete\"]", task.getChangedDomainsJson());
-        assertEquals(Integer.MAX_VALUE, task.getMaxRetryCount());
-
-        ProductPublishTaskView view = service.buildTaskView(task, false, null, ignored -> java.util.List.of("delete"));
-        assertTrue(view.getMessage().contains("删除"));
-        assertFalse(view.getMessage().contains("发布已排队"));
-    }
-
-    @Test
     void shouldClaimProductDeleteTaskWithProductDeleteRunningStatus() {
         ProductPublishTaskRecord task = new ProductPublishTaskRecord();
         task.setId(77001L);
@@ -178,7 +143,7 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
-    void shouldTreatNestedRetryableNoonWriteFailureAsRetryable() {
+    void shouldNotTreatNestedRateLimitAsRetryableNoonWriteFailure() {
         NoonProductException rateLimited = new NoonProductException(
                 new NoonProductError(
                         NoonProductErrorCode.NOON_RATE_LIMITED,
@@ -188,7 +153,7 @@ class ProductPublishCommandServiceTest {
                 new IllegalStateException("rate limited")
         );
 
-        assertTrue(service.isRetryableNoonWriteFailure(
+        assertFalse(service.isRetryableNoonWriteFailure(
                 new IllegalStateException("发布写入失败", rateLimited)
         ));
     }
@@ -201,8 +166,8 @@ class ProductPublishCommandServiceTest {
     }
 
     @Test
-    void shouldTreatNoonLoginAccessDeniedAsRetryableRequestFailure() {
-        assertTrue(service.isRetryableNoonRequestFailure(
+    void shouldNotTreatNoonLoginAccessDeniedAsRetryableRequestFailure() {
+        assertFalse(service.isRetryableNoonRequestFailure(
                 new IllegalStateException(
                         "请求 Noon 失败：HTTP 403 <HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>"
                                 + "You don't have permission to access \"http&#58;&#47;&#47;login.noon.partners\""

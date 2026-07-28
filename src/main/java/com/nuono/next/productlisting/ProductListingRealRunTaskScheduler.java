@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -14,6 +15,7 @@ public class ProductListingRealRunTaskScheduler {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProductListingRealRunTaskScheduler.class);
 
     private final ProductListingService service;
+    private ProductListingAuthRecoveryCoordinator authRecoveryCoordinator;
 
     @Value("${nuono.product-listing.real-run-task.scheduler.enabled:true}")
     private boolean schedulerEnabled;
@@ -28,6 +30,13 @@ public class ProductListingRealRunTaskScheduler {
         this.service = service;
     }
 
+    @Autowired(required = false)
+    public void setAuthRecoveryCoordinator(
+            ProductListingAuthRecoveryCoordinator authRecoveryCoordinator
+    ) {
+        this.authRecoveryCoordinator = authRecoveryCoordinator;
+    }
+
     @Scheduled(
             fixedDelayString = "${nuono.product-listing.real-run-task.scheduler.fixed-delay-ms:5000}",
             initialDelayString = "${nuono.product-listing.real-run-task.scheduler.initial-delay-ms:3000}"
@@ -39,12 +48,16 @@ public class ProductListingRealRunTaskScheduler {
         try {
             Duration staleAge = Duration.ofMinutes(Math.max(1L, staleRunningMinutes));
             int recovered = service.recoverStaleRunningRealRunTasks(staleAge);
+            int authRecovered = authRecoveryCoordinator == null
+                    ? 0
+                    : authRecoveryCoordinator.resumePendingTasks(Math.max(1, maxItemsPerTick));
             List<ProductListingTaskView> executed =
                     service.executeRunnableRealRunTasks(Math.max(1, maxItemsPerTick));
-            if (recovered > 0 || !executed.isEmpty()) {
+            if (recovered > 0 || authRecovered > 0 || !executed.isEmpty()) {
                 LOGGER.info(
-                        "product-listing real-run scheduler tick: recovered={}, executed={}",
+                        "product-listing real-run scheduler tick: recovered={}, authRecovered={}, executed={}",
                         recovered,
+                        authRecovered,
                         executed.size()
                 );
             }

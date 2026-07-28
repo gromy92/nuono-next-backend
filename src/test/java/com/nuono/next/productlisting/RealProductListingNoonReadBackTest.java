@@ -126,13 +126,13 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
 
         assertTrue(!result.isSuccess());
         assertEquals("noon_create_rejected", result.getFailureCode());
-        assertEquals("noon_create_rejected", result.getSteps().get(0).getFailureCode());
+        assertEquals("noon_create_rejected", result.getSteps().get(1).getFailureCode());
     }
 
     @Test
-    void createAuthenticationRedirectIsDecisivelyNotStartedAndRequiresReauthentication() {
+    void createBareRedirectIsReportedAsUnknownBecauseTheWriteMayHaveStarted() {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
-        sessionFactory.session.failCreateAuthentication = true;
+        sessionFactory.session.failCreateRedirect = true;
         RealProductListingNoonWriteAdapter adapter =
                 new RealProductListingNoonWriteAdapter(
                         new ObjectMapper(),
@@ -142,15 +142,15 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
                         new FakeImageDownloader()
                 );
 
-        ProductListingNoonWriteResult result =
-                adapter.execute(writeRequest());
+        ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertTrue(!result.isSuccess());
-        assertEquals("noon_auth_required", result.getFailureCode());
-        assertEquals(
-                "noon_auth_required",
-                result.getSteps().get(0).getFailureCode()
-        );
+        assertEquals("noon_api", result.getFailureCategory());
+        assertEquals("noon_create_outcome_unknown", result.getFailureCode());
+        assertEquals("pre_create_absence_verified", result.getSteps().get(0).getStepKey());
+        assertEquals(Boolean.FALSE, result.getSteps().get(0).getWriteMayHaveOccurred());
+        assertEquals("noon_create_outcome_unknown", result.getSteps().get(1).getFailureCode());
+        assertEquals(Boolean.TRUE, result.getWriteMayHaveOccurred());
     }
 
     @Test
@@ -173,13 +173,13 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertTrue(!result.isSuccess());
-        assertEquals("authentication", result.getFailureCategory());
+        assertEquals("authorization", result.getFailureCategory());
         assertEquals("noon_auth_required", result.getFailureCode());
-        assertEquals("pre_create", result.getSteps().get(0).getStepKey());
+        assertEquals("authorization_recovery", result.getSteps().get(0).getStepKey());
     }
 
     @Test
-    void catalogAuthenticationFailureStopsBeforeCreateWrite() {
+    void catalogBareRedirectStopsBeforeCreateWithoutClaimingAuthentication() {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
         sessionFactory.session.failOfferListAuthentication = true;
         RealProductListingNoonWriteAdapter adapter =
@@ -194,8 +194,8 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertTrue(!result.isSuccess());
-        assertEquals("authentication", result.getFailureCategory());
-        assertEquals("noon_auth_required", result.getFailureCode());
+        assertEquals("noon_pre_create", result.getFailureCategory());
+        assertEquals("noon_pre_create_failed", result.getFailureCode());
         assertEquals("pre_create", result.getSteps().get(0).getStepKey());
         assertEquals(0, sessionFactory.session.calls.size());
         assertEquals(1, sessionFactory.session.offerListCallCount);
@@ -243,7 +243,15 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
 
         assertTrue(!result.isSuccess());
         assertEquals("noon_create_outcome_unknown", result.getFailureCode());
-        assertEquals("noon_create_outcome_unknown", result.getSteps().get(0).getFailureCode());
+        assertEquals(
+                "noon_create_outcome_unknown",
+                result.getSteps().get(1).getFailureCode()
+        );
+        assertEquals(
+                "pre_create_absence_verified",
+                result.getSteps().get(0).getStepKey()
+        );
+        assertEquals(Boolean.FALSE, result.getSteps().get(0).getWriteMayHaveOccurred());
     }
 
     @Test
@@ -262,8 +270,9 @@ class RealProductListingNoonReadBackTest extends RealProductListingNoonWriteAdap
 
         assertTrue(!result.isSuccess());
         assertEquals("noon_create_outcome_unknown", result.getFailureCode());
-        assertEquals("failed", result.getSteps().get(0).getStatus());
-        assertEquals("noon_create_outcome_unknown", result.getSteps().get(0).getFailureCode());
+        ProductListingNoonWriteStepResult create = result.getSteps().get(1);
+        assertEquals("failed", create.getStatus());
+        assertEquals("noon_create_outcome_unknown", create.getFailureCode());
     }
 
     @Test

@@ -62,7 +62,7 @@ class ProductListingDraftAttemptBlockerTest {
     }
 
     @Test
-    void explicitReopenOfClearlyNotStartedAttemptAllowsNewDryRun() {
+    void explicitReopenOfSafePreCreateFailureAllowsNewDryRun() {
         Fixture fixture = fixture(clearlyNotStartedFailure());
         ProductListingDraftView draft =
                 fixture.service.saveDraft(fixture.context, ProductListingTestFixtures.validCommand());
@@ -184,9 +184,9 @@ class ProductListingDraftAttemptBlockerTest {
 
     private static ProductListingNoonWriteResult clearlyNotStartedFailure() {
         return ProductListingNoonWriteResult.failed(
-                "authentication",
-                "noon_auth_required",
-                "Noon cookie expired before create.",
+                "noon_api",
+                "noon_pre_create_failed",
+                "Noon taxonomy lookup failed before create.",
                 List.of()
         );
     }

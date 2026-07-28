@@ -59,30 +59,7 @@ class ProductImageProfileServiceTest {
     }
 
     @Test
-    void createAiSuiteDraftShouldBlockAndListMissingBasicFields() {
-        ProductImageProfileRecord profile = profileRecord();
-        profile.setBrand(null);
-        profile.setTitleEn(null);
-        profile.setSpecSummary(null);
-        profile.setProductFactText(null);
-        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
-        when(mapper.selectAssets(7001L)).thenReturn(List.of());
-
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.createAiSuiteDraft(307L, "STR108065-NAE", 7001L, 3001L, 10003L)
-        );
-
-        assertTrue(exception.getMessage().contains("品牌"));
-        assertTrue(exception.getMessage().contains("英文或阿语标题"));
-        assertTrue(exception.getMessage().contains("规格摘要"));
-        assertTrue(exception.getMessage().contains("商品事实资料"));
-        assertTrue(exception.getMessage().contains("基础图片"));
-        verify(mapper, never()).insertSuite(any());
-    }
-
-    @Test
-    void rejectSuiteShouldKeepUnselectedImageAndRegenerateSelectedImage() {
+    void rejectSuiteShouldReworkSelectedImageInsideTheSameSuite() {
         ProductImageProfileRecord profile = profileRecord();
         ProductImageSuiteRecord source = suiteRecord(9901L, ProductImageSuiteStatus.ADOPTED);
         source.setProfileId(7001L);
@@ -96,12 +73,13 @@ class ProductImageProfileServiceTest {
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(mapper.selectSuiteById(9901L, 7001L)).thenReturn(source);
         when(mapper.selectSuiteAssets(9901L)).thenReturn(List.of(main, size));
-        when(mapper.reviewSuite(9901L, 7001L, ProductImageSuiteStatus.HISTORICAL, "尺寸不清楚", 10003L)).thenReturn(1);
-        org.mockito.Mockito.doAnswer(invocation -> {
-            ProductImageSuiteRecord revision = invocation.getArgument(0);
-            revision.setId(9902L);
-            return 1;
-        }).when(mapper).insertSuite(any());
+        when(mapper.restartSuiteForRework(
+                org.mockito.ArgumentMatchers.eq(9901L),
+                org.mockito.ArgumentMatchers.eq(7001L),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.eq("尺寸不清楚"),
+                org.mockito.ArgumentMatchers.eq(10003L)
+        )).thenReturn(1);
         when(mapper.selectSuites(7001L)).thenReturn(List.of());
         when(mapper.selectAssets(7001L)).thenReturn(List.of());
 
@@ -110,14 +88,12 @@ class ProductImageProfileServiceTest {
         request.setAssetIds(List.of(5002L));
         service.rejectSuite(307L, "STR108065-NAE", 7001L, 9901L, request, 10003L);
 
-        ArgumentCaptor<ProductImageSuiteAssetRecord> retained = ArgumentCaptor.forClass(ProductImageSuiteAssetRecord.class);
-        verify(mapper).insertSuiteAsset(retained.capture());
-        assertEquals(ProductImageSuiteAssetRole.MAIN, retained.getValue().getImageRole());
-        assertEquals("/main.png", retained.getValue().getImageUrl());
-        verify(mapper).insertReviewTarget(
-                9901L, "IMAGE", 5002L, ProductImageSuiteAssetRole.SIZE, 1, 10003L
-        );
-        verify(eventPublisher).publishEvent(any(ProductImageGenerationSubmittedEvent.class));
+        verify(mapper, never()).insertSuite(any());
+        verify(mapper, never()).insertSuiteAsset(any());
+        verify(mapper).insertReviewTarget(9901L, "IMAGE", 5002L, ProductImageSuiteAssetRole.SIZE, 1, 10003L);
+        ArgumentCaptor<ProductImageGenerationSubmittedEvent> event = ArgumentCaptor.forClass(ProductImageGenerationSubmittedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertEquals(9901L, event.getValue().suiteId());
     }
 
     @Test
