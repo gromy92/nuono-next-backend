@@ -38,6 +38,16 @@ public interface OperationalTaskRepository {
         return true;
     }
 
+    default boolean compareAndSetQueuedPayload(
+            Long taskId,
+            String expectedPayloadJson,
+            String payloadJson,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return false;
+    }
+
     default boolean checkpointRunning(
             Long taskId,
             String payloadJson,

@@ -2,10 +2,12 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskRepository;
+import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 final class InMemoryOperationalTaskRepository implements OperationalTaskRepository {
@@ -73,6 +75,26 @@ final class InMemoryOperationalTaskRepository implements OperationalTaskReposito
     @Override
     public void update(OperationalTask task) {
         tasks.put(task.getId(), task.copy());
+    }
+
+    @Override
+    public synchronized boolean compareAndSetQueuedPayload(
+            Long taskId,
+            String expectedPayloadJson,
+            String payloadJson,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        OperationalTask task = tasks.get(taskId);
+        if (task == null
+                || task.getStatus() != com.nuono.next.system.task.OperationalTaskStatus.QUEUED
+                || !Objects.equals(task.getPayloadJson(), expectedPayloadJson)) {
+            return false;
+        }
+        task.setPayloadJson(payloadJson);
+        task.setMessage(message);
+        task.setUpdatedAt(updatedAt);
+        return true;
     }
 
     @Override
