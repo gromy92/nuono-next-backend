@@ -69,6 +69,35 @@ final class CompetitorRefreshRecoveryPayload {
                 : null;
     }
 
+    static Long watchProductId(OperationalTask task) {
+        return CompetitorDetailRetryJsonSupport.optionalPositiveLong(
+                object(task == null ? null : task.getPayloadJson()),
+                "watchProductId"
+        );
+    }
+
+    static boolean matchesIdentity(
+            OperationalTask task,
+            Long watchProductId,
+            CompetitorRefreshExecutionMode mode
+    ) {
+        ObjectNode payload = object(task == null ? null : task.getPayloadJson());
+        if (watchProductId == null || mode == null
+                || !watchProductId.equals(
+                        CompetitorDetailRetryJsonSupport.optionalPositiveLong(
+                                payload, "watchProductId"
+                        )
+                )
+                || !mode.triggerMode().equals(text(payload, "triggerMode"))
+                || !mode.taskKey().equals(text(payload, "executionMode"))
+                || !booleanValue(payload, "rankRefresh", mode.runsRank())
+                || !booleanValue(payload, "detailRefresh", mode.runsDetail())) {
+            return false;
+        }
+        return mode != CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
+                || StringUtils.hasText(text(payload, "batchKey"));
+    }
+
     static boolean isReady(OperationalTask task, LocalDateTime now) {
         String payloadJson = task == null ? null : task.getPayloadJson();
         if (!StringUtils.hasText(payloadJson)) {
@@ -89,7 +118,7 @@ final class CompetitorRefreshRecoveryPayload {
             }
             return readyAt(payload.get("retryNotBefore"), now);
         } catch (DateTimeParseException | CompetitorRefreshRecoveryPayloadException exception) {
-            return false;
+            throw invalidReadiness(exception);
         }
     }
 
@@ -122,10 +151,35 @@ final class CompetitorRefreshRecoveryPayload {
             return true;
         }
         if (!value.isTextual() || !StringUtils.hasText(value.textValue())) {
-            return false;
+            throw invalidReadiness(null);
         }
         LocalDateTime notBefore = LocalDateTime.parse(value.asText().trim());
         return now != null && !now.isBefore(notBefore);
+    }
+
+    private static CompetitorDetailRetryPayloadException invalidReadiness(
+            RuntimeException cause
+    ) {
+        String message = "Competitor refresh retryNotBefore is invalid.";
+        return cause == null
+                ? new CompetitorDetailRetryPayloadException(message)
+                : new CompetitorDetailRetryPayloadException(message, cause);
+    }
+
+    private static String text(ObjectNode payload, String field) {
+        JsonNode value = payload.get(field);
+        return value != null && value.isTextual() && StringUtils.hasText(value.asText())
+                ? value.asText().trim()
+                : null;
+    }
+
+    private static boolean booleanValue(
+            ObjectNode payload,
+            String field,
+            boolean expected
+    ) {
+        JsonNode value = payload.get(field);
+        return value != null && value.isBoolean() && value.booleanValue() == expected;
     }
 
     private static ObjectNode object(String payloadJson) {

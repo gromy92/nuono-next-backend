@@ -17,6 +17,7 @@ import org.springframework.util.StringUtils;
 @Service
 class CompetitorRefreshTaskFactory {
     private static final String TASK_MESSAGE = "竞品刷新正在后台执行。";
+    private static final String INVALID_RETRY_PAYLOAD = "INVALID_DETAIL_RETRY_PAYLOAD";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
@@ -210,6 +211,45 @@ class CompetitorRefreshTaskFactory {
                 afterCommit.accept(replacement);
             }
         });
+    }
+
+    public boolean requeueDetailRetry(
+            Long taskId,
+            Long runId,
+            String payloadJson,
+            String errorCode,
+            String message
+    ) {
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
+        if (run == null
+                || !Objects.equals(runId, run.getId())
+                || run.getWatchProductId() == null) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        executionFinalizer.requeueDetailRetry(
+                taskId,
+                runId,
+                run.getWatchProductId(),
+                payloadJson,
+                errorCode,
+                message
+        );
+        return true;
+    }
+
+    public boolean failInvalidDetailRetryPayload(Long taskId) {
+        String message = "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。";
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
+        if (run == null) {
+            return false;
+        }
+        return executionFinalizer.failQueued(
+                taskId,
+                run.getId(),
+                run.getWatchProductId(),
+                INVALID_RETRY_PAYLOAD,
+                message
+        );
     }
 
     private CompetitorQueuedRefresh existing(

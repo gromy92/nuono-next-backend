@@ -39,8 +39,8 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper
-        extends CompetitorRefreshRecoveryMapper,
-        CompetitorRefreshExecutionMapper,
+        extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
+        CompetitorRefreshRetryMapper,
         CompetitorProductDetailWriteMapper {
 
     @Insert({

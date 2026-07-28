@@ -1,7 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
-import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
+import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
@@ -35,6 +35,51 @@ class CompetitorProductDetailWriteGuard {
             NoonProductDetail detail,
             Long actorUserId
     ) {
+        doWrite(
+                taskId,
+                searchRunId,
+                watchProduct,
+                product,
+                productUpdate,
+                detail,
+                actorUserId,
+                null
+        );
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void write(
+            Long taskId,
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct,
+            CompetitorProductRow product,
+            CompetitorProductInsertCommand productUpdate,
+            NoonProductDetail detail,
+            Long actorUserId,
+            String checkpointPayloadJson
+    ) {
+        doWrite(
+                taskId,
+                searchRunId,
+                watchProduct,
+                product,
+                productUpdate,
+                detail,
+                actorUserId,
+                checkpointPayloadJson
+        );
+    }
+
+    private void doWrite(
+            Long taskId,
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct,
+            CompetitorProductRow product,
+            CompetitorProductInsertCommand productUpdate,
+            NoonProductDetail detail,
+            Long actorUserId,
+            String checkpointPayloadJson
+    ) {
         Long watchProductId = watchProduct == null ? null : watchProduct.getId();
         leaseGuard.acquire(taskId, searchRunId, watchProductId);
         String expectedCode = normalize(product == null
@@ -58,6 +103,7 @@ class CompetitorProductDetailWriteGuard {
             snapshotService.recordProductDetailSnapshot(
                     currentWatch, null, detail, searchRunId, actorUserId
             );
+            checkpoint(taskId, searchRunId, checkpointPayloadJson);
             return;
         }
         if (!Objects.equals(watchProductId, product.getWatchProductId())
@@ -83,6 +129,22 @@ class CompetitorProductDetailWriteGuard {
         }
         snapshotService.recordProductDetailSnapshot(
                 currentWatch, currentProduct, detail, searchRunId, actorUserId
+        );
+        checkpoint(taskId, searchRunId, checkpointPayloadJson);
+    }
+
+    private void checkpoint(
+            Long taskId,
+            Long searchRunId,
+            String checkpointPayloadJson
+    ) {
+        if (!StringUtils.hasText(checkpointPayloadJson)) {
+            return;
+        }
+        leaseGuard.requireMutation(
+                mapper.checkpointRunningDetailTask(taskId, checkpointPayloadJson),
+                taskId,
+                searchRunId
         );
     }
 

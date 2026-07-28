@@ -2,7 +2,7 @@
 # Format: repository-relative path<TAB>physical-line ceiling.
 src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	982
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	971
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1177
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	355
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
