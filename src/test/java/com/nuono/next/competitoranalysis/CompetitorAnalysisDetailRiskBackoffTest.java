@@ -54,6 +54,12 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(
                 org.mockito.ArgumentMatchers.anyLong()
         )).thenAnswer(invocation -> persistedRuns.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunById(
+                org.mockito.ArgumentMatchers.anyLong()
+        )).thenAnswer(invocation -> persistedRuns.values().stream()
+                .filter(run -> invocation.getArgument(0).equals(run.getId()))
+                .findFirst()
+                .orElse(null));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(
                 org.mockito.ArgumentMatchers.anyLong()
         )).thenReturn(1);
@@ -100,10 +106,14 @@ class CompetitorAnalysisDetailRiskBackoffTest {
                 eq(220123L),
                 eq(150001L),
                 isNull(),
-                any(CompetitorDetailRetrySession.class)
-        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
-                taskRepository, detailResult
-        ));
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
+        )).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(6).run();
+            return CompetitorDetailRetryMockSupport
+                    .checkpointing(taskRepository, detailResult)
+                    .answer(invocation);
+        });
 
         CompetitorTaskView batch =
                 service.requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");

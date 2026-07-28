@@ -21,7 +21,6 @@ final class CompetitorRefreshRecoveryPayload {
             "failedDetailTargets",
             "retryAttempt",
             "maxRetryAttempts",
-            "rootRunId",
             "retryOfRunId",
             "lastErrorCode",
             "message"
@@ -47,7 +46,8 @@ final class CompetitorRefreshRecoveryPayload {
             Long watchProductId,
             int keywordTotal,
             CompetitorRefreshExecutionMode mode,
-            String batchKey
+            String batchKey,
+            Long fallbackRootRunId
     ) {
         ObjectNode payload = object(staleTask == null ? null : staleTask.getPayloadJson());
         JsonNode existingKeywordTotal = payload.get("keywordTotal");
@@ -56,6 +56,7 @@ final class CompetitorRefreshRecoveryPayload {
                 || existingKeywordTotal.asInt() < 0) {
             payload.put("keywordTotal", Math.max(0, keywordTotal));
         }
+        preserveScheduledDetailRoot(payload, mode, fallbackRootRunId);
         payload.remove(STALE_IDENTITY_FIELDS);
         applyIdentity(payload, watchProductId, mode, batchKey);
         return write(payload);
@@ -105,6 +106,7 @@ final class CompetitorRefreshRecoveryPayload {
         }
         try {
             ObjectNode payload = object(payloadJson);
+            rootRunId(payload);
             Iterator<String> fieldNames = payload.fieldNames();
             while (fieldNames.hasNext()) {
                 if (fieldNames.next().startsWith("detailRetry")) {
@@ -119,6 +121,46 @@ final class CompetitorRefreshRecoveryPayload {
             return readyAt(payload.get("retryNotBefore"), now);
         } catch (DateTimeParseException | CompetitorRefreshRecoveryPayloadException exception) {
             throw invalidReadiness(exception);
+        }
+    }
+
+    private static void preserveScheduledDetailRoot(
+            ObjectNode payload,
+            CompetitorRefreshExecutionMode mode,
+            Long fallbackRootRunId
+    ) {
+        Long existingRootRunId = rootRunId(payload);
+        if (mode != CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
+                || existingRootRunId != null) {
+            return;
+        }
+        if (fallbackRootRunId == null || fallbackRootRunId <= 0L) {
+            throw new CompetitorRefreshRecoveryPayloadException(
+                    "Scheduled detail replacement requires a valid root run id."
+            );
+        }
+        payload.put("rootRunId", fallbackRootRunId);
+    }
+
+    private static Long rootRunId(ObjectNode payload) {
+        if (!payload.has("rootRunId")) {
+            return null;
+        }
+        try {
+            Long rootRunId = CompetitorDetailRetryJsonSupport.optionalPositiveLong(
+                    payload, "rootRunId"
+            );
+            if (rootRunId == null) {
+                throw new CompetitorDetailRetryPayloadException(
+                        "rootRunId must be a positive integer."
+                );
+            }
+            return rootRunId;
+        } catch (CompetitorDetailRetryPayloadException exception) {
+            throw new CompetitorRefreshRecoveryPayloadException(
+                    "Competitor refresh rootRunId is malformed.",
+                    exception
+            );
         }
     }
 

@@ -62,6 +62,11 @@ class CompetitorMixedDetailRetryRecoveryTest {
         }).when(mapper).insertSearchRun(any());
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(anyLong()))
                 .thenAnswer(invocation -> runsByTask.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunById(anyLong()))
+                .thenAnswer(invocation -> runsByTask.values().stream()
+                        .filter(run -> invocation.getArgument(0).equals(run.getId()))
+                        .findFirst()
+                        .orElse(null));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(anyLong())).thenReturn(1);
         org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(
                 anyLong(), anyLong(), anyLong(), any(), any()
@@ -104,36 +109,9 @@ class CompetitorMixedDetailRetryRecoveryTest {
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(product);
         when(detailService.currentTargets(product))
                 .thenReturn(List.of(ordinary, notFound));
-        when(detailService.refreshTargets(
-                eq(product),
-                eq(List.of(ordinary, notFound)),
-                eq(220123L),
-                anyLong(),
-                isNull(),
-                any(CompetitorDetailRetrySession.class)
-        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
-                taskRepository, mixedFailure
-        ));
-        when(detailService.refreshTargets(
-                eq(product),
-                eq(List.of(ordinary)),
-                eq(220123L),
-                anyLong(),
-                isNull(),
-                any(CompetitorDetailRetrySession.class)
-        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
-                taskRepository, ordinaryRecovered
-        ));
-        when(detailService.refreshTargets(
-                eq(product),
-                eq(List.of(notFound)),
-                eq(220123L),
-                anyLong(),
-                isNull(),
-                any(CompetitorDetailRetrySession.class)
-        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
-                taskRepository, notFoundRecovered
-        ));
+        stubDetailRefresh(product, List.of(ordinary, notFound), mixedFailure);
+        stubDetailRefresh(product, List.of(ordinary), ordinaryRecovered);
+        stubDetailRefresh(product, List.of(notFound), notFoundRecovered);
 
         CompetitorAnalysisRefreshService service = service();
         CompetitorTaskView parent =
@@ -169,7 +147,8 @@ class CompetitorMixedDetailRetryRecoveryTest {
                 eq(220123L),
                 eq(taskId),
                 isNull(),
-                any(CompetitorDetailRetrySession.class)
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
         );
 
         submitted.clear();
@@ -188,7 +167,8 @@ class CompetitorMixedDetailRetryRecoveryTest {
                 eq(220123L),
                 eq(taskId),
                 isNull(),
-                any(CompetitorDetailRetrySession.class)
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
         );
         verify(detailService, times(1)).refreshTargets(
                 eq(product),
@@ -196,8 +176,25 @@ class CompetitorMixedDetailRetryRecoveryTest {
                 eq(220123L),
                 eq(taskId),
                 isNull(),
-                any(CompetitorDetailRetrySession.class)
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
         );
+    }
+
+    private void stubDetailRefresh(
+            CompetitorWatchProductRow product,
+            List<CompetitorProductDetailTarget> targets,
+            CompetitorProductDetailRefreshResult result
+    ) {
+        when(detailService.refreshTargets(
+                eq(product), eq(targets), eq(220123L), anyLong(), isNull(),
+                any(CompetitorDetailRetrySession.class), any(Runnable.class)
+        )).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(6).run();
+            return CompetitorDetailRetryMockSupport
+                    .checkpointing(taskRepository, result)
+                    .answer(invocation);
+        });
     }
 
     private CompetitorAnalysisRefreshService service() {

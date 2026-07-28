@@ -245,7 +245,7 @@ public class CompetitorAnalysisRefreshService {
         this.refreshTaskDispatcher = new CompetitorRefreshTaskDispatcher(
                 mapper,
                 operationalTaskService,
-                this.taskSubmitter
+                this.taskSubmitter, refreshTaskFactory.executionFinalizer()
         );
         this.refreshRecoveryCoordinator = new CompetitorRefreshRecoveryCoordinator(
                 mapper,
@@ -790,10 +790,10 @@ public class CompetitorAnalysisRefreshService {
                 : productDetailRefreshService.refreshTargets(
                         watchProduct,
                         retrySession.readyTargets(),
-                        runId,
-                        taskId,
-                        actorUserId,
-                        retrySession
+                        runId, taskId, actorUserId,
+                        retrySession,
+                        new CompetitorDetailBatchTakeoverFence(refreshTaskFactory
+                                .detailBatchTakeover(), taskId, runId, watchProduct.getId())
                 );
         return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
     }

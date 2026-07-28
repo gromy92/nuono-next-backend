@@ -15,7 +15,6 @@ final class CompetitorDetailRetryProtocol {
     private static final String[] TARGETED_FIELDS = {
         "retryAttempt",
         "maxRetryAttempts",
-        "rootRunId",
         "retryOfRunId",
         CompetitorDetailRetryStateJson.STATE_FIELD,
         CompetitorDetailRetryStateJson.LEGACY_TARGET_FIELD,
@@ -38,7 +37,6 @@ final class CompetitorDetailRetryProtocol {
         "retryAttempt",
         "maxRetryAttempts",
         "retryNotBefore",
-        "rootRunId",
         "retryOfRunId",
         CompetitorDetailRetryStateJson.STATE_FIELD,
         CompetitorDetailRetryStateJson.LEGACY_TARGET_FIELD,

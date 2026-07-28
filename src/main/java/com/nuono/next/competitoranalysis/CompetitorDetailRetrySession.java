@@ -167,7 +167,7 @@ final class CompetitorDetailRetrySession {
                 states.add(new CompetitorDetailRetryState(target, 0, now, null, null));
             }
         }
-        payload.setRootRunId(runId);
+        payload.setRootRunId(firstNonNull(payload.getRootRunId(), runId));
         payload.setRetryOfRunId(runId);
         payload.setDetailTargetTotal(states.size());
         payload.setRetryStates(states);

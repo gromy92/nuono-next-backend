@@ -43,6 +43,9 @@ final class CompetitorDetailRetryPayload {
                 CompetitorDetailRetryJsonSupport.optionalDateTime(this.original, "retryNotBefore");
         this.rootRunId =
                 CompetitorDetailRetryJsonSupport.optionalPositiveLong(this.original, "rootRunId");
+        if (this.original.has("rootRunId") && this.rootRunId == null) {
+            throw CompetitorDetailRetryJsonSupport.invalid("rootRunId must be a positive integer.");
+        }
         this.retryOfRunId =
                 CompetitorDetailRetryJsonSupport.optionalPositiveLong(this.original, "retryOfRunId");
         this.lastErrorCode =
@@ -209,15 +212,11 @@ final class CompetitorDetailRetryPayload {
     int getDetailTargetTotal() { return detailTargetTotal; }
     void setDetailTargetTotal(int value) { this.detailTargetTotal = Math.max(0, value); }
     int getDetailRequestAttemptCount() { return detailRequestAttemptCount; }
-    void setDetailRequestAttemptCount(int value) {
-        this.detailRequestAttemptCount = Math.max(0, value);
-    }
+    void setDetailRequestAttemptCount(int value) { this.detailRequestAttemptCount = Math.max(0, value); }
     int getDetailSucceededCount() { return detailSucceededCount; }
     void setDetailSucceededCount(int value) { this.detailSucceededCount = Math.max(0, value); }
     int getDetailTerminalFailedCount() { return detailTerminalFailedCount; }
-    void setDetailTerminalFailedCount(int value) {
-        this.detailTerminalFailedCount = Math.max(0, value);
-    }
+    void setDetailTerminalFailedCount(int value) { this.detailTerminalFailedCount = Math.max(0, value); }
     String getDetailTerminalErrorCode() { return detailTerminalErrorCode; }
     void setDetailTerminalErrorCode(String value) {
         this.detailTerminalErrorCode = normalize(value);
