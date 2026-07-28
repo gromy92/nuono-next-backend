@@ -1,6 +1,9 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -15,6 +18,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -31,6 +35,8 @@ class CompetitorAnalysisTaskRecoveryTest {
     private CompetitorAnalysisTaskRecovery.QueuedTaskSubmitter queuedTaskSubmitter;
     @Mock
     private CompetitorAnalysisTaskRecovery.InterruptedTaskRetry interruptedTaskRetry;
+    @Mock
+    private CompetitorRefreshExecutionFinalizer executionFinalizer;
 
     private CompetitorAnalysisTaskRecovery recovery;
 
@@ -50,8 +56,10 @@ class CompetitorAnalysisTaskRecoveryTest {
         OperationalTask queued = task(OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
         CompetitorSearchRunRow run = run("QUEUED");
         CompetitorWatchProductRow watchProduct = watchProduct();
-        when(operationalTaskService.listActive(CompetitorAnalysisRefreshService.TASK_TYPE, 1000))
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000))
                 .thenReturn(List.of(queued));
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000))
+                .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
         when(queuedTaskSubmitter.submit(queued, run, watchProduct)).thenReturn(true, false);
@@ -65,8 +73,10 @@ class CompetitorAnalysisTaskRecoveryTest {
     void queuedSnapshotIsIgnoredWhenAnotherProcessAlreadyStartedTheRun() {
         OperationalTask queuedSnapshot = task(OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
         CompetitorSearchRunRow runningRun = run("RUNNING");
-        when(operationalTaskService.listActive(CompetitorAnalysisRefreshService.TASK_TYPE, 1000))
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000))
                 .thenReturn(List.of(queuedSnapshot));
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000))
+                .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(runningRun);
 
         assertEquals(0, recovery.resumeQueuedRefreshTasks());
@@ -79,25 +89,126 @@ class CompetitorAnalysisTaskRecoveryTest {
     }
 
     @Test
+    void missingQueuedWatchUsesAtomicRunAndTaskFinalizer() {
+        OperationalTask queued = task(OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
+        CompetitorSearchRunRow run = run("QUEUED");
+        recovery = new CompetitorAnalysisTaskRecovery(
+                mapper,
+                operationalTaskService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                executionFinalizer,
+                () -> 1000
+        );
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000
+        )).thenReturn(List.of(queued));
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000
+        )).thenReturn(List.of());
+        when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
+        when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(null);
+
+        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+
+        verify(executionFinalizer).failQueued(
+                150001L,
+                220001L,
+                180001L,
+                "COMPETITOR_WATCH_PRODUCT_NOT_FOUND",
+                "监控商品不存在或已删除。"
+        );
+        verify(operationalTaskService, never()).fail(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()
+        );
+    }
+
+    @Test
+    void queuedRecoveryDoesNotGrowTheInMemoryDispatcherPastItsCapacity() {
+        recovery = new CompetitorAnalysisTaskRecovery(
+                mapper,
+                operationalTaskService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                () -> 0
+        );
+
+        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+
+        verify(operationalTaskService, never()).listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE,
+                0L,
+                1000
+        );
+    }
+
+    @Test
     void staleRunningTaskIsFailedAndRetriedAsANewRun() {
         OperationalTask running = task(OperationalTaskStatus.RUNNING, "2026-06-06T07:20:00");
         CompetitorSearchRunRow run = run("RUNNING");
         CompetitorWatchProductRow watchProduct = watchProduct();
-        when(operationalTaskService.listActive(CompetitorAnalysisRefreshService.TASK_TYPE, 1000))
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000))
                 .thenReturn(List.of(running));
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000))
+                .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
+        when(interruptedTaskRetry.retry(
+                running,
+                watchProduct,
+                run,
+                LocalDateTime.parse("2026-06-06T07:30:00")
+        )).thenReturn(true);
 
         assertEquals(1, recovery.recoverStaleRefreshTasks());
 
-        verify(operationalTaskService).fail(150001L, "FAILED_STALE", "刷新任务超过 30 分钟未完成，已自动释放。");
-        verify(mapper).markSearchRunFailed(220001L, "FAILED_STALE", "刷新任务超过 30 分钟未完成，已自动释放。");
-        verify(interruptedTaskRetry).retry(watchProduct, run);
+        verify(interruptedTaskRetry).retry(
+                running,
+                watchProduct,
+                run,
+                LocalDateTime.parse("2026-06-06T07:30:00")
+        );
+    }
+
+    @Test
+    void saturatedQueuedAccountPrefixDoesNotHideALaterAccount() {
+        recovery = new CompetitorAnalysisTaskRecovery(
+                mapper,
+                operationalTaskService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                () -> 1
+        );
+        List<OperationalTask> firstPage = LongStream.rangeClosed(1L, 1000L)
+                .mapToObj(id -> task(id, OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00"))
+                .collect(java.util.stream.Collectors.toList());
+        OperationalTask queued = task(1001L, OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
+        CompetitorSearchRunRow run = run("QUEUED");
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000))
+                .thenReturn(firstPage);
+        when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 1000L, 1000))
+                .thenReturn(List.of(queued));
+        when(mapper.selectSearchRunByTaskId(anyLong())).thenReturn(run);
+        when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
+        when(queuedTaskSubmitter.submit(any(), eq(run), eq(watchProduct)))
+                .thenAnswer(invocation -> ((OperationalTask) invocation.getArgument(0)).getId() == 1001L);
+
+        assertEquals(1, recovery.resumeQueuedRefreshTasks());
+        verify(queuedTaskSubmitter).submit(queued, run, watchProduct);
     }
 
     private static OperationalTask task(OperationalTaskStatus status, String updatedAt) {
+        return task(150001L, status, updatedAt);
+    }
+
+    private static OperationalTask task(long id, OperationalTaskStatus status, String updatedAt) {
         OperationalTask task = new OperationalTask();
-        task.setId(150001L);
+        task.setId(id);
         task.setStatus(status);
         task.setUpdatedAt(LocalDateTime.parse(updatedAt));
         return task;

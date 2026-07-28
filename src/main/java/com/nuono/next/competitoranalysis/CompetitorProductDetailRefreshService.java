@@ -3,15 +3,12 @@ package com.nuono.next.competitoranalysis;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetailAdapter;
-import com.nuono.next.competitoranalysis.noon.NoonProductDetailRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
+import com.nuono.next.noon.NoonShanghaiBusinessTime;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,18 +24,21 @@ public class CompetitorProductDetailRefreshService {
     private final CompetitorAnalysisMapper mapper;
     private final NoonProductDetailAdapter detailAdapter;
     private final CompetitorProductSnapshotService snapshotService;
-    private final Clock clock;
+    private final CompetitorProductDetailWriteGuard writeGuard;
+    private final CompetitorProductDetailSupport detailSupport;
 
     @Autowired
     public CompetitorProductDetailRefreshService(
             CompetitorAnalysisMapper mapper,
             ObjectProvider<NoonProductDetailAdapter> detailAdapterProvider,
-            ObjectProvider<CompetitorProductSnapshotService> snapshotServiceProvider
+            ObjectProvider<CompetitorProductSnapshotService> snapshotServiceProvider,
+            CompetitorProductDetailWriteGuard writeGuard
     ) {
         this(
                 mapper,
                 detailAdapterProvider == null ? null : detailAdapterProvider.getIfAvailable(),
                 snapshotServiceProvider == null ? null : snapshotServiceProvider.getIfAvailable(),
+                writeGuard,
                 Clock.systemUTC()
         );
     }
@@ -49,10 +49,34 @@ public class CompetitorProductDetailRefreshService {
             CompetitorProductSnapshotService snapshotService,
             Clock clock
     ) {
+        this(
+                mapper,
+                detailAdapter,
+                snapshotService,
+                new CompetitorProductDetailWriteGuard(
+                        mapper,
+                        snapshotService,
+                        CompetitorRefreshLeaseGuard.disabled(mapper)
+                ),
+                clock
+        );
+    }
+
+    CompetitorProductDetailRefreshService(
+            CompetitorAnalysisMapper mapper,
+            NoonProductDetailAdapter detailAdapter,
+            CompetitorProductSnapshotService snapshotService,
+            CompetitorProductDetailWriteGuard writeGuard,
+            Clock clock
+    ) {
         this.mapper = mapper;
         this.detailAdapter = detailAdapter;
         this.snapshotService = snapshotService;
-        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.writeGuard = writeGuard;
+        Clock sourceClock = clock == null ? Clock.systemUTC() : clock;
+        this.detailSupport = new CompetitorProductDetailSupport(
+                sourceClock.withZone(NoonShanghaiBusinessTime.ZONE)
+        );
     }
 
     public CompetitorProductDetailRefreshResult refreshConfirmedCompetitors(
@@ -68,7 +92,7 @@ public class CompetitorProductDetailRefreshService {
             );
         }
         CompetitorProductDetailRefreshResult result = CompetitorProductDetailRefreshResult.empty();
-        String selfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
+        String selfCode = detailSupport.normalizeCode(watchProduct.getSelfNoonProductCode());
         refreshSelfDetail(watchProduct, selfCode, searchRunId, taskId, actorUserId, result);
         if (result.hasRiskBackoffFailure()) {
             return result;
@@ -77,7 +101,7 @@ public class CompetitorProductDetailRefreshService {
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId());
         Map<String, CompetitorProductRow> productsByCode = new LinkedHashMap<>();
         for (CompetitorProductRow product : confirmedProducts) {
-            String code = normalizeCode(product == null ? null : product.getNoonProductCode());
+            String code = detailSupport.normalizeCode(product == null ? null : product.getNoonProductCode());
             if (!StringUtils.hasText(code) || code.equals(selfCode) || NoonProductCodeSupport.codeType(code).isEmpty()) {
                 continue;
             }
@@ -87,20 +111,20 @@ public class CompetitorProductDetailRefreshService {
         for (Map.Entry<String, CompetitorProductRow> entry : productsByCode.entrySet()) {
             String code = entry.getKey();
             CompetitorProductRow product = entry.getValue();
+            NoonProductDetail detail;
             result.recordAttempt();
             try {
-                NoonProductDetail detail = detailAdapter.fetch(buildRequest(watchProduct, product, code));
+                detail = detailAdapter.fetch(detailSupport.buildRequest(watchProduct, product, code));
                 if (detail == null) {
                     throw new IllegalStateException("Noon 前台商品详情未返回结果。");
                 }
-                normalizeDetail(detail, code, product);
-                mapper.updateCompetitorProductFromDetail(buildProductUpdate(product, detail, actorUserId));
-                snapshotService.recordProductDetailSnapshot(watchProduct, product, detail, searchRunId, actorUserId);
-                result.recordSuccess();
+                detailSupport.normalizeDetail(detail, code, product);
+            } catch (CompetitorRefreshLeaseLostException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 recordFailure(result, exception);
                 log.warn(
-                        "competitor product detail refresh failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
+                        "competitor product detail fetch failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
                         watchProduct.getId(),
                         product == null ? null : product.getId(),
                         code,
@@ -111,6 +135,45 @@ public class CompetitorProductDetailRefreshService {
                 if (result.hasRiskBackoffFailure()) {
                     break;
                 }
+                continue;
+            }
+            try {
+                writeDetail(
+                        watchProduct,
+                        product,
+                        detail,
+                        detailSupport.buildProductUpdate(product, detail, actorUserId),
+                        searchRunId,
+                        taskId,
+                        actorUserId
+                );
+                result.recordSuccess();
+            } catch (CompetitorRefreshLeaseLostException exception) {
+                throw exception;
+            } catch (CompetitorDetailTargetStaleException exception) {
+                result.recordFailure(
+                        CompetitorDetailTargetStaleException.ERROR_CODE,
+                        exception.getMessage()
+                );
+                log.warn(
+                        "competitor detail target stale watchProductId={} competitorProductId={} noonProductCode={} taskId={} errorCode={}",
+                        watchProduct.getId(),
+                        product == null ? null : product.getId(),
+                        code,
+                        taskId,
+                        CompetitorDetailTargetStaleException.ERROR_CODE
+                );
+            } catch (RuntimeException exception) {
+                recordFailure(result, exception);
+                log.warn(
+                        "competitor product detail write failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
+                        watchProduct.getId(),
+                        product == null ? null : product.getId(),
+                        code,
+                        taskId,
+                        exception.getMessage(),
+                        exception
+                );
             }
         }
         return result;
@@ -129,13 +192,35 @@ public class CompetitorProductDetailRefreshService {
         }
         result.recordAttempt();
         try {
-            NoonProductDetail detail = detailAdapter.fetch(buildRequest(watchProduct, null, selfCode));
+            NoonProductDetail detail = detailAdapter.fetch(detailSupport.buildRequest(watchProduct, null, selfCode));
             if (detail == null) {
                 throw new IllegalStateException("Noon 前台商品详情未返回结果。");
             }
-            normalizeDetail(detail, selfCode, null);
-            snapshotService.recordProductDetailSnapshot(watchProduct, null, detail, searchRunId, actorUserId);
+            detailSupport.normalizeDetail(detail, selfCode, null);
+            writeDetail(
+                    watchProduct,
+                    null,
+                    detail,
+                    null,
+                    searchRunId,
+                    taskId,
+                    actorUserId
+            );
             result.recordSuccess();
+        } catch (CompetitorRefreshLeaseLostException exception) {
+            throw exception;
+        } catch (CompetitorDetailTargetStaleException exception) {
+            result.recordFailure(
+                    CompetitorDetailTargetStaleException.ERROR_CODE,
+                    exception.getMessage()
+            );
+            log.warn(
+                    "competitor self detail target stale watchProductId={} noonProductCode={} taskId={} errorCode={}",
+                    watchProduct == null ? null : watchProduct.getId(),
+                    selfCode,
+                    taskId,
+                    CompetitorDetailTargetStaleException.ERROR_CODE
+            );
         } catch (RuntimeException exception) {
             recordFailure(result, exception);
             log.warn(
@@ -153,127 +238,30 @@ public class CompetitorProductDetailRefreshService {
         String errorCode = exception instanceof NoonSearchProviderException
                 ? ((NoonSearchProviderException) exception).getErrorCode()
                 : "DETAIL_REFRESH_FAILED";
-        result.recordFailure(errorCode, firstNonBlank(exception.getMessage(), "竞品详情抓取失败。"));
+        String errorMessage = StringUtils.hasText(exception.getMessage())
+                ? exception.getMessage().trim()
+                : "竞品详情抓取失败。";
+        result.recordFailure(errorCode, errorMessage);
     }
 
-    private NoonProductDetailRequest buildRequest(
+    private void writeDetail(
             CompetitorWatchProductRow watchProduct,
             CompetitorProductRow product,
-            String code
-    ) {
-        NoonProductDetailRequest request = new NoonProductDetailRequest();
-        request.setSiteCode(normalizeText(watchProduct.getSiteCode()));
-        request.setLocale(defaultLocale(watchProduct.getSiteCode()));
-        request.setNoonProductCode(code);
-        request.setCanonicalUrl(normalizeText(product == null ? null : product.getCanonicalUrl()));
-        return request;
-    }
-
-    private void normalizeDetail(NoonProductDetail detail, String fallbackCode, CompetitorProductRow product) {
-        String code = normalizeCode(firstNonBlank(detail.getNoonProductCode(), fallbackCode));
-        detail.setNoonProductCode(code);
-        detail.setCodeType(firstNonBlank(
-                detail.getCodeType(),
-                product == null ? null : product.getCodeType(),
-                NoonProductCodeSupport.codeType(code).orElse(null)
-        ));
-        detail.setDetailUrl(normalizeText(detail.getDetailUrl()));
-        detail.setTitleEn(normalizeText(detail.getTitleEn()));
-        detail.setTitleAr(normalizeText(detail.getTitleAr()));
-        detail.setBrand(normalizeText(detail.getBrand()));
-        detail.setSellerName(normalizeText(detail.getSellerName()));
-        detail.setCurrencyCode(normalizeText(detail.getCurrencyCode()));
-        detail.setMainImageUrlRaw(normalizeText(detail.getMainImageUrlRaw()));
-        detail.setMainImageUrlNormalized(normalizeText(firstNonBlank(
-                detail.getMainImageUrlNormalized(),
-                detail.getMainImageUrlRaw()
-        )));
-        detail.setAvailabilityStatus(normalizeText(detail.getAvailabilityStatus()));
-        detail.setSnapshotHash(firstNonBlank(detail.getSnapshotHash(), snapshotHash(detail)));
-        if (detail.getCapturedAt() == null) {
-            detail.setCapturedAt(com.nuono.next.noon.NoonShanghaiBusinessTime.now(clock));
-        }
-    }
-
-    private CompetitorProductInsertCommand buildProductUpdate(
-            CompetitorProductRow product,
             NoonProductDetail detail,
+            CompetitorProductInsertCommand productUpdate,
+            Long searchRunId,
+            Long taskId,
             Long actorUserId
     ) {
-        CompetitorProductInsertCommand command = new CompetitorProductInsertCommand();
-        command.setId(product.getId());
-        command.setWatchProductId(product.getWatchProductId());
-        command.setNoonProductCode(detail.getNoonProductCode());
-        command.setCodeType(detail.getCodeType());
-        command.setCanonicalUrl(detail.getDetailUrl());
-        command.setTitleSnapshot(firstNonBlank(detail.getTitleEn(), detail.getTitleAr()));
-        command.setTitleEnSnapshot(detail.getTitleEn());
-        command.setTitleArSnapshot(detail.getTitleAr());
-        command.setBrandSnapshot(detail.getBrand());
-        command.setImageUrlSnapshot(firstNonBlank(detail.getMainImageUrlNormalized(), detail.getMainImageUrlRaw()));
-        command.setPriceAmountSnapshot(detail.getPriceAmount());
-        command.setCurrencyCodeSnapshot(detail.getCurrencyCode());
-        command.setRatingSnapshot(detail.getRating());
-        command.setReviewCountSnapshot(detail.getReviewCount());
-        command.setTagsSnapshotJson(firstNonBlank(detail.getBadgesJson(), detail.getLogisticsTagsJson()));
-        command.setSourceType("PRODUCT_DETAIL");
-        command.setActorUserId(actorUserId);
-        return command;
-    }
-
-    private String defaultLocale(String siteCode) {
-        String site = normalizeText(siteCode);
-        if ("AE".equalsIgnoreCase(site) || "UAE".equalsIgnoreCase(site)) {
-            return "en-AE";
-        }
-        if ("EG".equalsIgnoreCase(site) || "EGY".equalsIgnoreCase(site) || "EGYPT".equalsIgnoreCase(site)) {
-            return "en-EG";
-        }
-        return "en-SA";
-    }
-
-    private String snapshotHash(NoonProductDetail detail) {
-        String value = firstNonBlank(
-                detail.getRawDetailJson(),
-                detail.getNoonProductCode()
-                        + "|"
-                        + detail.getTitleEn()
-                        + "|"
-                        + detail.getPriceAmount()
-                        + "|"
-                        + detail.getCurrencyCode()
-                        + "|"
-                        + detail.getRating()
-                        + "|"
-                        + detail.getReviewCount()
+        writeGuard.write(
+                taskId,
+                searchRunId,
+                watchProduct,
+                product,
+                productUpdate,
+                detail,
+                actorUserId
         );
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder builder = new StringBuilder();
-            for (byte item : hash) {
-                builder.append(String.format("%02x", item));
-            }
-            return builder.toString();
-        } catch (Exception ignored) {
-            return "missing-detail-hash";
-        }
     }
 
-    private String normalizeCode(String value) {
-        return NoonProductCodeSupport.normalize(value);
-    }
-
-    private String normalizeText(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

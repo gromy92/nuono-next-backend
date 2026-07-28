@@ -38,7 +38,10 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface CompetitorAnalysisMapper {
+public interface CompetitorAnalysisMapper
+        extends CompetitorRefreshRecoveryMapper,
+        CompetitorRefreshExecutionMapper,
+        CompetitorProductDetailWriteMapper {
 
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -1578,89 +1581,6 @@ public interface CompetitorAnalysisMapper {
 
     @Select({
             "SELECT",
-            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
-            "  logical_store_id AS logicalStoreId, product_master_id AS productMasterId,",
-            "  product_variant_id AS productVariantId, product_site_offer_id AS productSiteOfferId,",
-            "  sku_parent AS skuParent, partner_sku AS partnerSku, child_sku AS childSku,",
-            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
-            "  title_snapshot AS titleSnapshot, brand_snapshot AS brandSnapshot,",
-            "  image_url_snapshot AS imageUrlSnapshot, product_fulltype_snapshot AS productFulltypeSnapshot,",
-            "  status, latest_run_id AS latestRunId, latest_run_status AS latestRunStatus,",
-            "  latest_run_at AS latestRunAt, gmt_updated AS gmtUpdated",
-            "FROM operations_competitor_watch_product wp",
-            "WHERE wp.owner_user_id = #{ownerUserId}",
-            "  AND wp.store_code = #{storeCode}",
-            "  AND UPPER(wp.site_code) = UPPER(#{siteCode})",
-            "  AND wp.status = 'ACTIVE'",
-            "  AND wp.is_deleted = b'0'",
-            "  AND EXISTS (",
-            "    SELECT 1",
-            "    FROM operations_competitor_keyword kw",
-            "    WHERE kw.watch_product_id = wp.id",
-            "      AND kw.status = 'ACTIVE'",
-            "      AND kw.is_deleted = b'0'",
-            "  )",
-            "  AND EXISTS (",
-            "    SELECT 1",
-            "    FROM operations_competitor_keyword kw",
-            "    JOIN operations_competitor_keyword_product kp",
-            "      ON kp.keyword_id = kw.id",
-            "     AND kp.relation_status = 'CONFIRMED'",
-            "     AND kp.is_deleted = b'0'",
-            "    JOIN operations_competitor_product cp",
-            "      ON cp.id = kp.competitor_product_id",
-            "     AND cp.review_status = 'CONFIRMED'",
-            "     AND cp.is_deleted = b'0'",
-            "    WHERE kw.watch_product_id = wp.id",
-            "      AND kw.status = 'ACTIVE'",
-            "      AND kw.is_deleted = b'0'",
-            "  )",
-            "ORDER BY wp.id ASC",
-            "LIMIT #{limit}"
-    })
-    List<CompetitorWatchProductRow> listRefreshableWatchProducts(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode,
-            @Param("limit") int limit
-    );
-
-    @Select({
-            "SELECT",
-            "  MIN(wp.id) AS id, wp.owner_user_id AS ownerUserId, wp.store_code AS storeCode, wp.site_code AS siteCode",
-            "FROM operations_competitor_watch_product wp",
-            "WHERE wp.status = 'ACTIVE'",
-            "  AND wp.is_deleted = b'0'",
-            "  AND EXISTS (",
-            "    SELECT 1",
-            "    FROM operations_competitor_keyword kw",
-            "    WHERE kw.watch_product_id = wp.id",
-            "      AND kw.status = 'ACTIVE'",
-            "      AND kw.is_deleted = b'0'",
-            "  )",
-            "  AND EXISTS (",
-            "    SELECT 1",
-            "    FROM operations_competitor_keyword kw",
-            "    JOIN operations_competitor_keyword_product kp",
-            "      ON kp.keyword_id = kw.id",
-            "     AND kp.relation_status = 'CONFIRMED'",
-            "     AND kp.is_deleted = b'0'",
-            "    JOIN operations_competitor_product cp",
-            "      ON cp.id = kp.competitor_product_id",
-            "     AND cp.review_status = 'CONFIRMED'",
-            "     AND cp.is_deleted = b'0'",
-            "    WHERE kw.watch_product_id = wp.id",
-            "      AND kw.status = 'ACTIVE'",
-            "      AND kw.is_deleted = b'0'",
-            "  )",
-            "GROUP BY wp.owner_user_id, wp.store_code, wp.site_code",
-            "ORDER BY wp.owner_user_id ASC, wp.store_code ASC, wp.site_code ASC",
-            "LIMIT #{limit}"
-    })
-    List<CompetitorWatchProductScopeRow> listRefreshableWatchProductScopes(@Param("limit") int limit);
-
-    @Select({
-            "SELECT",
             "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode, code_type AS codeType,",
             "  canonical_url AS canonicalUrl, title_snapshot AS titleSnapshot,",
             "  title_en_snapshot AS titleEnSnapshot, title_ar_snapshot AS titleArSnapshot,",
@@ -1719,28 +1639,6 @@ public interface CompetitorAnalysisMapper {
             "  AND is_deleted = b'0'"
     })
     int updateCompetitorProductFromSearch(CompetitorProductInsertCommand command);
-
-    @Update({
-            "UPDATE operations_competitor_product",
-            "SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",
-            "    title_snapshot = COALESCE(#{titleSnapshot}, title_snapshot),",
-            "    title_en_snapshot = COALESCE(#{titleEnSnapshot}, title_en_snapshot),",
-            "    title_ar_snapshot = COALESCE(#{titleArSnapshot}, title_ar_snapshot),",
-            "    brand_snapshot = COALESCE(#{brandSnapshot}, brand_snapshot),",
-            "    image_url_snapshot = COALESCE(#{imageUrlSnapshot}, image_url_snapshot),",
-            "    price_amount_snapshot = COALESCE(#{priceAmountSnapshot}, price_amount_snapshot),",
-            "    currency_code_snapshot = COALESCE(#{currencyCodeSnapshot}, currency_code_snapshot),",
-            "    rating_snapshot = COALESCE(#{ratingSnapshot}, rating_snapshot),",
-            "    review_count_snapshot = COALESCE(#{reviewCountSnapshot}, review_count_snapshot),",
-            "    tags_snapshot_json = COALESCE(#{tagsSnapshotJson}, tags_snapshot_json),",
-            "    source_type = COALESCE(#{sourceType}, source_type),",
-            "    last_seen_at = NOW(),",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateCompetitorProductFromDetail(CompetitorProductInsertCommand command);
 
     @Update({
             "UPDATE operations_competitor_product",
@@ -2250,49 +2148,6 @@ public interface CompetitorAnalysisMapper {
     })
     CompetitorSearchRunRow selectSearchRunByTaskId(@Param("taskId") Long taskId);
 
-    @Update({
-            "UPDATE operations_competitor_search_run",
-            "SET status = 'FAILED',",
-            "    finished_at = NOW(),",
-            "    error_code = #{errorCode},",
-            "    error_message = #{errorMessage},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{runId}",
-            "  AND is_deleted = b'0'"
-    })
-    int markSearchRunFailed(
-            @Param("runId") Long runId,
-            @Param("errorCode") String errorCode,
-            @Param("errorMessage") String errorMessage
-    );
-
-    @Update({
-            "UPDATE operations_competitor_search_run",
-            "SET status = #{status},",
-            "    finished_at = NOW(),",
-            "    keyword_success = #{keywordSuccess},",
-            "    keyword_failed = #{keywordFailed},",
-            "    candidate_upserted_count = #{candidateUpsertedCount},",
-            "    rank_fact_written_count = #{rankFactWrittenCount},",
-            "    error_code = #{errorCode},",
-            "    error_message = #{errorMessage},",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{runId}",
-            "  AND is_deleted = b'0'"
-    })
-    int completeSearchRun(
-            @Param("runId") Long runId,
-            @Param("status") String status,
-            @Param("keywordSuccess") int keywordSuccess,
-            @Param("keywordFailed") int keywordFailed,
-            @Param("candidateUpsertedCount") int candidateUpsertedCount,
-            @Param("rankFactWrittenCount") int rankFactWrittenCount,
-            @Param("errorCode") String errorCode,
-            @Param("errorMessage") String errorMessage,
-            @Param("actorUserId") Long actorUserId
-    );
-
     @Insert({
             "INSERT INTO operations_competitor_keyword_run (",
             "  id, search_run_id, keyword_id, keyword_snapshot, locale_snapshot, provider_status,",
@@ -2563,23 +2418,6 @@ public interface CompetitorAnalysisMapper {
             @Param("keywordId") Long keywordId,
             @Param("errorCode") String errorCode,
             @Param("errorMessage") String errorMessage,
-            @Param("actorUserId") Long actorUserId
-    );
-
-    @Update({
-            "UPDATE operations_competitor_watch_product",
-            "SET latest_run_id = #{runId},",
-            "    latest_run_status = #{runStatus},",
-            "    latest_run_at = NOW(),",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{watchProductId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateWatchProductLatestRun(
-            @Param("watchProductId") Long watchProductId,
-            @Param("runId") Long runId,
-            @Param("runStatus") String runStatus,
             @Param("actorUserId") Long actorUserId
     );
 
