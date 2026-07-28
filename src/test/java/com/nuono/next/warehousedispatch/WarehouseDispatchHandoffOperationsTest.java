@@ -20,7 +20,7 @@ class WarehouseDispatchHandoffOperationsTest extends WarehouseDispatchServiceTes
     @Test
     void markLogisticsHandoffSuccessRejectsMissingDispatchSources() {
         DispatchPlanRecord plan = handoffPlan("READY_FOR_LOGISTICS");
-        when(mapper.selectDispatchPlanByHandoffRequest("HANDOFF-340001")).thenReturn(plan);
+        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001")).thenReturn(plan);
         when(mapper.markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L)).thenReturn(1);
         when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of());
 
@@ -33,7 +33,7 @@ class WarehouseDispatchHandoffOperationsTest extends WarehouseDispatchServiceTes
     void markLogisticsHandoffSuccessRejectsUnmovedReservedQuantity() {
         DispatchPlanRecord plan = handoffPlan("READY_FOR_LOGISTICS");
         DispatchPlanLineSourceRecord source = handoffSource();
-        when(mapper.selectDispatchPlanByHandoffRequest("HANDOFF-340001")).thenReturn(plan);
+        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001")).thenReturn(plan);
         when(mapper.markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L)).thenReturn(1);
         when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of(source));
         when(mapper.moveReservedToLogisticsHandoff(900001L, 5, 307L)).thenReturn(0);
@@ -48,7 +48,8 @@ class WarehouseDispatchHandoffOperationsTest extends WarehouseDispatchServiceTes
         DispatchPlanRecord plan = handoffPlan("READY_FOR_LOGISTICS");
         DispatchPlanRecord updated = handoffPlan("LOGISTICS_REQUESTED");
         DispatchPlanLineSourceRecord source = handoffSource();
-        when(mapper.selectDispatchPlanByHandoffRequest("HANDOFF-340001")).thenReturn(plan, updated);
+        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001")).thenReturn(plan);
+        when(mapper.selectDispatchPlanByHandoffRequest("HANDOFF-340001")).thenReturn(updated);
         when(mapper.markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L)).thenReturn(1);
         when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of(source));
         when(mapper.moveReservedToLogisticsHandoff(900001L, 5, 307L)).thenReturn(1);

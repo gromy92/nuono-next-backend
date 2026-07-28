@@ -9,6 +9,7 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,6 +86,28 @@ class WarehouseDispatchControllerTest {
     }
 
     @Test
+    void dispatchPlanStateTransitionsMapConflicts() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .build();
+        HandoffFailureCommand command = new HandoffFailureCommand();
+        command.handoffRequestNo = "HANDOFF-340001";
+        WarehouseInventoryStateConflictException conflict =
+                new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.readyForLogistics(access, "340001")).thenThrow(conflict);
+        when(service.reopenDraft(access, "340001")).thenThrow(conflict);
+        when(service.markLogisticsHandoffFailure(access, command)).thenThrow(conflict);
+
+        assertConflict(() -> controller.readyForLogistics("340001", request));
+        assertConflict(() -> controller.reopenDraft("340001", request));
+        assertConflict(() -> controller.markHandoffFailure(command, request));
+    }
+
+    @Test
     void createConfirmationDoesNotMaskInternalIllegalStateAsInventoryConflict() {
         BusinessAccessContext access = BusinessAccessContext.builder()
                 .sessionUserId(307L)
@@ -103,5 +126,11 @@ class WarehouseDispatchControllerTest {
         );
 
         assertSame(internalError, error);
+    }
+
+    private void assertConflict(org.junit.jupiter.api.function.Executable operation) {
+        ResponseStatusException error = assertThrows(ResponseStatusException.class, operation);
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals("发运计划状态已变化，请刷新后重试。", error.getReason());
     }
 }

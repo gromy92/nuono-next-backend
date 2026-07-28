@@ -1,27 +1,18 @@
 package com.nuono.next.warehousedispatch;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.product.ProductImageUrlSupport;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.*;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.*;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.*;
-import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOperations {
 
@@ -168,19 +159,24 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
 @Transactional
     public DispatchPlanView readyForLogistics(BusinessAccessContext access, String dispatchPlanId) {
         Long parsedPlanId = parseLongId(dispatchPlanId, "发运计划不存在或已删除。");
-        DispatchPlanRecord plan = requireDispatchPlanAccess(access, parsedPlanId);
+        DispatchPlanRecord plan = requireDispatchPlanAccessForUpdate(access, parsedPlanId);
+        if ("READY_FOR_LOGISTICS".equals(plan.status)) {
+            return toDispatchPlanView(plan);
+        }
         if (!"DRAFT".equals(plan.status) && !"HANDOFF_FAILED".equals(plan.status)) {
-            throw new IllegalArgumentException("只有草稿或物流交接失败的发运计划可以提交物流。");
+            throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
         }
         int nextGeneration = nonNull(plan.handoffGenerationNo) + 1;
         String handoffRequestNo = "WDH-" + plan.id + "-" + nextGeneration;
-        mapper.updateDispatchPlanReady(
+        if (mapper.updateDispatchPlanReady(
                 plan.id,
                 plan.ownerUserId,
                 nextGeneration,
                 handoffRequestNo,
                 access.getSessionUserId()
-        );
+        ) != 1) {
+            throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
+        }
         log(plan.id, "READY_FOR_LOGISTICS", access.getSessionUserId(), plan.status, "READY_FOR_LOGISTICS", handoffRequestNo);
         DispatchPlanRecord updated = mapper.selectDispatchPlanById(plan.id);
         if (updated == null) {
@@ -205,38 +201,61 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         return view;
     }
 
-@Transactional
+    @Transactional
     public DispatchPlanView reopenDraft(BusinessAccessContext access, String dispatchPlanId) {
-        DispatchPlanRecord plan = requireDispatchPlanAccess(access, parseLongId(dispatchPlanId, "发运计划不存在或已删除。"));
-        mapper.reopenDispatchPlanDraft(plan.id, plan.ownerUserId, access.getSessionUserId());
+        DispatchPlanRecord plan = requireDispatchPlanAccessForUpdate(
+                access,
+                parseLongId(dispatchPlanId, "发运计划不存在或已删除。")
+        );
+        if ("DRAFT".equals(plan.status)) {
+            return toDispatchPlanView(plan);
+        }
+        if (!"READY_FOR_LOGISTICS".equals(plan.status) && !"HANDOFF_FAILED".equals(plan.status)) {
+            throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
+        }
+        if (mapper.reopenDispatchPlanDraft(plan.id, plan.ownerUserId, access.getSessionUserId()) != 1) {
+            throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
+        }
         log(plan.id, "REOPEN_DRAFT", access.getSessionUserId(), plan.status, "DRAFT", plan.planNo);
         DispatchPlanRecord updated = mapper.selectDispatchPlanById(plan.id);
+        if (updated == null) {
+            plan.status = "DRAFT";
+        }
         return toDispatchPlanView(updated == null ? plan : updated);
     }
 
 @Transactional
     public DispatchPlanView markLogisticsHandoffSuccess(BusinessAccessContext access, String handoffRequestNo) {
         String requestNo = requiredText(handoffRequestNo, "缺少物流交接编号。");
-        DispatchPlanRecord plan = requireHandoffAccess(access, requestNo);
-        int changed = mapper.markDispatchPlanHandoffSuccess(requestNo, access.getSessionUserId());
-        if (changed > 0) {
-            List<DispatchPlanLineSourceRecord> sources = mapper.listDispatchLineSources(plan.id);
-            if (sources == null || sources.isEmpty()) {
+        DispatchPlanRecord plan = requireHandoffAccessForUpdate(access, requestNo);
+        if ("LOGISTICS_REQUESTED".equals(plan.status)) {
+            return toDispatchPlanView(plan);
+        }
+        if (!"READY_FOR_LOGISTICS".equals(plan.status) && !"HANDOFF_FAILED".equals(plan.status)) {
+            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
+        }
+        if (mapper.markDispatchPlanHandoffSuccess(requestNo, access.getSessionUserId()) != 1) {
+            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
+        }
+        List<DispatchPlanLineSourceRecord> sources = mapper.listDispatchLineSources(plan.id);
+        if (sources == null || sources.isEmpty()) {
+            throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
+        }
+        for (DispatchPlanLineSourceRecord source : sources) {
+            int moved = mapper.moveReservedToLogisticsHandoff(
+                    source.fulfillmentBalanceId,
+                    nonNull(source.quantity),
+                    access.getSessionUserId()
+            );
+            if (moved != 1) {
                 throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
             }
-            for (DispatchPlanLineSourceRecord source : sources) {
-                int moved = mapper.moveReservedToLogisticsHandoff(
-                        source.fulfillmentBalanceId,
-                        nonNull(source.quantity),
-                        access.getSessionUserId()
-                );
-                if (moved != 1) {
-                    throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
-                }
-            }
-            log(plan.id, "HANDOFF_SUCCESS", access.getSessionUserId(), plan.status, "LOGISTICS_REQUESTED", requestNo);
         }
+        log(plan.id, "HANDOFF_SUCCESS", access.getSessionUserId(), plan.status, "LOGISTICS_REQUESTED", requestNo);
         DispatchPlanRecord updated = mapper.selectDispatchPlanByHandoffRequest(requestNo);
+        if (updated == null) {
+            plan.status = "LOGISTICS_REQUESTED";
+        }
         return toDispatchPlanView(updated == null ? plan : updated);
     }
 
@@ -246,10 +265,26 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
             throw new IllegalArgumentException("缺少物流交接失败参数。");
         }
         String requestNo = requiredText(command.handoffRequestNo, "缺少物流交接编号。");
-        DispatchPlanRecord plan = requireHandoffAccess(access, requestNo);
-        mapper.markDispatchPlanHandoffFailed(requestNo, trimToNull(command.errorMessage), access.getSessionUserId());
+        DispatchPlanRecord plan = requireHandoffAccessForUpdate(access, requestNo);
+        if ("HANDOFF_FAILED".equals(plan.status)) {
+            return toDispatchPlanView(plan);
+        }
+        if (!"READY_FOR_LOGISTICS".equals(plan.status)) {
+            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
+        }
+        if (mapper.markDispatchPlanHandoffFailed(
+                requestNo,
+                trimToNull(command.errorMessage),
+                access.getSessionUserId()
+        ) != 1) {
+            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
+        }
         log(plan.id, "HANDOFF_FAILED", access.getSessionUserId(), plan.status, "HANDOFF_FAILED", command.errorMessage);
         DispatchPlanRecord updated = mapper.selectDispatchPlanByHandoffRequest(requestNo);
+        if (updated == null) {
+            plan.status = "HANDOFF_FAILED";
+            plan.handoffErrorMessage = trimToNull(command.errorMessage);
+        }
         return toDispatchPlanView(updated == null ? plan : updated);
     }
 }

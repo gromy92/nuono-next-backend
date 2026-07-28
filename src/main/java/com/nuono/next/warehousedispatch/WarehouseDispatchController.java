@@ -158,6 +158,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().readyForLogistics(access(request), dispatchPlanId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -170,6 +172,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().reopenDraft(access(request), dispatchPlanId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -208,6 +212,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().markLogisticsHandoffFailure(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 }

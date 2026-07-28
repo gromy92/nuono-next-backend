@@ -65,6 +65,20 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
             "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
+            "       handoff_error_message AS handoffErrorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM procurement_dispatch_plan",
+            "WHERE id = #{dispatchPlanId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    DispatchPlanRecord selectDispatchPlanByIdForUpdate(@Param("dispatchPlanId") Long dispatchPlanId);
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
+            "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage",
             "FROM procurement_dispatch_plan",
             "WHERE handoff_request_no = #{handoffRequestNo}",
@@ -72,6 +86,21 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
             "LIMIT 1"
     })
     DispatchPlanRecord selectDispatchPlanByHandoffRequest(@Param("handoffRequestNo") String handoffRequestNo);
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
+            "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
+            "       handoff_error_message AS handoffErrorMessage",
+            "FROM procurement_dispatch_plan",
+            "WHERE handoff_request_no = #{handoffRequestNo}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    DispatchPlanRecord selectDispatchPlanByHandoffRequestForUpdate(
+            @Param("handoffRequestNo") String handoffRequestNo
+    );
 
 @Update({
             "UPDATE procurement_dispatch_plan",

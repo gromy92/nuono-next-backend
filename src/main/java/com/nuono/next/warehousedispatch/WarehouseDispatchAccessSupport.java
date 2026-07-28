@@ -49,7 +49,20 @@ protected PurchaseOrderItemRecord requireItem(PurchaseOrderAccessRecord order, L
     }
 
 protected DispatchPlanRecord requireDispatchPlanAccess(BusinessAccessContext access, Long dispatchPlanId) {
-        DispatchPlanRecord plan = mapper.selectDispatchPlanById(dispatchPlanId);
+        return requireDispatchPlanOwnerAccess(access, mapper.selectDispatchPlanById(dispatchPlanId));
+    }
+
+protected DispatchPlanRecord requireDispatchPlanAccessForUpdate(
+            BusinessAccessContext access,
+            Long dispatchPlanId
+    ) {
+        return requireDispatchPlanOwnerAccess(access, mapper.selectDispatchPlanByIdForUpdate(dispatchPlanId));
+    }
+
+private DispatchPlanRecord requireDispatchPlanOwnerAccess(
+            BusinessAccessContext access,
+            DispatchPlanRecord plan
+    ) {
         if (plan == null) {
             throw new IllegalArgumentException("发运计划不存在或已删除。");
         }
@@ -98,7 +111,20 @@ private PackingListRecord requirePackingListOwnerAccess(
     }
 
 protected DispatchPlanRecord requireHandoffAccess(BusinessAccessContext access, String handoffRequestNo) {
-        DispatchPlanRecord plan = mapper.selectDispatchPlanByHandoffRequest(handoffRequestNo);
+        return requireHandoffOwnerAccess(access, mapper.selectDispatchPlanByHandoffRequest(handoffRequestNo));
+    }
+
+protected DispatchPlanRecord requireHandoffAccessForUpdate(
+            BusinessAccessContext access,
+            String handoffRequestNo
+    ) {
+        return requireHandoffOwnerAccess(access, mapper.selectDispatchPlanByHandoffRequestForUpdate(handoffRequestNo));
+    }
+
+private DispatchPlanRecord requireHandoffOwnerAccess(
+            BusinessAccessContext access,
+            DispatchPlanRecord plan
+    ) {
         if (plan == null) {
             throw new IllegalArgumentException("物流交接不存在或已失效。");
         }
