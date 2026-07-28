@@ -3,7 +3,6 @@ package com.nuono.next.system.task;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,6 +17,7 @@ public class OperationalTaskService {
 
     private final OperationalTaskRepository repository;
     private final Clock clock;
+    private final OperationalTaskRecoverySupport recoverySupport;
 
     @Autowired
     public OperationalTaskService(OperationalTaskRepository repository) {
@@ -27,6 +27,7 @@ public class OperationalTaskService {
     public OperationalTaskService(OperationalTaskRepository repository, Clock clock) {
         this.repository = repository;
         this.clock = clock;
+        this.recoverySupport = new OperationalTaskRecoverySupport(repository, clock);
     }
 
     public OperationalTask start(String taskType, String naturalKey, OperationalTaskPayload payload) {
@@ -90,23 +91,7 @@ public class OperationalTaskService {
             String payloadJson,
             String message
     ) {
-        if (expected == null || expected.getId() == null) {
-            throw new IllegalArgumentException("expected task is required");
-        }
-        String normalizedPayload = normalize(payloadJson);
-        if (!Objects.equals(expected.getPayloadJson(), normalizedPayload)) {
-            repository.compareAndSetQueuedPayload(
-                    expected.getId(),
-                    expected.getPayloadJson(),
-                    normalizedPayload,
-                    normalize(message),
-                    now()
-            );
-        }
-        OperationalTask task = repository.selectById(expected.getId());
-        return task == null || task.getStatus() != OperationalTaskStatus.QUEUED
-                ? Optional.empty()
-                : Optional.of(task.copy());
+        return recoverySupport.prepareQueuedPayload(expected, payloadJson, message);
     }
 
     public Optional<OperationalTask> find(Long taskId) {
@@ -114,16 +99,7 @@ public class OperationalTaskService {
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
     public boolean checkpointRunning(Long taskId, String payloadJson, Integer progressPercent, String message) {
-        if (taskId == null) {
-            throw new IllegalArgumentException("taskId is required");
-        }
-        return repository.checkpointRunning(
-                taskId,
-                normalize(payloadJson),
-                clampProgress(progressPercent),
-                normalize(message),
-                now()
-        );
+        return recoverySupport.checkpointRunning(taskId, payloadJson, progressPercent, message);
     }
 
     public boolean requeueRunning(
@@ -133,43 +109,17 @@ public class OperationalTaskService {
             String errorCode,
             String message
     ) {
-        if (taskId == null) {
-            throw new IllegalArgumentException("taskId is required");
-        }
-        return repository.requeueRunning(
-                taskId,
-                normalize(payloadJson),
-                clampProgress(progressPercent),
-                normalize(errorCode),
-                normalize(message),
-                now()
+        return recoverySupport.requeueRunning(
+                taskId, payloadJson, progressPercent, errorCode, message
         );
     }
 
     public boolean failStaleRunning(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
-        if (taskId == null || staleBefore == null) {
-            throw new IllegalArgumentException("taskId and staleBefore are required");
-        }
-        return repository.failStaleRunning(
-                taskId,
-                staleBefore,
-                normalize(errorCode),
-                normalize(message),
-                now()
-        );
+        return recoverySupport.failStaleRunning(taskId, staleBefore, errorCode, message);
     }
 
     public boolean failStaleQueued(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
-        if (taskId == null || staleBefore == null) {
-            throw new IllegalArgumentException("taskId and staleBefore are required");
-        }
-        return repository.failStaleQueued(
-                taskId,
-                staleBefore,
-                normalize(errorCode),
-                normalize(message),
-                now()
-        );
+        return recoverySupport.failStaleQueued(taskId, staleBefore, errorCode, message);
     }
 
     public Optional<OperationalTask> findActive(String taskType, String naturalKey) {
@@ -193,12 +143,7 @@ public class OperationalTaskService {
             String naturalKey,
             String batchKey
     ) {
-        OperationalTask task = repository.selectLatestByNaturalKeyAndBatchKey(
-                requireText(taskType, "taskType"),
-                requireText(naturalKey, "naturalKey"),
-                requireText(batchKey, "batchKey")
-        );
-        return task == null ? Optional.empty() : Optional.of(task.copy());
+        return recoverySupport.findLatestByBatchKey(taskType, naturalKey, batchKey);
     }
 
     public List<OperationalTask> listRecent(String taskType, int limit) {
@@ -217,13 +162,7 @@ public class OperationalTaskService {
     }
 
     public List<OperationalTask> listActiveAfter(String taskType, Long afterTaskId, int limit) {
-        return repository.listActiveByTaskTypeAfterId(
-                        requireText(taskType, "taskType"),
-                        afterTaskId == null ? 0L : Math.max(0L, afterTaskId),
-                        Math.max(1, Math.min(limit, 1000))
-                ).stream()
-                .map(OperationalTask::copy)
-                .collect(Collectors.toList());
+        return recoverySupport.listActiveAfter(taskType, afterTaskId, limit);
     }
 
     public OperationalTask progress(Long taskId, Integer progressPercent, String message) {

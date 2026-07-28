@@ -64,8 +64,7 @@ class CompetitorInvalidDetailRetryPayloadTest {
                     detailFetches.incrementAndGet();
                     return true;
                 },
-                (product, interruptedRun) -> {
-                }
+                (ignoredTask, ignoredProduct, ignoredRun, ignoredStaleBefore) -> false
         );
 
         assertEquals(0, recovery.resumeQueuedRefreshTasks());

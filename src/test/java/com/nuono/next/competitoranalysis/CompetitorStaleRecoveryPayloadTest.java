@@ -82,7 +82,7 @@ class CompetitorStaleRecoveryPayloadTest {
                         new CompetitorRefreshTaskDispatcher(
                                 mapper, operationalTaskService, taskSubmitter
                         ),
-                        ignored -> true,
+                        (ignoredTask, ignoredWatchProduct) -> true,
                         (taskId, runId, watchProductId, actorUserId, mode) -> {
                         },
                         CLOCK
