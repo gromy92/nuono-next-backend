@@ -27,6 +27,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "230_noon_finance_runtime_schema_convergence.sql",
                 "231_procurement_fulfillment_balance_quantity_invariant.sql",
                 "232_warehouse_command_request_idempotency.sql",
+                "233_warehouse_packing_soft_delete_index.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -37,6 +38,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
                 "MANAGED",
+                "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
@@ -151,6 +153,33 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 r"\b(?:UPDATE|DELETE\s+FROM)\s+"
                 r"`?(?:procurement_dispatch_plan|"
                 r"procurement_fulfillment_confirmation)\b",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_packing_soft_delete_index_is_exact_and_additive(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+        migration = next(
+            migration
+            for migration in load_catalog(resource_root)
+            if migration.key == "233_warehouse_packing_soft_delete_index.sql"
+        )
+
+        self.assertEqual("AUTO_ADDITIVE", migration.kind)
+        self.assertIn("idx_packing_box_item_list", migration.script_sql)
+        self.assertIn(
+            "ADD KEY `idx_packing_box_item_list` "
+            "(`packing_list_id`, `is_deleted`)",
+            migration.script_sql,
+        )
+        for sql in (migration.script_sql, migration.postcheck_sql):
+            self.assertIn("1:packing_list_id,2:is_deleted", sql)
+            self.assertIn("is_visible = 'YES'", sql)
+            self.assertIn("expression IS NULL", sql)
+        self.assertNotRegex(
+            migration.script_sql,
+            re.compile(
+                r"\bDELETE\s+FROM\s+`?warehouse_packing_box_item\b",
                 re.IGNORECASE,
             ),
         )

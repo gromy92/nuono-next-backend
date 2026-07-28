@@ -39,8 +39,8 @@ class WarehousePackingConcurrencyGuardTest extends WarehouseDispatchServiceTestS
 
         InOrder order = inOrder(mapper);
         order.verify(mapper).selectPackingListByIdForUpdate(830001L);
-        order.verify(mapper).deletePackingBoxItems(830001L, 307L);
-        order.verify(mapper).deletePackingBoxes(830001L, 307L);
+        order.verify(mapper).softDeletePackingBoxItems(830001L, 307L);
+        order.verify(mapper).softDeletePackingBoxes(830001L, 307L);
     }
 
     @Test

@@ -26,7 +26,6 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -99,20 +98,28 @@ public interface WarehousePackingMapper extends WarehouseOutboundMapper {
     })
     List<PackingListRecord> listPackingListsByOutboundOrder(@Param("outboundOrderId") Long outboundOrderId);
 
-@Delete({
-            "DELETE FROM warehouse_packing_box_item",
-            "WHERE packing_list_id = #{packingListId}"
+@Update({
+            "UPDATE warehouse_packing_box_item",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE packing_list_id = #{packingListId}",
+            "  AND is_deleted = b'0'"
     })
-    int deletePackingBoxItems(
+    int softDeletePackingBoxItems(
             @Param("packingListId") Long packingListId,
             @Param("operatorUserId") Long operatorUserId
     );
 
-@Delete({
-            "DELETE FROM warehouse_packing_box",
-            "WHERE packing_list_id = #{packingListId}"
+@Update({
+            "UPDATE warehouse_packing_box",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE packing_list_id = #{packingListId}",
+            "  AND is_deleted = b'0'"
     })
-    int deletePackingBoxes(
+    int softDeletePackingBoxes(
             @Param("packingListId") Long packingListId,
             @Param("operatorUserId") Long operatorUserId
     );

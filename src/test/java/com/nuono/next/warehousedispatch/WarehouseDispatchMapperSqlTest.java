@@ -6,7 +6,6 @@ import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
 import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -256,32 +255,36 @@ class WarehouseDispatchMapperSqlTest {
     }
 
     @Test
-    void packingBoxReplacementPhysicallyDeletesDraftRowsBeforeReinsert() throws Exception {
-        Method deleteItems = WarehouseDispatchMapper.class.getMethod(
-                "deletePackingBoxItems",
+    void packingBoxReplacementSoftDeletesDraftRowsBeforeReinsert() throws Exception {
+        Method softDeleteItems = WarehouseDispatchMapper.class.getMethod(
+                "softDeletePackingBoxItems",
                 Long.class,
                 Long.class
         );
-        Method deleteBoxes = WarehouseDispatchMapper.class.getMethod(
-                "deletePackingBoxes",
+        Method softDeleteBoxes = WarehouseDispatchMapper.class.getMethod(
+                "softDeletePackingBoxes",
                 Long.class,
                 Long.class
         );
 
-        Delete deleteItemsSql = deleteItems.getAnnotation(Delete.class);
-        Delete deleteBoxesSql = deleteBoxes.getAnnotation(Delete.class);
-        assertThat(deleteItemsSql).isNotNull();
-        assertThat(deleteBoxesSql).isNotNull();
+        Update softDeleteItemsSql = softDeleteItems.getAnnotation(Update.class);
+        Update softDeleteBoxesSql = softDeleteBoxes.getAnnotation(Update.class);
+        assertThat(softDeleteItemsSql).isNotNull();
+        assertThat(softDeleteBoxesSql).isNotNull();
 
-        String itemSql = String.join(" ", deleteItemsSql.value())
+        String itemSql = String.join(" ", softDeleteItemsSql.value())
                 .replaceAll("\\s+", " ");
-        String boxSql = String.join(" ", deleteBoxesSql.value())
+        String boxSql = String.join(" ", softDeleteBoxesSql.value())
                 .replaceAll("\\s+", " ");
 
-        assertThat(itemSql).contains("DELETE FROM warehouse_packing_box_item");
-        assertThat(itemSql).doesNotContain("is_deleted = b'1'");
-        assertThat(boxSql).contains("DELETE FROM warehouse_packing_box");
-        assertThat(boxSql).doesNotContain("is_deleted = b'1'");
+        assertThat(itemSql)
+                .contains("UPDATE warehouse_packing_box_item", "is_deleted = b'1'",
+                        "updated_by = #{operatorUserId}", "gmt_updated = NOW()", "AND is_deleted = b'0'")
+                .doesNotContain("DELETE FROM");
+        assertThat(boxSql)
+                .contains("UPDATE warehouse_packing_box", "is_deleted = b'1'",
+                        "updated_by = #{operatorUserId}", "gmt_updated = NOW()", "AND is_deleted = b'0'")
+                .doesNotContain("DELETE FROM");
     }
 
     private Method findMethod(String name) {

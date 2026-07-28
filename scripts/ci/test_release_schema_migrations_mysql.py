@@ -4,30 +4,33 @@ import os
 import sys
 import tempfile
 import unittest
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from schema_migrations.catalog import (  # noqa: E402
-    load_catalog,
-    sha256_bytes,
-)
+from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.core import (  # noqa: E402
-    Migration,
     MigrationError,
     MigrationRunner,
     plan_migrations,
 )
 from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E402
-from schema_migrations.mysql_support import MySqlExecutionError  # noqa: E402
+from ci.release_schema_mysql_scenario import (  # noqa: E402
+    build_probe_migration,
+    prepare_current_release_fixture,
+    verify_applied_schema,
+    verify_lock_contention,
+)
 
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
 REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
     "232_warehouse_command_request_idempotency.sql"
 )
+PACKING_INDEX_MIGRATION_KEY = "233_warehouse_packing_soft_delete_index.sql"
+
 
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
@@ -56,13 +59,15 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
 
         self.assertEqual({}, database.load_states())
-        self.prepare_fulfillment_balance_fixture(database)
-        self.prepare_warehouse_request_idempotency_fixture(database)
+        prepare_current_release_fixture(database)
         integrity = next(item for item in migrations if item.key == INTEGRITY_MIGRATION_KEY)
         request_idempotency = next(
             item
             for item in migrations
             if item.key == REQUEST_IDEMPOTENCY_MIGRATION_KEY
+        )
+        packing_index = next(
+            item for item in migrations if item.key == PACKING_INDEX_MIGRATION_KEY
         )
         approvals = [integrity.key]
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
@@ -120,113 +125,20 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
         self.assertEqual(
-            [request_idempotency.key],
+            [request_idempotency.key, packing_index.key],
             runner.apply(approved_managed=approvals),
         )
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
-        self.assertTrue(database.postcheck(integrity))
-        self.assertTrue(database.postcheck(request_idempotency))
-        database.run_script(integrity)
-        database.run_script(integrity)
-        database.run_script(request_idempotency)
-        database.run_script(request_idempotency)
-        self.assertTrue(database.postcheck(integrity))
-        self.assertTrue(database.postcheck(request_idempotency))
-        self.assertEqual(
-            "2",
-            database.client.execute(
-                "SELECT ("
-                "(SELECT COUNT(*) FROM procurement_dispatch_plan "
-                " WHERE client_request_id IS NULL AND request_fingerprint IS NULL)"
-                "+"
-                "(SELECT COUNT(*) FROM procurement_fulfillment_confirmation "
-                " WHERE client_request_id IS NULL AND request_fingerprint IS NULL)"
-                ");"
-            ),
-        )
-        database.client.execute(
-            "INSERT INTO procurement_dispatch_plan "
-            "(id, owner_user_id, client_request_id, request_fingerprint) "
-            "VALUES (2, 307, 'dispatch-request-1', REPEAT('a', 64)),"
-            "       (3, 308, 'dispatch-request-1', REPEAT('b', 64));"
-            "INSERT INTO procurement_fulfillment_confirmation "
-            "(id, owner_user_id, client_request_id, request_fingerprint) "
-            "VALUES (2, 307, 'receipt-request-1', REPEAT('c', 64)),"
-            "       (3, 308, 'receipt-request-1', REPEAT('d', 64));"
-        )
-        self.assert_mysql_duplicate_rejected(
+        verify_applied_schema(
+            self,
             database,
-            "INSERT INTO procurement_dispatch_plan "
-            "(id, owner_user_id, client_request_id, request_fingerprint) "
-            "VALUES (4, 307, 'dispatch-request-1', REPEAT('e', 64));",
+            migrations[0],
+            integrity,
+            request_idempotency,
+            packing_index,
         )
-        self.assert_mysql_duplicate_rejected(
-            database,
-            "INSERT INTO procurement_fulfillment_confirmation "
-            "(id, owner_user_id, client_request_id, request_fingerprint) "
-            "VALUES (4, 307, 'receipt-request-1', REPEAT('f', 64));",
-        )
-        database.client.execute(
-            "INSERT INTO procurement_fulfillment_balance "
-            "(id, planned_quantity, confirmed_quantity, abnormal_quantity, "
-            "reserved_quantity, logistics_handoff_quantity, available_quantity) "
-            "VALUES (11, 10, 10, 2, 3, 1, 4);"
-        )
-        self.assert_mysql_check_rejects(
-            database,
-            "INSERT INTO procurement_fulfillment_balance "
-            "(id, planned_quantity, confirmed_quantity, abnormal_quantity, "
-            "reserved_quantity, logistics_handoff_quantity, available_quantity) "
-            "VALUES (12, 10, 5, 0, -1, 0, 6);",
-        )
-        self.assert_mysql_check_rejects(
-            database,
-            "INSERT INTO procurement_fulfillment_balance "
-            "(id, planned_quantity, confirmed_quantity, abnormal_quantity, "
-            "reserved_quantity, logistics_handoff_quantity, available_quantity) "
-            "VALUES (13, 10, 8, 1, 1, 1, 6);",
-        )
-        self.assertEqual(
-            "2",
-            database.client.execute(
-                "SELECT COUNT(*) FROM procurement_fulfillment_balance;"
-            ),
-        )
-        database.client.execute(
-            "ALTER TABLE nuono_schema_migration "
-            "MODIFY COLUMN gmt_updated DATETIME(6) NOT NULL "
-            "DEFAULT CURRENT_TIMESTAMP(6);"
-        )
-        self.assertFalse(database.postcheck(migrations[0]))
-        database.client.execute(
-            "ALTER TABLE nuono_schema_migration "
-            "MODIFY COLUMN gmt_updated DATETIME(6) NOT NULL "
-            "DEFAULT CURRENT_TIMESTAMP(6) "
-            "ON UPDATE CURRENT_TIMESTAMP(6);"
-        )
-        self.assertTrue(database.postcheck(migrations[0]))
-        first = MySqlMigrationDatabase(
-            defaults_file,
-            expected_schema=expected_schema,
-            expected_host="127.0.0.1",
-            expected_port=3306,
-        )
-        second = MySqlMigrationDatabase(
-            defaults_file,
-            expected_schema=expected_schema,
-            expected_host="127.0.0.1",
-            expected_port=3306,
-        )
-        self.addCleanup(first.close)
-        self.addCleanup(second.close)
-        first.acquire_lock(1)
-        try:
-            with self.assertRaisesRegex(MigrationError, "not acquired"):
-                second.acquire_lock(0)
-        finally:
-            second.release_lock()
-            first.release_lock()
+        verify_lock_contention(self, defaults_file, expected_schema)
 
         # Production already executed 223 before the forward catalog existed.
         # Recreate that exact boundary: 223 is present in the schema, both
@@ -305,7 +217,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             blocked_order = failure_order + 1
             failure_key = f"{failure_order:03d}_failure_probe.sql"
             blocked_key = f"{blocked_order:03d}_must_not_run.sql"
-            failing = self.migration(
+            failing = build_probe_migration(
                 root,
                 failure_order,
                 failure_key,
@@ -314,7 +226,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
                 "CREATE TABLE migration_failure_after (id INT);\n",
                 "SELECT 0;\n",
             )
-            blocked = self.migration(
+            blocked = build_probe_migration(
                 root,
                 blocked_order,
                 blocked_key,
@@ -354,74 +266,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(MigrationError, "checksum drift"):
             plan_migrations(extended, database.load_states())
-
-    @staticmethod
-    def prepare_fulfillment_balance_fixture(database):
-        database.client.execute(
-            "CREATE TABLE procurement_fulfillment_balance ("
-            "id BIGINT NOT NULL,"
-            "planned_quantity INT NOT NULL DEFAULT 0,"
-            "confirmed_quantity INT NOT NULL DEFAULT 0,"
-            "abnormal_quantity INT NOT NULL DEFAULT 0,"
-            "reserved_quantity INT NOT NULL DEFAULT 0,"
-            "logistics_handoff_quantity INT NOT NULL DEFAULT 0,"
-            "available_quantity INT NOT NULL DEFAULT 0,"
-            "PRIMARY KEY (id)"
-            ") ENGINE=InnoDB;"
-            "INSERT INTO procurement_fulfillment_balance VALUES "
-            "(1, 10, 5, 0, -1, 0, 6),"
-            "(2, 10, 8, 1, 1, 1, 6);"
-        )
-
-    @staticmethod
-    def prepare_warehouse_request_idempotency_fixture(database):
-        database.client.execute(
-            "CREATE TABLE procurement_dispatch_plan ("
-            "id BIGINT NOT NULL,"
-            "owner_user_id BIGINT NOT NULL,"
-            "PRIMARY KEY (id)"
-            ") ENGINE=InnoDB;"
-            "CREATE TABLE procurement_fulfillment_confirmation ("
-            "id BIGINT NOT NULL,"
-            "owner_user_id BIGINT NOT NULL,"
-            "PRIMARY KEY (id)"
-            ") ENGINE=InnoDB;"
-            "INSERT INTO procurement_dispatch_plan "
-            "(id, owner_user_id) VALUES (1, 307);"
-            "INSERT INTO procurement_fulfillment_confirmation "
-            "(id, owner_user_id) VALUES (1, 307);"
-        )
-
-    def assert_mysql_check_rejects(self, database, sql):
-        with self.assertRaises(MySqlExecutionError) as caught:
-            database.client.execute(sql)
-        self.assertEqual(3819, caught.exception.error_code)
-
-    def assert_mysql_duplicate_rejected(self, database, sql):
-        with self.assertRaises(MySqlExecutionError) as caught:
-            database.client.execute(sql)
-        self.assertEqual(1062, caught.exception.error_code)
-
-    @staticmethod
-    def migration(root, order, key, script, postcheck):
-        script_file = root / key
-        postcheck_file = root / ("postcheck_" + key)
-        script_file.write_text(script, encoding="utf-8")
-        postcheck_file.write_text(postcheck, encoding="utf-8")
-        return Migration(
-            order,
-            key,
-            "AUTO_ADDITIVE",
-            PurePosixPath("db/init") / key,
-            PurePosixPath("db/postcheck") / key,
-            sha256_bytes(script.encode("utf-8")),
-            sha256_bytes(postcheck.encode("utf-8")),
-            script.encode("utf-8"),
-            postcheck.encode("utf-8"),
-            script_file,
-            postcheck_file,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

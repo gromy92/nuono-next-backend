@@ -132,8 +132,8 @@ private PackingListView replacePackingBoxesLocked(
         validatePendingPackingGroups(outboundOrder.batchId, pendingBoxes, outboundLineById);
 
         Long operatorUserId = access.getSessionUserId();
-        mapper.deletePackingBoxItems(packingList.id, operatorUserId);
-        mapper.deletePackingBoxes(packingList.id, operatorUserId);
+        mapper.softDeletePackingBoxItems(packingList.id, operatorUserId);
+        mapper.softDeletePackingBoxes(packingList.id, operatorUserId);
 
         PackingListView view = toPackingListView(packingList);
         view.boxes.clear();
