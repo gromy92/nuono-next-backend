@@ -48,8 +48,6 @@ class CompetitorProductDetailRefreshServiceTest {
                 snapshotService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
-        org.mockito.Mockito.lenient().when(mapper.selectWatchProductForRefresh(180123L))
-                .thenReturn(watchProduct());
         org.mockito.Mockito.lenient().when(mapper.updateCompetitorProductFromDetail(any()))
                 .thenReturn(1);
     }
@@ -58,6 +56,9 @@ class CompetitorProductDetailRefreshServiceTest {
     void refreshesSelfAndConfirmedCompetitorDetailsOncePerCode() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductRow confirmed = confirmedProduct(200010L, "zcomp001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/");
+        when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct);
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(180123L, 200010L))
+                .thenReturn(confirmed);
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
                 .thenReturn(List.of(
                         confirmed,
@@ -116,6 +117,7 @@ class CompetitorProductDetailRefreshServiceTest {
                 Clock.fixed(Instant.parse("2026-07-26T18:00:00Z"), ZoneOffset.UTC)
         );
         CompetitorWatchProductRow watchProduct = watchProduct();
+        when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct);
         NoonProductDetail detail = detail("ZSELF001");
         detail.setCapturedAt(null);
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class))).thenReturn(detail);

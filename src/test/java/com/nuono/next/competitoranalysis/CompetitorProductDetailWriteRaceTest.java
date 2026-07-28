@@ -48,6 +48,11 @@ class CompetitorProductDetailWriteRaceTest {
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(watch.getId()))
                 .thenReturn(List.of(competitor));
         when(detailAdapter.fetch(any())).thenReturn(detail("ZCOMP001"));
+        when(mapper.lockWatchProductForDetailWrite(watch.getId())).thenReturn(watch);
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(
+                watch.getId(),
+                competitor.getId()
+        )).thenReturn(competitor);
         when(mapper.updateCompetitorProductFromDetail(any())).thenReturn(0);
 
         CompetitorProductDetailRefreshResult result = service.refreshTargets(
@@ -69,7 +74,7 @@ class CompetitorProductDetailWriteRaceTest {
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(watch.getId()))
                 .thenReturn(List.of());
         when(detailAdapter.fetch(any())).thenReturn(detail("ZSELF001"));
-        when(mapper.selectWatchProductForRefresh(watch.getId()))
+        when(mapper.lockWatchProductForDetailWrite(watch.getId()))
                 .thenReturn(watch("ZSELF999"));
 
         CompetitorProductDetailRefreshResult result = service.refreshTargets(

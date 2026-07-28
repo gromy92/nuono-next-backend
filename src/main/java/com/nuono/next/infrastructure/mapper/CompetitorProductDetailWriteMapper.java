@@ -1,9 +1,45 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.competitoranalysis.CompetitorProductInsertCommand;
+import com.nuono.next.competitoranalysis.CompetitorProductRow;
+import com.nuono.next.competitoranalysis.CompetitorWatchProductRow;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorProductDetailWriteMapper {
+    @Select({
+            "SELECT",
+            "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",
+            "  self_noon_product_code AS selfNoonProductCode, self_code_type AS selfCodeType,",
+            "  status",
+            "FROM operations_competitor_watch_product",
+            "WHERE id = #{watchProductId}",
+            "  AND status = 'ACTIVE'",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1 FOR UPDATE"
+    })
+    CompetitorWatchProductRow lockWatchProductForDetailWrite(
+            @Param("watchProductId") Long watchProductId
+    );
+
+    @Select({
+            "SELECT",
+            "  id, watch_product_id AS watchProductId, noon_product_code AS noonProductCode,",
+            "  code_type AS codeType, canonical_url AS canonicalUrl,",
+            "  review_status AS reviewStatus",
+            "FROM operations_competitor_product",
+            "WHERE watch_product_id = #{watchProductId}",
+            "  AND id = #{competitorProductId}",
+            "  AND review_status = 'CONFIRMED'",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1 FOR UPDATE"
+    })
+    CompetitorProductRow lockConfirmedCompetitorProductForDetailWrite(
+            @Param("watchProductId") Long watchProductId,
+            @Param("competitorProductId") Long competitorProductId
+    );
+
     @Update({
             "UPDATE operations_competitor_product",
             "SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",

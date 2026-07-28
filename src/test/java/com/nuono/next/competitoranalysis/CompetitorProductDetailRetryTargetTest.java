@@ -38,8 +38,6 @@ class CompetitorProductDetailRetryTargetTest {
                 snapshotService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
-        org.mockito.Mockito.lenient().when(mapper.selectWatchProductForRefresh(180123L))
-                .thenReturn(watchProduct());
         org.mockito.Mockito.lenient().when(mapper.updateCompetitorProductFromDetail(any()))
                 .thenReturn(1);
     }
@@ -47,8 +45,12 @@ class CompetitorProductDetailRetryTargetTest {
     @Test
     void retriesOnlyFailedDetailTargetsWithoutRefetchingSuccessfulTargets() {
         CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorProductRow confirmedProduct = confirmedProduct();
+        when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct);
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(180123L, 200010L))
+                .thenReturn(confirmedProduct);
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
-                .thenReturn(List.of(confirmedProduct()));
+                .thenReturn(List.of(confirmedProduct));
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class)))
                 .thenReturn(detail("ZSELF001"))
                 .thenThrow(new NoonSearchProviderException(

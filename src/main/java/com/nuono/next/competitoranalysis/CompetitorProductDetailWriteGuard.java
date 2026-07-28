@@ -3,33 +3,86 @@ package com.nuono.next.competitoranalysis;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import java.util.Objects;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-final class CompetitorProductDetailWriteGuard {
-    private CompetitorProductDetailWriteGuard() {
+@Service
+public class CompetitorProductDetailWriteGuard {
+    private final CompetitorAnalysisMapper mapper;
+    private final CompetitorProductSnapshotService snapshotService;
+
+    public CompetitorProductDetailWriteGuard(
+            CompetitorAnalysisMapper mapper,
+            CompetitorProductSnapshotService snapshotService
+    ) {
+        this.mapper = mapper;
+        this.snapshotService = snapshotService;
     }
 
-    static boolean writeIfCurrent(
-            CompetitorAnalysisMapper mapper,
+    @Transactional
+    public boolean writeIfCurrent(
             CompetitorWatchProductRow watchProduct,
             CompetitorProductRow product,
             CompetitorProductDetailTarget target,
             NoonProductDetail detail,
+            Long sourceRunId,
             Long actorUserId
     ) {
         String expectedCode = normalize(target == null ? null : target.getNoonProductCode());
-        if (!expectedCode.equals(normalize(detail == null ? null : detail.getNoonProductCode()))) {
+        if (watchProduct == null
+                || watchProduct.getId() == null
+                || target == null
+                || !StringUtils.hasText(expectedCode)
+                || !expectedCode.equals(normalize(detail == null ? null : detail.getNoonProductCode()))) {
+            return false;
+        }
+        CompetitorWatchProductRow currentWatch =
+                mapper.lockWatchProductForDetailWrite(watchProduct.getId());
+        if (!sameWatchScope(watchProduct, currentWatch)) {
             return false;
         }
         if (product == null) {
-            CompetitorWatchProductRow current =
-                    mapper.selectWatchProductForRefresh(watchProduct.getId());
-            return current != null
-                    && expectedCode.equals(normalize(current.getSelfNoonProductCode()));
+            if (!target.isSelf()
+                    || !expectedCode.equals(normalize(currentWatch.getSelfNoonProductCode()))) {
+                return false;
+            }
+            snapshotService.recordProductDetailSnapshot(
+                    currentWatch,
+                    null,
+                    detail,
+                    sourceRunId,
+                    actorUserId
+            );
+            return true;
         }
-        return mapper.updateCompetitorProductFromDetail(
-                update(product, detail, expectedCode, actorUserId)
-        ) == 1;
+        if (!CompetitorProductDetailTarget.COMPETITOR.equals(target.getSubjectType())
+                || target.getCompetitorProductId() == null
+                || !Objects.equals(target.getCompetitorProductId(), product.getId())
+                || !Objects.equals(watchProduct.getId(), product.getWatchProductId())) {
+            return false;
+        }
+        CompetitorProductRow currentProduct =
+                mapper.lockConfirmedCompetitorProductForDetailWrite(
+                        watchProduct.getId(),
+                        product.getId()
+                );
+        if (currentProduct == null
+                || !expectedCode.equals(normalize(currentProduct.getNoonProductCode()))
+                || mapper.updateCompetitorProductFromDetail(
+                        update(currentProduct, detail, expectedCode, actorUserId)
+                ) != 1) {
+            return false;
+        }
+        snapshotService.recordProductDetailSnapshot(
+                currentWatch,
+                currentProduct,
+                detail,
+                sourceRunId,
+                actorUserId
+        );
+        return true;
     }
 
     private static CompetitorProductInsertCommand update(
@@ -68,6 +121,25 @@ final class CompetitorProductDetailWriteGuard {
     private static String normalize(String value) {
         String normalized = NoonProductCodeSupport.normalize(value);
         return normalized == null ? "" : normalized;
+    }
+
+    private static boolean sameWatchScope(
+            CompetitorWatchProductRow expected,
+            CompetitorWatchProductRow current
+    ) {
+        return current != null
+                && Objects.equals(expected.getId(), current.getId())
+                && Objects.equals(expected.getOwnerUserId(), current.getOwnerUserId())
+                && equalText(expected.getStoreCode(), current.getStoreCode())
+                && equalText(expected.getSiteCode(), current.getSiteCode())
+                && normalize(expected.getSelfNoonProductCode())
+                        .equals(normalize(current.getSelfNoonProductCode()));
+    }
+
+    private static boolean equalText(String left, String right) {
+        String normalizedLeft = StringUtils.hasText(left) ? left.trim() : "";
+        String normalizedRight = StringUtils.hasText(right) ? right.trim() : "";
+        return normalizedLeft.equalsIgnoreCase(normalizedRight);
     }
 
     private static String firstNonBlank(String... values) {

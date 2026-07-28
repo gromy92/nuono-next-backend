@@ -25,18 +25,21 @@ public class CompetitorProductDetailRefreshService {
     private final CompetitorAnalysisMapper mapper;
     private final NoonProductDetailAdapter detailAdapter;
     private final CompetitorProductSnapshotService snapshotService;
+    private final CompetitorProductDetailWriteGuard writeGuard;
     private final Clock clock;
 
     @Autowired
     public CompetitorProductDetailRefreshService(
             CompetitorAnalysisMapper mapper,
             ObjectProvider<NoonProductDetailAdapter> detailAdapterProvider,
-            ObjectProvider<CompetitorProductSnapshotService> snapshotServiceProvider
+            ObjectProvider<CompetitorProductSnapshotService> snapshotServiceProvider,
+            CompetitorProductDetailWriteGuard writeGuard
     ) {
         this(
                 mapper,
                 detailAdapterProvider == null ? null : detailAdapterProvider.getIfAvailable(),
                 snapshotServiceProvider == null ? null : snapshotServiceProvider.getIfAvailable(),
+                writeGuard,
                 Clock.systemUTC()
         );
     }
@@ -47,9 +50,26 @@ public class CompetitorProductDetailRefreshService {
             CompetitorProductSnapshotService snapshotService,
             Clock clock
     ) {
+        this(
+                mapper,
+                detailAdapter,
+                snapshotService,
+                new CompetitorProductDetailWriteGuard(mapper, snapshotService),
+                clock
+        );
+    }
+
+    CompetitorProductDetailRefreshService(
+            CompetitorAnalysisMapper mapper,
+            NoonProductDetailAdapter detailAdapter,
+            CompetitorProductSnapshotService snapshotService,
+            CompetitorProductDetailWriteGuard writeGuard,
+            Clock clock
+    ) {
         this.mapper = mapper;
         this.detailAdapter = detailAdapter;
         this.snapshotService = snapshotService;
+        this.writeGuard = writeGuard;
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -134,13 +154,17 @@ public class CompetitorProductDetailRefreshService {
                     throw new IllegalStateException("Noon 前台商品详情未返回结果。");
                 }
                 normalizeDetail(detail, code, product);
-                if (!CompetitorProductDetailWriteGuard.writeIfCurrent(
-                        mapper, watchProduct, product, target, detail, actorUserId
+                if (!writeGuard.writeIfCurrent(
+                        watchProduct,
+                        product,
+                        target,
+                        detail,
+                        searchRunId,
+                        actorUserId
                 )) {
                     result.recordFailure(target, "DETAIL_TARGET_STALE", "详情写入前目标已发生变化。");
                     continue;
                 }
-                snapshotService.recordProductDetailSnapshot(watchProduct, product, detail, searchRunId, actorUserId);
                 result.recordSuccess(target);
             } catch (RuntimeException exception) {
                 String errorCode = errorCode(exception);
