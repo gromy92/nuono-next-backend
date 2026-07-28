@@ -6,6 +6,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.infrastructure.mapper.CompetitorMonitoringMapper;
 import com.nuono.next.infrastructure.mapper.OperationalTaskMapper;
@@ -92,7 +94,7 @@ class CompetitorBatchReplayTest {
     }
 
     @Test
-    void staleBatchChildReplacementRetainsOriginalBatchPayload() {
+    void staleBatchChildReplacementRetainsOriginalBatchPayload() throws Exception {
         OperationalTask stale = task(
                 150000L,
                 CompetitorAnalysisRefreshService.TASK_TYPE,
@@ -112,7 +114,12 @@ class CompetitorBatchReplayTest {
         OperationalTask replacement = repository.selectById(150001L);
         assertEquals(OperationalTaskStatus.FAILED, repository.selectById(150000L).getStatus());
         assertEquals(OperationalTaskStatus.QUEUED, replacement.getStatus());
-        assertEquals(stale.getPayloadJson(), replacement.getPayloadJson());
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode replacementPayload =
+                (ObjectNode) objectMapper.readTree(replacement.getPayloadJson());
+        assertEquals(interruptedRun.getId(), replacementPayload.path("rootRunId").asLong());
+        replacementPayload.remove("rootRunId");
+        assertEquals(objectMapper.readTree(stale.getPayloadJson()), replacementPayload);
         verify(mapper).insertSearchRun(org.mockito.ArgumentMatchers.any());
     }
 
