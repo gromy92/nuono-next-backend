@@ -6,6 +6,7 @@ import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.infrastructure.mapper.OperationalTaskMapper;
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
+import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
@@ -34,5 +35,46 @@ class CompetitorRefreshTaskClaimSqlTest {
         assertTrue(sql.contains("status = 'RUNNING'"));
         assertTrue(sql.contains("status = 'QUEUED'"));
         assertTrue(sql.contains("started_at = NOW()"));
+    }
+
+    @Test
+    void checkpointAndStaleFailureAreRunningLeaseCasUpdates() throws Exception {
+        Method checkpoint = OperationalTaskMapper.class.getMethod(
+                "checkpointRunning",
+                Long.class,
+                String.class,
+                int.class,
+                String.class,
+                LocalDateTime.class
+        );
+        Method stale = OperationalTaskMapper.class.getMethod(
+                "failStaleRunning",
+                Long.class,
+                LocalDateTime.class,
+                String.class,
+                String.class,
+                LocalDateTime.class
+        );
+        String checkpointSql = String.join(" ", checkpoint.getAnnotation(Update.class).value());
+        String staleSql = String.join(" ", stale.getAnnotation(Update.class).value());
+
+        assertTrue(checkpointSql.contains("AND status = 'RUNNING'"));
+        assertTrue(staleSql.contains("AND status = 'RUNNING'"));
+        assertTrue(staleSql.contains("COALESCE(gmt_updated, started_at) <= #{staleBefore}"));
+    }
+
+    @Test
+    void activeRecoveryUsesTaskIdKeysetInsteadOfOffset() throws Exception {
+        Method method = OperationalTaskMapper.class.getMethod(
+                "listActiveByTaskTypeAfterId",
+                String.class,
+                Long.class,
+                int.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Select.class).value());
+
+        assertTrue(sql.contains("id > #{afterTaskId}"));
+        assertTrue(sql.contains("ORDER BY id ASC"));
+        assertTrue(!sql.toUpperCase().contains("OFFSET"));
     }
 }

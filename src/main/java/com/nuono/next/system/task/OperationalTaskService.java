@@ -3,9 +3,11 @@ package com.nuono.next.system.task;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -64,7 +66,15 @@ public class OperationalTaskService {
         task.setStartedAt(initialStatus == OperationalTaskStatus.RUNNING ? now : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
-        repository.insert(task);
+        try {
+            repository.insert(task);
+        } catch (DataIntegrityViolationException exception) {
+            OperationalTask winner = repository.selectActiveByNaturalKey(normalizedTaskType, normalizedNaturalKey);
+            if (winner != null) {
+                return winner.copy();
+            }
+            throw exception;
+        }
         return task.copy();
     }
 
@@ -75,9 +85,71 @@ public class OperationalTaskService {
         return repository.claimQueued(taskId, normalize(message), now());
     }
 
+    public Optional<OperationalTask> prepareQueuedPayload(
+            OperationalTask expected,
+            String payloadJson,
+            String message
+    ) {
+        if (expected == null || expected.getId() == null) {
+            throw new IllegalArgumentException("expected task is required");
+        }
+        String normalizedPayload = normalize(payloadJson);
+        if (!Objects.equals(expected.getPayloadJson(), normalizedPayload)) {
+            repository.compareAndSetQueuedPayload(
+                    expected.getId(),
+                    expected.getPayloadJson(),
+                    normalizedPayload,
+                    normalize(message),
+                    now()
+            );
+        }
+        OperationalTask task = repository.selectById(expected.getId());
+        return task == null || task.getStatus() != OperationalTaskStatus.QUEUED
+                ? Optional.empty()
+                : Optional.of(task.copy());
+    }
+
     public Optional<OperationalTask> find(Long taskId) {
         OperationalTask task = repository.selectById(taskId);
         return task == null ? Optional.empty() : Optional.of(task.copy());
+    }
+    public boolean checkpointRunning(Long taskId, String payloadJson, Integer progressPercent, String message) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId is required");
+        }
+        return repository.checkpointRunning(
+                taskId,
+                normalize(payloadJson),
+                clampProgress(progressPercent),
+                normalize(message),
+                now()
+        );
+    }
+
+    public boolean failStaleRunning(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
+        if (taskId == null || staleBefore == null) {
+            throw new IllegalArgumentException("taskId and staleBefore are required");
+        }
+        return repository.failStaleRunning(
+                taskId,
+                staleBefore,
+                normalize(errorCode),
+                normalize(message),
+                now()
+        );
+    }
+
+    public boolean failStaleQueued(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
+        if (taskId == null || staleBefore == null) {
+            throw new IllegalArgumentException("taskId and staleBefore are required");
+        }
+        return repository.failStaleQueued(
+                taskId,
+                staleBefore,
+                normalize(errorCode),
+                normalize(message),
+                now()
+        );
     }
 
     public Optional<OperationalTask> findActive(String taskType, String naturalKey) {
@@ -96,6 +168,19 @@ public class OperationalTaskService {
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
 
+    public Optional<OperationalTask> findLatestByBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        OperationalTask task = repository.selectLatestByNaturalKeyAndBatchKey(
+                requireText(taskType, "taskType"),
+                requireText(naturalKey, "naturalKey"),
+                requireText(batchKey, "batchKey")
+        );
+        return task == null ? Optional.empty() : Optional.of(task.copy());
+    }
+
     public List<OperationalTask> listRecent(String taskType, int limit) {
         return repository.listRecent(normalize(taskType), Math.max(1, Math.min(limit, 200))).stream()
                 .map(OperationalTask::copy)
@@ -105,6 +190,16 @@ public class OperationalTaskService {
     public List<OperationalTask> listActive(String taskType, int limit) {
         return repository.listActiveByTaskType(
                         requireText(taskType, "taskType"),
+                        Math.max(1, Math.min(limit, 1000))
+                ).stream()
+                .map(OperationalTask::copy)
+                .collect(Collectors.toList());
+    }
+
+    public List<OperationalTask> listActiveAfter(String taskType, Long afterTaskId, int limit) {
+        return repository.listActiveByTaskTypeAfterId(
+                        requireText(taskType, "taskType"),
+                        afterTaskId == null ? 0L : Math.max(0L, afterTaskId),
                         Math.max(1, Math.min(limit, 1000))
                 ).stream()
                 .map(OperationalTask::copy)

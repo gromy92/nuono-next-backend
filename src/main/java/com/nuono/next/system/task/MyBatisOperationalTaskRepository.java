@@ -44,6 +44,15 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public OperationalTask selectLatestByNaturalKeyAndBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        return mapper.selectLatestByNaturalKeyAndBatchKey(taskType, naturalKey, batchKey);
+    }
+
+    @Override
     public void update(OperationalTask task) {
         mapper.update(task);
     }
@@ -54,8 +63,59 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public boolean compareAndSetQueuedPayload(
+            Long taskId,
+            String expectedPayloadJson,
+            String payloadJson,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return mapper.compareAndSetQueuedPayload(
+                taskId, expectedPayloadJson, payloadJson, message, updatedAt
+        ) == 1;
+    }
+
+    @Override
+    public boolean checkpointRunning(
+            Long taskId,
+            String payloadJson,
+            int progressPercent,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return mapper.checkpointRunning(taskId, payloadJson, progressPercent, message, updatedAt) == 1;
+    }
+
+    @Override
+    public boolean failStaleRunning(
+            Long taskId,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String message,
+            LocalDateTime finishedAt
+    ) {
+        return mapper.failStaleRunning(taskId, staleBefore, errorCode, message, finishedAt) == 1;
+    }
+
+    @Override
+    public boolean failStaleQueued(
+            Long taskId,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String message,
+            LocalDateTime finishedAt
+    ) {
+        return mapper.failStaleQueued(taskId, staleBefore, errorCode, message, finishedAt) == 1;
+    }
+
+    @Override
     public List<OperationalTask> listActiveByTaskType(String taskType, int limit) {
         return mapper.listActiveByTaskType(taskType, limit);
+    }
+
+    @Override
+    public List<OperationalTask> listActiveByTaskTypeAfterId(String taskType, Long afterTaskId, int limit) {
+        return mapper.listActiveByTaskTypeAfterId(taskType, afterTaskId, limit);
     }
 
     @Override

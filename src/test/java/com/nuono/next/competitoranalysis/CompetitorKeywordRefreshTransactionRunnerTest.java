@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -38,6 +39,7 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         );
 
         CompetitorKeywordRefreshResult result = runner.runKeyword(
+                150123L,
                 220123L,
                 watchProduct(),
                 keyword(),
@@ -76,6 +78,7 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         );
 
         CompetitorKeywordRefreshResult result = runner.runKeyword(
+                150124L,
                 220124L,
                 watchProduct(),
                 keyword(),
@@ -111,6 +114,7 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         );
 
         CompetitorKeywordRefreshResult result = runner.runKeyword(
+                150125L,
                 220125L,
                 watchProduct(),
                 keyword(),
@@ -124,6 +128,37 @@ class CompetitorKeywordRefreshTransactionRunnerTest {
         assertEquals(Integer.valueOf(21), keywordRunCaptor.getValue().getResultCount());
         assertEquals(Integer.valueOf(100), keywordRunCaptor.getValue().getRequestedResultLimit());
         verify(mapper).markKeywordProviderSucceeded(190001L, "SUCCESS", 601L);
+    }
+
+    @Test
+    void unexpectedWriteFailureEscapesSoTheKeywordTransactionRollsBack() {
+        when(mapper.nextKeywordRunId()).thenReturn(230004L);
+        CompetitorKeywordRefreshTransactionRunner runner =
+                new CompetitorKeywordRefreshTransactionRunner(
+                        mapper,
+                        context -> {
+                            mapper.insertSearchResult(
+                                    new CompetitorSearchResultInsertCommand()
+                            );
+                            throw new IllegalStateException("rank fact insert failed");
+                        }
+                );
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> runner.runKeyword(
+                        150126L,
+                        220126L,
+                        watchProduct(),
+                        keyword(),
+                        601L
+                )
+        );
+
+        verify(mapper, never()).insertKeywordRun(any());
+        verify(mapper, never()).markKeywordProviderFailed(
+                any(), any(), any(), any()
+        );
     }
 
     private static CompetitorWatchProductRow watchProduct() {

@@ -34,12 +34,14 @@ enum CompetitorRefreshExecutionMode {
         return runsDetail;
     }
 
-    static CompetitorRefreshExecutionMode fromTriggerMode(String triggerMode) {
+    static CompetitorRefreshExecutionMode strictFromTriggerMode(String triggerMode) {
         for (CompetitorRefreshExecutionMode mode : values()) {
             if (mode.triggerMode.equals(triggerMode)) {
                 return mode;
             }
         }
-        return FULL_MANUAL;
+        throw new CompetitorRefreshRecoveryIdentityException(
+                "Unknown competitor refresh trigger mode: " + triggerMode
+        );
     }
 }
