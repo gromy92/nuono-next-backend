@@ -97,8 +97,10 @@ public final class ProductListingWorkflowProjector {
         }
         if (isRealRunStatus(realRunTask, "written_verify_failed")
                 && hasCreateReferences(realRunTask)
-                && ProductListingWorkflowEvidence.hasFailedWriteStep(
-                        realRunTask.getNoonResult())) {
+                && ("real_run_in_progress".equalsIgnoreCase(
+                        realRunTask.getFailureCode())
+                || ProductListingWorkflowEvidence.hasFailedWriteStep(
+                        realRunTask.getNoonResult()))) {
             view.setPhase(ProductListingWorkflowView.Phase.ACTION_REQUIRED);
             view.setWriteCertainty(ProductListingWorkflowView.WriteCertainty.WRITTEN);
             view.setNextAction(ProductListingWorkflowView.NextAction.CONTINUE_AFTER_CREATE);
@@ -272,6 +274,7 @@ public final class ProductListingWorkflowProjector {
                 || "noon_create_rejected".equalsIgnoreCase(code)
                 || "noon_create_not_found_confirmed".equalsIgnoreCase(code)
                 || "noon_warehouse_stock_not_supported".equalsIgnoreCase(code)
+                || "real_run_interrupted_before_write".equalsIgnoreCase(code)
                 || "partner_sku_already_exists".equalsIgnoreCase(code)
                 || "barcode_already_exists".equalsIgnoreCase(code);
     }

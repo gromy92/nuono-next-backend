@@ -72,7 +72,7 @@ public interface ProductListingMapper extends
             "            'noon_pre_create_failed',",
             "            'noon_create_rejected',",
             "            'noon_create_not_found_confirmed',",
-            "            'noon_warehouse_stock_not_supported',",
+            "            'noon_warehouse_stock_not_supported', 'real_run_interrupted_before_write',",
             "            'partner_sku_already_exists',",
             "            'barcode_already_exists'",
             "          )",

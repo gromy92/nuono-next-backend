@@ -24,9 +24,12 @@ final class ProductListingNoonWriteFailureSupport {
         step.setFailureMessage(
                 "当前上架流程不会写入 Noon FBP、仓库或库存数量；"
                         + "请清空这些字段后重新检查。");
-        return ProductListingNoonWriteResult.failed(
+        step.setWriteMayHaveOccurred(false);
+        ProductListingNoonWriteResult result = ProductListingNoonWriteResult.failed(
                 "validation", step.getFailureCode(),
                 step.getFailureMessage(), List.of(step));
+        result.setWriteMayHaveOccurred(false);
+        return result;
     }
 
     ProductListingNoonWriteResult preCreateFailure(RuntimeException exception) {
@@ -41,9 +44,12 @@ final class ProductListingNoonWriteFailureSupport {
         step.setFailureMessage(StringUtils.hasText(exception.getMessage())
                 ? exception.getMessage()
                 : "Noon create preflight failed before any write started.");
-        return ProductListingNoonWriteResult.failed(
+        step.setWriteMayHaveOccurred(false);
+        ProductListingNoonWriteResult result = ProductListingNoonWriteResult.failed(
                 authenticationFailure ? "authentication" : "noon_pre_create",
                 step.getFailureCode(), step.getFailureMessage(), List.of(step));
+        result.setWriteMayHaveOccurred(false);
+        return result;
     }
 
     String failedStepCode(

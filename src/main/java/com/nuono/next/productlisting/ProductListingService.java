@@ -249,9 +249,10 @@ public class ProductListingService {
     }
     public ProductListingDraftView validateDraft(BusinessAccessContext context, Long draftId) {
         requireContext(context);
-        Long ownerUserId = requireOwnerUserId(context);
-        ProductListingDraftRecord record = requireDraft(draftId, ownerUserId);
-        requireStoreAccess(context, record.getStoreCode());
+        ProductListingDraftRecord record =
+                workflowGuard.requireAccessibleDraft(
+                        context, draftId, false);
+        Long ownerUserId = record.getOwnerUserId();
         ProductListingDraftCommand command = readDraft(record.getDraftJson());
         List<ProductListingValidationIssue> issues = validateWithRuntimeWarnings(command, ownerUserId, record.getStoreCode());
         record.setStatus(validator.hasBlockingDraftIssues(issues) ? "draft" : "ready_for_dry_run");
@@ -263,9 +264,9 @@ public class ProductListingService {
 
     public ProductListingDraftView loadDraft(BusinessAccessContext context, Long draftId) {
         requireContext(context);
-        Long ownerUserId = requireOwnerUserId(context);
-        ProductListingDraftRecord record = requireDraft(draftId, ownerUserId);
-        requireStoreAccess(context, record.getStoreCode());
+        ProductListingDraftRecord record =
+                workflowGuard.requireAccessibleDraft(
+                        context, draftId, false);
         return draftView(record, readDraft(record.getDraftJson()), readIssues(record.getValidationJson()));
     }
 
@@ -398,8 +399,9 @@ public class ProductListingService {
 
     public ProductListingTaskView loadTask(BusinessAccessContext context, Long taskId) {
         requireContext(context);
-        ProductListingTaskRecord task = requireTask(taskId, requireOwnerUserId(context));
-        requireStoreAccess(context, task.getStoreCode());
+        ProductListingTaskRecord task =
+                workflowGuard.requireAccessibleTask(
+                        context, taskId, false);
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
@@ -431,9 +433,10 @@ public class ProductListingService {
             ProductListingRealRunCommand command
     ) {
         requireContext(context);
-        Long ownerUserId = requireOwnerUserId(context);
         ProductListingTaskRecord dryRunSnapshot =
-                requireTask(dryRunTaskId, ownerUserId);
+                workflowGuard.requireAccessibleTask(
+                        context, dryRunTaskId, false);
+        Long ownerUserId = dryRunSnapshot.getOwnerUserId();
         ProductListingDraftRecord currentDraft =
                 workflowGuard.requireLockedDraft(dryRunSnapshot.getDraftId(), ownerUserId);
         ProductListingTaskRecord dryRunTask =
@@ -442,7 +445,12 @@ public class ProductListingService {
                 || !Objects.equals(currentDraft.getId(), dryRunTask.getDraftId())) {
             throw new IllegalArgumentException("Product listing task not found.");
         }
-        requireStoreAccess(context, dryRunTask.getStoreCode());
+        workflowGuard.requireRecordScope(
+                context,
+                dryRunTask.getOwnerUserId(),
+                dryRunTask.getStoreCode(),
+                "Product listing task not found."
+        );
 
         if (!DRY_RUN_MODE.equals(dryRunTask.getMode())) {
             throw new IllegalArgumentException(
@@ -608,7 +616,7 @@ public class ProductListingService {
         }
         if (!"submitted".equals(task.getStatus())){ return taskView(task, readIssues(task.getValidationJson())); }
         LocalDateTime startedAt = LocalDateTime.now();
-        int claimed = mapper.markTaskRunning(task.getId(), startedAt);
+        int claimed = ProductListingNoonCheckpoint.claim(mapper, objectMapper, task, startedAt, readPartnerSku(task.getInputSnapshotJson()));
         task = mapper.selectTaskByIdForWorker(realRunTaskId);
         if (task == null) {
             throw new IllegalArgumentException("Product listing real-run task not found.");
@@ -730,20 +738,21 @@ public class ProductListingService {
                 context, realRunTaskId, ProductListingWorkflowView.NextAction.VERIFY_READBACK);
         task = ProductListingTaskLease.claimRecovery(mapper, task);
         try (ProductListingTaskLease lease = ProductListingTaskLease.start(mapper, task)) {
-            ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson());
+            ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson()), result;
             try {
                 NoonWriteReferences references = requireNoonWriteReferences(previousResult);
                 ProductListingNoonWriteRequest request = noonWriteRequest(context, task);
                 request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
                 ProductListingNoonWriteStepResult readBack = noonWriteAdapter.verifyReadBack(
                         request, references.skuParent, references.pskuCode, references.uploadedImagePaths);
-                ProductListingNoonWriteResult result = resultWithReadBack(previousResult, readBack);
-                lease.heartbeatOrThrow();
-                return completeManualRecovery(task, lease, result);
+                result = resultWithReadBack(previousResult, readBack);
             } catch (RuntimeException exception) {
-                return completeManualRecovery(task, lease,
-                        ProductListingManualRecoveryResult.fromException(previousResult, "verify_noon_readback", exception));
+                ProductListingNoonCheckpoint
+                        .rethrowIfLeaseLost(exception);
+                result = ProductListingManualRecoveryResult.fromException(previousResult, "verify_noon_readback", exception);
             }
+            lease.heartbeatOrThrow();
+            return completeManualRecovery(task, lease, result);
         }
     }
 
@@ -768,7 +777,12 @@ public class ProductListingService {
         try (ProductListingTaskLease lease = ProductListingTaskLease.start(mapper, task)) {
             ProductListingNoonWriteRequest request = noonWriteRequest(context, task);
             request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
+            ProductListingNoonCheckpoint.bind(
+                    request, lease, objectMapper,
+                    checkpoint -> resultWithContinuation(
+                            previousResult, checkpoint));
             NoonWriteReferences references = noonWriteReferences(previousResult);
+            ProductListingNoonWriteResult result;
             try {
                 if (!StringUtils.hasText(references.skuParent) || !StringUtils.hasText(references.pskuCode)) {
                     throw new IllegalArgumentException(
@@ -777,18 +791,22 @@ public class ProductListingService {
                 }
                 ProductListingNoonWriteResult continuationResult =
                         noonWriteAdapter.continueAfterCreate(request, references.skuParent, references.pskuCode);
-                ProductListingNoonWriteResult result = resultWithContinuation(previousResult, continuationResult);
-                lease.heartbeatOrThrow();
-                return completeManualRecovery(task, lease, result);
+                result = resultWithContinuation(previousResult, continuationResult);
             } catch (RuntimeException exception) {
-                return completeManualRecovery(task, lease,
-                        ProductListingManualRecoveryResult.fromException(previousResult, "continue_after_create", exception));
+                ProductListingNoonCheckpoint
+                        .rethrowIfLeaseLost(exception);
+                result = ProductListingManualRecoveryResult.fromException(
+                        previousResult, "continue_after_create", exception);
             }
+            lease.heartbeatOrThrow();
+            return completeManualRecovery(task, lease, result);
         }
     }
 
     private ProductListingTaskView completeManualRecovery(
             ProductListingTaskRecord task, ProductListingTaskLease lease, ProductListingNoonWriteResult result) {
+        ProductListingNoonCheckpoint.persist(
+                lease, objectMapper, result);
         applyNoonWriteResult(task, result);
         task = lease.completeOrReload(task);
         return taskView(task, readIssues(task.getValidationJson()));
@@ -930,29 +948,24 @@ public class ProductListingService {
             ProductListingTaskRecord realRunTask,
             ProductListingTaskLease lease
     ) {
-        try {
-            ProductListingNoonWriteRequest request = noonWriteRequest(realRunTask);
-            request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
-            ProductListingNoonWriteResult result = noonWriteAdapter.execute(request);
-            if (result == null) {
-                return ProductListingNoonWriteResult.failed(
-                        "configuration",
-                        "noon_write_adapter_empty_result",
-                        "Product listing Noon write adapter returned an empty result.",
-                        List.of()
-                );
-            }
-            return result;
-        } catch (RuntimeException exception) {
-            return ProductListingNoonWriteResult.failed(
-                    "noon_api",
-                    "noon_write_exception",
-                    StringUtils.hasText(exception.getMessage())
-                            ? exception.getMessage()
-                            : "Product listing Noon write failed.",
+        ProductListingNoonWriteRequest request =
+                noonWriteRequest(realRunTask);
+        request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
+        ProductListingNoonCheckpoint.bind(
+                request, lease, objectMapper);
+        ProductListingNoonWriteResult result =
+                noonWriteAdapter.execute(request);
+        if (result == null) {
+            result = ProductListingNoonWriteResult.failed(
+                    "configuration",
+                    "noon_write_adapter_empty_result",
+                    "Product listing Noon write adapter returned an empty result.",
                     List.of()
             );
         }
+        ProductListingNoonCheckpoint.persist(
+                lease, objectMapper, result);
+        return result;
     }
 
     private ProductListingNoonWriteRequest noonWriteRequest(
@@ -1310,22 +1323,9 @@ public class ProductListingService {
         }
     }
 
-    private Long resolveOwnerUserId(BusinessAccessContext context, String storeCode) {
-        Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("Business owner user ID is required.");
-        }
-        return ownerUserId;
-    }
-
-    private Long requireOwnerUserId(BusinessAccessContext context) {
-        Long ownerUserId = context.getBusinessOwnerUserId();
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("Business owner user ID is required.");
-        }
+    private Long resolveOwnerUserId(BusinessAccessContext context, String storeCode){
+        Long ownerUserId = ProductListingOwnerScope.resolve(context, storeCode);
+        if (ownerUserId == null){ throw new IllegalArgumentException("Business owner user ID is required."); }
         return ownerUserId;
     }
 
