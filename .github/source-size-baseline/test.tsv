@@ -1,9 +1,9 @@
 # Source-size debt ceilings: test Java. Keep paths sorted.
 # Format: repository-relative path<TAB>physical-line ceiling.
 src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisMaintenanceServiceTest.java	308
-src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshServiceTest.java	736
-src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisServiceTest.java	920
-src/test/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunnerTest.java	380
+src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshServiceTest.java	738
+src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisServiceTest.java	793
+src/test/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunnerTest.java	336
 src/test/java/com/nuono/next/filemanagement/parse/FileParseNaturalKeySupportTest.java	849
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceLogisticsTest.java	633
 src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceOutboundFeeTest.java	553
@@ -44,7 +44,7 @@ src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	692
 src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	345
 src/test/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsServiceTest.java	1004
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	589
-src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	345
+src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	344
 src/test/java/com/nuono/next/operationsconfig/OperationConfigTypedVersionContentSupportTest.java	465
 src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryControllerTest.java	417
 src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryServiceTest.java	1417

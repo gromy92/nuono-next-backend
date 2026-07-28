@@ -388,7 +388,8 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorKeywordRow rateLimitedKeyword = keyword(190001L, "laundry basket");
         CompetitorKeywordRow skippedKeyword = keyword(190002L, "storage basket");
-        CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
+        CompetitorTestRiskBackoffRepository riskRepository =
+                new CompetitorTestRiskBackoffRepository();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
                 monitoringMapper,
@@ -452,7 +453,8 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorKeywordRow rateLimitedKeyword = keyword(190001L, "laundry basket");
         CompetitorKeywordRow blockedByBackoffKeyword = keyword(190002L, "storage basket");
         blockedByBackoffKeyword.setWatchProductId(180124L);
-        CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
+        CompetitorTestRiskBackoffRepository riskRepository =
+                new CompetitorTestRiskBackoffRepository();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
                 monitoringMapper,

@@ -27,12 +27,9 @@ class OfficialWarehouseSchemaTest {
         String sql = Files.readString(Path.of(
                 "src/main/resources/db/init/188_official_warehouse_asn_sync_throttle.sql"
         ));
-        String mapper = Files.readString(Path.of(
-                "src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"
-        ));
-        String service = Files.readString(Path.of(
-                "src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"
-        ));
+        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
+        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
+        String executor = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAsnListRemoteExecutor.java"));
 
         assertThat(sql)
                 .contains("CREATE TABLE IF NOT EXISTS `official_warehouse_asn_sync_throttle`")
@@ -43,13 +40,15 @@ class OfficialWarehouseSchemaTest {
                 .contains("claimOfficialWarehouseAsnListSync")
                 .contains("DATE_SUB(NOW(), INTERVAL 60 MINUTE)")
                 .contains("selectOfficialWarehouseAsnListSyncThrottle");
-        assertThat(service)
+        assertThat(executor)
                 .contains("OFFICIAL_WAREHOUSE_ASN_SYNC_RATE_LIMITED")
                 .contains("HttpStatus.TOO_MANY_REQUESTS")
-                .contains("claimOfficialWarehouseAsnListSync(")
+                .contains("throttleMapper.release(");
+        assertThat(service)
+                .contains("asnListRemoteExecutor.execute(")
                 .contains("openNoonSession(ownerUserId, binding)");
         assertThat(service.indexOf("openNoonSession(ownerUserId, binding)"))
-                .isLessThan(service.indexOf("claimOfficialWarehouseAsnListSync("));
+                .isLessThan(service.indexOf("asnListRemoteExecutor.execute("));
     }
 
     @Test
@@ -303,7 +302,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("selected_warehouse_partner_code = #{selectedWarehousePartnerCode}");
         assertThat(snapshotSql).doesNotContain("status = 'ROUTED'");
         assertThat(service)
-                .contains("syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, false")
+                .contains("row, false, operatorUserId")
                 .contains("syncNoonAsnListRow(result, ownerUserId, site, binding, session, remoteRow, true")
                 .contains("prefillSyncedAsnRoutingWarehouses(")
                 .contains("queryAsnDetailRow(session, binding, context, syncRecord.noonAsnNr)")

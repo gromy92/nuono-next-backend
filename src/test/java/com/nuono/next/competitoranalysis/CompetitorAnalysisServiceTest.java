@@ -513,12 +513,12 @@ class CompetitorAnalysisServiceTest {
         assertEquals("RANKED", view.getCompetitorAttributeChanges().get(0).getSelfLatestRankStatus());
         assertEquals(3, view.getCompetitorAttributeChanges().get(0).getSelfLatestRankNo());
         assertEquals(100, view.getCompetitorAttributeChanges().get(0).getSelfLatestScanDepth());
-        assertEquals(LocalDate.now().minusDays(29L), view.getCompetitorAttributeChangeDate());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), view.getCompetitorAttributeChangeDate());
         assertEquals(9L, view.getCompetitorAttributeSnapshotCount());
-        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(0));
-        assertEquals(LocalDate.now().minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(1));
-        assertEquals(LocalDate.now().minusDays(30L), rankFromDateCaptor.getValue());
-        assertEquals(LocalDate.now().minusDays(1L), rankToDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(0));
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(29L), attributeChangeFromDateCaptor.getAllValues().get(1));
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(30L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L), rankToDateCaptor.getValue());
     }
 
     @Test
@@ -561,18 +561,18 @@ class CompetitorAnalysisServiceTest {
         CompetitorDashboardView view = service.dashboard(operatorContext(), "STR108065-NSA", "SA", 1, "up");
 
         assertEquals(1, view.getDays());
-        assertEquals(LocalDate.now().minusDays(1L), rankFromDateCaptor.getValue());
-        assertEquals(LocalDate.now(), rankToDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L), rankFromDateCaptor.getValue());
+        assertEquals(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")), rankToDateCaptor.getValue());
     }
 
     @Test
     void dashboardUsesLatestAvailableRankDateWhenRequestedEndpointHasNoRankFacts() {
-        LocalDate latestRankDate = LocalDate.now().minusDays(2L);
+        LocalDate latestRankDate = LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(2L);
         when(mapper.selectLatestRankFactDate(
                 eq(501L),
                 eq("STR108065-NSA"),
                 eq("SA"),
-                eq(LocalDate.now().minusDays(1L))
+                eq(LocalDate.now(java.time.ZoneId.of("Asia/Shanghai")).minusDays(1L))
         )).thenReturn(latestRankDate);
         ArgumentCaptor<LocalDate> rankFromDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
         ArgumentCaptor<LocalDate> rankToDateCaptor = ArgumentCaptor.forClass(LocalDate.class);
@@ -652,87 +652,6 @@ class CompetitorAnalysisServiceTest {
         assertEquals(HttpStatus.CONFLICT, error.getStatus());
         assertEquals("COMPETITOR_KEYWORD_SCOPE_MISMATCH", error.getReason());
         verify(mapper, never()).listRankHistoryByWatchProductIdAndKeywordId(any(), any(), any(), any());
-    }
-
-    @Test
-    void browserObservationMarksLatestKeywordRunResultAsSponsored() {
-        CompetitorBrowserObservationCommand command = browserObservationCommand(
-                browserObservationItem("ZF47007A9D75977AB9A83Z", 1, "QiLi 30 Pcs Wooden Black HB Pencils")
-        );
-        CompetitorProductRow product = competitorProduct(200020L, "ZF47007A9D75977AB9A83Z", "PENDING");
-        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
-        when(mapper.selectLatestSucceededKeywordRunByKeywordId(190001L)).thenReturn(keywordRun(230017L, 220013L));
-        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
-        when(mapper.selectCompetitorProductByCode(180123L, "ZF47007A9D75977AB9A83Z")).thenReturn(product);
-        when(mapper.markSearchResultSponsored(230017L, "ZF47007A9D75977AB9A83Z", 601L)).thenReturn(1);
-        when(mapper.nextKeywordProductId()).thenReturn(210020L);
-
-        CompetitorBrowserObservationResultView result = service.applyBrowserObservations(
-                operatorContext(),
-                190001L,
-                command
-        );
-
-        assertEquals(1, result.getSponsoredObservedCount());
-        assertEquals(1, result.getSearchResultUpdatedCount());
-        assertEquals(0, result.getSearchResultInsertedCount());
-        assertEquals(0, result.getCompetitorInsertedCount());
-        ArgumentCaptor<CompetitorKeywordProductSearchCommand> relationCaptor =
-                ArgumentCaptor.forClass(CompetitorKeywordProductSearchCommand.class);
-        verify(mapper).upsertKeywordProductRelationFromSearch(relationCaptor.capture());
-        assertEquals(190001L, relationCaptor.getValue().getKeywordId());
-        assertEquals(200020L, relationCaptor.getValue().getCompetitorProductId());
-        assertEquals("DISCOVERED", relationCaptor.getValue().getRelationStatus());
-        assertEquals(220013L, relationCaptor.getValue().getSearchRunId());
-        assertEquals(1, relationCaptor.getValue().getRankNo());
-        assertEquals(Boolean.TRUE, relationCaptor.getValue().getSponsored());
-        verify(mapper).markRankFactSponsored(230017L, "ZF47007A9D75977AB9A83Z", 601L);
-    }
-
-    @Test
-    void browserObservationInsertsSponsoredCandidateWhenCatalogDidNotContainTheAdCard() {
-        CompetitorBrowserObservationCommand command = browserObservationCommand(
-                browserObservationItem("N51360862A", 2, "Translucent Frosted Back Protective Case")
-        );
-        when(mapper.selectKeywordScopeById(190001L)).thenReturn(keywordScope(190001L, 180123L));
-        when(mapper.selectLatestSucceededKeywordRunByKeywordId(190001L)).thenReturn(keywordRun(230017L, 220013L));
-        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct(180123L, "Z6122BASKETSA"));
-        when(mapper.selectCompetitorProductByCode(180123L, "N51360862A")).thenReturn(null);
-        when(mapper.nextCompetitorProductId()).thenReturn(200021L);
-        when(mapper.markSearchResultSponsored(230017L, "N51360862A", 601L)).thenReturn(0);
-        when(mapper.nextSearchResultId()).thenReturn(240021L);
-        when(mapper.nextKeywordProductId()).thenReturn(210021L);
-
-        CompetitorBrowserObservationResultView result = service.applyBrowserObservations(
-                operatorContext(),
-                190001L,
-                command
-        );
-
-        assertEquals(1, result.getSponsoredObservedCount());
-        assertEquals(0, result.getSearchResultUpdatedCount());
-        assertEquals(1, result.getSearchResultInsertedCount());
-        assertEquals(1, result.getCompetitorInsertedCount());
-
-        ArgumentCaptor<CompetitorProductInsertCommand> productCaptor =
-                ArgumentCaptor.forClass(CompetitorProductInsertCommand.class);
-        verify(mapper).insertCompetitorProduct(productCaptor.capture());
-        assertEquals(200021L, productCaptor.getValue().getId());
-        assertEquals("N51360862A", productCaptor.getValue().getNoonProductCode());
-        assertEquals("PENDING", productCaptor.getValue().getReviewStatus());
-        assertEquals("SEARCH_DISCOVERY", productCaptor.getValue().getSourceType());
-
-        ArgumentCaptor<CompetitorSearchResultInsertCommand> resultCaptor =
-                ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
-        verify(mapper).insertSearchResult(resultCaptor.capture());
-        assertEquals(240021L, resultCaptor.getValue().getId());
-        assertEquals(230017L, resultCaptor.getValue().getKeywordRunId());
-        assertEquals(2, resultCaptor.getValue().getResultPosition());
-        assertEquals("N51360862A", resultCaptor.getValue().getNoonProductCode());
-        assertEquals(Boolean.TRUE, resultCaptor.getValue().getSponsored());
-
-        verify(mapper).upsertKeywordProductRelationFromSearch(any());
-        verify(mapper).markRankFactSponsored(230017L, "N51360862A", 601L);
     }
 
     private static CompetitorWatchProductCreateCommand createCommand(String selfNoonProductCode) {
@@ -856,52 +775,6 @@ class CompetitorAnalysisServiceTest {
         row.setRankNo(rankNo);
         row.setSponsored(false);
         row.setFactTime(LocalDateTime.of(2026, 6, 5, 8, 4));
-        return row;
-    }
-
-    private static CompetitorBrowserObservationCommand browserObservationCommand(
-            CompetitorBrowserObservationItem... items
-    ) {
-        CompetitorBrowserObservationCommand command = new CompetitorBrowserObservationCommand();
-        command.setSourceUrl("https://www.noon.com/saudi-en/search/?q=Qili#nuonoKeywordId=190001");
-        command.setItems(List.of(items));
-        return command;
-    }
-
-    private static CompetitorBrowserObservationItem browserObservationItem(
-            String noonProductCode,
-            int position,
-            String title
-    ) {
-        CompetitorBrowserObservationItem item = new CompetitorBrowserObservationItem();
-        item.setNoonProductCode(noonProductCode);
-        item.setPosition(position);
-        item.setSponsored(true);
-        item.setCanonicalUrl("https://www.noon.com/saudi-en/item/" + noonProductCode + "/p/");
-        item.setTitle(title);
-        item.setBrand("Qili");
-        item.setImageUrl("https://f.nooncdn.com/p/" + noonProductCode + ".jpg");
-        item.setCurrencyCode("SAR");
-        return item;
-    }
-
-    private static CompetitorKeywordRunRow keywordRun(Long keywordRunId, Long searchRunId) {
-        CompetitorKeywordRunRow row = new CompetitorKeywordRunRow();
-        row.setId(keywordRunId);
-        row.setSearchRunId(searchRunId);
-        row.setKeywordId(190001L);
-        row.setKeywordSnapshot("Qili");
-        row.setCapturedAt(LocalDateTime.of(2026, 6, 7, 11, 49, 10));
-        return row;
-    }
-
-    private static CompetitorProductRow competitorProduct(Long id, String noonProductCode, String reviewStatus) {
-        CompetitorProductRow row = new CompetitorProductRow();
-        row.setId(id);
-        row.setWatchProductId(180123L);
-        row.setNoonProductCode(noonProductCode);
-        row.setCodeType(noonProductCode.startsWith("Z") ? "Z_CODE" : "N_CODE");
-        row.setReviewStatus(reviewStatus);
         return row;
     }
 

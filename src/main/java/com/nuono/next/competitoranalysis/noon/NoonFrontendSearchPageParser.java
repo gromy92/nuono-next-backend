@@ -8,7 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -22,21 +22,22 @@ import org.springframework.util.StringUtils;
 
 @Component
 public class NoonFrontendSearchPageParser {
-    public static final String PARSER_VERSION = "noon-search-html-v1";
-    public static final String CATALOG_PARSER_VERSION = "noon-search-catalog-v1";
-    public static final String CUSTOMER_CATALOG_V3_PARSER_VERSION = "noon-search-customer-catalog-v3";
+    public static final String PARSER_VERSION = "noon-search-html-v2";
+    public static final String CATALOG_PARSER_VERSION = "noon-search-catalog-v2";
+    public static final String CUSTOMER_CATALOG_V3_PARSER_VERSION = "noon-search-customer-catalog-v3-rank-channel-v2";
+    private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
     @Autowired
     public NoonFrontendSearchPageParser(ObjectMapper objectMapper) {
-        this(objectMapper, Clock.systemUTC());
+        this(objectMapper, Clock.system(BUSINESS_ZONE));
     }
 
     NoonFrontendSearchPageParser(ObjectMapper objectMapper, Clock clock) {
         this.objectMapper = objectMapper;
-        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.clock = (clock == null ? Clock.system(BUSINESS_ZONE) : clock).withZone(BUSINESS_ZONE);
     }
 
     public NoonSearchPage parse(String html, String sourceUrl, int providerHttpStatus) {
@@ -52,11 +53,10 @@ public class NoonFrontendSearchPageParser {
             );
         }
         Document document = Jsoup.parse(body, sourceUrl);
-        Map<String, NoonSearchResult> byCode = new LinkedHashMap<>();
-        PositionCounter positionCounter = new PositionCounter();
-        collectJsonResults(document, sourceUrl, byCode, positionCounter);
-        collectHtmlResults(document, sourceUrl, byCode, positionCounter);
-        if (byCode.isEmpty()) {
+        NoonSearchResultAccumulator results = new NoonSearchResultAccumulator();
+        collectJsonResults(document, sourceUrl, results);
+        collectHtmlResults(document, sourceUrl, results);
+        if (results.isEmpty()) {
             throw new NoonSearchProviderException(
                     "PARSE_FAILED",
                     "Noon 搜索页结构无法解析出商品结果。",
@@ -72,7 +72,7 @@ public class NoonFrontendSearchPageParser {
         page.setProviderHttpStatus(providerHttpStatus);
         page.setResponseHash(hash);
         page.setCapturedAt(LocalDateTime.now(clock));
-        page.setResults(new ArrayList<>(byCode.values()));
+        page.setResults(results.results());
         return page;
     }
 
@@ -92,21 +92,16 @@ public class NoonFrontendSearchPageParser {
             );
         }
 
-        Map<String, NoonSearchResult> byCode = new LinkedHashMap<>();
-        PositionCounter positionCounter = new PositionCounter();
-        collectCatalogSponsoredResults(root, sourceUrl, byCode, positionCounter, 0, false);
+        NoonSearchResultAccumulator results = new NoonSearchResultAccumulator();
         JsonNode hits = firstArray(root, "hits", "products", "items", "results");
         if (hits != null) {
             for (JsonNode hit : hits) {
                 NoonSearchResult result = toCatalogResult(hit, sourceUrl);
-                if (result == null || byCode.containsKey(result.getNoonProductCode())) {
-                    continue;
-                }
-                result.setPosition(positionCounter.next());
-                byCode.put(result.getNoonProductCode(), result);
+                results.add(result);
             }
         }
-        if (byCode.isEmpty()) {
+        collectCatalogSponsoredResults(root, sourceUrl, results, 0, false);
+        if (results.isEmpty()) {
             throw new NoonSearchProviderException(
                     "PARSE_FAILED",
                     "Noon catalog 搜索响应无法解析出商品结果。",
@@ -122,15 +117,14 @@ public class NoonFrontendSearchPageParser {
         page.setProviderHttpStatus(providerHttpStatus);
         page.setResponseHash(hash);
         page.setCapturedAt(LocalDateTime.now(clock));
-        page.setResults(new ArrayList<>(byCode.values()));
+        page.setResults(results.results());
         return page;
     }
 
     private void collectCatalogSponsoredResults(
             JsonNode node,
             String sourceUrl,
-            Map<String, NoonSearchResult> byCode,
-            PositionCounter positionCounter,
+            NoonSearchResultAccumulator results,
             int depth,
             boolean sponsoredContext
     ) {
@@ -139,7 +133,7 @@ public class NoonFrontendSearchPageParser {
         }
         if (node.isArray()) {
             for (JsonNode item : node) {
-                collectCatalogSponsoredResults(item, sourceUrl, byCode, positionCounter, depth + 1, sponsoredContext);
+                collectCatalogSponsoredResults(item, sourceUrl, results, depth + 1, sponsoredContext);
             }
             return;
         }
@@ -150,10 +144,9 @@ public class NoonFrontendSearchPageParser {
         boolean currentSponsoredContext = sponsoredContext || resolveSponsored(node);
         if (currentSponsoredContext) {
             NoonSearchResult result = toCatalogResult(node, sourceUrl);
-            if (result != null && !byCode.containsKey(result.getNoonProductCode())) {
+            if (result != null) {
                 result.setSponsored(true);
-                result.setPosition(positionCounter.next());
-                byCode.put(result.getNoonProductCode(), result);
+                results.add(result);
             }
         }
 
@@ -164,8 +157,7 @@ public class NoonFrontendSearchPageParser {
             collectCatalogSponsoredResults(
                     entry.getValue(),
                     sourceUrl,
-                    byCode,
-                    positionCounter,
+                    results,
                     depth + 1,
                     childSponsoredContext
             );
@@ -186,8 +178,7 @@ public class NoonFrontendSearchPageParser {
     private void collectJsonResults(
             Document document,
             String sourceUrl,
-            Map<String, NoonSearchResult> byCode,
-            PositionCounter positionCounter
+            NoonSearchResultAccumulator results
     ) {
         for (Element script : document.select("script[type=application/ld+json], script#__NEXT_DATA__, script[type=application/json]")) {
             String json = compact(firstNonBlank(script.data(), script.html()));
@@ -195,7 +186,7 @@ public class NoonFrontendSearchPageParser {
                 continue;
             }
             try {
-                collectFromJsonNode(objectMapper.readTree(json), sourceUrl, byCode, positionCounter);
+                collectFromJsonNode(objectMapper.readTree(json), sourceUrl, results);
             } catch (Exception ignored) {
                 // Search pages often carry non-product JSON fragments. HTML fallback remains available.
             }
@@ -205,15 +196,14 @@ public class NoonFrontendSearchPageParser {
     private void collectFromJsonNode(
             JsonNode node,
             String sourceUrl,
-            Map<String, NoonSearchResult> byCode,
-            PositionCounter positionCounter
+            NoonSearchResultAccumulator results
     ) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             return;
         }
         if (node.isArray()) {
             for (JsonNode item : node) {
-                collectFromJsonNode(item, sourceUrl, byCode, positionCounter);
+                collectFromJsonNode(item, sourceUrl, results);
             }
             return;
         }
@@ -222,11 +212,8 @@ public class NoonFrontendSearchPageParser {
         }
 
         NoonSearchResult result = toJsonResult(node, sourceUrl);
-        if (result != null) {
-            result.setPosition(positionCounter.next());
-            byCode.putIfAbsent(result.getNoonProductCode(), result);
-        }
-        node.fields().forEachRemaining(entry -> collectFromJsonNode(entry.getValue(), sourceUrl, byCode, positionCounter));
+        results.add(result);
+        node.fields().forEachRemaining(entry -> collectFromJsonNode(entry.getValue(), sourceUrl, results));
     }
 
     private NoonSearchResult toJsonResult(JsonNode node, String sourceUrl) {
@@ -348,8 +335,7 @@ public class NoonFrontendSearchPageParser {
     private void collectHtmlResults(
             Document document,
             String sourceUrl,
-            Map<String, NoonSearchResult> byCode,
-            PositionCounter positionCounter
+            NoonSearchResultAccumulator results
     ) {
         for (Element element : document.select("[data-product-code], [data-qa*=product], a[href*=/p/]")) {
             String code = NoonProductCodeSupport.extractFirst(firstNonBlank(
@@ -358,11 +344,10 @@ public class NoonFrontendSearchPageParser {
                     element.attr("href"),
                     element.html()
             )).orElse(null);
-            if (!StringUtils.hasText(code) || byCode.containsKey(code)) {
+            if (!StringUtils.hasText(code)) {
                 continue;
             }
             NoonSearchResult result = new NoonSearchResult();
-            result.setPosition(positionCounter.next());
             result.setNoonProductCode(code);
             result.setCodeType(NoonProductCodeSupport.codeType(code).orElse(null));
             result.setCanonicalUrl(resolveUrl(sourceUrl, element.attr("href")));
@@ -372,7 +357,7 @@ public class NoonFrontendSearchPageParser {
                     || containsIgnoreCase(element.attr("data-sponsored"), "true")
                     || containsIgnoreCase(element.text(), "sponsored"));
             result.setRawResultJson(element.outerHtml());
-            byCode.putIfAbsent(code, result);
+            results.add(result);
         }
     }
 
@@ -828,12 +813,4 @@ public class NoonFrontendSearchPageParser {
         }
     }
 
-    private static final class PositionCounter {
-        private int value = 0;
-
-        private int next() {
-            value++;
-            return value;
-        }
-    }
 }

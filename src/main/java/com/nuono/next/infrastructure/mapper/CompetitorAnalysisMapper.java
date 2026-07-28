@@ -22,6 +22,7 @@ import com.nuono.next.competitoranalysis.CompetitorRankFactInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunRow;
 import com.nuono.next.competitoranalysis.CompetitorSearchResultInsertCommand;
+import com.nuono.next.competitoranalysis.CompetitorSearchResultObservationRow;
 import com.nuono.next.competitoranalysis.CompetitorTransientKeywordFailureRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
@@ -154,8 +155,8 @@ public interface CompetitorAnalysisMapper
             "  AND rf.fact_date >= #{fromDate}",
             "  AND rf.is_deleted = b'0'",
             "  AND (",
-            "    (rf.tracked_product_type = 'SELF' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
-            "    OR (rf.tracked_product_type = 'COMPETITOR' AND rf.is_sponsored = b'1')",
+            "    (rf.tracked_product_type = 'SELF' AND rf.rank_channel = 'ORGANIC' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
+            "    OR (rf.tracked_product_type = 'COMPETITOR' AND rf.rank_channel = 'SPONSORED' AND rf.is_sponsored = b'1')",
             "  )"
     })
     long countRankAnomalyProducts(
@@ -223,8 +224,8 @@ public interface CompetitorAnalysisMapper
             "    AND UPPER(wp.site_code) = UPPER(#{siteCode})",
             "    AND rf.fact_date >= #{fromDate}",
             "    AND rf.is_deleted = b'0'",
-            "    AND ((rf.tracked_product_type = 'SELF' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
-            "      OR (rf.tracked_product_type = 'COMPETITOR' AND rf.is_sponsored = b'1'))",
+            "    AND ((rf.tracked_product_type = 'SELF' AND rf.rank_channel = 'ORGANIC' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
+            "      OR (rf.tracked_product_type = 'COMPETITOR' AND rf.rank_channel = 'SPONSORED' AND rf.is_sponsored = b'1'))",
             ") trend",
             "GROUP BY trend_date, issue_type, label",
             "ORDER BY trend_date ASC, issue_type ASC"
@@ -276,8 +277,8 @@ public interface CompetitorAnalysisMapper
             "  AND UPPER(wp.site_code) = UPPER(#{siteCode})",
             "  AND rf.fact_date >= #{fromDate}",
             "  AND rf.is_deleted = b'0'",
-            "  AND ((rf.tracked_product_type = 'SELF' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
-            "    OR (rf.tracked_product_type = 'COMPETITOR' AND rf.is_sponsored = b'1'))",
+            "  AND ((rf.tracked_product_type = 'SELF' AND rf.rank_channel = 'ORGANIC' AND (rf.rank_status <> 'RANKED' OR rf.rank_no IS NULL OR rf.rank_no > 100))",
+            "    OR (rf.tracked_product_type = 'COMPETITOR' AND rf.rank_channel = 'SPONSORED' AND rf.is_sponsored = b'1'))",
             "GROUP BY wp.id, wp.product_site_offer_id, wp.partner_sku, wp.title_snapshot",
             "ORDER BY value DESC, MAX(rf.fact_time) DESC",
             "LIMIT #{limit}"
@@ -362,6 +363,7 @@ public interface CompetitorAnalysisMapper
             "  AND wp.store_code = #{storeCode}",
             "  AND UPPER(wp.site_code) = UPPER(#{siteCode})",
             "  AND rf.fact_date <= #{upperBoundDate}",
+            "  AND rf.rank_channel = 'ORGANIC'",
             "  AND rf.rank_status = 'RANKED'",
             "  AND rf.rank_no IS NOT NULL",
             "  AND rf.is_deleted = b'0'"
@@ -400,6 +402,7 @@ public interface CompetitorAnalysisMapper
             "    AND UPPER(wp.site_code) = UPPER(#{siteCode})",
             "    AND rf.tracked_product_type = #{trackedProductType}",
             "    AND rf.fact_date IN (#{fromDate}, #{toDate})",
+            "    AND rf.rank_channel = 'ORGANIC'",
             "    AND rf.rank_status = 'RANKED'",
             "    AND rf.rank_no IS NOT NULL",
             "    AND rf.is_deleted = b'0'",
@@ -445,7 +448,7 @@ public interface CompetitorAnalysisMapper
             "    AND rf.fact_date BETWEEN #{fromDate} AND #{toDate}",
             "    AND rf.rank_status = 'RANKED'",
             "    AND rf.rank_no IS NOT NULL",
-            "    AND rf.is_sponsored = b'1'",
+            "    AND rf.rank_channel = 'SPONSORED' AND rf.is_sponsored = b'1'",
             "    AND rf.is_deleted = b'0'",
             "  GROUP BY rf.watch_product_id, rf.keyword_id, rf.tracked_product_type, rf.noon_product_code",
             "),",
@@ -539,6 +542,7 @@ public interface CompetitorAnalysisMapper
             "      AND wp_rank.store_code = #{storeCode}",
             "      AND UPPER(wp_rank.site_code) = UPPER(#{siteCode})",
             "      AND rf.tracked_product_type = 'COMPETITOR'",
+            "      AND rf.rank_channel = 'ORGANIC'",
             "      AND rf.rank_status = 'RANKED'",
             "      AND rf.rank_no IS NOT NULL",
             "      AND rf.is_deleted = b'0'",
@@ -556,6 +560,7 @@ public interface CompetitorAnalysisMapper
             "      AND wp_change_rank.store_code = #{storeCode}",
             "      AND UPPER(wp_change_rank.site_code) = UPPER(#{siteCode})",
             "      AND rf.tracked_product_type = 'COMPETITOR'",
+            "      AND rf.rank_channel = 'ORGANIC'",
             "      AND rf.rank_status = 'RANKED'",
             "      AND rf.rank_no IS NOT NULL",
             "      AND rf.is_deleted = b'0'",
@@ -574,6 +579,7 @@ public interface CompetitorAnalysisMapper
             "      AND wp_self_rank.store_code = #{storeCode}",
             "      AND UPPER(wp_self_rank.site_code) = UPPER(#{siteCode})",
             "      AND rf.tracked_product_type = 'SELF'",
+            "      AND rf.rank_channel = 'ORGANIC'",
             "      AND rf.is_deleted = b'0'",
             "  ) self_ranked",
             "  WHERE rank_row = 1",
@@ -868,7 +874,7 @@ public interface CompetitorAnalysisMapper
             "    WHERE ce.owner_user_id = wp.owner_user_id",
             "      AND ce.watch_product_id = wp.id",
             "      AND ce.subject_type = 'COMPETITOR'",
-            "      AND ce.fact_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)",
+            "      AND ce.fact_date >= DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 6 DAY)",
             "      AND ce.is_deleted = b'0'",
             "  ) AS recent7dChangedCompetitorCount,",
             "  (",
@@ -876,7 +882,7 @@ public interface CompetitorAnalysisMapper
             "    WHERE ce.owner_user_id = wp.owner_user_id",
             "      AND ce.watch_product_id = wp.id",
             "      AND ce.subject_type = 'COMPETITOR'",
-            "      AND ce.fact_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)",
+            "      AND ce.fact_date >= DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 6 DAY)",
             "      AND ce.is_deleted = b'0'",
             "  ) AS recent7dCompetitorChangeCount",
             "FROM operations_competitor_watch_product wp",
@@ -1160,8 +1166,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE prev_rf.watch_product_id = kw.watch_product_id",
             "          AND prev_rf.keyword_id = kw.id",
             "          AND prev_rf.tracked_product_type = 'SELF'",
-            "          AND prev_rf.is_sponsored = b'0'",
-            "          AND prev_rf.fact_date = DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)",
+            "          AND prev_rf.rank_channel = 'ORGANIC'",
+            "          AND prev_rf.fact_date = DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 1 DAY)",
             "          AND prev_rf.is_deleted = b'0'",
             "        ORDER BY prev_rf.fact_time DESC, prev_rf.id DESC",
             "        LIMIT 1",
@@ -1171,8 +1177,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE prev_rf.watch_product_id = kw.watch_product_id",
             "          AND prev_rf.keyword_id = kw.id",
             "          AND prev_rf.tracked_product_type = 'SELF'",
-            "          AND prev_rf.is_sponsored = b'0'",
-            "          AND prev_rf.fact_date = DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)",
+            "          AND prev_rf.rank_channel = 'ORGANIC'",
+            "          AND prev_rf.fact_date = DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 1 DAY)",
             "          AND prev_rf.is_deleted = b'0'",
             "        ORDER BY prev_rf.fact_time DESC, prev_rf.id DESC",
             "        LIMIT 1",
@@ -1182,8 +1188,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE prev_rf.watch_product_id = kw.watch_product_id",
             "          AND prev_rf.keyword_id = kw.id",
             "          AND prev_rf.tracked_product_type = 'SELF'",
-            "          AND prev_rf.is_sponsored = b'0'",
-            "          AND prev_rf.fact_date = DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)",
+            "          AND prev_rf.rank_channel = 'ORGANIC'",
+            "          AND prev_rf.fact_date = DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 1 DAY)",
             "          AND prev_rf.is_deleted = b'0'",
             "        ORDER BY prev_rf.fact_time DESC, prev_rf.id DESC",
             "        LIMIT 1",
@@ -1193,8 +1199,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE curr_rf.watch_product_id = kw.watch_product_id",
             "          AND curr_rf.keyword_id = kw.id",
             "          AND curr_rf.tracked_product_type = 'SELF'",
-            "          AND curr_rf.is_sponsored = b'0'",
-            "          AND curr_rf.fact_date = CURRENT_DATE",
+            "          AND curr_rf.rank_channel = 'ORGANIC'",
+            "          AND curr_rf.fact_date = DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))",
             "          AND curr_rf.is_deleted = b'0'",
             "        ORDER BY curr_rf.fact_time DESC, curr_rf.id DESC",
             "        LIMIT 1",
@@ -1204,8 +1210,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE curr_rf.watch_product_id = kw.watch_product_id",
             "          AND curr_rf.keyword_id = kw.id",
             "          AND curr_rf.tracked_product_type = 'SELF'",
-            "          AND curr_rf.is_sponsored = b'0'",
-            "          AND curr_rf.fact_date = CURRENT_DATE",
+            "          AND curr_rf.rank_channel = 'ORGANIC'",
+            "          AND curr_rf.fact_date = DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))",
             "          AND curr_rf.is_deleted = b'0'",
             "        ORDER BY curr_rf.fact_time DESC, curr_rf.id DESC",
             "        LIMIT 1",
@@ -1215,8 +1221,8 @@ public interface CompetitorAnalysisMapper
             "        WHERE curr_rf.watch_product_id = kw.watch_product_id",
             "          AND curr_rf.keyword_id = kw.id",
             "          AND curr_rf.tracked_product_type = 'SELF'",
-            "          AND curr_rf.is_sponsored = b'0'",
-            "          AND curr_rf.fact_date = CURRENT_DATE",
+            "          AND curr_rf.rank_channel = 'ORGANIC'",
+            "          AND curr_rf.fact_date = DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR))",
             "          AND curr_rf.is_deleted = b'0'",
             "        ORDER BY curr_rf.fact_time DESC, curr_rf.id DESC",
             "        LIMIT 1",
@@ -1238,7 +1244,7 @@ public interface CompetitorAnalysisMapper
             "    WHERE ce.owner_user_id = ls.owner_user_id",
             "      AND ce.watch_product_id = wp.id",
             "      AND ce.subject_type = 'COMPETITOR'",
-            "      AND ce.fact_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)",
+            "      AND ce.fact_date >= DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 6 DAY)",
             "      AND ce.is_deleted = b'0'",
             "  ) AS recent7dChangedCompetitorCount,",
             "  (",
@@ -1246,7 +1252,7 @@ public interface CompetitorAnalysisMapper
             "    WHERE ce.owner_user_id = ls.owner_user_id",
             "      AND ce.watch_product_id = wp.id",
             "      AND ce.subject_type = 'COMPETITOR'",
-            "      AND ce.fact_date >= DATE_SUB(CURRENT_DATE, INTERVAL 6 DAY)",
+            "      AND ce.fact_date >= DATE_SUB(DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR)), INTERVAL 6 DAY)",
             "      AND ce.is_deleted = b'0'",
             "  ) AS recent7dCompetitorChangeCount",
             "FROM logical_store ls",
@@ -1594,7 +1600,6 @@ public interface CompetitorAnalysisMapper
             @Param("watchProductId") Long watchProductId,
             @Param("noonProductCode") String noonProductCode
     );
-
     @Insert({
             "INSERT INTO operations_competitor_product (",
             "  id, watch_product_id, noon_product_code, code_type, canonical_url, title_snapshot,",
@@ -2171,6 +2176,8 @@ public interface CompetitorAnalysisMapper
     })
     CompetitorKeywordRunRow selectLatestSucceededKeywordRunByKeywordId(@Param("keywordId") Long keywordId);
 
+    @Select("SELECT id FROM operations_competitor_keyword_run WHERE id = #{keywordRunId} AND is_deleted = b'0' FOR UPDATE")
+    Long lockKeywordRunForBrowserObservation(@Param("keywordRunId") Long keywordRunId);
     @Select({
             "SELECT",
             "  kr.search_run_id AS searchRunId,",
@@ -2327,67 +2334,59 @@ public interface CompetitorAnalysisMapper
     );
 
     @Insert({
-            "INSERT INTO operations_competitor_search_result (",
-            "  id, keyword_run_id, result_position, noon_product_code, code_type, canonical_url,",
+            "INSERT INTO operations_competitor_search_result (id, keyword_run_id, result_position, noon_product_code, code_type, canonical_url,",
             "  title_snapshot, title_en_snapshot, title_ar_snapshot, brand_snapshot, image_url_snapshot,",
             "  price_amount, currency_code, rating, review_count, is_sponsored, tags_json,",
-            "  raw_result_json, captured_at, is_deleted,",
-            "  created_by, updated_by, gmt_create, gmt_updated",
-            ") VALUES (",
+            "  raw_result_json, captured_at, is_deleted, created_by, updated_by, gmt_create, gmt_updated) VALUES (",
             "  #{id}, #{keywordRunId}, #{resultPosition}, #{noonProductCode}, #{codeType}, #{canonicalUrl},",
             "  #{titleSnapshot}, #{titleEnSnapshot}, #{titleArSnapshot}, #{brandSnapshot}, #{imageUrlSnapshot},",
             "  #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{sponsored}, #{tagsJson},",
-            "  #{rawResultJson}, #{capturedAt}, b'0',",
-            "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
-            ")"
+            "  #{rawResultJson}, #{capturedAt}, b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW())"
     })
     int insertSearchResult(CompetitorSearchResultInsertCommand command);
-
+    @Select("SELECT id FROM operations_competitor_search_result WHERE keyword_run_id = #{keywordRunId}"
+            + " AND noon_product_code = #{noonProductCode} AND is_sponsored = b'1'"
+            + " AND raw_result_json LIKE '{\"source\":\"browser-observation\"%'"
+            + " AND is_deleted = b'0' ORDER BY result_position ASC, id ASC LIMIT 1")
+    CompetitorSearchResultObservationRow selectBrowserSponsoredSearchResultByCode(
+            @Param("keywordRunId") Long keywordRunId, @Param("noonProductCode") String noonProductCode);
+    @Select("SELECT COALESCE(MAX(result_position), 0) + 1 FROM operations_competitor_search_result WHERE keyword_run_id = #{keywordRunId}")
+    Integer selectNextSearchResultPosition(@Param("keywordRunId") Long keywordRunId);
     @Update({
-            "UPDATE operations_competitor_search_result",
-            "SET is_sponsored = b'1',",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE keyword_run_id = #{keywordRunId}",
-            "  AND noon_product_code = #{noonProductCode}",
-            "  AND is_deleted = b'0'"
+            "UPDATE operations_competitor_search_result SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",
+            " title_snapshot = COALESCE(#{titleSnapshot}, title_snapshot), brand_snapshot = COALESCE(#{brandSnapshot}, brand_snapshot),",
+            " image_url_snapshot = COALESCE(#{imageUrlSnapshot}, image_url_snapshot), price_amount = COALESCE(#{priceAmount}, price_amount),",
+            " currency_code = COALESCE(#{currencyCode}, currency_code), rating = COALESCE(#{rating}, rating),",
+            " review_count = COALESCE(#{reviewCount}, review_count), raw_result_json = #{rawResultJson}, captured_at = #{capturedAt},",
+            " is_sponsored = b'1', updated_by = #{actorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{id} AND keyword_run_id = #{keywordRunId} AND is_deleted = b'0'"
     })
-    int markSearchResultSponsored(
-            @Param("keywordRunId") Long keywordRunId,
-            @Param("noonProductCode") String noonProductCode,
-            @Param("actorUserId") Long actorUserId
-    );
-
+    int updateSponsoredSearchResultFromBrowser(CompetitorSearchResultInsertCommand command);
     @Insert({
-            "INSERT INTO operations_competitor_rank_fact (",
-            "  id, watch_product_id, keyword_id, keyword_run_id, search_run_id, fact_time, fact_date,",
+            "INSERT INTO operations_competitor_rank_fact (id, watch_product_id, keyword_id, keyword_run_id, search_run_id, fact_time, fact_date,",
             "  tracked_product_type, rank_channel, noon_product_code, rank_status, rank_no, scan_depth, is_sponsored,",
-            "  price_amount, currency_code, rating, review_count, source_result_id, is_deleted,",
-            "  created_by, updated_by, gmt_create, gmt_updated",
-            ") VALUES (",
+            "  price_amount, currency_code, rating, review_count, source_result_id, is_deleted, created_by, updated_by, gmt_create, gmt_updated) VALUES (",
             "  #{id}, #{watchProductId}, #{keywordId}, #{keywordRunId}, #{searchRunId}, #{factTime}, #{factDate},",
             "  #{trackedProductType}, #{rankChannel}, #{noonProductCode}, #{rankStatus}, #{rankNo}, #{scanDepth}, #{sponsored},",
-            "  #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{sourceResultId}, b'0',",
-            "  #{actorUserId}, #{actorUserId}, NOW(), NOW()",
-            ")"
+            "  #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{sourceResultId}, b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW())"
     })
     int insertRankFact(CompetitorRankFactInsertCommand command);
-
+    @Select({"SELECT id FROM operations_competitor_rank_fact",
+            "WHERE keyword_run_id = #{keywordRunId} AND tracked_product_type = #{trackedProductType}",
+            "AND noon_product_code = #{noonProductCode} AND rank_channel = #{rankChannel} LIMIT 1"})
+    Long selectRankFactId(
+            @Param("keywordRunId") Long keywordRunId, @Param("trackedProductType") String trackedProductType,
+            @Param("noonProductCode") String noonProductCode, @Param("rankChannel") String rankChannel);
     @Update({
-            "UPDATE operations_competitor_rank_fact",
-            "SET is_sponsored = b'1',",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE keyword_run_id = #{keywordRunId}",
-            "  AND noon_product_code = #{noonProductCode}",
-            "  AND is_deleted = b'0'"
+            "UPDATE operations_competitor_rank_fact SET watch_product_id = #{watchProductId}, keyword_id = #{keywordId},",
+            " search_run_id = #{searchRunId}, fact_time = #{factTime}, fact_date = #{factDate}, rank_status = 'RANKED',",
+            " rank_no = #{rankNo}, scan_depth = #{scanDepth}, is_sponsored = b'1', price_amount = #{priceAmount},",
+            " currency_code = #{currencyCode}, rating = #{rating}, review_count = #{reviewCount}, source_result_id = #{sourceResultId},",
+            " is_deleted = b'0', updated_by = #{actorUserId}, gmt_updated = NOW() WHERE id = #{id}",
+            " AND keyword_run_id = #{keywordRunId} AND tracked_product_type = #{trackedProductType}",
+            " AND noon_product_code = #{noonProductCode} AND rank_channel = 'SPONSORED'"
     })
-    int markRankFactSponsored(
-            @Param("keywordRunId") Long keywordRunId,
-            @Param("noonProductCode") String noonProductCode,
-            @Param("actorUserId") Long actorUserId
-    );
-
+    int updateSponsoredRankFact(CompetitorRankFactInsertCommand command);
     @Update({
             "UPDATE operations_competitor_keyword",
             "SET last_provider_status = #{providerStatus},",

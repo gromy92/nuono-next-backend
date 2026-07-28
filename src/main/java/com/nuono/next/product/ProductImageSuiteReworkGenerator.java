@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.util.StringUtils;
 
@@ -19,7 +20,8 @@ final class ProductImageSuiteReworkGenerator {
             ProductImageSuiteRecord suite,
             List<ProductImageSuiteReviewTargetRecord> reviewTargets,
             List<ProductImageSuiteAssetRecord> existing,
-            List<String> baseReferences,
+            Function<ProductImageSuiteAssetRole, List<String>> referenceFactory,
+            boolean papersayPackageComposition,
             String storeCode,
             PromptFactory promptFactory,
             GeneratedAssetWriter writer
@@ -33,8 +35,12 @@ final class ProductImageSuiteReworkGenerator {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
         for (ProductImageSuiteAssetRecord asset : existing) {
             if (!wholeSuite && !selectedIds.contains(asset.getId())) continue;
-            List<String> references = new ArrayList<>(baseReferences);
-            if (StringUtils.hasText(asset.getImageUrl())) references.add(0, asset.getImageUrl());
+            List<String> references = new ArrayList<>(referenceFactory.apply(asset.getImageRole()));
+            if (!(papersayPackageComposition
+                    && asset.getImageRole() == ProductImageSuiteAssetRole.PACKAGE_LIST)
+                    && StringUtils.hasText(asset.getImageUrl())) {
+                references.add(0, asset.getImageUrl());
+            }
             GeneratedProductImage image = generator.generate(
                     promptFactory.create(suite, asset.getImageRole()),
                     references

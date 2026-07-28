@@ -1512,8 +1512,8 @@ public class ProductImageProfileService {
         view.setEnabled(record.getEnabled());
         return view;
     }
-
     private ProductImageSuiteView toSuiteView(ProductImageSuiteRecord record) {
+        List<ProductImageSuiteAssetRecord> assets = safeList(mapper.selectSuiteAssets(record.getId()));
         ProductImageSuiteView view = new ProductImageSuiteView();
         view.setId(record.getId());
         view.setParentSuiteId(record.getParentSuiteId());
@@ -1524,7 +1524,7 @@ public class ProductImageProfileService {
         view.setGenerationTaskId(record.getGenerationTaskId());
         view.setDraftPackageJson(record.getDraftPackageJson());
         view.setDraftPromptText(record.getDraftPromptText());
-        view.setSuiteStatus(record.getSuiteStatus());
+        view.setSuiteStatus(ProductImageSuiteReadinessPolicy.operatorFacingStatus(record.getSuiteStatus(), assets));
         view.setReviewComment(record.getReviewComment());
         view.setFailureStage(record.getFailureStage());
         view.setFailureReason(record.getFailureReason());
@@ -1532,7 +1532,7 @@ public class ProductImageProfileService {
         view.setPublishedAt(format(record.getPublishedAt()));
         view.setAdoptedAt(format(record.getAdoptedAt()));
         view.setUpdatedAt(format(record.getUpdatedAt()));
-        view.setAssets(safeList(mapper.selectSuiteAssets(record.getId())).stream()
+        view.setAssets(assets.stream()
                 .map(this::toSuiteAssetView)
                 .collect(Collectors.toList()));
         return view;

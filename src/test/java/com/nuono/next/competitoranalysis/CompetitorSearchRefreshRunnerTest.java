@@ -63,7 +63,7 @@ class CompetitorSearchRefreshRunnerTest {
                 .thenReturn(List.of(confirmedPresent, confirmedMissing));
         when(mapper.nextKeywordProductId()).thenReturn(210001L, 210002L);
         when(mapper.nextSearchResultId()).thenReturn(240001L, 240002L, 240003L);
-        when(mapper.nextRankFactId()).thenReturn(250001L, 250002L, 250003L);
+        when(mapper.nextRankFactId()).thenReturn(250001L, 250002L, 250003L, 250004L);
 
         CompetitorKeywordRefreshOutcome outcome = runner.refresh(CompetitorKeywordRefreshContext.builder()
                 .searchRunId(220123L)
@@ -76,7 +76,7 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("SUCCESS", outcome.getProviderStatus());
         assertEquals(3, outcome.getResultCount());
         assertEquals(2, outcome.getCandidateUpsertedCount());
-        assertEquals(3, outcome.getRankFactWrittenCount());
+        assertEquals(4, outcome.getRankFactWrittenCount());
         verify(adapter).search(argThat((request) ->
                 "SA".equals(request.getSiteCode())
                         && "laundry basket".equals(request.getKeyword())
@@ -101,19 +101,22 @@ class CompetitorSearchRefreshRunnerTest {
 
         ArgumentCaptor<CompetitorRankFactInsertCommand> rankCaptor =
                 ArgumentCaptor.forClass(CompetitorRankFactInsertCommand.class);
-        verify(mapper, times(3)).insertRankFact(rankCaptor.capture());
+        verify(mapper, times(4)).insertRankFact(rankCaptor.capture());
         List<CompetitorRankFactInsertCommand> facts = rankCaptor.getAllValues();
         assertEquals("SELF", facts.get(0).getTrackedProductType());
-        assertEquals("RANKED", facts.get(0).getRankStatus());
-        assertEquals(1, facts.get(0).getRankNo());
-        assertEquals(Boolean.TRUE, facts.get(0).getSponsored());
-        assertEquals("COMPETITOR", facts.get(1).getTrackedProductType());
+        assertEquals("NOT_IN_SCAN_DEPTH", facts.get(0).getRankStatus());
+        assertEquals("ORGANIC", facts.get(0).getRankChannel());
         assertEquals("RANKED", facts.get(1).getRankStatus());
-        assertEquals(3, facts.get(1).getRankNo());
+        assertEquals("SPONSORED", facts.get(1).getRankChannel());
+        assertEquals(1, facts.get(1).getRankNo());
+        assertEquals(Boolean.TRUE, facts.get(1).getSponsored());
         assertEquals("COMPETITOR", facts.get(2).getTrackedProductType());
-        assertEquals("NOT_IN_SCAN_DEPTH", facts.get(2).getRankStatus());
-        assertNull(facts.get(2).getRankNo());
-        assertEquals(100, facts.get(2).getScanDepth());
+        assertEquals("RANKED", facts.get(2).getRankStatus());
+        assertEquals(3, facts.get(2).getRankNo());
+        assertEquals("COMPETITOR", facts.get(3).getTrackedProductType());
+        assertEquals("NOT_IN_SCAN_DEPTH", facts.get(3).getRankStatus());
+        assertNull(facts.get(3).getRankNo());
+        assertEquals(100, facts.get(3).getScanDepth());
     }
 
     @Test
@@ -178,53 +181,6 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("NOT_IN_SCAN_DEPTH", missingCompetitor.getRankStatus());
         assertNull(missingCompetitor.getRankNo());
         assertEquals(100, missingCompetitor.getScanDepth());
-    }
-
-    @Test
-    void recordsSponsoredResultWhenAdAppearsBeforeNaturalDuplicate() {
-        CompetitorWatchProductRow watchProduct = watchProduct();
-        CompetitorKeywordRow keyword = keyword();
-        CompetitorProductRow confirmedPresent = confirmedProduct(200010L, "NCONFIRM01");
-        NoonSearchPage page = page(
-                result(1, "NSELF0001", false, "Self basket"),
-                result(2, "NCONFIRM01", true, "Confirmed competitor ad"),
-                result(5, "NCONFIRM01", false, "Confirmed competitor natural")
-        );
-        when(adapter.search(any(NoonSearchRequest.class))).thenReturn(page);
-        when(mapper.selectCompetitorProductByCode(180123L, "NCONFIRM01")).thenReturn(confirmedPresent);
-        when(mapper.listConfirmedCompetitorProductsByKeywordId(190001L)).thenReturn(List.of(confirmedPresent));
-        when(mapper.nextKeywordProductId()).thenReturn(210001L);
-        when(mapper.nextSearchResultId()).thenReturn(240001L, 240002L);
-        when(mapper.nextRankFactId()).thenReturn(250001L, 250002L);
-
-        runner.refresh(CompetitorKeywordRefreshContext.builder()
-                .searchRunId(220123L)
-                .keywordRunId(230123L)
-                .keyword(keyword)
-                .watchProduct(watchProduct)
-                .actorUserId(601L)
-                .build());
-
-        ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
-                ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
-        verify(mapper, times(2)).insertSearchResult(searchCaptor.capture());
-        assertEquals("NCONFIRM01", searchCaptor.getAllValues().get(1).getNoonProductCode());
-        assertEquals(2, searchCaptor.getAllValues().get(1).getResultPosition());
-        assertEquals(Boolean.TRUE, searchCaptor.getAllValues().get(1).getSponsored());
-
-        ArgumentCaptor<CompetitorKeywordProductSearchCommand> relationCaptor =
-                ArgumentCaptor.forClass(CompetitorKeywordProductSearchCommand.class);
-        verify(mapper).upsertKeywordProductRelationFromSearch(relationCaptor.capture());
-        assertEquals(2, relationCaptor.getValue().getRankNo());
-        assertEquals(Boolean.TRUE, relationCaptor.getValue().getSponsored());
-
-        ArgumentCaptor<CompetitorRankFactInsertCommand> rankCaptor =
-                ArgumentCaptor.forClass(CompetitorRankFactInsertCommand.class);
-        verify(mapper, times(2)).insertRankFact(rankCaptor.capture());
-        CompetitorRankFactInsertCommand competitorFact = rankCaptor.getAllValues().get(1);
-        assertEquals("COMPETITOR", competitorFact.getTrackedProductType());
-        assertEquals(2, competitorFact.getRankNo());
-        assertEquals(Boolean.TRUE, competitorFact.getSponsored());
     }
 
     @Test

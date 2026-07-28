@@ -3,7 +3,9 @@ package com.nuono.next.competitoranalysis;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetailAdapter;
+import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.noon.NoonShanghaiBusinessTime;
 import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -71,20 +73,30 @@ public class CompetitorProductDetailRefreshService {
         this.detailAdapter = detailAdapter;
         this.snapshotService = snapshotService;
         this.writeGuard = writeGuard;
-        this.detailSupport = new CompetitorProductDetailSupport(clock);
+        Clock sourceClock = clock == null ? Clock.systemUTC() : clock;
+        this.detailSupport = new CompetitorProductDetailSupport(
+                sourceClock.withZone(NoonShanghaiBusinessTime.ZONE)
+        );
     }
 
-    public int refreshConfirmedCompetitors(
+    public CompetitorProductDetailRefreshResult refreshConfirmedCompetitors(
             CompetitorWatchProductRow watchProduct,
             Long searchRunId,
             Long taskId,
             Long actorUserId
     ) {
         if (watchProduct == null || watchProduct.getId() == null || detailAdapter == null || snapshotService == null) {
-            return 0;
+            return CompetitorProductDetailRefreshResult.unavailable(
+                    "DETAIL_ADAPTER_UNAVAILABLE",
+                    "竞品详情适配器或快照服务不可用。"
+            );
         }
+        CompetitorProductDetailRefreshResult result = CompetitorProductDetailRefreshResult.empty();
         String selfCode = detailSupport.normalizeCode(watchProduct.getSelfNoonProductCode());
-        int refreshed = refreshSelfDetail(watchProduct, selfCode, searchRunId, taskId, actorUserId);
+        refreshSelfDetail(watchProduct, selfCode, searchRunId, taskId, actorUserId, result);
+        if (result.hasRiskBackoffFailure()) {
+            return result;
+        }
         List<CompetitorProductRow> confirmedProducts =
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId());
         Map<String, CompetitorProductRow> productsByCode = new LinkedHashMap<>();
@@ -100,15 +112,17 @@ public class CompetitorProductDetailRefreshService {
             String code = entry.getKey();
             CompetitorProductRow product = entry.getValue();
             NoonProductDetail detail;
+            result.recordAttempt();
             try {
                 detail = detailAdapter.fetch(detailSupport.buildRequest(watchProduct, product, code));
                 if (detail == null) {
-                    continue;
+                    throw new IllegalStateException("Noon 前台商品详情未返回结果。");
                 }
                 detailSupport.normalizeDetail(detail, code, product);
             } catch (CompetitorRefreshLeaseLostException exception) {
                 throw exception;
             } catch (RuntimeException exception) {
+                recordFailure(result, exception);
                 log.warn(
                         "competitor product detail fetch failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
                         watchProduct.getId(),
@@ -118,10 +132,8 @@ public class CompetitorProductDetailRefreshService {
                         exception.getMessage(),
                         exception
                 );
-                if (recordFallbackSnapshot(
-                        watchProduct, product, code, searchRunId, actorUserId, taskId
-                )) {
-                    refreshed++;
+                if (result.hasRiskBackoffFailure()) {
+                    break;
                 }
                 continue;
             }
@@ -135,10 +147,14 @@ public class CompetitorProductDetailRefreshService {
                         taskId,
                         actorUserId
                 );
-                refreshed++;
+                result.recordSuccess();
             } catch (CompetitorRefreshLeaseLostException exception) {
                 throw exception;
             } catch (CompetitorDetailTargetStaleException exception) {
+                result.recordFailure(
+                        CompetitorDetailTargetStaleException.ERROR_CODE,
+                        exception.getMessage()
+                );
                 log.warn(
                         "competitor detail target stale watchProductId={} competitorProductId={} noonProductCode={} taskId={} errorCode={}",
                         watchProduct.getId(),
@@ -148,6 +164,7 @@ public class CompetitorProductDetailRefreshService {
                         CompetitorDetailTargetStaleException.ERROR_CODE
                 );
             } catch (RuntimeException exception) {
+                recordFailure(result, exception);
                 log.warn(
                         "competitor product detail write failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
                         watchProduct.getId(),
@@ -159,23 +176,25 @@ public class CompetitorProductDetailRefreshService {
                 );
             }
         }
-        return refreshed;
+        return result;
     }
 
-    private int refreshSelfDetail(
+    private void refreshSelfDetail(
             CompetitorWatchProductRow watchProduct,
             String selfCode,
             Long searchRunId,
             Long taskId,
-            Long actorUserId
+            Long actorUserId,
+            CompetitorProductDetailRefreshResult result
     ) {
         if (!StringUtils.hasText(selfCode) || NoonProductCodeSupport.codeType(selfCode).isEmpty()) {
-            return 0;
+            return;
         }
+        result.recordAttempt();
         try {
             NoonProductDetail detail = detailAdapter.fetch(detailSupport.buildRequest(watchProduct, null, selfCode));
             if (detail == null) {
-                return 0;
+                throw new IllegalStateException("Noon 前台商品详情未返回结果。");
             }
             detailSupport.normalizeDetail(detail, selfCode, null);
             writeDetail(
@@ -187,10 +206,14 @@ public class CompetitorProductDetailRefreshService {
                     taskId,
                     actorUserId
             );
-            return 1;
+            result.recordSuccess();
         } catch (CompetitorRefreshLeaseLostException exception) {
             throw exception;
         } catch (CompetitorDetailTargetStaleException exception) {
+            result.recordFailure(
+                    CompetitorDetailTargetStaleException.ERROR_CODE,
+                    exception.getMessage()
+            );
             log.warn(
                     "competitor self detail target stale watchProductId={} noonProductCode={} taskId={} errorCode={}",
                     watchProduct == null ? null : watchProduct.getId(),
@@ -198,8 +221,8 @@ public class CompetitorProductDetailRefreshService {
                     taskId,
                     CompetitorDetailTargetStaleException.ERROR_CODE
             );
-            return 0;
         } catch (RuntimeException exception) {
+            recordFailure(result, exception);
             log.warn(
                     "competitor self product detail refresh failed watchProductId={} noonProductCode={} taskId={} error={}",
                     watchProduct == null ? null : watchProduct.getId(),
@@ -208,58 +231,17 @@ public class CompetitorProductDetailRefreshService {
                     exception.getMessage(),
                     exception
             );
-            return 0;
         }
     }
 
-    private boolean recordFallbackSnapshot(
-            CompetitorWatchProductRow watchProduct,
-            CompetitorProductRow product,
-            String code,
-            Long searchRunId,
-            Long actorUserId,
-            Long taskId
-    ) {
-        NoonProductDetail fallback = detailSupport.buildFallbackDetail(product, code);
-        if (fallback == null) {
-            return false;
-        }
-        try {
-            detailSupport.normalizeDetail(fallback, code, product);
-            writeDetail(
-                    watchProduct,
-                    product,
-                    fallback,
-                    null,
-                    searchRunId,
-                    taskId,
-                    actorUserId
-            );
-            return true;
-        } catch (CompetitorRefreshLeaseLostException exception) {
-            throw exception;
-        } catch (CompetitorDetailTargetStaleException exception) {
-            log.warn(
-                    "competitor fallback detail target stale watchProductId={} competitorProductId={} noonProductCode={} taskId={} errorCode={}",
-                    watchProduct == null ? null : watchProduct.getId(),
-                    product == null ? null : product.getId(),
-                    code,
-                    taskId,
-                    CompetitorDetailTargetStaleException.ERROR_CODE
-            );
-            return false;
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "competitor product detail fallback snapshot failed watchProductId={} competitorProductId={} noonProductCode={} taskId={} error={}",
-                    watchProduct == null ? null : watchProduct.getId(),
-                    product == null ? null : product.getId(),
-                    code,
-                    taskId,
-                    exception.getMessage(),
-                    exception
-            );
-            return false;
-        }
+    private void recordFailure(CompetitorProductDetailRefreshResult result, RuntimeException exception) {
+        String errorCode = exception instanceof NoonSearchProviderException
+                ? ((NoonSearchProviderException) exception).getErrorCode()
+                : "DETAIL_REFRESH_FAILED";
+        String errorMessage = StringUtils.hasText(exception.getMessage())
+                ? exception.getMessage().trim()
+                : "竞品详情抓取失败。";
+        result.recordFailure(errorCode, errorMessage);
     }
 
     private void writeDetail(

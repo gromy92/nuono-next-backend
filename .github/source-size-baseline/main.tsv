@@ -2,13 +2,12 @@
 # Format: repository-relative path<TAB>physical-line ceiling.
 src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	985
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1198
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	982
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1177
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	355
-src/main/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunner.java	323
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
-src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	839
-src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	457
+src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	816
+src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	456
 src/main/java/com/nuono/next/filemanagement/parse/FileParseCommissionPayloadNormalizer.java	1511
 src/main/java/com/nuono/next/filemanagement/parse/FileParseItemReviewService.java	459
 src/main/java/com/nuono/next/filemanagement/parse/FileParseLogisticsPayloadNormalizer.java	706
@@ -25,7 +24,7 @@ src/main/java/com/nuono/next/filemanagement/parse/OfficeFileParseInputExtractor.
 src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	417
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688CollectionMapper.java	425
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688HistoricalOrderMapper.java	2311
-src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2425
+src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2424
 src/main/java/com/nuono/next/infrastructure/mapper/FileManagementParseMapper.java	2154
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitFreightCostMapper.java	429
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsLineMapper.java	472
@@ -96,13 +95,13 @@ src/main/java/com/nuono/next/nooncompleteness/NoonHistoricalBackfillPolicy.java	
 src/main/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGate.java	349
 src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	913
-src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1150
+src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1127
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	821
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3082
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3037
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	387
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
@@ -205,7 +204,7 @@ src/main/java/com/nuono/next/productlisting/ProductListingService.java	1708
 src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1535
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
 src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	706
-src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1146
+src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1145
 src/main/java/com/nuono/next/productselection/Ali1688CandidateAiAssessmentService.java	377
 src/main/java/com/nuono/next/productselection/Ali1688PluginAssignmentService.java	544
 src/main/java/com/nuono/next/productselection/AmazonExternalCrawlerSourceCollector.java	533

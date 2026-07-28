@@ -6,7 +6,6 @@ import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,6 +25,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
     private static final int MAX_TITLE_SNAPSHOT_LENGTH = 500;
     private final CompetitorAnalysisMapper mapper;
     private final NoonFrontendSearchAdapter adapter;
+    private final CompetitorRankFactWriter rankFactWriter;
 
     public CompetitorSearchRefreshRunner(
             CompetitorAnalysisMapper mapper,
@@ -33,6 +33,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
     ) {
         this.mapper = mapper;
         this.adapter = adapter;
+        this.rankFactWriter = new CompetitorRankFactWriter(mapper);
     }
 
     @Override
@@ -47,22 +48,22 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 .build());
         context.validateLease();
 
-        Map<String, NoonSearchResult> resultsByCode = firstResultsByCode(page.getResults(), RANK_SCAN_DEPTH);
-        Map<String, NoonSearchResult> candidateResultsByCode = firstResultsByCode(
-                page.getResults(),
-                CANDIDATE_DISCOVERY_LIMIT
-        );
-        Map<String, Long> searchResultIdsByCode = new LinkedHashMap<>();
+        CompetitorSearchResultIndex resultIndex =
+                CompetitorSearchResultIndex.from(page.getResults(), RANK_SCAN_DEPTH);
+        Map<String, NoonSearchResult> candidateResultsByCode =
+                resultIndex.firstResultsByCode(CANDIDATE_DISCOVERY_LIMIT);
+        Map<String, Long> searchResultIdsByRankKey = new LinkedHashMap<>();
         int resultCount = 0;
-        for (NoonSearchResult result : resultsByCode.values()) {
+        for (NoonSearchResult result : resultIndex.orderedResults()) {
             Long searchResultId = mapper.nextSearchResultId();
             mapper.insertSearchResult(buildSearchResult(context, result, page, searchResultId));
-            searchResultIdsByCode.put(result.getNoonProductCode(), searchResultId);
+            searchResultIdsByRankKey.putIfAbsent(CompetitorSearchResultIndex.rankKey(result), searchResultId);
             resultCount++;
         }
 
         int candidateCount = upsertCandidates(context, candidateResultsByCode);
-        int rankFactCount = writeRankFacts(context, resultsByCode, searchResultIdsByCode, page);
+        int rankFactCount =
+                rankFactWriter.write(context, resultIndex, searchResultIdsByRankKey, page, RANK_SCAN_DEPTH);
         CompetitorKeywordRefreshOutcome outcome = CompetitorKeywordRefreshOutcome.success(resultCount);
         outcome.setCandidateUpsertedCount(candidateCount);
         outcome.setRankFactWrittenCount(rankFactCount);
@@ -108,67 +109,6 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 context.getActorUserId()
         );
         return count;
-    }
-
-    private int writeRankFacts(
-            CompetitorKeywordRefreshContext context,
-            Map<String, NoonSearchResult> resultsByCode,
-            Map<String, Long> searchResultIdsByCode,
-            NoonSearchPage page
-    ) {
-        int count = 0;
-        String selfCode = normalizeCode(context.getWatchProduct().getSelfNoonProductCode());
-        if (StringUtils.hasText(selfCode)) {
-            mapper.insertRankFact(buildRankFact(
-                    context,
-                    "SELF",
-                    selfCode,
-                    resultsByCode.get(selfCode),
-                    searchResultIdsByCode.get(selfCode),
-                    page
-            ));
-            count++;
-        }
-
-        List<CompetitorProductRow> confirmedProducts = mapper.listConfirmedCompetitorProductsByKeywordId(
-                context.getKeyword().getId()
-        );
-        for (CompetitorProductRow product : confirmedProducts) {
-            String code = normalizeCode(product.getNoonProductCode());
-            if (!StringUtils.hasText(code) || code.equals(selfCode)) {
-                continue;
-            }
-            mapper.insertRankFact(buildRankFact(
-                    context,
-                    "COMPETITOR",
-                    code,
-                    resultsByCode.get(code),
-                    searchResultIdsByCode.get(code),
-                    page
-            ));
-            count++;
-        }
-        return count;
-    }
-
-    private Map<String, NoonSearchResult> firstResultsByCode(List<NoonSearchResult> results, int limit) {
-        Map<String, NoonSearchResult> byCode = new LinkedHashMap<>();
-        if (results == null) {
-            return byCode;
-        }
-        for (NoonSearchResult result : results) {
-            if (byCode.size() >= limit) {
-                break;
-            }
-            String code = normalizeCode(result.getNoonProductCode());
-            if (!StringUtils.hasText(code)) {
-                continue;
-            }
-            result.setNoonProductCode(code);
-            result.setCodeType(NoonProductCodeSupport.codeType(code).orElse(result.getCodeType()));
-            byCode.putIfAbsent(code, result);
-        }
-        return byCode;
     }
 
     private CompetitorProductInsertCommand buildProductInsert(
@@ -247,45 +187,6 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setRawResultJson(normalizeText(result.getRawResultJson()));
         command.setCapturedAt(page.getCapturedAt());
         command.setActorUserId(context.getActorUserId());
-        return command;
-    }
-
-    private CompetitorRankFactInsertCommand buildRankFact(
-            CompetitorKeywordRefreshContext context,
-            String trackedProductType,
-            String noonProductCode,
-            NoonSearchResult result,
-            Long sourceResultId,
-            NoonSearchPage page
-    ) {
-        LocalDateTime factTime = page.getCapturedAt() == null ? LocalDateTime.now() : page.getCapturedAt();
-        CompetitorRankFactInsertCommand command = new CompetitorRankFactInsertCommand();
-        command.setId(mapper.nextRankFactId());
-        command.setWatchProductId(context.getWatchProduct().getId());
-        command.setKeywordId(context.getKeyword().getId());
-        command.setKeywordRunId(context.getKeywordRunId());
-        command.setSearchRunId(context.getSearchRunId());
-        command.setFactTime(factTime);
-        command.setFactDate(factTime.toLocalDate());
-        command.setTrackedProductType(trackedProductType);
-        command.setNoonProductCode(noonProductCode);
-        command.setActorUserId(context.getActorUserId());
-        command.setScanDepth(RANK_SCAN_DEPTH);
-        if (result == null) {
-            command.setRankStatus("NOT_IN_SCAN_DEPTH");
-            command.setSponsored(false);
-            command.setRankChannel("ORGANIC");
-            return command;
-        }
-        command.setRankStatus("RANKED");
-        command.setRankNo(result.getPosition());
-        command.setSponsored(result.isSponsored());
-        command.setRankChannel(result.isSponsored() ? "SPONSORED" : "ORGANIC");
-        command.setPriceAmount(result.getPriceAmount());
-        command.setCurrencyCode(normalizeText(result.getCurrencyCode()));
-        command.setRating(result.getRating());
-        command.setReviewCount(result.getReviewCount());
-        command.setSourceResultId(sourceResultId);
         return command;
     }
 
