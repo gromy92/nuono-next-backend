@@ -4,6 +4,7 @@ import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskService;
 import com.nuono.next.system.task.OperationalTaskStatus;
+import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Locale;
 import java.util.function.Predicate;
@@ -22,6 +23,7 @@ final class CompetitorRefreshRecoveryCoordinator {
     private final CompetitorRefreshTaskDispatcher taskDispatcher;
     private final Predicate<CompetitorWatchProductRow> executionAllowed;
     private final RefreshExecution refreshExecution;
+    private final Clock clock;
 
     CompetitorRefreshRecoveryCoordinator(
             CompetitorAnalysisMapper mapper,
@@ -29,7 +31,8 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorRefreshTaskFactory taskFactory,
             CompetitorRefreshTaskDispatcher taskDispatcher,
             Predicate<CompetitorWatchProductRow> executionAllowed,
-            RefreshExecution refreshExecution
+            RefreshExecution refreshExecution,
+            Clock clock
     ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
@@ -37,6 +40,7 @@ final class CompetitorRefreshRecoveryCoordinator {
         this.taskDispatcher = taskDispatcher;
         this.executionAllowed = executionAllowed;
         this.refreshExecution = refreshExecution;
+        this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
     CompetitorQueuedRefresh replaceManualStale(
@@ -89,7 +93,7 @@ final class CompetitorRefreshRecoveryCoordinator {
                 staleBefore,
                 run.getRequestedBy(),
                 mode,
-                payloadBatchKey(interruptedTask),
+                CompetitorRefreshRecoveryPayload.batchKey(interruptedTask),
                 keywordTotal,
                 queued -> dispatchSafely(queued, watchProduct, run.getRequestedBy(), mode)
         ) != null;
@@ -100,7 +104,9 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorSearchRunRow run,
             CompetitorWatchProductRow watchProduct
     ) {
-        if (!executionAllowed.test(watchProduct)) {
+        if (!CompetitorRefreshRecoveryPayload.isReady(
+                task, LocalDateTime.now(clock)
+        ) || !executionAllowed.test(watchProduct)) {
             return false;
         }
         return submit(
@@ -123,7 +129,10 @@ final class CompetitorRefreshRecoveryCoordinator {
                 : operationalTaskService.find(queued.getView().getTaskId()).orElse(null);
         CompetitorSearchRunRow run =
                 task == null ? null : mapper.selectSearchRunByTaskId(task.getId());
-        if (task != null && run != null && task.getStatus() == OperationalTaskStatus.QUEUED) {
+        if (task != null
+                && run != null
+                && task.getStatus() == OperationalTaskStatus.QUEUED
+                && CompetitorRefreshRecoveryPayload.isReady(task, LocalDateTime.now(clock))) {
             submit(task, run, watchProduct, actorUserId, mode);
         }
     }
@@ -140,7 +149,9 @@ final class CompetitorRefreshRecoveryCoordinator {
                 task,
                 run,
                 RUNNING_MESSAGE,
-                () -> executionAllowed.test(watchProduct),
+                () -> CompetitorRefreshRecoveryPayload.isReady(
+                        task, LocalDateTime.now(clock)
+                ) && executionAllowed.test(watchProduct),
                 () -> refreshExecution.run(
                         task.getId(),
                         run.getId(),
@@ -168,16 +179,6 @@ final class CompetitorRefreshRecoveryCoordinator {
                     exception
             );
         }
-    }
-
-    private String payloadBatchKey(OperationalTask task) {
-        String payload = task == null ? null : task.getPayloadJson();
-        String marker = "\"batchKey\":\"";
-        int start = payload == null ? -1 : payload.indexOf(marker);
-        if (start < 0) return null;
-        start += marker.length();
-        int end = payload.indexOf('"', start);
-        return end < 0 ? null : payload.substring(start, end);
     }
 
     private String accountKey(CompetitorWatchProductRow watchProduct) {

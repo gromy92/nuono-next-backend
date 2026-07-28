@@ -19,6 +19,7 @@ class CompetitorRefreshTaskFactory {
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
+    private final CompetitorStaleTaskReconciler staleTaskReconciler;
 
     CompetitorRefreshTaskFactory(
             CompetitorAnalysisMapper mapper,
@@ -26,6 +27,8 @@ class CompetitorRefreshTaskFactory {
     ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
+        this.staleTaskReconciler =
+                new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
     }
 
     @Transactional
@@ -37,6 +40,27 @@ class CompetitorRefreshTaskFactory {
             String batchKey,
             int keywordTotal
     ) {
+        return persistQueued(
+                watchProduct,
+                requestedBy,
+                mode,
+                naturalKey,
+                batchKey,
+                keywordTotal,
+                null
+        );
+    }
+
+    @Transactional
+    public CompetitorQueuedRefresh persistQueued(
+            CompetitorWatchProductRow watchProduct,
+            Long requestedBy,
+            CompetitorRefreshExecutionMode mode,
+            String naturalKey,
+            String batchKey,
+            int keywordTotal,
+            String payloadJsonOverride
+    ) {
         OperationalTask task = operationalTaskService.queue(
                 CompetitorAnalysisRefreshService.TASK_TYPE,
                 naturalKey,
@@ -44,7 +68,11 @@ class CompetitorRefreshTaskFactory {
                         .ownerUserId(watchProduct.getOwnerUserId())
                         .storeCode(watchProduct.getStoreCode())
                         .siteCode(watchProduct.getSiteCode())
-                        .payloadJson(payloadJson(watchProduct.getId(), keywordTotal, mode, batchKey))
+                        .payloadJson(StringUtils.hasText(payloadJsonOverride)
+                                ? payloadJsonOverride
+                                : CompetitorRefreshRecoveryPayload.fresh(
+                                        watchProduct.getId(), keywordTotal, mode, batchKey
+                                ))
                         .message(TASK_MESSAGE)
                         .build()
         );
@@ -83,9 +111,18 @@ class CompetitorRefreshTaskFactory {
             int keywordTotal,
             Consumer<CompetitorQueuedRefresh> afterCommit
     ) {
-        if (!claimLinkedStale(staleTask, staleRun, staleBefore, "FAILED_STALE",
-                "刷新任务超过 30 分钟未完成，已自动释放。")) {
+        CompetitorStaleTaskReconciler.Outcome claim = staleTaskReconciler.claim(
+                staleTask,
+                staleRun,
+                staleBefore,
+                "FAILED_STALE",
+                "刷新任务超过 30 分钟未完成，已自动释放。"
+        );
+        if (claim == CompetitorStaleTaskReconciler.Outcome.NOT_CLAIMED) {
             return null;
+        }
+        if (claim == CompetitorStaleTaskReconciler.Outcome.TERMINAL_RECONCILED) {
+            return reconciledTerminal(staleTask);
         }
         CompetitorQueuedRefresh replacement = persistQueued(
                 watchProduct,
@@ -93,7 +130,10 @@ class CompetitorRefreshTaskFactory {
                 mode,
                 staleTask.getNaturalKey(),
                 batchKey,
-                keywordTotal
+                keywordTotal,
+                CompetitorRefreshRecoveryPayload.replacement(
+                        staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
+                )
         );
         if (replacement == null
                 || replacement.getOutcome() != CompetitorMonitoringEnqueueOutcome.CREATED
@@ -113,39 +153,21 @@ class CompetitorRefreshTaskFactory {
             String errorCode,
             String errorMessage
     ) {
-        return claimLinkedStale(staleTask, staleRun, staleBefore, errorCode, errorMessage);
+        return staleTaskReconciler.claim(
+                staleTask, staleRun, staleBefore, errorCode, errorMessage
+        ) != CompetitorStaleTaskReconciler.Outcome.NOT_CLAIMED;
     }
 
-    private boolean claimLinkedStale(
-            OperationalTask staleTask,
-            CompetitorSearchRunRow staleRun,
-            LocalDateTime staleBefore,
-            String errorCode,
-            String errorMessage
-    ) {
-        if (staleTask == null || staleTask.getId() == null || staleBefore == null) {
-            return false;
-        }
-        if (staleRun != null && !Objects.equals(staleTask.getId(), staleRun.getTaskId())) {
-            throw new IllegalArgumentException("Competitor search run is not linked to the stale task.");
-        }
-        if (!operationalTaskService.failStaleRunning(
-                staleTask.getId(),
-                staleBefore,
-                errorCode,
-                errorMessage
-        )) {
-            return false;
-        }
-        if (staleRun != null && mapper.markActiveSearchRunFailedForTask(
-                staleRun.getId(),
-                staleTask.getId(),
-                errorCode,
-                errorMessage
-        ) != 1) {
-            throw new IllegalStateException("Competitor search run changed during stale recovery.");
-        }
-        return true;
+    private CompetitorQueuedRefresh reconciledTerminal(OperationalTask staleTask) {
+        OperationalTask task = operationalTaskService.find(staleTask.getId())
+                .orElseThrow(() -> new IllegalStateException(
+                        "Competitor reconciled task disappeared: " + staleTask.getId()
+                ));
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(staleTask.getId());
+        return new CompetitorQueuedRefresh(
+                CompetitorRefreshRunView.from(task, run),
+                CompetitorMonitoringEnqueueOutcome.STALE_TERMINAL_RECONCILED
+        );
     }
 
     private void dispatchAfterCommit(
@@ -196,31 +218,9 @@ class CompetitorRefreshTaskFactory {
         return row;
     }
 
-    private String payloadJson(
-            Long watchProductId,
-            int keywordTotal,
-            CompetitorRefreshExecutionMode mode,
-            String batchKey
-    ) {
-        return "{"
-                + "\"watchProductId\":" + watchProductId
-                + ",\"keywordTotal\":" + keywordTotal
-                + ",\"triggerMode\":\"" + json(mode.triggerMode()) + "\""
-                + ",\"executionMode\":\"" + json(mode.taskKey()) + "\""
-                + ",\"rankRefresh\":" + mode.runsRank()
-                + ",\"detailRefresh\":" + mode.runsDetail()
-                + (StringUtils.hasText(batchKey) ? ",\"batchKey\":\"" + json(batchKey) + "\"" : "")
-                + "}";
-    }
-
     private boolean payloadHasBatchKey(OperationalTask task, String batchKey) {
-        return task != null
-                && StringUtils.hasText(batchKey)
-                && StringUtils.hasText(task.getPayloadJson())
-                && task.getPayloadJson().contains("\"batchKey\":\"" + json(batchKey) + "\"");
+        return StringUtils.hasText(batchKey)
+                && batchKey.trim().equals(CompetitorRefreshRecoveryPayload.batchKey(task));
     }
 
-    private String json(String value) {
-        return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
-    }
 }
