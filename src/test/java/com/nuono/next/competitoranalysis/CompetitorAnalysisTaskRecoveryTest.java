@@ -1,6 +1,9 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -134,7 +137,7 @@ class CompetitorAnalysisTaskRecoveryTest {
     }
 
     @Test
-    void heldOrRunningFirstPageDoesNotHideALaterQueuedAccount() {
+    void saturatedQueuedAccountPrefixDoesNotHideALaterAccount() {
         recovery = new CompetitorAnalysisTaskRecovery(
                 mapper,
                 operationalTaskService,
@@ -144,7 +147,7 @@ class CompetitorAnalysisTaskRecoveryTest {
                 () -> 1
         );
         List<OperationalTask> firstPage = LongStream.rangeClosed(1L, 1000L)
-                .mapToObj(id -> task(id, OperationalTaskStatus.RUNNING, "2026-06-06T08:00:00"))
+                .mapToObj(id -> task(id, OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00"))
                 .collect(java.util.stream.Collectors.toList());
         OperationalTask queued = task(1001L, OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
         CompetitorSearchRunRow run = run("QUEUED");
@@ -153,9 +156,10 @@ class CompetitorAnalysisTaskRecoveryTest {
                 .thenReturn(firstPage);
         when(operationalTaskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 1000L, 1000))
                 .thenReturn(List.of(queued));
-        when(mapper.selectSearchRunByTaskId(1001L)).thenReturn(run);
+        when(mapper.selectSearchRunByTaskId(anyLong())).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
-        when(queuedTaskSubmitter.submit(queued, run, watchProduct)).thenReturn(true);
+        when(queuedTaskSubmitter.submit(any(), eq(run), eq(watchProduct)))
+                .thenAnswer(invocation -> ((OperationalTask) invocation.getArgument(0)).getId() == 1001L);
 
         assertEquals(1, recovery.resumeQueuedRefreshTasks());
         verify(queuedTaskSubmitter).submit(queued, run, watchProduct);
