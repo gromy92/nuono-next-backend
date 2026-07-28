@@ -2,6 +2,8 @@ package com.nuono.next.competitoranalysis;
 
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class CompetitorAnalysisMonitoringScheduler {
+    private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisMonitoringScheduler.class);
     private final CompetitorAnalysisRefreshService refreshService;
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
     private final AtomicBoolean detailRunning = new AtomicBoolean(false);
@@ -78,7 +81,14 @@ public class CompetitorAnalysisMonitoringScheduler {
 
     @EventListener(ApplicationReadyEvent.class)
     public void resumeQueuedRefreshTasksAfterStartup() {
-        runStartupRecoveryOnce();
+        try {
+            runStartupRecoveryOnce();
+        } catch (RuntimeException exception) {
+            log.warn(
+                    "competitor task startup recovery deferred until the periodic retry error={}",
+                    exception.getMessage()
+            );
+        }
     }
 
     @Scheduled(
