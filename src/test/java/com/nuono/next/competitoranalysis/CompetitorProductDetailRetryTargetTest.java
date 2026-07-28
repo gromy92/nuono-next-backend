@@ -33,22 +33,20 @@ class CompetitorProductDetailRetryTargetTest {
     @BeforeEach
     void setUp() {
         service = new CompetitorProductDetailRefreshService(
-                mapper,
-                detailAdapter,
-                snapshotService,
-                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
-        );
-        org.mockito.Mockito.lenient().when(mapper.selectWatchProductForRefresh(180123L))
-                .thenReturn(watchProduct());
-        org.mockito.Mockito.lenient().when(mapper.updateCompetitorProductFromDetail(any()))
-                .thenReturn(1);
+                mapper, detailAdapter, snapshotService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC));
+        org.mockito.Mockito.lenient().when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct());
+        org.mockito.Mockito.lenient().when(mapper.updateCompetitorProductFromDetail(any())).thenReturn(1);
     }
 
     @Test
     void retriesOnlyFailedDetailTargetsWithoutRefetchingSuccessfulTargets() {
         CompetitorWatchProductRow watchProduct = watchProduct();
+        CompetitorProductRow confirmed = confirmedProduct();
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
-                .thenReturn(List.of(confirmedProduct()));
+                .thenReturn(List.of(confirmed));
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(180123L, 200010L))
+                .thenReturn(confirmed);
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class)))
                 .thenReturn(detail("ZSELF001"))
                 .thenThrow(new NoonSearchProviderException(
@@ -71,6 +69,7 @@ class CompetitorProductDetailRetryTargetTest {
         );
 
         assertEquals(2, initial.getAttemptedCount());
+        assertEquals(2, initial.getRequestAttemptCount());
         assertEquals(1, initial.getSucceededCount());
         assertEquals(1, initial.getFailedCount());
         assertEquals("ZSELF001", initial.getSucceededTargets().get(0).getNoonProductCode());
@@ -78,6 +77,7 @@ class CompetitorProductDetailRetryTargetTest {
         assertEquals(200010L, initial.getRetryTargets().get(0).getCompetitorProductId());
         assertEquals("ZCOMP001", initial.getRetryTargets().get(0).getNoonProductCode());
         assertEquals(1, retry.getAttemptedCount());
+        assertEquals(1, retry.getRequestAttemptCount());
         assertEquals(1, retry.getSucceededCount());
         assertEquals(0, retry.getFailedCount());
 
@@ -111,12 +111,14 @@ class CompetitorProductDetailRetryTargetTest {
                 601L
         );
 
-        assertEquals(0, result.getAttemptedCount());
+        assertEquals(2, result.getAttemptedCount());
+        assertEquals(0, result.getRequestAttemptCount());
         assertEquals(2, result.getFailedCount());
         assertEquals("DETAIL_ADAPTER_UNAVAILABLE", result.getFirstErrorCode());
         assertEquals("ZSELF001", result.getRetryTargets().get(0).getNoonProductCode());
         assertEquals("ZCOMP001", result.getRetryTargets().get(1).getNoonProductCode());
-        assertEquals(0, retry.getAttemptedCount());
+        assertEquals(1, retry.getAttemptedCount());
+        assertEquals(0, retry.getRequestAttemptCount());
         assertEquals(1, retry.getFailedCount());
         verify(snapshotService, never()).recordProductDetailSnapshot(any(), any(), any(), any(), any());
     }

@@ -76,7 +76,7 @@ class CompetitorRefreshDetailTransactionProxyTest {
                             watch,
                             product,
                             productUpdate(),
-                            detail(),
+                            detail("ZCOMP001"),
                             501L
                     )
             );
@@ -121,7 +121,7 @@ class CompetitorRefreshDetailTransactionProxyTest {
                             watch,
                             null,
                             null,
-                            detail(),
+                            detail("ZSELF001"),
                             501L,
                             "{\"detailRetryPhase\":\"COMPLETE\"}"
                     )
@@ -208,9 +208,9 @@ class CompetitorRefreshDetailTransactionProxyTest {
         return command;
     }
 
-    private static NoonProductDetail detail() {
+    private static NoonProductDetail detail(String noonProductCode) {
         NoonProductDetail detail = new NoonProductDetail();
-        detail.setNoonProductCode("ZCOMP001");
+        detail.setNoonProductCode(noonProductCode);
         return detail;
     }
 

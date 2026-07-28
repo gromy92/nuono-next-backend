@@ -114,11 +114,11 @@ class CompetitorStaleRecoveryPayloadTest {
         assertEquals(8, payload.path("detailRequestAttemptCount").asInt());
         assertEquals(4, payload.path("detailSucceededCount").asInt());
         assertEquals(2, payload.path("detailTerminalFailedCount").asInt());
-        assertEquals("N123", payload.path("detailRetryStates").get(0)
+        assertEquals("N1234567", payload.path("detailRetryStates").get(0)
                 .path("noonProductCode").asText());
         assertEquals(3, payload.path("detailRetryStates").get(0)
                 .path("retryAttempt").asInt());
-        assertEquals("N123", payload.path("failedDetailTargets").get(0)
+        assertEquals("N1234567", payload.path("failedDetailTargets").get(0)
                 .path("noonProductCode").asText());
         assertTrue(payload.path("extension").path("keep").asBoolean());
         assertFalse(payload.has("taskId"));
@@ -213,7 +213,7 @@ class CompetitorStaleRecoveryPayloadTest {
                 + "\"failedDetailTargets\":[{"
                 + "\"subjectType\":\"COMPETITOR\","
                 + "\"competitorProductId\":200001,"
-                + "\"noonProductCode\":\"N123\"}],"
+                + "\"noonProductCode\":\"N1234567\"}],"
                 + "\"extension\":{\"keep\":true}"
                 + "}").toJson());
         return task;

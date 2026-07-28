@@ -77,6 +77,7 @@ class CompetitorProductDetailRefreshServiceTest {
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
         assertEquals(2, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(2, result.getSucceededCount());
         assertEquals(0, result.getFailedCount());
         ArgumentCaptor<NoonProductDetailRequest> requestCaptor =
@@ -163,6 +164,7 @@ class CompetitorProductDetailRefreshServiceTest {
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
         assertEquals(2, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(0, result.getSucceededCount());
         assertEquals(2, result.getFailedCount());
         assertEquals("DETAIL_REFRESH_FAILED", result.getFirstErrorCode());
@@ -197,7 +199,8 @@ class CompetitorProductDetailRefreshServiceTest {
         CompetitorProductDetailRefreshResult result =
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(2, result.getAttemptedCount());
+        assertEquals(3, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(0, result.getSucceededCount());
         assertEquals(2, result.getFailedCount());
         assertEquals(1, result.getDeferredCount());
@@ -230,7 +233,8 @@ class CompetitorProductDetailRefreshServiceTest {
         CompetitorProductDetailRefreshResult result =
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(1, result.getAttemptedCount());
+        assertEquals(3, result.getAttemptedCount());
+        assertEquals(1, result.getRequestAttemptCount());
         assertEquals(1, result.getFailedCount());
         assertEquals(2, result.getDeferredCount());
         assertEquals("ZCOMP001", result.getDeferredTargets().get(0).getNoonProductCode());

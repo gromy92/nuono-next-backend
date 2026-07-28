@@ -98,7 +98,7 @@ class CompetitorBatchReplayTest {
                 CompetitorAnalysisRefreshService.TASK_TYPE,
                 CHILD_KEY
         );
-        stale.setPayloadJson(childPayload(BATCH_KEY));
+        stale.setPayloadJson(retryChildPayload(BATCH_KEY));
         stale.setStartedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         stale.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         repository.insert(stale);
@@ -202,6 +202,19 @@ class CompetitorBatchReplayTest {
                 + "\"detailRefresh\":true"
                 + (batchKey == null ? "" : ",\"batchKey\":\"" + batchKey + "\"")
                 + "}";
+    }
+
+    private static String retryChildPayload(String batchKey) {
+        CompetitorDetailRetryPayload payload =
+                CompetitorDetailRetryPayload.fromJson(childPayload(batchKey));
+        payload.setRetryStates(List.of(new CompetitorDetailRetryState(
+                CompetitorProductDetailTarget.self("ZSELF001"),
+                1,
+                LocalDateTime.parse("2026-06-06T09:00:00"),
+                "DETAIL_REFRESH_FAILED",
+                "retry later"
+        )));
+        return payload.toJson();
     }
 
     private static CompetitorWatchProductRow watchProduct() {
