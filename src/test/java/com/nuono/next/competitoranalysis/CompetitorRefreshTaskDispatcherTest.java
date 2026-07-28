@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,6 +56,7 @@ class CompetitorRefreshTaskDispatcherTest {
         CompetitorRefreshTaskDispatcher restartedProcess = dispatcher();
         AtomicInteger executions = new AtomicInteger();
         when(operationalTaskService.claimQueued(150001L, "running")).thenReturn(true, false);
+        when(mapper.markSearchRunRunning(220001L)).thenReturn(1);
 
         assertTrue(oldProcess.submit("501::store", task, run, "running", executions::incrementAndGet));
         assertTrue(restartedProcess.submit("501::store", task, run, "running", executions::incrementAndGet));
@@ -62,6 +64,59 @@ class CompetitorRefreshTaskDispatcherTest {
 
         assertEquals(1, executions.get());
         verify(mapper, times(1)).markSearchRunRunning(220001L);
+    }
+
+    @Test
+    void holdRaisedWhileWaitingLeavesTaskQueuedAndReleasesReservation() {
+        CompetitorRefreshTaskDispatcher dispatcher = dispatcher();
+        AtomicInteger executions = new AtomicInteger();
+
+        assertTrue(dispatcher.submit(
+                "501::store",
+                task,
+                run,
+                "running",
+                () -> false,
+                executions::incrementAndGet
+        ));
+        submitted.remove(0).run();
+
+        assertEquals(0, executions.get());
+        verify(operationalTaskService, never()).claimQueued(150001L, "running");
+        assertTrue(dispatcher.submit("501::store", task, run, "running", () -> { }));
+    }
+
+    @Test
+    void searchRunClaimConflictPreventsExternalExecution() {
+        CompetitorRefreshTaskDispatcher dispatcher = dispatcher();
+        AtomicInteger executions = new AtomicInteger();
+        when(operationalTaskService.claimQueued(150001L, "running")).thenReturn(true);
+        when(mapper.markSearchRunRunning(220001L)).thenReturn(0);
+
+        dispatcher.submit("501::store", task, run, "running", executions::incrementAndGet);
+        submitted.get(0).run();
+
+        assertEquals(0, executions.get());
+        verify(operationalTaskService).fail(
+                150001L,
+                "COMPETITOR_SEARCH_RUN_CLAIM_CONFLICT",
+                "刷新执行记录状态冲突，任务未执行。"
+        );
+    }
+
+    @Test
+    void oneBusyAccountCannotConsumeEveryDispatcherReservation() {
+        CompetitorRefreshTaskDispatcher dispatcher = dispatcher();
+        for (long index = 1L; index <= 50L; index++) {
+            task.setId(index);
+            run.setId(1000L + index);
+            assertTrue(dispatcher.submit("busy", task, run, "running", () -> { }));
+        }
+        task.setId(51L);
+        run.setId(1051L);
+        assertFalse(dispatcher.submit("busy", task, run, "running", () -> { }));
+        assertTrue(dispatcher.submit("other", task, run, "running", () -> { }));
+        assertEquals(51, submitted.size());
     }
 
     private CompetitorRefreshTaskDispatcher dispatcher() {

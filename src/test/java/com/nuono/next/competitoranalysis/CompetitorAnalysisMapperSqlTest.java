@@ -3,6 +3,7 @@ package com.nuono.next.competitoranalysis;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.infrastructure.mapper.CompetitorMonitoringMapper;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Locale;
@@ -190,6 +191,53 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     @Test
+    void refreshableProductPagingUsesIdCursorAndCycleHighWatermark() throws NoSuchMethodException {
+        String sql = selectSql(
+                CompetitorMonitoringMapper.class,
+                "listRefreshableWatchProducts",
+                Long.class,
+                String.class,
+                String.class,
+                Long.class,
+                Long.class,
+                int.class
+        );
+
+        assertThat(sql)
+                .contains("wp.id > #{afterwatchproductid}")
+                .contains("wp.id <= #{upperwatchproductid}")
+                .contains("order by wp.id asc")
+                .contains("limit #{limit}")
+                .doesNotContain("offset");
+    }
+
+    @Test
+    void refreshableScopePagingUsesBusinessKeyCursorAndCycleHighWatermark() throws NoSuchMethodException {
+        String sql = selectSql(
+                CompetitorMonitoringMapper.class,
+                "listRefreshableWatchProductScopes",
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                Long.class,
+                String.class,
+                String.class,
+                int.class
+        );
+
+        assertThat(sql)
+                .contains("wp.id <= #{upperwatchproductid}")
+                .contains("wp.owner_user_id > #{afterowneruserid}")
+                .contains("wp.store_code > #{afterstorecode}")
+                .contains("wp.site_code > #{aftersitecode}")
+                .contains("wp.site_code <= #{uppersitecode}")
+                .contains("order by wp.owner_user_id asc, wp.store_code asc, wp.site_code asc")
+                .contains("limit #{limit}")
+                .doesNotContain("offset");
+    }
+
+    @Test
     void productListsExposeRecentSevenDayCompetitorChangeCount() throws NoSuchMethodException {
         String productBaselinesSql = selectSql(
                 "listProductBaselines",
@@ -218,7 +266,15 @@ class CompetitorAnalysisMapperSqlTest {
     }
 
     private static String selectSql(String methodName, Class<?>... parameterTypes) throws NoSuchMethodException {
-        Method method = CompetitorAnalysisMapper.class.getMethod(methodName, parameterTypes);
+        return selectSql(CompetitorAnalysisMapper.class, methodName, parameterTypes);
+    }
+
+    private static String selectSql(
+            Class<?> mapperType,
+            String methodName,
+            Class<?>... parameterTypes
+    ) throws NoSuchMethodException {
+        Method method = mapperType.getMethod(methodName, parameterTypes);
         Select select = method.getAnnotation(Select.class);
         return Arrays.stream(select.value())
                 .collect(java.util.stream.Collectors.joining(" "))

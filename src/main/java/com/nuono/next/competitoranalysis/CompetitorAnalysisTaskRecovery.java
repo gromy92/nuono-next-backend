@@ -7,6 +7,7 @@ import com.nuono.next.system.task.OperationalTaskStatus;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.function.IntSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,13 +15,18 @@ final class CompetitorAnalysisTaskRecovery {
     private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisTaskRecovery.class);
     private static final Duration STALE_AFTER = Duration.ofMinutes(30);
     private static final int RECOVERY_LIMIT = 1000;
+    private static final int MAX_SCAN_PAGES = 10;
     private static final String STALE_MESSAGE = "刷新任务超过 30 分钟未完成，已自动释放。";
+    private static final String ORPHAN_MESSAGE = "刷新任务缺少执行记录，已自动释放。";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final Clock clock;
     private final QueuedTaskSubmitter queuedTaskSubmitter;
     private final InterruptedTaskRetry interruptedTaskRetry;
+    private final IntSupplier dispatchCapacity;
+    private long queuedScanCursor;
+    private long staleScanCursor;
 
     CompetitorAnalysisTaskRecovery(
             CompetitorAnalysisMapper mapper,
@@ -29,73 +35,114 @@ final class CompetitorAnalysisTaskRecovery {
             QueuedTaskSubmitter queuedTaskSubmitter,
             InterruptedTaskRetry interruptedTaskRetry
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                clock,
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                () -> RECOVERY_LIMIT
+        );
+    }
+
+    CompetitorAnalysisTaskRecovery(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            Clock clock,
+            QueuedTaskSubmitter queuedTaskSubmitter,
+            InterruptedTaskRetry interruptedTaskRetry,
+            IntSupplier dispatchCapacity
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.clock = clock;
         this.queuedTaskSubmitter = queuedTaskSubmitter;
         this.interruptedTaskRetry = interruptedTaskRetry;
+        this.dispatchCapacity = dispatchCapacity;
     }
 
-    int resumeQueuedRefreshTasks() {
+    synchronized int resumeQueuedRefreshTasks() {
+        int capacity = Math.max(0, Math.min(RECOVERY_LIMIT, dispatchCapacity.getAsInt()));
+        if (capacity <= 0) {
+            return 0;
+        }
         int resumed = 0;
-        for (OperationalTask task : operationalTaskService.listActive(
-                CompetitorAnalysisRefreshService.TASK_TYPE,
-                RECOVERY_LIMIT
-        )) {
-            if (task.getStatus() != OperationalTaskStatus.QUEUED) {
-                continue;
+        long afterTaskId = queuedScanCursor;
+        int scannedPages = 0;
+        while (resumed < capacity && scannedPages++ < MAX_SCAN_PAGES) {
+            java.util.List<OperationalTask> tasks = nextPage(afterTaskId);
+            if (tasks.isEmpty()) {
+                queuedScanCursor = 0L;
+                break;
             }
-            CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
-            if (run == null || !"QUEUED".equals(run.getStatus())) {
-                continue;
+            for (OperationalTask task : tasks) {
+                afterTaskId = task.getId();
+                if (task.getStatus() != OperationalTaskStatus.QUEUED) {
+                    continue;
+                }
+                CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
+                if (run == null) {
+                    releaseStaleOrphan(task);
+                    continue;
+                }
+                if (!"QUEUED".equals(run.getStatus())) {
+                    continue;
+                }
+                CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(run.getWatchProductId());
+                if (watchProduct == null) {
+                    failMissingWatchProduct(task, run);
+                    continue;
+                }
+                if (queuedTaskSubmitter.submit(task, run, watchProduct) && ++resumed >= capacity) {
+                    break;
+                }
             }
-            CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(run.getWatchProductId());
-            if (watchProduct == null) {
-                failMissingWatchProduct(task, run);
-                continue;
-            }
-            if (queuedTaskSubmitter.submit(task, run, watchProduct)) {
-                resumed++;
-            }
+            queuedScanCursor = afterTaskId;
         }
         return resumed;
     }
 
     int recoverStaleRefreshTasks() {
-        return recoverInterruptedProductTasks() + releaseStaleMonitorTasks();
+        return recoverInterruptedProductTasks();
     }
 
-    private int recoverInterruptedProductTasks() {
+    private synchronized int recoverInterruptedProductTasks() {
         int recovered = 0;
-        for (OperationalTask task : operationalTaskService.listActive(
+        long afterTaskId = staleScanCursor;
+        int scannedPages = 0;
+        LocalDateTime staleBefore = LocalDateTime.now(clock).minus(STALE_AFTER);
+        while (recovered < RECOVERY_LIMIT && scannedPages++ < MAX_SCAN_PAGES) {
+            java.util.List<OperationalTask> tasks = nextPage(afterTaskId);
+            if (tasks.isEmpty()) {
+                staleScanCursor = 0L;
+                break;
+            }
+            for (OperationalTask task : tasks) {
+                afterTaskId = task.getId();
+                if (task.getStatus() != OperationalTaskStatus.RUNNING || !isStale(task, staleBefore)) {
+                    continue;
+                }
+                CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
+                if (!release(task, run, staleBefore)) {
+                    continue;
+                }
+                recovered++;
+                retryInterruptedRun(task, run);
+                if (recovered >= RECOVERY_LIMIT) {
+                    break;
+                }
+            }
+            staleScanCursor = afterTaskId;
+        }
+        return recovered;
+    }
+
+    private java.util.List<OperationalTask> nextPage(long afterTaskId) {
+        return operationalTaskService.listActiveAfter(
                 CompetitorAnalysisRefreshService.TASK_TYPE,
+                afterTaskId,
                 RECOVERY_LIMIT
-        )) {
-            if (task.getStatus() != OperationalTaskStatus.RUNNING || !isStale(task)) {
-                continue;
-            }
-            CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
-            if (!release(task, run)) {
-                continue;
-            }
-            recovered++;
-            retryInterruptedRun(task, run);
-        }
-        return recovered;
-    }
-
-    private int releaseStaleMonitorTasks() {
-        int recovered = 0;
-        for (OperationalTask task : operationalTaskService.listActive(
-                CompetitorAnalysisRefreshService.MONITOR_TASK_TYPE,
-                RECOVERY_LIMIT
-        )) {
-            if (!isStale(task) || !release(task, null)) {
-                continue;
-            }
-            recovered++;
-        }
-        return recovered;
+        );
     }
 
     private void retryInterruptedRun(OperationalTask task, CompetitorSearchRunRow run) {
@@ -116,16 +163,28 @@ final class CompetitorAnalysisTaskRecovery {
         }
     }
 
-    private boolean release(OperationalTask task, CompetitorSearchRunRow run) {
-        try {
-            operationalTaskService.fail(task.getId(), "FAILED_STALE", STALE_MESSAGE);
-            if (run != null) {
-                mapper.markSearchRunFailed(run.getId(), "FAILED_STALE", STALE_MESSAGE);
-            }
-            return true;
-        } catch (IllegalStateException exception) {
+    private boolean release(OperationalTask task, CompetitorSearchRunRow run, LocalDateTime staleBefore) {
+        if (!operationalTaskService.failStaleRunning(
+                task.getId(),
+                staleBefore,
+                "FAILED_STALE",
+                STALE_MESSAGE
+        )) {
             return false;
         }
+        if (run != null) {
+            mapper.markSearchRunFailed(run.getId(), "FAILED_STALE", STALE_MESSAGE);
+        }
+        return true;
+    }
+
+    private void releaseStaleOrphan(OperationalTask task) {
+        operationalTaskService.failStaleQueued(
+                task.getId(),
+                LocalDateTime.now(clock).minus(STALE_AFTER),
+                "COMPETITOR_SEARCH_RUN_MISSING",
+                ORPHAN_MESSAGE
+        );
     }
 
     private void failMissingWatchProduct(OperationalTask task, CompetitorSearchRunRow run) {
@@ -141,10 +200,9 @@ final class CompetitorAnalysisTaskRecovery {
         );
     }
 
-    private boolean isStale(OperationalTask task) {
+    private boolean isStale(OperationalTask task, LocalDateTime staleBefore) {
         LocalDateTime updatedAt = task.getUpdatedAt() == null ? task.getStartedAt() : task.getUpdatedAt();
-        return updatedAt != null
-                && Duration.between(updatedAt, LocalDateTime.now(clock)).compareTo(STALE_AFTER) > 0;
+        return updatedAt != null && !updatedAt.isAfter(staleBefore);
     }
 
     @FunctionalInterface

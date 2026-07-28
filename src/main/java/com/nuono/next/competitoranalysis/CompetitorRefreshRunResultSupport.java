@@ -43,6 +43,7 @@ final class CompetitorRefreshRunResultSupport {
                 + ",\"keywordSuccess\":" + keywordSuccess
                 + ",\"keywordFailed\":" + keywordFailed
                 + ",\"detailAttempted\":" + detail.getAttemptedCount()
+                + ",\"detailRequestAttempts\":" + detail.getRequestAttemptCount()
                 + ",\"detailSuccess\":" + detail.getSucceededCount()
                 + ",\"detailFailed\":" + detail.getFailedCount()
                 + ",\"keywordRetried\":" + keywordRetried

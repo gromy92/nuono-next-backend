@@ -7,6 +7,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -19,6 +24,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 
 class OperationalTaskServiceTest {
     private InMemoryOperationalTaskRepository repository;
@@ -46,6 +52,33 @@ class OperationalTaskServiceTest {
         assertEquals(first.getId(), duplicate.getId());
         assertEquals(1, repository.tasks.size());
         assertEquals(OperationalTaskStatus.RUNNING, duplicate.getStatus());
+    }
+
+    @Test
+    void duplicateKeyRaceReturnsTheConcurrentWinner() {
+        OperationalTaskRepository racingRepository = mock(OperationalTaskRepository.class);
+        OperationalTask winner = new OperationalTask();
+        winner.setId(150099L);
+        winner.setTaskType("operations.competitor.refresh");
+        winner.setNaturalKey("watch-product:180123:rank");
+        winner.setStatus(OperationalTaskStatus.QUEUED);
+        when(racingRepository.selectActiveByNaturalKey(
+                "operations.competitor.refresh",
+                "watch-product:180123:rank"
+        )).thenReturn(null, winner);
+        when(racingRepository.nextId("operational_task", 150000L)).thenReturn(150100L);
+        doThrow(new DuplicateKeyException("active slot race"))
+                .when(racingRepository).insert(any(OperationalTask.class));
+        OperationalTaskService racingService = new OperationalTaskService(racingRepository);
+
+        OperationalTask result = racingService.queue(
+                "operations.competitor.refresh",
+                "watch-product:180123:rank",
+                payload()
+        );
+
+        assertEquals(150099L, result.getId());
+        verify(racingRepository).insert(any(OperationalTask.class));
     }
 
     @Test

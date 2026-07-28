@@ -2,16 +2,19 @@ package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.infrastructure.mapper.CompetitorMonitoringMapper;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import com.nuono.next.noonpull.NoonRiskBackoffHold;
 import com.nuono.next.noonpull.NoonRiskBackoffRepository;
@@ -32,8 +35,9 @@ import org.mockito.ArgumentCaptor;
 class CompetitorAnalysisDetailRiskBackoffTest {
 
     @Test
-    void scheduledDetailMonitoringRecordsLaterRiskFailureInsteadOfFirstOrdinaryFailure() {
+    void scheduledDetailMonitoringQueuesRiskFailureAfterSharedHold() {
         CompetitorAnalysisMapper mapper = mock(CompetitorAnalysisMapper.class);
+        CompetitorMonitoringMapper monitoringMapper = mock(CompetitorMonitoringMapper.class);
         OperationalTaskService taskService = mock(OperationalTaskService.class);
         CompetitorKeywordRefreshTransactionRunner keywordRunner =
                 mock(CompetitorKeywordRefreshTransactionRunner.class);
@@ -44,6 +48,7 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         Clock clock = Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC);
         CompetitorAnalysisRefreshService service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 taskService,
                 (accountKey, task) -> submittedTasks.add(task),
                 keywordRunner,
@@ -56,7 +61,7 @@ class CompetitorAnalysisDetailRiskBackoffTest {
                 150000L,
                 CompetitorAnalysisRefreshService.MONITOR_TASK_TYPE,
                 "store:501:STR108065-NSA:SA:scheduledDetail",
-                OperationalTaskStatus.RUNNING
+                OperationalTaskStatus.QUEUED
         );
         OperationalTask productTask = task(
                 150001L,
@@ -65,23 +70,56 @@ class CompetitorAnalysisDetailRiskBackoffTest {
                 OperationalTaskStatus.QUEUED
         );
         CompetitorProductDetailRefreshResult detailResult = detailFailureWithLaterRisk();
+        CompetitorSearchRunRow searchRun = searchRun();
 
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        when(monitoringMapper.selectRefreshableWatchProductBoundary(501L, "STR108065-NSA", "SA"))
+                .thenReturn(boundary());
+        when(monitoringMapper.listRefreshableWatchProducts(
+                eq(501L), eq("STR108065-NSA"), eq("SA"), any(), eq(180123L), eq(500)
+        )).thenReturn(List.of(watchProduct), List.of());
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
         when(taskService.findActive(anyString(), anyString())).thenReturn(Optional.empty());
-        when(taskService.start(
+        when(taskService.queue(
                 eq(CompetitorAnalysisRefreshService.MONITOR_TASK_TYPE),
                 anyString(),
                 any(OperationalTaskPayload.class)
-        )).thenReturn(monitorTask);
+        )).thenAnswer(invocation -> {
+            monitorTask.setPayloadJson(((OperationalTaskPayload) invocation.getArgument(2)).getPayloadJson());
+            return monitorTask;
+        });
         when(taskService.queue(
                 eq(CompetitorAnalysisRefreshService.TASK_TYPE),
                 anyString(),
                 any(OperationalTaskPayload.class)
-        )).thenReturn(productTask);
+        )).thenAnswer(invocation -> {
+            productTask.setPayloadJson(((OperationalTaskPayload) invocation.getArgument(2)).getPayloadJson());
+            return productTask;
+        });
+        when(taskService.claimQueued(150000L, CompetitorMonitoringBatchRunner.RUNNING_MESSAGE)).thenReturn(true);
         when(taskService.claimQueued(150001L, "竞品刷新正在后台执行。")).thenReturn(true);
+        when(taskService.find(150001L)).thenReturn(Optional.of(productTask));
+        when(taskService.requeueRunning(
+                eq(150001L),
+                contains("\"retryAttempt\":1"),
+                eq(5),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        )).thenReturn(true);
+        when(taskService.checkpointRunning(
+                eq(150000L), anyString(), any(), eq(CompetitorMonitoringBatchRunner.RUNNING_MESSAGE)
+        )).thenReturn(true);
+        when(taskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000))
+                .thenReturn(List.of(productTask));
+        when(taskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000))
+                .thenReturn(List.of());
+        when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(searchRun);
+        when(mapper.markSearchRunRunning(220123L)).thenReturn(1);
+        when(mapper.requeueSearchRun(
+                eq(220123L),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        )).thenReturn(1);
         when(detailService.refreshConfirmedCompetitors(
                 eq(watchProduct),
                 eq(220123L),
@@ -93,21 +131,34 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         submittedTasks.get(0).run();
         submittedTasks.get(1).run();
 
-        verify(taskService).fail(
+        verify(taskService).requeueRunning(
                 eq(150001L),
-                eq("COMPETITOR_RISK_BACKOFF"),
-                contains("rate_limited")
-        );
-        verify(mapper).completeSearchRun(
-                eq(220123L),
-                eq("FAILED"),
-                eq(0),
-                eq(0),
-                eq(0),
-                eq(0),
+                contains("\"retryAttempt\":1"),
+                eq(5),
                 eq("RATE_LIMITED"),
-                contains("429"),
-                isNull()
+                contains("第 1/4 次退避重试")
+        );
+        verify(mapper).requeueSearchRun(
+                eq(220123L),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        );
+        verify(taskService, never()).fail(
+                eq(150001L),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+        verify(mapper, never()).completeSearchRun(
+                eq(220123L),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyInt(),
+                anyInt(),
+                any(),
+                any(),
+                any()
         );
         ArgumentCaptor<NoonRiskBackoffHold> holds = ArgumentCaptor.forClass(NoonRiskBackoffHold.class);
         verify(riskRepository, times(2)).upsert(holds.capture());
@@ -126,6 +177,13 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         return result;
     }
 
+    private static CompetitorMonitoringBoundaryRow boundary() {
+        CompetitorMonitoringBoundaryRow row = new CompetitorMonitoringBoundaryRow();
+        row.setEligibleTotal(1L);
+        row.setUpperWatchProductId(180123L);
+        return row;
+    }
+
     private static CompetitorWatchProductRow watchProduct() {
         CompetitorWatchProductRow row = new CompetitorWatchProductRow();
         row.setId(180123L);
@@ -135,6 +193,16 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         row.setPartnerSku("BASKET-SA-001-BLUE");
         row.setSelfNoonProductCode("ZSELF001");
         row.setStatus("ACTIVE");
+        return row;
+    }
+
+    private static CompetitorSearchRunRow searchRun() {
+        CompetitorSearchRunRow row = new CompetitorSearchRunRow();
+        row.setId(220123L);
+        row.setTaskId(150001L);
+        row.setWatchProductId(180123L);
+        row.setTriggerMode(CompetitorRefreshExecutionMode.SCHEDULED_DETAIL.triggerMode());
+        row.setStatus("QUEUED");
         return row;
     }
 
