@@ -4,10 +4,7 @@ import com.nuono.next.noonpull.NoonRiskBackoffHold;
 import com.nuono.next.system.task.OperationalTask;
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import org.springframework.util.StringUtils;
 
@@ -34,11 +31,11 @@ final class CompetitorDetailRetryCoordinator {
 
     boolean isRetry(OperationalTask task) {
         CompetitorDetailRetryPayload payload = payload(task);
-        return payload.getRetryAttempt() > 0 || !payload.getFailedDetailTargets().isEmpty();
+        return payload.getRetryAttempt() > 0 || !payload.getRetryStates().isEmpty();
     }
 
     List<CompetitorProductDetailTarget> retryTargets(OperationalTask task) {
-        return payload(task).getFailedDetailTargets();
+        return payload(task).getReadyTargetsAt(LocalDateTime.now(clock));
     }
 
     boolean scheduleFailure(
@@ -50,25 +47,47 @@ final class CompetitorDetailRetryCoordinator {
             NoonRiskBackoffHold riskHold
     ) {
         CompetitorDetailRetryPayload current = payload(task);
-        RetrySelection retry = retrySelection(result, errorCode, errorMessage);
-        if (!retry.retryable) {
+        LocalDateTime failedAt = LocalDateTime.now(clock);
+        LocalDateTime holdUntil = riskHold == null ? null : riskHold.getBlockedUntil();
+        CompetitorDetailRetryAttemptPlan attemptPlan =
+                CompetitorDetailRetryAttemptPlan.create(
+                        current,
+                        result,
+                        errorCode,
+                        errorMessage,
+                        policy,
+                        failedAt,
+                        holdUntil
+                );
+        CompetitorDetailRetryPayload next;
+        if (attemptPlan.hasPendingStates()) {
+            next = current.copy();
+            next.setRetryStates(attemptPlan.getPendingStates());
+            next.setRootRunId(firstNonNull(
+                    next.getRootRunId(),
+                    next.getRetryOfRunId(),
+                    runId
+            ));
+            next.setRetryOfRunId(runId);
+        } else if (attemptPlan.hasRetryableWithoutTarget()) {
+            Optional<CompetitorDetailRetryPayload> planned = policy.planNextRetry(
+                    current,
+                    runId,
+                    List.of(),
+                    attemptPlan.getFallbackErrorCode(),
+                    attemptPlan.getFallbackErrorMessage(),
+                    failedAt,
+                    holdUntil
+            );
+            if (planned.isEmpty()) {
+                return false;
+            }
+            next = planned.get();
+        } else {
             return false;
         }
-        Optional<CompetitorDetailRetryPayload> planned = policy.planNextRetry(
-                current,
-                runId,
-                retry.targets,
-                retry.errorCode,
-                retry.errorMessage,
-                LocalDateTime.now(clock),
-                riskHold == null ? null : riskHold.getBlockedUntil()
-        );
-        if (planned.isEmpty()) {
-            return false;
-        }
-        CompetitorDetailRetryPayload next = planned.get();
         int succeededThisAttempt = result == null ? 0 : result.getSucceededCount();
-        int retryTargetCount = retry.targets.size();
+        int retryTargetCount = attemptPlan.getPendingStates().size();
         int observedTargetTotal = result == null
                 ? 0
                 : Math.max(
@@ -81,22 +100,28 @@ final class CompetitorDetailRetryCoordinator {
         );
         next.setDetailSucceededCount(current.getDetailSucceededCount() + succeededThisAttempt);
         next.setDetailTerminalFailedCount(
-                current.getDetailTerminalFailedCount() + retry.terminalFailureCount
+                current.getDetailTerminalFailedCount()
+                        + attemptPlan.getTerminalFailureCount()
         );
         next.setDetailTerminalErrorCode(firstNonBlank(
                 current.getDetailTerminalErrorCode(),
-                retry.terminalErrorCode
+                attemptPlan.getTerminalErrorCode()
         ));
         next.setDetailTerminalErrorMessage(firstNonBlank(
                 current.getDetailTerminalErrorMessage(),
-                retry.terminalErrorMessage
+                attemptPlan.getTerminalErrorMessage()
         ));
         String message = retryMessage(next);
         if (!taskFactory.requeueDetailRetry(
                 task.getId(),
                 runId,
                 next.toJson(),
-                firstNonBlank(retry.errorCode, RETRY_WAITING),
+                firstNonBlank(
+                        riskHold == null ? null : errorCode,
+                        next.getLastErrorCode(),
+                        attemptPlan.getFallbackErrorCode(),
+                        RETRY_WAITING
+                ),
                 message
         )) {
             throw new IllegalStateException("Competitor detail retry transition conflict: " + task.getId());
@@ -113,11 +138,11 @@ final class CompetitorDetailRetryCoordinator {
         CompetitorDetailRetryPayload waiting = payload(task).copy();
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDateTime notBefore = hold == null ? now.plusMinutes(2) : hold.getBlockedUntil();
-        if (waiting.getRetryNotBefore() != null
-                && (notBefore == null || waiting.getRetryNotBefore().isAfter(notBefore))) {
-            notBefore = waiting.getRetryNotBefore();
+        if (notBefore == null) {
+            notBefore = now.plusMinutes(2);
         }
-        waiting.setRetryNotBefore(notBefore);
+        waiting.delayRetryStatesUntil(notBefore);
+        notBefore = waiting.getRetryNotBefore();
         waiting.setRootRunId(waiting.getRootRunId() == null ? runId : waiting.getRootRunId());
         waiting.setRetryOfRunId(runId);
         waiting.setLastErrorCode("COMPETITOR_RISK_BACKOFF");
@@ -160,60 +185,6 @@ final class CompetitorDetailRetryCoordinator {
         return CompetitorDetailRetryPayload.fromJson(task == null ? null : task.getPayloadJson());
     }
 
-    private RetrySelection retrySelection(
-            CompetitorProductDetailRefreshResult result,
-            String preferredErrorCode,
-            String preferredErrorMessage
-    ) {
-        Map<String, CompetitorProductDetailTarget> targets = new LinkedHashMap<>();
-        String selectedCode = StringUtils.hasText(preferredErrorCode)
-                && policy.isRetryable(preferredErrorCode)
-                ? preferredErrorCode
-                : null;
-        String selectedMessage = selectedCode == null ? null : preferredErrorMessage;
-        boolean retryable = false;
-        int terminalFailureCount = 0;
-        String terminalErrorCode = null;
-        String terminalErrorMessage = null;
-        List<CompetitorProductDetailFailure> failures = new ArrayList<>();
-        if (result != null) {
-            failures.addAll(result.getFailures());
-            failures.addAll(result.getDeferredFailures());
-        }
-        for (CompetitorProductDetailFailure failure : failures) {
-            if (failure == null) {
-                continue;
-            }
-            if (!policy.isRetryable(failure.getErrorCode())) {
-                terminalFailureCount++;
-                terminalErrorCode = firstNonBlank(terminalErrorCode, failure.getErrorCode());
-                terminalErrorMessage = firstNonBlank(
-                        terminalErrorMessage,
-                        failure.getErrorMessage()
-                );
-                continue;
-            }
-            retryable = true;
-            if (!StringUtils.hasText(selectedCode)) {
-                selectedCode = failure.getErrorCode();
-                selectedMessage = failure.getErrorMessage();
-            }
-            CompetitorProductDetailTarget target = failure.getTarget();
-            if (target != null) {
-                targets.putIfAbsent(target.identityKey(), target);
-            }
-        }
-        return new RetrySelection(
-                retryable,
-                new ArrayList<>(targets.values()),
-                firstNonBlank(selectedCode, "DETAIL_REFRESH_FAILED"),
-                firstNonBlank(selectedMessage, preferredErrorMessage, "竞品详情抓取失败。"),
-                terminalFailureCount,
-                terminalErrorCode,
-                terminalErrorMessage
-        );
-    }
-
     private String retryMessage(CompetitorDetailRetryPayload payload) {
         return "竞品详情抓取失败，已进入第 "
                 + payload.getRetryAttempt()
@@ -233,31 +204,12 @@ final class CompetitorDetailRetryCoordinator {
         return null;
     }
 
-    private static final class RetrySelection {
-        private final boolean retryable;
-        private final List<CompetitorProductDetailTarget> targets;
-        private final String errorCode;
-        private final String errorMessage;
-        private final int terminalFailureCount;
-        private final String terminalErrorCode;
-        private final String terminalErrorMessage;
-
-        private RetrySelection(
-                boolean retryable,
-                List<CompetitorProductDetailTarget> targets,
-                String errorCode,
-                String errorMessage,
-                int terminalFailureCount,
-                String terminalErrorCode,
-                String terminalErrorMessage
-        ) {
-            this.retryable = retryable;
-            this.targets = targets;
-            this.errorCode = errorCode;
-            this.errorMessage = errorMessage;
-            this.terminalFailureCount = terminalFailureCount;
-            this.terminalErrorCode = terminalErrorCode;
-            this.terminalErrorMessage = terminalErrorMessage;
+    private Long firstNonNull(Long... values) {
+        for (Long value : values) {
+            if (value != null) {
+                return value;
+            }
         }
+        return null;
     }
 }

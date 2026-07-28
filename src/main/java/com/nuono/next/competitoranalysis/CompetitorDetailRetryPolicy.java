@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -38,11 +39,65 @@ final class CompetitorDetailRetryPolicy {
         CompetitorDetailRetryPayload next =
                 current == null ? CompetitorDetailRetryPayload.empty() : current.copy();
         int maximum = Math.min(MAX_RETRY_ATTEMPTS, Math.max(0, next.getMaxRetryAttempts()));
+        if (failedDetailTargets == null || failedDetailTargets.isEmpty()) {
+            return planTargetlessRetry(
+                    next,
+                    failedRunId,
+                    errorCode,
+                    errorMessage,
+                    failedAt,
+                    sharedRiskHoldUntil,
+                    maximum
+            );
+        }
+        List<CompetitorDetailRetryState> plannedStates = new ArrayList<>();
+        for (CompetitorProductDetailTarget target : failedDetailTargets) {
+            CompetitorDetailRetryState state = findState(next, target);
+            if (state == null && next.getRetryAttempt() > 0) {
+                state = new CompetitorDetailRetryState(
+                        target,
+                        next.getRetryAttempt(),
+                        next.getRetryNotBefore(),
+                        next.getLastErrorCode(),
+                        next.getMessage()
+                );
+            }
+            Optional<CompetitorDetailRetryState> planned = planTargetRetry(
+                    state,
+                    target,
+                    errorCode,
+                    errorMessage,
+                    false,
+                    failedAt,
+                    sharedRiskHoldUntil,
+                    maximum
+            );
+            planned.ifPresent(plannedStates::add);
+        }
+        if (plannedStates.isEmpty()) {
+            return Optional.empty();
+        }
+
+        next.setMaxRetryAttempts(maximum);
+        next.setRootRunId(firstNonNull(next.getRootRunId(), next.getRetryOfRunId(), failedRunId));
+        next.setRetryOfRunId(failedRunId);
+        next.setRetryStates(plannedStates);
+        return Optional.of(next);
+    }
+
+    private Optional<CompetitorDetailRetryPayload> planTargetlessRetry(
+            CompetitorDetailRetryPayload next,
+            Long failedRunId,
+            String errorCode,
+            String errorMessage,
+            LocalDateTime failedAt,
+            LocalDateTime sharedRiskHoldUntil,
+            int maximum
+    ) {
         int nextAttempt = next.getRetryAttempt() + 1;
         if (nextAttempt > maximum) {
             return Optional.empty();
         }
-
         LocalDateTime retryNotBefore =
                 failedAt.plus(backoffForFailure(errorCode, nextAttempt));
         if (isRiskFailure(errorCode)
@@ -50,16 +105,62 @@ final class CompetitorDetailRetryPolicy {
                 && sharedRiskHoldUntil.isAfter(retryNotBefore)) {
             retryNotBefore = sharedRiskHoldUntil;
         }
-
         next.setRetryAttempt(nextAttempt);
         next.setMaxRetryAttempts(maximum);
         next.setRetryNotBefore(retryNotBefore);
         next.setRootRunId(firstNonNull(next.getRootRunId(), next.getRetryOfRunId(), failedRunId));
         next.setRetryOfRunId(failedRunId);
-        next.setFailedDetailTargets(failedDetailTargets);
         next.setLastErrorCode(errorCode);
         next.setMessage(errorMessage);
         return Optional.of(next);
+    }
+
+    Optional<CompetitorDetailRetryState> planTargetRetry(
+            CompetitorDetailRetryState current,
+            CompetitorProductDetailTarget target,
+            String errorCode,
+            String errorMessage,
+            boolean deferred,
+            LocalDateTime failedAt,
+            LocalDateTime sharedRiskHoldUntil,
+            int maximumAttempts
+    ) {
+        if (failedAt == null) {
+            throw new IllegalArgumentException("failedAt is required.");
+        }
+        if (target == null || !isRetryable(errorCode)) {
+            return Optional.empty();
+        }
+        int maximum = Math.min(MAX_RETRY_ATTEMPTS, Math.max(0, maximumAttempts));
+        int priorAttempt = current == null ? 0 : current.getRetryAttempt();
+        int nextAttempt = deferred ? priorAttempt : priorAttempt + 1;
+        if (!deferred && nextAttempt > maximum) {
+            return Optional.empty();
+        }
+        int delayAttempt = Math.max(
+                1,
+                Math.min(MAX_RETRY_ATTEMPTS, deferred ? priorAttempt + 1 : nextAttempt)
+        );
+        LocalDateTime retryNotBefore =
+                failedAt.plus(backoffForFailure(errorCode, delayAttempt));
+        if (deferred
+                && current != null
+                && current.getRetryNotBefore() != null
+                && current.getRetryNotBefore().isAfter(retryNotBefore)) {
+            retryNotBefore = current.getRetryNotBefore();
+        }
+        if (isRiskFailure(errorCode)
+                && sharedRiskHoldUntil != null
+                && sharedRiskHoldUntil.isAfter(retryNotBefore)) {
+            retryNotBefore = sharedRiskHoldUntil;
+        }
+        return Optional.of(new CompetitorDetailRetryState(
+                target,
+                nextAttempt,
+                retryNotBefore,
+                errorCode,
+                errorMessage
+        ));
     }
 
     Duration backoffForAttempt(int retryAttempt) {
@@ -101,6 +202,21 @@ final class CompetitorDetailRetryPolicy {
     private boolean hasErrorCode(String actual, String expected) {
         return StringUtils.hasText(actual)
                 && expected.equals(actual.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private CompetitorDetailRetryState findState(
+            CompetitorDetailRetryPayload payload,
+            CompetitorProductDetailTarget target
+    ) {
+        if (payload == null || target == null) {
+            return null;
+        }
+        for (CompetitorDetailRetryState state : payload.getRetryStates()) {
+            if (target.identityKey().equals(state.identityKey())) {
+                return state;
+            }
+        }
+        return null;
     }
 
     private Long firstNonNull(Long... values) {
