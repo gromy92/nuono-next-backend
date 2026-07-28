@@ -249,20 +249,21 @@ class CompetitorDetailBatchTakeover {
     }
 
     private boolean ownershipPair(CompetitorDetailTakeoverCandidateRow candidate) {
-        return candidate != null
-                && Objects.equals(
-                        candidate.getTaskStatus(), candidate.getRunStatus()
-                )
-                && ownership(candidate.getTaskStatus())
-                && ownership(candidate.getRunStatus());
+        if (candidate == null) {
+            return false;
+        }
+        String taskStatus = candidate.getTaskStatus();
+        String runStatus = candidate.getRunStatus();
+        return ("QUEUED".equals(taskStatus) && "QUEUED".equals(runStatus))
+                || ("RUNNING".equals(taskStatus) && "RUNNING".equals(runStatus))
+                || ("SUCCEEDED".equals(taskStatus)
+                        && ("SUCCEEDED".equals(runStatus)
+                                || "PARTIAL_FAILED".equals(runStatus)))
+                || ("FAILED".equals(taskStatus) && "FAILED".equals(runStatus));
     }
 
     private boolean active(String status) {
         return "QUEUED".equals(status) || "RUNNING".equals(status);
-    }
-
-    private boolean ownership(String status) {
-        return active(status) || "SUCCEEDED".equals(status);
     }
 
     private String supersededResultJson(
