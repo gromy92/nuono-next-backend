@@ -5,6 +5,7 @@ import com.nuono.next.system.task.OperationalTask;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.function.BiFunction;
 import org.springframework.util.StringUtils;
 
 final class CompetitorDetailRetryCoordinator {
@@ -48,10 +49,12 @@ final class CompetitorDetailRetryCoordinator {
             OperationalTask task,
             Long runId,
             Long watchProductId,
-            List<CompetitorProductDetailTarget> initialTargets
+            List<CompetitorProductDetailTarget> initialTargets,
+            BiFunction<String, String, NoonRiskBackoffHold> riskRecorder
     ) {
         return new CompetitorDetailRetrySession(
-                taskFactory, task, runId, watchProductId, initialTargets, clock
+                taskFactory, task, runId, watchProductId, initialTargets, clock,
+                riskRecorder
         );
     }
 

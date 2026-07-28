@@ -82,6 +82,12 @@ class CompetitorInvalidDetailRetryPayloadTest {
 
     private static Stream<String> invalidPayloads() throws Exception {
         return Stream.of(
+                "{\"retryNotBefore\":null}",
+                "{\"retryNotBefore\":0}",
+                "{\"retryNotBefore\":true}",
+                "{\"retryNotBefore\":{}}",
+                "{\"retryNotBefore\":[]}",
+                "{\"retryNotBefore\":\"not-a-date\"}",
                 "{\"detailRetryStates\":[]}",
                 "{\"detailRetryProtocol\":\"v2\"}",
                 "{\"retryAttempt\":1,"

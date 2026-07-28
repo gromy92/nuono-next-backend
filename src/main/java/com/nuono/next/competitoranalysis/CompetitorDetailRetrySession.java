@@ -6,6 +6,7 @@ import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BiFunction;
 import org.springframework.util.StringUtils;
 
 final class CompetitorDetailRetrySession {
@@ -16,8 +17,10 @@ final class CompetitorDetailRetrySession {
     private final Long runId;
     private final Long watchProductId;
     private final Clock clock;
+    private final BiFunction<String, String, NoonRiskBackoffHold> riskRecorder;
     private final CompetitorDetailRetryPolicy policy = new CompetitorDetailRetryPolicy();
     private CompetitorDetailRetryPayload payload;
+    private NoonRiskBackoffHold riskBackoffHold;
 
     CompetitorDetailRetrySession(
             CompetitorRefreshTaskFactory taskFactory,
@@ -25,13 +28,15 @@ final class CompetitorDetailRetrySession {
             Long runId,
             Long watchProductId,
             List<CompetitorProductDetailTarget> initialTargets,
-            Clock clock
+            Clock clock,
+            BiFunction<String, String, NoonRiskBackoffHold> riskRecorder
     ) {
         this.taskFactory = taskFactory;
         this.task = task;
         this.runId = runId;
         this.watchProductId = watchProductId;
         this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.riskRecorder = riskRecorder;
         this.payload = CompetitorDetailRetryPayload.fromJson(
                 task == null ? null : task.getPayloadJson()
         );
@@ -79,7 +84,7 @@ final class CompetitorDetailRetrySession {
             String errorMessage,
             boolean requested
     ) {
-        checkpoint(CompetitorDetailRetryRequestLedger.failure(
+        CompetitorDetailRetryPayload next = CompetitorDetailRetryRequestLedger.failure(
                 payload,
                 target,
                 errorCode,
@@ -88,7 +93,22 @@ final class CompetitorDetailRetrySession {
                 runId,
                 LocalDateTime.now(clock),
                 policy
-        ));
+        );
+        if (policy.isRiskFailure(errorCode)) {
+            checkpointRiskFailure(next, errorCode, errorMessage);
+        } else {
+            checkpoint(next);
+        }
+    }
+
+    NoonRiskBackoffHold ensureRiskHold(
+            String errorCode,
+            String errorMessage
+    ) {
+        if (riskBackoffHold == null) {
+            checkpointRiskFailure(payload, errorCode, errorMessage);
+        }
+        return riskBackoffHold;
     }
 
     boolean requeue(
@@ -179,6 +199,30 @@ final class CompetitorDetailRetrySession {
         );
         payload = next;
         task.setPayloadJson(payloadJson);
+    }
+
+    private void checkpointRiskFailure(
+            CompetitorDetailRetryPayload next,
+            String errorCode,
+            String errorMessage
+    ) {
+        if (riskRecorder == null) {
+            throw new IllegalStateException(
+                    "Scheduled detail risk recorder is unavailable."
+            );
+        }
+        String payloadJson = next.toJson();
+        NoonRiskBackoffHold hold = taskFactory.executionFinalizer()
+                .checkpointDetailRiskFailure(
+                        task.getId(),
+                        runId,
+                        watchProductId,
+                        payloadJson,
+                        () -> riskRecorder.apply(errorCode, errorMessage)
+                );
+        payload = next;
+        task.setPayloadJson(payloadJson);
+        riskBackoffHold = hold;
     }
 
     private void accept(String payloadJson) {

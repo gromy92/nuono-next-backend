@@ -64,9 +64,12 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
                 "{}",
                 "[]"
         )) {
-            assertFalse(CompetitorRefreshRecoveryPayload.isReady(
-                    task("{\"retryNotBefore\":" + invalid + "}"), NOW
-            ));
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorRefreshRecoveryPayload.isReady(
+                            task("{\"retryNotBefore\":" + invalid + "}"), NOW
+                    )
+            );
         }
     }
 
@@ -74,7 +77,10 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
     void malformedOrNonObjectPayloadNeverBecomesAnEmptyFullRefresh() {
         for (String invalid : List.of("{", "[]", "\"text\"", "1", "null", "{} []")) {
             OperationalTask staleTask = task(invalid);
-            assertFalse(CompetitorRefreshRecoveryPayload.isReady(staleTask, NOW));
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorRefreshRecoveryPayload.isReady(staleTask, NOW)
+            );
             assertThrows(
                     CompetitorRefreshRecoveryPayloadException.class,
                     () -> CompetitorRefreshRecoveryPayload.replacement(

@@ -16,18 +16,11 @@ final class CompetitorRefreshRecoveryCoordinator {
             LoggerFactory.getLogger(CompetitorRefreshRecoveryCoordinator.class);
     private static final String RUNNING_MESSAGE = "竞品刷新正在后台执行。";
     private static final String STALE_MESSAGE = "刷新任务超过 30 分钟未完成，已自动释放。";
-    private static final String INVALID_DETAIL_RETRY =
-            "INVALID_DETAIL_RETRY_PAYLOAD";
-    private static final String INVALID_DETAIL_RETRY_MESSAGE =
-            "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。";
-    private static final String INVALID_RECOVERY_PAYLOAD =
-            "INVALID_REFRESH_RECOVERY_PAYLOAD";
-    private static final String INVALID_RECOVERY_MESSAGE =
-            "陈旧竞品刷新任务的恢复身份或载荷无效，已安全终止。";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorRefreshTaskFactory taskFactory;
+    private final CompetitorRefreshInvalidRecovery invalidRecovery;
     private final CompetitorRefreshTaskDispatcher taskDispatcher;
     private final Predicate<CompetitorWatchProductRow> executionAllowed;
     private final Predicate<OperationalTask> taskReadiness;
@@ -68,6 +61,7 @@ final class CompetitorRefreshRecoveryCoordinator {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.taskFactory = taskFactory;
+        this.invalidRecovery = new CompetitorRefreshInvalidRecovery(taskFactory);
         this.taskDispatcher = taskDispatcher;
         this.executionAllowed = executionAllowed;
         this.refreshExecution = refreshExecution;
@@ -123,25 +117,13 @@ final class CompetitorRefreshRecoveryCoordinator {
                     run.getTriggerMode()
             );
         } catch (CompetitorRefreshRecoveryIdentityException exception) {
-            return taskFactory.failStale(
-                    interruptedTask,
-                    run,
-                    staleBefore,
-                    INVALID_RECOVERY_PAYLOAD,
-                    INVALID_RECOVERY_MESSAGE
-            );
+            return invalidRecovery.failStale(interruptedTask, run, staleBefore, false);
         }
         if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
                 && !hasRecoverableDetailState(
                         interruptedTask, watchProduct.getId(), mode
                 )) {
-            return taskFactory.failStale(
-                    interruptedTask,
-                    run,
-                    staleBefore,
-                    INVALID_DETAIL_RETRY,
-                    INVALID_DETAIL_RETRY_MESSAGE
-            );
+            return invalidRecovery.failStale(interruptedTask, run, staleBefore, true);
         }
         int keywordTotal = mode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId()).size()
@@ -150,25 +132,25 @@ final class CompetitorRefreshRecoveryCoordinator {
         try {
             batchKey = CompetitorRefreshRecoveryPayload.batchKey(interruptedTask);
         } catch (CompetitorRefreshRecoveryPayloadException exception) {
-            return taskFactory.failStale(
+            return invalidRecovery.failStale(interruptedTask, run, staleBefore, false);
+        }
+        try {
+            return taskFactory.replaceStale(
                     interruptedTask,
                     run,
+                    watchProduct,
                     staleBefore,
-                    INVALID_RECOVERY_PAYLOAD,
-                    INVALID_RECOVERY_MESSAGE
-            );
+                    run.getRequestedBy(),
+                    mode,
+                    batchKey,
+                    keywordTotal,
+                    queued -> dispatchSafely(
+                            queued, watchProduct, run.getRequestedBy(), mode
+                    )
+            ) != null;
+        } catch (CompetitorRefreshRecoveryIdentityException exception) {
+            return invalidRecovery.failStale(interruptedTask, run, staleBefore, false);
         }
-        return taskFactory.replaceStale(
-                interruptedTask,
-                run,
-                watchProduct,
-                staleBefore,
-                run.getRequestedBy(),
-                mode,
-                batchKey,
-                keywordTotal,
-                queued -> dispatchSafely(queued, watchProduct, run.getRequestedBy(), mode)
-        ) != null;
     }
 
     private boolean hasRecoverableDetailState(
@@ -194,7 +176,7 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorSearchRunRow run,
             CompetitorWatchProductRow watchProduct
     ) {
-        if (!taskReadiness.test(task) || !executionAllowed.test(watchProduct)) {
+        if (!isReady(task, run) || !executionAllowed.test(watchProduct)) {
             return false;
         }
         try {
@@ -208,6 +190,7 @@ final class CompetitorRefreshRecoveryCoordinator {
                     )
             );
         } catch (CompetitorRefreshRecoveryIdentityException exception) {
+            invalidRecovery.failQueued(task, run);
             return false;
         }
     }
@@ -226,8 +209,22 @@ final class CompetitorRefreshRecoveryCoordinator {
         if (task != null
                 && run != null
                 && task.getStatus() == OperationalTaskStatus.QUEUED
-                && taskReadiness.test(task)) {
-            submit(task, run, watchProduct, actorUserId, mode);
+                && isReady(task, run)) {
+            try {
+                submit(task, run, watchProduct, actorUserId, mode);
+            } catch (CompetitorRefreshRecoveryIdentityException exception) {
+                invalidRecovery.failQueued(task, run);
+            }
+        }
+    }
+
+    private boolean isReady(OperationalTask task, CompetitorSearchRunRow run) {
+        try {
+            return taskReadiness.test(task);
+        } catch (CompetitorDetailRetryPayloadException
+                | CompetitorRefreshRecoveryPayloadException exception) {
+            invalidRecovery.failQueued(task, run);
+            return false;
         }
     }
 

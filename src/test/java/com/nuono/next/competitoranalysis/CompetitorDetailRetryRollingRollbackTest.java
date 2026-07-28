@@ -148,6 +148,19 @@ class CompetitorDetailRetryRollingRollbackTest {
     }
 
     @Test
+    void sealedPayloadRejectsUnknownReservedRetryMarker() throws Exception {
+        ObjectNode sealed = markedPayload(
+                state("SELF", null, "ZSELF001", 1, "2026-07-28T02:02:00")
+        );
+        sealed.put("detailRetryProtocol", "v2");
+
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(sealed.toString())
+        );
+    }
+
+    @Test
     void legacyWakeProjectionUsesLatestStateWhileNewReadinessUsesEarliestState() throws Exception {
         CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.empty();
         payload.setRetryStates(Arrays.asList(

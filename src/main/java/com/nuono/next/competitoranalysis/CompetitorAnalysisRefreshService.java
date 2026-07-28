@@ -592,18 +592,16 @@ public class CompetitorAnalysisRefreshService {
                     firstErrorMessage = detailResult.getRiskErrorMessage();
                     String riskErrorCode = firstErrorCode;
                     String riskErrorMessage = firstErrorMessage;
-                    riskBackoffHold = refreshTaskFactory
-                            .executionFinalizer()
-                            .withLease(
-                                    taskId,
-                                    runId,
-                                    watchProductId,
+                    riskBackoffHold = detailRetrySession == null
+                            ? refreshTaskFactory.executionFinalizer().withLease(
+                                    taskId, runId, watchProductId,
                                     () -> riskBackoff.record(
-                                            watchProduct,
-                                            taskId,
-                                            riskErrorCode,
-                                            riskErrorMessage
+                                            watchProduct, taskId,
+                                            riskErrorCode, riskErrorMessage
                                     )
+                            )
+                            : detailRetrySession.ensureRiskHold(
+                                    riskErrorCode, riskErrorMessage
                             );
                 }
             }
@@ -811,10 +809,11 @@ public class CompetitorAnalysisRefreshService {
             return null;
         }
         return detailRetryCoordinator.openSession(
-                task,
-                runId,
-                watchProduct.getId(),
-                productDetailRefreshService.currentTargets(watchProduct)
+                task, runId, watchProduct.getId(),
+                productDetailRefreshService.currentTargets(watchProduct),
+                (errorCode, errorMessage) -> riskBackoff.record(
+                        watchProduct, task.getId(), errorCode, errorMessage
+                )
         );
     }
 

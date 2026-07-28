@@ -118,7 +118,7 @@ final class CompetitorRefreshRecoveryPayload {
             }
             return readyAt(payload.get("retryNotBefore"), now);
         } catch (DateTimeParseException | CompetitorRefreshRecoveryPayloadException exception) {
-            return false;
+            throw invalidReadiness(exception);
         }
     }
 
@@ -151,10 +151,19 @@ final class CompetitorRefreshRecoveryPayload {
             return true;
         }
         if (!value.isTextual() || !StringUtils.hasText(value.textValue())) {
-            return false;
+            throw invalidReadiness(null);
         }
         LocalDateTime notBefore = LocalDateTime.parse(value.asText().trim());
         return now != null && !now.isBefore(notBefore);
+    }
+
+    private static CompetitorDetailRetryPayloadException invalidReadiness(
+            RuntimeException cause
+    ) {
+        String message = "Competitor refresh retryNotBefore is invalid.";
+        return cause == null
+                ? new CompetitorDetailRetryPayloadException(message)
+                : new CompetitorDetailRetryPayloadException(message, cause);
     }
 
     private static String text(ObjectNode payload, String field) {

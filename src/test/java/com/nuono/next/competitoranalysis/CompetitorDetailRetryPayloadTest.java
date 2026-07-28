@@ -189,7 +189,7 @@ class CompetitorDetailRetryPayloadTest {
     }
 
     @Test
-    void sealedPayloadCannotDowngradeToLegacySchema() throws Exception {
+    void sealedPayloadRejectsPartialLegacySchemaDowngrade() throws Exception {
         ObjectNode sealed = (ObjectNode) JSON.readTree(
                 CompetitorDetailRetryPayload.fromJson(
                         "{\"retryAttempt\":1,"

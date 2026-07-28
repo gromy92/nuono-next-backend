@@ -78,6 +78,9 @@ final class CompetitorDetailRetryProtocol {
             String errorCode,
             String errorMessage
     ) {
+        if (hasUnknownRetryField(payload)) {
+            throw invalid("Unknown detail retry protocol field.");
+        }
         if (!hasTargetedMetadata(payload)) {
             return java.util.Collections.emptyList();
         }
@@ -230,6 +233,26 @@ final class CompetitorDetailRetryProtocol {
                 || payload.has(LEGACY_CHECKSUM_FIELD)
                 || payload.has(CompetitorDetailRetrySealedProtocol.PHASE_FIELD)
                 || payload.has(CompetitorDetailRetrySealedProtocol.ENVELOPE_CHECKSUM_FIELD);
+    }
+
+    private static boolean hasUnknownRetryField(ObjectNode payload) {
+        java.util.Iterator<String> fields = payload.fieldNames();
+        while (fields.hasNext()) {
+            String field = fields.next();
+            if (field.startsWith("detailRetry") && !isTargetedField(field)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isTargetedField(String candidate) {
+        for (String field : TARGETED_FIELDS) {
+            if (field.equals(candidate)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean hasCompleteMarker(ObjectNode payload) {
