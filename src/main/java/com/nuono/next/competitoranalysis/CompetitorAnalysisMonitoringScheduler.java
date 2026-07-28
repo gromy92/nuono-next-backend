@@ -138,7 +138,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     private int runTaskRecovery() {
-        if (!taskRecoveryRunning.compareAndSet(false, true)) {
+        if (!enabled || !taskRecoveryRunning.compareAndSet(false, true)) {
             return 0;
         }
         try {
