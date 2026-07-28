@@ -4,12 +4,11 @@ src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	1065
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1198
-src/main/java/com/nuono/next/competitoranalysis/CompetitorProductDetailRefreshService.java	322
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	355
 src/main/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunner.java	323
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	839
-src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	457
+src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	456
 src/main/java/com/nuono/next/filemanagement/parse/FileParseCommissionPayloadNormalizer.java	1511
 src/main/java/com/nuono/next/filemanagement/parse/FileParseItemReviewService.java	459
 src/main/java/com/nuono/next/filemanagement/parse/FileParseLogisticsPayloadNormalizer.java	706
@@ -206,7 +205,7 @@ src/main/java/com/nuono/next/productlisting/ProductListingService.java	1708
 src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1535
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
 src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	706
-src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1146
+src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1145
 src/main/java/com/nuono/next/productselection/Ali1688CandidateAiAssessmentService.java	377
 src/main/java/com/nuono/next/productselection/Ali1688PluginAssignmentService.java	544
 src/main/java/com/nuono/next/productselection/AmazonExternalCrawlerSourceCollector.java	533

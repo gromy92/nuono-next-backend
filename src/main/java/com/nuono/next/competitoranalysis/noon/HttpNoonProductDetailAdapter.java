@@ -1,6 +1,9 @@
 package com.nuono.next.competitoranalysis.noon;
 
-import java.time.LocalDateTime;
+import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
+import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailAdapter;
+import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailRequest;
+import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailResult;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
@@ -10,114 +13,118 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class HttpNoonProductDetailAdapter implements NoonProductDetailAdapter {
-    private final NoonFrontendSearchAdapter searchAdapter;
+    private static final String FRONTEND_CATALOG_DETAIL_PARSER_VERSION = "noon-frontend-catalog-detail-v1";
+
+    private final NoonPublicProductDetailAdapter publicDetailAdapter;
 
     @Autowired
-    public HttpNoonProductDetailAdapter(NoonFrontendSearchAdapter searchAdapter) {
-        this.searchAdapter = searchAdapter;
+    public HttpNoonProductDetailAdapter(NoonPublicProductDetailAdapter publicDetailAdapter) {
+        this.publicDetailAdapter = publicDetailAdapter;
     }
 
     @Override
     public NoonProductDetail fetch(NoonProductDetailRequest request) {
         String code = NoonProductCodeSupport.normalize(request == null ? null : request.getNoonProductCode());
-        if (!StringUtils.hasText(code)) {
-            throw new NoonSearchProviderException(
-                    "PARSE_FAILED",
-                    "Noon 商品详情缺少有效商品码。",
-                    null,
-                    null,
-                    null
-            );
+        if (!StringUtils.hasText(code) || NoonProductCodeSupport.codeType(code).isEmpty()) {
+            throw providerFailure("INVALID_NOON_PRODUCT_CODE", "Noon 商品详情缺少有效商品码。", null);
         }
-        NoonSearchPage page = searchByProductCode(request, code);
-        NoonSearchResult result = findExactResult(page, code);
+
+        NoonPublicProductDetailResult result = publicDetailAdapter.fetch(
+                NoonPublicProductDetailRequest.builder()
+                        .siteCode(detailSiteCode(request))
+                        .locale(detailLocale(request))
+                        .noonProductCode(code)
+                        .build()
+        );
+        requireUsableResult(result, code);
+        return toDetail(result, code);
+    }
+
+    private void requireUsableResult(NoonPublicProductDetailResult result, String expectedCode) {
         if (result == null) {
-            throw new NoonSearchProviderException(
-                    "PARSE_FAILED",
-                    "Noon 商品详情 SKU 查询未返回精确商品码 " + code + "。",
-                    page == null ? null : page.getProviderHttpStatus(),
-                    page == null ? null : page.getSourceUrl(),
-                    null
+            throw providerFailure("PROVIDER_UNAVAILABLE", "Noon 前台商品详情未返回结果。", null);
+        }
+        ProductPublicDetailSyncStatus status = result.getStatus();
+        if (status != ProductPublicDetailSyncStatus.SUCCEEDED
+                && status != ProductPublicDetailSyncStatus.PARTIAL) {
+            throw providerFailure(
+                    firstNonBlank(result.getFailureCode(), defaultFailureCode(status)),
+                    firstNonBlank(result.getFailureMessage(), "Noon 前台商品详情抓取失败。"),
+                    result
             );
         }
-        return toDetail(request, page, result, code);
-    }
-
-    private NoonSearchPage searchByProductCode(NoonProductDetailRequest request, String code) {
-        try {
-            return searchAdapter.search(NoonSearchRequest.builder()
-                    .siteCode(searchSiteCode(request))
-                    .locale(searchLocale(request))
-                    .keyword(code)
-                    .limit(20)
-                    .build());
-        } catch (NoonSearchProviderException exception) {
-            throw new NoonSearchProviderException(
-                    exception.getErrorCode(),
-                    "Noon 商品详情 SKU 查询失败：" + shrink(exception.getMessage(), 180),
-                    exception.getProviderHttpStatus(),
-                    exception.getSourceUrl(),
-                    exception.getResponseHash()
+        if (status == ProductPublicDetailSyncStatus.PARTIAL
+                && !FRONTEND_CATALOG_DETAIL_PARSER_VERSION.equals(result.getProviderParserVersion())) {
+            throw providerFailure(
+                    "DETAIL_SOURCE_NOT_PRODUCT_DETAIL",
+                    "Noon 前台仅返回搜索基础字段，未写入竞品详情快照。",
+                    result
             );
-        } catch (RuntimeException exception) {
-            throw new NoonSearchProviderException(
-                    "PROVIDER_UNAVAILABLE",
-                    "Noon 商品详情 SKU 查询暂不可用：" + shrink(exception.getMessage(), 180),
-                    null,
-                    null,
-                    null
-            );
+        }
+        String actualCode = NoonProductCodeSupport.normalize(result.getNoonProductCode());
+        if (!expectedCode.equals(actualCode)) {
+            throw providerFailure("PARSE_FAILED", "Noon 前台商品详情返回的商品码不匹配。", result);
         }
     }
 
-    private NoonSearchResult findExactResult(NoonSearchPage page, String code) {
-        if (page == null || page.getResults() == null) {
-            return null;
-        }
-        for (NoonSearchResult result : page.getResults()) {
-            String resultCode = NoonProductCodeSupport.normalize(result == null ? null : result.getNoonProductCode());
-            if (code.equals(resultCode)) {
-                return result;
-            }
-        }
-        return null;
-    }
-
-    private NoonProductDetail toDetail(
-            NoonProductDetailRequest request,
-            NoonSearchPage page,
-            NoonSearchResult result,
-            String code
-    ) {
+    private NoonProductDetail toDetail(NoonPublicProductDetailResult result, String code) {
         NoonProductDetail detail = new NoonProductDetail();
         detail.setNoonProductCode(code);
-        detail.setCodeType(NoonProductCodeSupport.codeType(code).orElse(result.getCodeType()));
-        detail.setDetailUrl(firstNonBlank(result.getCanonicalUrl(), request == null ? null : request.getCanonicalUrl()));
-        detail.setTitleEn(trim(result.getTitle()));
+        detail.setCodeType(firstNonBlank(
+                result.getCodeType(),
+                NoonProductCodeSupport.codeType(code).orElse(null)
+        ));
+        detail.setDetailUrl(trim(result.getDetailUrl()));
+        detail.setTitleEn(trim(result.getTitleEn()));
+        detail.setTitleAr(trim(result.getTitleAr()));
         detail.setBrand(trim(result.getBrand()));
         detail.setPriceAmount(result.getPriceAmount());
         detail.setCurrencyCode(trim(result.getCurrencyCode()));
         detail.setRating(result.getRating());
         detail.setReviewCount(result.getReviewCount());
-        detail.setMainImageUrlRaw(trim(result.getImageUrl()));
-        detail.setMainImageUrlNormalized(trim(result.getImageUrl()));
-        detail.setMainImageAssetKey(extractAssetKey(result.getImageUrl()));
-        detail.setRawDetailJson(trim(result.getRawResultJson()));
-        detail.setProviderHttpStatus(page == null ? null : page.getProviderHttpStatus());
-        detail.setCapturedAt(page == null || page.getCapturedAt() == null ? LocalDateTime.now() : page.getCapturedAt());
+        detail.setMainImageUrlRaw(trim(result.getMainImageUrl()));
+        detail.setMainImageUrlNormalized(trim(result.getMainImageUrl()));
+        detail.setMainImageAssetKey(extractAssetKey(result.getMainImageUrl()));
+        detail.setAvailabilityStatus(trim(result.getAvailabilityText()));
+        detail.setSnapshotHash(trim(result.getProviderResponseHash()));
+        detail.setRawDetailJson(trim(result.getRawPayloadJson()));
+        detail.setProviderHttpStatus(result.getProviderHttpStatus());
+        detail.setCapturedAt(result.getFetchedAt());
         return detail;
     }
 
-    private String searchSiteCode(NoonProductDetailRequest request) {
-        String canonicalUrl = request == null ? null : request.getCanonicalUrl();
-        String inferred = inferSiteCode(canonicalUrl);
-        return firstNonBlank(inferred, request == null ? null : request.getSiteCode());
+    private NoonSearchProviderException providerFailure(
+            String errorCode,
+            String message,
+            NoonPublicProductDetailResult result
+    ) {
+        return new NoonSearchProviderException(
+                errorCode,
+                message,
+                result == null ? null : result.getProviderHttpStatus(),
+                result == null ? null : result.getProviderSourceUrl(),
+                result == null ? null : result.getProviderResponseHash()
+        );
     }
 
-    private String searchLocale(NoonProductDetailRequest request) {
-        String canonicalUrl = request == null ? null : request.getCanonicalUrl();
-        String inferred = inferLocale(canonicalUrl);
-        return firstNonBlank(inferred, request == null ? null : request.getLocale());
+    private String defaultFailureCode(ProductPublicDetailSyncStatus status) {
+        return status == ProductPublicDetailSyncStatus.NOT_FOUND
+                ? "PUBLIC_DETAIL_NOT_FOUND"
+                : "PROVIDER_UNAVAILABLE";
+    }
+
+    private String detailSiteCode(NoonProductDetailRequest request) {
+        return firstNonBlank(
+                inferSiteCode(request == null ? null : request.getCanonicalUrl()),
+                request == null ? null : request.getSiteCode()
+        );
+    }
+
+    private String detailLocale(NoonProductDetailRequest request) {
+        return firstNonBlank(
+                inferLocale(request == null ? null : request.getCanonicalUrl()),
+                request == null ? null : request.getLocale()
+        );
     }
 
     private String inferSiteCode(String canonicalUrl) {
@@ -173,6 +180,9 @@ public class HttpNoonProductDetailAdapter implements NoonProductDetailAdapter {
     }
 
     private String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
         for (String value : values) {
             if (StringUtils.hasText(value)) {
                 return value.trim();
@@ -187,10 +197,5 @@ public class HttpNoonProductDetailAdapter implements NoonProductDetailAdapter {
 
     private String lower(String value) {
         return value == null ? "" : value.toLowerCase(Locale.ROOT);
-    }
-
-    private String shrink(String value, int maxLength) {
-        String text = StringUtils.hasText(value) ? value.replaceAll("\\s+", " ").trim() : "";
-        return text.length() <= maxLength ? text : text.substring(0, maxLength);
     }
 }
