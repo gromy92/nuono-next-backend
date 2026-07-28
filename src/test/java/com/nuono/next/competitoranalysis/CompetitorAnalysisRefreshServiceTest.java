@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.never;
@@ -9,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.infrastructure.mapper.CompetitorMonitoringMapper;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import com.nuono.next.noonpull.NoonRiskBackoffHold;
 import com.nuono.next.noonpull.NoonRiskBackoffRepository;
@@ -17,7 +19,6 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskPayload;
-import com.nuono.next.system.task.OperationalTaskRepository;
 import com.nuono.next.system.task.OperationalTaskService;
 import com.nuono.next.system.task.OperationalTaskStatus;
 import java.time.Clock;
@@ -47,6 +48,9 @@ class CompetitorAnalysisRefreshServiceTest {
     private CompetitorAnalysisMapper mapper;
 
     @Mock
+    private CompetitorMonitoringMapper monitoringMapper;
+
+    @Mock
     private CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner;
 
     @Mock
@@ -54,14 +58,28 @@ class CompetitorAnalysisRefreshServiceTest {
 
     private InMemoryOperationalTaskRepository taskRepository;
     private List<Runnable> submittedTasks;
+    private Map<Long, CompetitorSearchRunRow> persistedRuns;
     private CompetitorAnalysisRefreshService service;
 
     @BeforeEach
     void setUp() {
         taskRepository = new InMemoryOperationalTaskRepository();
         submittedTasks = new ArrayList<>();
+        persistedRuns = new LinkedHashMap<>();
+        org.mockito.Mockito.lenient().doAnswer(invocation -> {
+            CompetitorSearchRunInsertCommand command = invocation.getArgument(0);
+            persistedRuns.put(command.getTaskId(), searchRun(command));
+            return null;
+        }).when(mapper).insertSearchRun(org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(
+                org.mockito.ArgumentMatchers.anyLong()
+        )).thenAnswer(invocation -> persistedRuns.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(
+                org.mockito.ArgumentMatchers.anyLong()
+        )).thenReturn(1);
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -92,7 +110,10 @@ class CompetitorAnalysisRefreshServiceTest {
         when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct());
         when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
-        when(mapper.selectSearchRunByTaskId(150000L)).thenReturn(searchRun(220123L, 150000L, "RUNNING"));
+        when(mapper.selectSearchRunByTaskId(150000L)).thenReturn(
+                null,
+                searchRun(220123L, 150000L, "RUNNING")
+        );
 
         CompetitorRefreshRunView first = service.requestRefresh(operatorContext(), 180123L);
         CompetitorRefreshRunView second = service.requestRefresh(operatorContext(), 180123L);
@@ -113,6 +134,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 );
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -153,6 +175,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorWatchProductRow watchProduct = watchProduct();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -198,6 +221,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorWatchProductRow watchProduct = watchProduct();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -207,8 +231,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 productDetailRefreshService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        stubMonitoringProducts(List.of(watchProduct));
         when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
@@ -248,6 +271,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorKeywordRow transientKeyword = keyword(190002L, "storage basket");
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -257,8 +281,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 productDetailRefreshService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        stubMonitoringProducts(List.of(watchProduct));
         when(mapper.listActiveKeywordsByWatchProductId(180123L))
                 .thenReturn(List.of(stableKeyword, transientKeyword));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
@@ -299,6 +322,7 @@ class CompetitorAnalysisRefreshServiceTest {
         NoonRiskBackoffGuard riskBackoffGuard = riskBackoffGuardWithGlobalHold();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -317,11 +341,10 @@ class CompetitorAnalysisRefreshServiceTest {
 
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, error.getStatus());
         assertEquals("NOON_RISK_BACKOFF", error.getReason());
-        verify(mapper, never()).listRefreshableWatchProducts(
+        verify(monitoringMapper, never()).selectRefreshableWatchProductBoundary(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyInt()
+                org.mockito.ArgumentMatchers.any()
         );
         assertTrue(submittedTasks.isEmpty());
     }
@@ -334,6 +357,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -344,8 +368,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
                 new NoonRiskBackoffGuard(riskRepository)
         );
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        stubMonitoringProducts(List.of(watchProduct));
         when(mapper.listActiveKeywordsByWatchProductId(180123L))
                 .thenReturn(List.of(rateLimitedKeyword, skippedKeyword));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
@@ -380,6 +403,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CapturingRiskBackoffRepository riskRepository = new CapturingRiskBackoffRepository();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -393,8 +417,7 @@ class CompetitorAnalysisRefreshServiceTest {
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
                 )
         );
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(first, second), List.of(first, second));
+        stubMonitoringProducts(List.of(first, second));
         when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(rateLimitedKeyword));
         when(mapper.listActiveKeywordsByWatchProductId(180124L)).thenReturn(List.of(blockedByBackoffKeyword));
         when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
@@ -412,14 +435,14 @@ class CompetitorAnalysisRefreshServiceTest {
         OperationalTask secondProductTask = taskRepository.selectById(view.getTaskId() + 2);
         assertEquals(OperationalTaskStatus.FAILED, firstProductTask.getStatus());
         assertEquals("COMPETITOR_RISK_BACKOFF", firstProductTask.getErrorCode());
-        assertEquals(OperationalTaskStatus.FAILED, secondProductTask.getStatus());
-        assertEquals("COMPETITOR_RISK_BACKOFF", secondProductTask.getErrorCode());
+        assertEquals(OperationalTaskStatus.QUEUED, secondProductTask.getStatus());
+        assertNull(secondProductTask.getErrorCode());
         verify(keywordRefreshRunner, times(1)).runKeyword(220123L, first, rateLimitedKeyword, null);
         verify(keywordRefreshRunner, never()).runKeyword(220124L, second, blockedByBackoffKeyword, null);
-        verify(mapper).markSearchRunFailed(
+        verify(mapper, never()).markSearchRunFailed(
                 org.mockito.ArgumentMatchers.eq(220124L),
-                org.mockito.ArgumentMatchers.eq("COMPETITOR_RISK_BACKOFF"),
-                org.mockito.ArgumentMatchers.contains("rate_limited")
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()
         );
     }
 
@@ -437,6 +460,7 @@ class CompetitorAnalysisRefreshServiceTest {
         partialRun.setErrorMessage("Noon 前台搜索返回 HTTP 502。");
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -478,6 +502,7 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorWatchProductRow watchProduct = watchProduct();
         service = new CompetitorAnalysisRefreshService(
                 mapper,
+                monitoringMapper,
                 new OperationalTaskService(
                         taskRepository,
                         Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
@@ -487,8 +512,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 productDetailRefreshService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(watchProduct), List.of(watchProduct));
+        stubMonitoringProducts(List.of(watchProduct));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
 
@@ -557,8 +581,7 @@ class CompetitorAnalysisRefreshServiceTest {
     void storeMonitoringSubmitsRefreshForEveryRefreshableWatchProduct() {
         CompetitorWatchProductRow first = watchProduct(180123L, "ZSELF001");
         CompetitorWatchProductRow second = watchProduct(180124L, "ZSELF002");
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500))
-                .thenReturn(List.of(first, second), List.of(first, second));
+        stubMonitoringProducts(List.of(first, second));
         when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
         when(mapper.listActiveKeywordsByWatchProductId(180124L)).thenReturn(List.of(keyword(190002L, "storage basket")));
         when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
@@ -580,7 +603,7 @@ class CompetitorAnalysisRefreshServiceTest {
 
     @Test
     void storeMonitoringRejectsEmptyScope() {
-        when(mapper.listRefreshableWatchProducts(501L, "STR108065-NSA", "SA", 500)).thenReturn(List.of());
+        stubMonitoringProducts(List.of());
 
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
@@ -590,6 +613,37 @@ class CompetitorAnalysisRefreshServiceTest {
         assertEquals(HttpStatus.BAD_REQUEST, error.getStatus());
         assertEquals("COMPETITOR_MONITOR_NO_REFRESHABLE_PRODUCT", error.getReason());
         assertTrue(taskRepository.tasks.isEmpty());
+    }
+
+    private void stubMonitoringProducts(List<CompetitorWatchProductRow> products) {
+        CompetitorMonitoringBoundaryRow boundary = new CompetitorMonitoringBoundaryRow();
+        boundary.setEligibleTotal((long) products.size());
+        boundary.setUpperWatchProductId(
+                products.stream().map(CompetitorWatchProductRow::getId).max(Long::compareTo).orElse(null)
+        );
+        when(monitoringMapper.selectRefreshableWatchProductBoundary(501L, "STR108065-NSA", "SA"))
+                .thenReturn(boundary);
+        org.mockito.Mockito.lenient().when(monitoringMapper.listRefreshableWatchProducts(
+                org.mockito.ArgumentMatchers.eq(501L),
+                org.mockito.ArgumentMatchers.eq("STR108065-NSA"),
+                org.mockito.ArgumentMatchers.eq("SA"),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyInt()
+        )).thenAnswer(invocation -> {
+            long afterId = invocation.getArgument(3);
+            long upperId = invocation.getArgument(4);
+            int limit = invocation.getArgument(5);
+            return products.stream()
+                    .filter(product -> product.getId() > afterId && product.getId() <= upperId)
+                    .sorted(Comparator.comparing(CompetitorWatchProductRow::getId))
+                    .limit(limit)
+                    .collect(Collectors.toList());
+        });
+        for (CompetitorWatchProductRow product : products) {
+            org.mockito.Mockito.lenient().when(mapper.selectWatchProductForRefresh(product.getId()))
+                    .thenReturn(product);
+        }
     }
 
     private static CompetitorWatchProductRow watchProduct() {
@@ -626,6 +680,18 @@ class CompetitorAnalysisRefreshServiceTest {
         row.setTriggerMode("MANUAL_REFRESH");
         row.setStatus(status);
         row.setKeywordTotal(1);
+        return row;
+    }
+
+    private static CompetitorSearchRunRow searchRun(CompetitorSearchRunInsertCommand command) {
+        CompetitorSearchRunRow row = new CompetitorSearchRunRow();
+        row.setId(command.getId());
+        row.setWatchProductId(command.getWatchProductId());
+        row.setTaskId(command.getTaskId());
+        row.setTriggerMode(command.getTriggerMode());
+        row.setStatus(command.getStatus());
+        row.setRequestedBy(command.getRequestedBy());
+        row.setKeywordTotal(command.getKeywordTotal());
         return row;
     }
 
@@ -683,77 +749,6 @@ class CompetitorAnalysisRefreshServiceTest {
                 "blocked"
         );
         return guard;
-    }
-
-    private static final class InMemoryOperationalTaskRepository implements OperationalTaskRepository {
-        private long nextId = 150000L;
-        private final Map<Long, OperationalTask> tasks = new LinkedHashMap<>();
-
-        @Override
-        public Long nextId(String sequenceName, Long initialValue) {
-            return nextId++;
-        }
-
-        @Override
-        public void insert(OperationalTask task) {
-            tasks.put(task.getId(), task.copy());
-            if (task.getId() != null) {
-                nextId = Math.max(nextId, task.getId() + 1);
-            }
-        }
-
-        @Override
-        public OperationalTask selectById(Long taskId) {
-            OperationalTask task = tasks.get(taskId);
-            return task == null ? null : task.copy();
-        }
-
-        @Override
-        public OperationalTask selectActiveByNaturalKey(String taskType, String naturalKey) {
-            return tasks.values().stream()
-                    .filter((task) -> taskType.equals(task.getTaskType()))
-                    .filter((task) -> naturalKey.equals(task.getNaturalKey()))
-                    .filter((task) -> task.getStatus() != null && task.getStatus().isActive())
-                    .findFirst()
-                    .map(OperationalTask::copy)
-                    .orElse(null);
-        }
-
-        @Override
-        public OperationalTask selectLatestByNaturalKey(String taskType, String naturalKey) {
-            return tasks.values().stream()
-                    .filter((task) -> taskType.equals(task.getTaskType()))
-                    .filter((task) -> naturalKey.equals(task.getNaturalKey()))
-                    .max(Comparator.comparing(OperationalTask::getId))
-                    .map(OperationalTask::copy)
-                    .orElse(null);
-        }
-
-        @Override
-        public void update(OperationalTask task) {
-            tasks.put(task.getId(), task.copy());
-        }
-
-        @Override
-        public List<OperationalTask> listActiveByTaskType(String taskType, int limit) {
-            return tasks.values().stream()
-                    .filter((task) -> taskType.equals(task.getTaskType()))
-                    .filter((task) -> task.getStatus() != null && task.getStatus().isActive())
-                    .sorted(Comparator.comparing(OperationalTask::getId))
-                    .limit(limit)
-                    .map(OperationalTask::copy)
-                    .collect(Collectors.toList());
-        }
-
-        @Override
-        public List<OperationalTask> listRecent(String taskType, int limit) {
-            return tasks.values().stream()
-                    .filter((task) -> taskType == null || taskType.equals(task.getTaskType()))
-                    .sorted(Comparator.comparing(OperationalTask::getId).reversed())
-                    .limit(limit)
-                    .map(OperationalTask::copy)
-                    .collect(Collectors.toList());
-        }
     }
 
     private static final class CapturingRiskBackoffRepository implements NoonRiskBackoffRepository {

@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -64,7 +65,15 @@ public class OperationalTaskService {
         task.setStartedAt(initialStatus == OperationalTaskStatus.RUNNING ? now : null);
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
-        repository.insert(task);
+        try {
+            repository.insert(task);
+        } catch (DataIntegrityViolationException exception) {
+            OperationalTask winner = repository.selectActiveByNaturalKey(normalizedTaskType, normalizedNaturalKey);
+            if (winner != null) {
+                return winner.copy();
+            }
+            throw exception;
+        }
         return task.copy();
     }
 
@@ -78,6 +87,45 @@ public class OperationalTaskService {
     public Optional<OperationalTask> find(Long taskId) {
         OperationalTask task = repository.selectById(taskId);
         return task == null ? Optional.empty() : Optional.of(task.copy());
+    }
+
+    public boolean checkpointRunning(Long taskId, String payloadJson, Integer progressPercent, String message) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId is required");
+        }
+        return repository.checkpointRunning(
+                taskId,
+                normalize(payloadJson),
+                clampProgress(progressPercent),
+                normalize(message),
+                now()
+        );
+    }
+
+    public boolean failStaleRunning(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
+        if (taskId == null || staleBefore == null) {
+            throw new IllegalArgumentException("taskId and staleBefore are required");
+        }
+        return repository.failStaleRunning(
+                taskId,
+                staleBefore,
+                normalize(errorCode),
+                normalize(message),
+                now()
+        );
+    }
+
+    public boolean failStaleQueued(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
+        if (taskId == null || staleBefore == null) {
+            throw new IllegalArgumentException("taskId and staleBefore are required");
+        }
+        return repository.failStaleQueued(
+                taskId,
+                staleBefore,
+                normalize(errorCode),
+                normalize(message),
+                now()
+        );
     }
 
     public Optional<OperationalTask> findActive(String taskType, String naturalKey) {
@@ -105,6 +153,16 @@ public class OperationalTaskService {
     public List<OperationalTask> listActive(String taskType, int limit) {
         return repository.listActiveByTaskType(
                         requireText(taskType, "taskType"),
+                        Math.max(1, Math.min(limit, 1000))
+                ).stream()
+                .map(OperationalTask::copy)
+                .collect(Collectors.toList());
+    }
+
+    public List<OperationalTask> listActiveAfter(String taskType, Long afterTaskId, int limit) {
+        return repository.listActiveByTaskTypeAfterId(
+                        requireText(taskType, "taskType"),
+                        afterTaskId == null ? 0L : Math.max(0L, afterTaskId),
                         Math.max(1, Math.min(limit, 1000))
                 ).stream()
                 .map(OperationalTask::copy)

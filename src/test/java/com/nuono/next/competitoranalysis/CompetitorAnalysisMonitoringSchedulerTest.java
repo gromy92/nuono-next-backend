@@ -7,10 +7,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.lang.reflect.Method;
 import java.time.Duration;
-import java.util.List;
 import org.mockito.InOrder;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -26,17 +24,13 @@ import org.springframework.test.util.ReflectionTestUtils;
 class CompetitorAnalysisMonitoringSchedulerTest {
 
     @Mock
-    private CompetitorAnalysisMapper mapper;
-
-    @Mock
     private CompetitorAnalysisRefreshService refreshService;
 
     private CompetitorAnalysisMonitoringScheduler scheduler;
 
     @BeforeEach
     void setUp() {
-        scheduler = new CompetitorAnalysisMonitoringScheduler(mapper, refreshService);
-        ReflectionTestUtils.setField(scheduler, "maxScopesPerTick", 100);
+        scheduler = new CompetitorAnalysisMonitoringScheduler(refreshService);
     }
 
     @Test
@@ -46,54 +40,51 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         assertEquals(0, scheduler.runRankOnce());
         assertEquals(0, scheduler.runDetailOnce());
 
-        verifyNoInteractions(mapper, refreshService);
+        verifyNoInteractions(refreshService);
     }
 
     @Test
     void enabledRankSchedulerSubmitsOnlyRankMonitoring() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
-        CompetitorWatchProductScopeRow scope = scope();
-        when(mapper.listRefreshableWatchProductScopes(100)).thenReturn(List.of(scope));
+        when(refreshService.runScheduledRankCycle()).thenReturn(1);
 
         assertEquals(1, scheduler.runRankOnce());
 
-        verify(refreshService).requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
-        verify(refreshService, never()).requestScheduledDetailMonitoring(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
-        );
+        verify(refreshService).runScheduledRankCycle();
+        verify(refreshService, never()).runScheduledDetailCycle();
+    }
+
+    @Test
+    void enabledRankSchedulerReportsAllScopesCompletedByTheDurableCycle() {
+        ReflectionTestUtils.setField(scheduler, "enabled", true);
+        when(refreshService.runScheduledRankCycle()).thenReturn(101);
+
+        assertEquals(101, scheduler.runRankOnce());
+        verify(refreshService).runScheduledRankCycle();
     }
 
     @Test
     void enabledDetailSchedulerSubmitsOnlyDetailMonitoring() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
-        CompetitorWatchProductScopeRow scope = scope();
-        when(mapper.listRefreshableWatchProductScopes(Integer.MAX_VALUE)).thenReturn(List.of(scope));
+        when(refreshService.runScheduledDetailCycle()).thenReturn(1);
 
         assertEquals(1, scheduler.runDetailOnce());
 
-        verify(refreshService).requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
-        verify(refreshService, never()).requestScheduledRankMonitoring(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
-        );
+        verify(refreshService).runScheduledDetailCycle();
+        verify(refreshService, never()).runScheduledRankCycle();
     }
 
     @Test
     void enabledSchedulerRecoversStaleRefreshTasksBeforeSubmittingScopes() {
         ReflectionTestUtils.setField(scheduler, "enabled", true);
-        CompetitorWatchProductScopeRow scope = scope();
-        when(mapper.listRefreshableWatchProductScopes(Integer.MAX_VALUE)).thenReturn(List.of(scope));
+        when(refreshService.runScheduledDetailCycle()).thenReturn(1);
 
         assertEquals(1, scheduler.runDetailOnce());
 
-        InOrder inOrder = inOrder(refreshService, mapper);
+        InOrder inOrder = inOrder(refreshService);
         inOrder.verify(refreshService).resumeQueuedRefreshTasks();
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
-        inOrder.verify(mapper).listRefreshableWatchProductScopes(Integer.MAX_VALUE);
-        inOrder.verify(refreshService).requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
+        inOrder.verify(refreshService).runScheduledDetailCycle();
     }
 
     @Test
@@ -110,7 +101,17 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
         inOrder.verify(refreshService).resumeQueuedRefreshTasks();
         inOrder.verify(refreshService).recoverStaleRefreshTasks();
-        verifyNoInteractions(mapper);
+    }
+
+    @Test
+    void disabledAutomaticCyclesStillRecoverDurableManualTasks() {
+        ReflectionTestUtils.setField(scheduler, "enabled", false);
+        when(refreshService.resumeQueuedRefreshTasks()).thenReturn(2);
+
+        assertEquals(2, scheduler.runStartupRecoveryOnce());
+
+        verify(refreshService).resumeQueuedRefreshTasks();
+        verify(refreshService).recoverStaleRefreshTasks();
     }
 
     @Test
@@ -123,7 +124,6 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         assertEquals(10, scheduler.runRankFailureCompensationOnce());
 
         verify(refreshService).retryRecentTransientRankKeywordFailures(Duration.ofHours(24), 50);
-        verifyNoInteractions(mapper);
     }
 
     @Test
@@ -153,11 +153,4 @@ class CompetitorAnalysisMonitoringSchedulerTest {
         assertEquals(ApplicationReadyEvent.class, startupMethod.getAnnotation(EventListener.class).value()[0]);
     }
 
-    private static CompetitorWatchProductScopeRow scope() {
-        CompetitorWatchProductScopeRow row = new CompetitorWatchProductScopeRow();
-        row.setOwnerUserId(501L);
-        row.setStoreCode("STR108065-NSA");
-        row.setSiteCode("SA");
-        return row;
-    }
 }

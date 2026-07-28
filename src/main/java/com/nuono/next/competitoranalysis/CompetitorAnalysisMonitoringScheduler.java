@@ -1,11 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
-import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.time.Duration;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
@@ -14,9 +10,6 @@ import org.springframework.stereotype.Component;
 
 @Component
 public class CompetitorAnalysisMonitoringScheduler {
-    private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisMonitoringScheduler.class);
-
-    private final CompetitorAnalysisMapper mapper;
     private final CompetitorAnalysisRefreshService refreshService;
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
     private final AtomicBoolean detailRunning = new AtomicBoolean(false);
@@ -26,9 +19,6 @@ public class CompetitorAnalysisMonitoringScheduler {
     @Value("${nuono.competitor-analysis.monitor.scheduler.enabled:false}")
     private boolean enabled;
 
-    @Value("${nuono.competitor-analysis.monitor.scheduler.max-scopes-per-tick:100}")
-    private int maxScopesPerTick;
-
     @Value("${nuono.competitor-analysis.monitor.scheduler.max-compensation-keywords-per-tick:50}")
     private int maxCompensationKeywordsPerTick;
 
@@ -36,10 +26,8 @@ public class CompetitorAnalysisMonitoringScheduler {
     private int compensationLookbackHours;
 
     public CompetitorAnalysisMonitoringScheduler(
-            CompetitorAnalysisMapper mapper,
             CompetitorAnalysisRefreshService refreshService
     ) {
-        this.mapper = mapper;
         this.refreshService = refreshService;
     }
 
@@ -106,11 +94,19 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     public int runRankOnce() {
-        return runOnce("rank", this::submitRankMonitoring, Math.max(1, maxScopesPerTick));
+        if (!enabled) {
+            return 0;
+        }
+        runTaskRecoveryOnce();
+        return refreshService.runScheduledRankCycle();
     }
 
     public int runDetailOnce() {
-        return runOnce("detail", this::submitDetailMonitoring, Integer.MAX_VALUE);
+        if (!enabled) {
+            return 0;
+        }
+        runTaskRecoveryOnce();
+        return refreshService.runScheduledDetailCycle();
     }
 
     public int runRankFailureCompensationOnce() {
@@ -132,7 +128,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     private int runTaskRecovery() {
-        if (!enabled || !taskRecoveryRunning.compareAndSet(false, true)) {
+        if (!taskRecoveryRunning.compareAndSet(false, true)) {
             return 0;
         }
         try {
@@ -144,52 +140,4 @@ public class CompetitorAnalysisMonitoringScheduler {
         }
     }
 
-    private int runOnce(String executionMode, ScopeSubmitter submitter, int scopeLimit) {
-        if (!enabled) {
-            return 0;
-        }
-        runTaskRecoveryOnce();
-        List<CompetitorWatchProductScopeRow> scopes = mapper.listRefreshableWatchProductScopes(
-                scopeLimit
-        );
-        int submitted = 0;
-        for (CompetitorWatchProductScopeRow scope : scopes) {
-            try {
-                submitter.submit(scope);
-                submitted++;
-            } catch (RuntimeException exception) {
-                log.warn(
-                        "competitor scheduled {} monitoring submit failed ownerUserId={} storeCode={} siteCode={} error={}",
-                        executionMode,
-                        scope.getOwnerUserId(),
-                        scope.getStoreCode(),
-                        scope.getSiteCode(),
-                        exception.getMessage(),
-                        exception
-                );
-            }
-        }
-        return submitted;
-    }
-
-    private void submitRankMonitoring(CompetitorWatchProductScopeRow scope) {
-        refreshService.requestScheduledRankMonitoring(
-                scope.getOwnerUserId(),
-                scope.getStoreCode(),
-                scope.getSiteCode()
-        );
-    }
-
-    private void submitDetailMonitoring(CompetitorWatchProductScopeRow scope) {
-        refreshService.requestScheduledDetailMonitoring(
-                scope.getOwnerUserId(),
-                scope.getStoreCode(),
-                scope.getSiteCode()
-        );
-    }
-
-    @FunctionalInterface
-    private interface ScopeSubmitter {
-        void submit(CompetitorWatchProductScopeRow scope);
-    }
 }

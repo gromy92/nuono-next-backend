@@ -118,6 +118,64 @@ public interface OperationalTaskMapper {
             @Param("startedAt") java.time.LocalDateTime startedAt
     );
 
+    @Update({
+            "UPDATE operational_task",
+            "SET payload_json = #{payloadJson},",
+            "    progress_percent = #{progressPercent},",
+            "    message = #{message},",
+            "    gmt_updated = #{updatedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'RUNNING'",
+            "  AND is_deleted = b'0'"
+    })
+    int checkpointRunning(
+            @Param("taskId") Long taskId,
+            @Param("payloadJson") String payloadJson,
+            @Param("progressPercent") int progressPercent,
+            @Param("message") String message,
+            @Param("updatedAt") java.time.LocalDateTime updatedAt
+    );
+
+    @Update({
+            "UPDATE operational_task",
+            "SET status = 'FAILED',",
+            "    error_code = #{errorCode},",
+            "    message = #{message},",
+            "    finished_at = #{finishedAt},",
+            "    gmt_updated = #{finishedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'RUNNING'",
+            "  AND COALESCE(gmt_updated, started_at) <= #{staleBefore}",
+            "  AND is_deleted = b'0'"
+    })
+    int failStaleRunning(
+            @Param("taskId") Long taskId,
+            @Param("staleBefore") java.time.LocalDateTime staleBefore,
+            @Param("errorCode") String errorCode,
+            @Param("message") String message,
+            @Param("finishedAt") java.time.LocalDateTime finishedAt
+    );
+
+    @Update({
+            "UPDATE operational_task",
+            "SET status = 'FAILED',",
+            "    error_code = #{errorCode},",
+            "    message = #{message},",
+            "    finished_at = #{finishedAt},",
+            "    gmt_updated = #{finishedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'QUEUED'",
+            "  AND COALESCE(gmt_updated, gmt_create) <= #{staleBefore}",
+            "  AND is_deleted = b'0'"
+    })
+    int failStaleQueued(
+            @Param("taskId") Long taskId,
+            @Param("staleBefore") java.time.LocalDateTime staleBefore,
+            @Param("errorCode") String errorCode,
+            @Param("message") String message,
+            @Param("finishedAt") java.time.LocalDateTime finishedAt
+    );
+
     @Select({
             "SELECT",
             "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",
@@ -131,6 +189,25 @@ public interface OperationalTaskMapper {
             "LIMIT #{limit}"
     })
     List<OperationalTask> listActiveByTaskType(@Param("taskType") String taskType, @Param("limit") int limit);
+
+    @Select({
+            "SELECT",
+            "  id, task_type, owner_user_id, store_code, site_code, natural_key, status,",
+            "  progress_percent, message, payload_json, result_json, error_code,",
+            "  started_at, finished_at, gmt_create AS created_at, gmt_updated AS updated_at",
+            "FROM operational_task",
+            "WHERE task_type = #{taskType}",
+            "  AND id > #{afterTaskId}",
+            "  AND status IN ('QUEUED', 'RUNNING')",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC",
+            "LIMIT #{limit}"
+    })
+    List<OperationalTask> listActiveByTaskTypeAfterId(
+            @Param("taskType") String taskType,
+            @Param("afterTaskId") Long afterTaskId,
+            @Param("limit") int limit
+    );
 
     @Select({
             "<script>",

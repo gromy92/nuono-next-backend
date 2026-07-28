@@ -54,8 +54,46 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public boolean checkpointRunning(
+            Long taskId,
+            String payloadJson,
+            int progressPercent,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return mapper.checkpointRunning(taskId, payloadJson, progressPercent, message, updatedAt) == 1;
+    }
+
+    @Override
+    public boolean failStaleRunning(
+            Long taskId,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String message,
+            LocalDateTime finishedAt
+    ) {
+        return mapper.failStaleRunning(taskId, staleBefore, errorCode, message, finishedAt) == 1;
+    }
+
+    @Override
+    public boolean failStaleQueued(
+            Long taskId,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String message,
+            LocalDateTime finishedAt
+    ) {
+        return mapper.failStaleQueued(taskId, staleBefore, errorCode, message, finishedAt) == 1;
+    }
+
+    @Override
     public List<OperationalTask> listActiveByTaskType(String taskType, int limit) {
         return mapper.listActiveByTaskType(taskType, limit);
+    }
+
+    @Override
+    public List<OperationalTask> listActiveByTaskTypeAfterId(String taskType, Long afterTaskId, int limit) {
+        return mapper.listActiveByTaskTypeAfterId(taskType, afterTaskId, limit);
     }
 
     @Override
