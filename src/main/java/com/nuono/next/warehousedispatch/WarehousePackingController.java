@@ -80,6 +80,8 @@ public class WarehousePackingController extends WarehouseDispatchEndpointSupport
     ) {
         try {
             return service().replacePackingBoxes(access(request), packingListId, command);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -94,6 +96,8 @@ public class WarehousePackingController extends WarehouseDispatchEndpointSupport
     ) {
         try {
             return service().savePackingBox(access(request), packingListId, boxNo, command);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -106,6 +110,8 @@ public class WarehousePackingController extends WarehouseDispatchEndpointSupport
     ) {
         try {
             return service().confirmPackingList(access(request), packingListId);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -121,6 +127,8 @@ public class WarehousePackingController extends WarehouseDispatchEndpointSupport
                     access(request),
                     command == null ? null : command.packingListIds
             );
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -133,6 +141,8 @@ public class WarehousePackingController extends WarehouseDispatchEndpointSupport
     ) {
         try {
             return service().shipPackingList(access(request), packingListId);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

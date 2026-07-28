@@ -81,6 +81,18 @@ public interface WarehousePackingMapper extends WarehouseOutboundMapper {
             "       box_count AS boxCount, packed_quantity AS packedQuantity, gross_weight_kg AS grossWeightKg, volume_cbm AS volumeCbm,",
             "       remark, DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
             "FROM warehouse_packing_list",
+            "WHERE id = #{packingListId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    PackingListRecord selectPackingListByIdForUpdate(@Param("packingListId") Long packingListId);
+
+@Select({
+            "SELECT id, outbound_order_id AS outboundOrderId, owner_user_id AS ownerUserId, packing_no AS packingNo, status,",
+            "       box_count AS boxCount, packed_quantity AS packedQuantity, gross_weight_kg AS grossWeightKg, volume_cbm AS volumeCbm,",
+            "       remark, DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM warehouse_packing_list",
             "WHERE outbound_order_id = #{outboundOrderId}",
             "  AND is_deleted = b'0'",
             "ORDER BY id ASC"

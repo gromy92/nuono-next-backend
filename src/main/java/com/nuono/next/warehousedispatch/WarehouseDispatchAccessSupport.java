@@ -76,7 +76,20 @@ protected OutboundOrderRecord requireOutboundOrderAccess(BusinessAccessContext a
     }
 
 protected PackingListRecord requirePackingListAccess(BusinessAccessContext access, Long packingListId) {
-        PackingListRecord packingList = mapper.selectPackingListById(packingListId);
+        return requirePackingListOwnerAccess(access, mapper.selectPackingListById(packingListId));
+    }
+
+protected PackingListRecord requirePackingListAccessForUpdate(
+            BusinessAccessContext access,
+            Long packingListId
+    ) {
+        return requirePackingListOwnerAccess(access, mapper.selectPackingListByIdForUpdate(packingListId));
+    }
+
+private PackingListRecord requirePackingListOwnerAccess(
+            BusinessAccessContext access,
+            PackingListRecord packingList
+    ) {
         if (packingList == null) {
             throw new IllegalArgumentException("装箱单不存在或已删除。");
         }

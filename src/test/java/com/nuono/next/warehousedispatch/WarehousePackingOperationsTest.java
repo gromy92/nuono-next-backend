@@ -88,13 +88,17 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
 @Test
     void savePackingBoxAllowsDraftBoxWithoutSpecs() {
         PackingListRecord packingList = packingList();
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
         when(mapper.listPackingBoxItems(830001L)).thenReturn(List.of());
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.nextPackingBoxId()).thenReturn(840001L);
         when(mapper.nextPackingBoxItemId()).thenReturn(850001L);
+        when(mapper.updatePackingListTotals(
+                anyLong(), anyLong(), anyInt(), anyInt(), eq(BigDecimal.ZERO),
+                eq(new BigDecimal("0.0000")), eq((String) null), anyLong()
+        )).thenReturn(1);
 
         PackingBoxCommand command = new PackingBoxCommand();
         command.boxNo = "箱1";
@@ -139,13 +143,17 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
 
     @Test
     void savePackingBoxPersistsSealedStatus() {
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList());
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
         when(mapper.listPackingBoxItems(830001L)).thenReturn(List.of());
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.nextPackingBoxId()).thenReturn(840001L);
         when(mapper.nextPackingBoxItemId()).thenReturn(850001L);
+        when(mapper.updatePackingListTotals(
+                anyLong(), anyLong(), anyInt(), anyInt(), eq(BigDecimal.ZERO),
+                eq(new BigDecimal("0.0000")), eq((String) null), anyLong()
+        )).thenReturn(1);
 
         PackingBoxCommand command = new PackingBoxCommand();
         command.boxNo = "箱1";
@@ -173,9 +181,13 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
         ReplacePackingBoxesCommand command = new ReplacePackingBoxesCommand();
         command.boxes = List.of();
 
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
+        when(mapper.updatePackingListTotals(
+                anyLong(), anyLong(), anyInt(), anyInt(), eq(BigDecimal.ZERO),
+                eq(new BigDecimal("0.0000")), eq((String) null), anyLong()
+        )).thenReturn(1);
 
         PackingListView view = service.replacePackingBoxes(access(), "830001", command);
 
@@ -199,7 +211,7 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
 
 @Test
     void confirmPackingListAllowsMissingGrossWeightWhenDimensionsAreComplete() {
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList());
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(packingBox(null)));
@@ -222,7 +234,7 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
     void confirmPackingListRejectsMissingDimensions() {
         PackingBoxRecord box = packingBox(null);
         box.heightCm = null;
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList());
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(box));
@@ -262,7 +274,7 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
         box.items = List.of(firstItem, secondItem);
         ReplacePackingBoxesCommand command = new ReplacePackingBoxesCommand();
         command.boxes = List.of(box);
-        when(mapper.selectPackingListById(830001L)).thenReturn(packingList());
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(firstLine, secondLine));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(firstSuggestion, secondSuggestion));

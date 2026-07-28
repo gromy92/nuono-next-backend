@@ -82,13 +82,21 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
         if (command == null) {
             throw new IllegalArgumentException("缺少装箱参数。");
         }
-        PackingListRecord packingList = requirePackingListAccess(
+        PackingListRecord packingList = requirePackingListAccessForUpdate(
                 access,
                 parseLongId(packingListId, "装箱单不存在或已删除。")
         );
         if (!"DRAFT".equals(packingList.status)) {
-            throw new IllegalArgumentException("只有草稿装箱单可以修改箱明细。");
+            throw new WarehouseInventoryStateConflictException("只有草稿装箱单可以修改箱明细。");
         }
+        return replacePackingBoxesLocked(access, packingList, command);
+    }
+
+private PackingListView replacePackingBoxesLocked(
+            BusinessAccessContext access,
+            PackingListRecord packingList,
+            ReplacePackingBoxesCommand command
+    ) {
         OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(access, packingList.outboundOrderId);
         Map<Long, OutboundOrderLineRecord> outboundLineById = mapper.listOutboundOrderLines(outboundOrder.id).stream()
                 .collect(Collectors.toMap(line -> line.id, line -> line, (left, right) -> left, LinkedHashMap::new));
@@ -154,7 +162,7 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
             }
             view.boxes.add(boxView);
         }
-        mapper.updatePackingListTotals(
+        if (mapper.updatePackingListTotals(
                 packingList.id,
                 packingList.ownerUserId,
                 pendingBoxes.size(),
@@ -163,7 +171,9 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
                 volumeCbm.setScale(4, RoundingMode.HALF_UP),
                 trimToNull(command.remark),
                 operatorUserId
-        );
+        ) != 1) {
+            throw new WarehouseInventoryStateConflictException("装箱单状态已变化，请刷新后重试。");
+        }
         view.boxCount = pendingBoxes.size();
         view.packedQuantity = packedQuantity;
         view.grossWeightKg = grossWeightKg.toPlainString();
@@ -191,12 +201,12 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
         }
         command.boxNo = normalizedBoxNo;
 
-        PackingListRecord packingList = requirePackingListAccess(
+        PackingListRecord packingList = requirePackingListAccessForUpdate(
                 access,
                 parseLongId(packingListId, "装箱单不存在或已删除。")
         );
         if (!"DRAFT".equals(packingList.status)) {
-            throw new IllegalArgumentException("只有草稿装箱单可以修改箱明细。");
+            throw new WarehouseInventoryStateConflictException("只有草稿装箱单可以修改箱明细。");
         }
 
         Map<Long, List<PackingBoxItemRecord>> itemsByBox = emptyIfNull(mapper.listPackingBoxItems(packingList.id)).stream()
@@ -209,17 +219,17 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
             }
         }
         replace.boxes.add(command);
-        return replacePackingBoxes(access, packingListId, replace);
+        return replacePackingBoxesLocked(access, packingList, replace);
     }
 
 @Transactional
     public PackingListView confirmPackingList(BusinessAccessContext access, String packingListId) {
-        PackingListRecord packingList = requirePackingListAccess(
+        PackingListRecord packingList = requirePackingListAccessForUpdate(
                 access,
                 parseLongId(packingListId, "装箱单不存在或已删除。")
         );
         if (!"DRAFT".equals(packingList.status)) {
-            throw new IllegalArgumentException("只有草稿装箱单可以确认。");
+            throw new WarehouseInventoryStateConflictException("只有草稿装箱单可以确认。");
         }
         OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(access, packingList.outboundOrderId);
         List<OutboundOrderLineRecord> outboundLines = mapper.listOutboundOrderLines(outboundOrder.id);
@@ -230,10 +240,10 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
 
         Long operatorUserId = access.getSessionUserId();
         if (mapper.confirmPackingList(packingList.id, packingList.ownerUserId, operatorUserId) != 1) {
-            throw new IllegalArgumentException("装箱单状态已变化，请刷新后重试。");
+            throw new WarehouseInventoryStateConflictException("装箱单状态已变化，请刷新后重试。");
         }
         if (mapper.markOutboundOrderPacked(outboundOrder.id, outboundOrder.ownerUserId, operatorUserId) != 1) {
-            throw new IllegalArgumentException("出库单状态已变化，请刷新后重试。");
+            throw new WarehouseInventoryStateConflictException("出库单状态已变化，请刷新后重试。");
         }
         log(null, "CONFIRM_PACKING_LIST", operatorUserId, "DRAFT", "CONFIRMED", packingList.packingNo);
 
@@ -259,21 +269,21 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
 
 @Transactional
     public PackingListView shipPackingList(BusinessAccessContext access, String packingListId) {
-        PackingListRecord packingList = requirePackingListAccess(
+        PackingListRecord packingList = requirePackingListAccessForUpdate(
                 access,
                 parseLongId(packingListId, "装箱单不存在或已删除。")
         );
         if (!"CONFIRMED".equals(packingList.status) && !"SEALED".equals(packingList.status)) {
-            throw new IllegalArgumentException("只有已封箱的装箱单可以发货。");
+            throw new WarehouseInventoryStateConflictException("只有已封箱的装箱单可以发货。");
         }
         OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(access, packingList.outboundOrderId);
 
         Long operatorUserId = access.getSessionUserId();
         if (mapper.shipPackingList(packingList.id, packingList.ownerUserId, operatorUserId) != 1) {
-            throw new IllegalArgumentException("装箱单状态已变化，请刷新后重试。");
+            throw new WarehouseInventoryStateConflictException("装箱单状态已变化，请刷新后重试。");
         }
         if (mapper.markOutboundOrderShipped(outboundOrder.id, outboundOrder.ownerUserId, operatorUserId) != 1) {
-            throw new IllegalArgumentException("出库单状态已变化，请刷新后重试。");
+            throw new WarehouseInventoryStateConflictException("出库单状态已变化，请刷新后重试。");
         }
         log(null, "SHIP_PACKING_LIST", operatorUserId, packingList.status, "SHIPPED", packingList.packingNo);
 

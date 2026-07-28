@@ -24,17 +24,21 @@ public class LocalDbWarehouseDispatchService extends WarehousePackingOperations 
             BusinessAccessContext access,
             List<String> packingListIds
     ) {
-        LinkedHashSet<String> normalizedIds = new LinkedHashSet<>();
+        LinkedHashSet<Long> normalizedIds = new LinkedHashSet<>();
         if (packingListIds != null) {
             packingListIds.stream().map(id -> id == null ? "" : id.trim())
-                    .filter(id -> !id.isEmpty()).forEach(normalizedIds::add);
+                    .filter(id -> !id.isEmpty())
+                    .map(id -> parseLongId(id, "装箱单不存在或已删除。"))
+                    .forEach(normalizedIds::add);
         }
         if (normalizedIds.isEmpty()) {
             throw new IllegalArgumentException("请至少选择一个装箱单。");
         }
+        List<Long> orderedIds = new ArrayList<>(normalizedIds);
+        orderedIds.sort(Long::compareTo);
         List<PackingListView> views = new ArrayList<>();
-        for (String packingListId : normalizedIds) {
-            views.add(confirmPackingList(access, packingListId));
+        for (Long packingListId : orderedIds) {
+            views.add(confirmPackingList(access, packingListId.toString()));
         }
         return views;
     }
