@@ -25,6 +25,47 @@ import org.springframework.beans.factory.ObjectProvider;
 class ProductImageSingleVersionWorkflowTest {
 
     @Test
+    void generationShouldStayInProgressWhenARequiredReviewImageIsIncomplete() {
+        ProductImageProfileMapper mapper = mock(ProductImageProfileMapper.class);
+        ProductImageGenerator generator = mock(ProductImageGenerator.class);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<ProductImageNoonPublisher> publisherProvider = mock(ObjectProvider.class);
+        ProductImageWorkflowService service = new ProductImageWorkflowService(
+                mapper, generator, publisherProvider, new ObjectMapper()
+        );
+        ProductImageSuiteRecord suite = new ProductImageSuiteRecord();
+        suite.setId(9901L);
+        suite.setProfileId(7001L);
+        suite.setDraftPromptText("draft");
+        ProductImageProfileRecord profile = new ProductImageProfileRecord();
+        profile.setId(7001L);
+        ProductImageSuiteAssetRecord incompleteDetail =
+                asset(5004L, ProductImageSuiteAssetRole.MATERIAL_DETAIL, "/detail.png", 40);
+        incompleteDetail.setSha256(null);
+        List<ProductImageSuiteAssetRecord> assets = List.of(
+                asset(5001L, ProductImageSuiteAssetRole.MAIN, "/main.png", 10),
+                asset(5002L, ProductImageSuiteAssetRole.SIZE, "/size.png", 20),
+                asset(5003L, ProductImageSuiteAssetRole.CORE_FEATURE, "/feature.png", 30),
+                incompleteDetail,
+                asset(5005L, ProductImageSuiteAssetRole.USAGE_SCENE, "/scene.png", 50),
+                asset(5006L, ProductImageSuiteAssetRole.PACKAGE_LIST, "/package.png", 60)
+        );
+        when(mapper.selectSuiteByIdUnscoped(9901L)).thenReturn(suite);
+        when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
+        when(mapper.selectSuiteAssets(9901L)).thenReturn(assets);
+        when(mapper.selectReviewTargets(9901L)).thenReturn(List.of());
+
+        service.generate(9901L, 307L, "STR108065-NAE", 10003L);
+
+        verify(mapper).updateSuiteWorkflowStatus(
+                9901L, ProductImageSuiteStatus.GENERATING, null, null, 10003L
+        );
+        verify(mapper, never()).updateSuiteWorkflowStatus(
+                9901L, ProductImageSuiteStatus.PENDING_REVIEW, null, null, 10003L
+        );
+    }
+
+    @Test
     void reworkShouldReplaceSelectedAssetInsideTheSameSuite() {
         ProductImageProfileMapper mapper = mock(ProductImageProfileMapper.class);
         ProductImageGenerator generator = mock(ProductImageGenerator.class);
@@ -186,6 +227,9 @@ class ProductImageSingleVersionWorkflowTest {
         asset.setImageRole(role);
         asset.setRoleOrdinal(1);
         asset.setImageUrl(imageUrl);
+        asset.setContentType("image/png");
+        asset.setSizeBytes(128L);
+        asset.setSha256("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         asset.setSortOrder(sortOrder);
         return asset;
     }
