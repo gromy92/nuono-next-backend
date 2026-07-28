@@ -792,8 +792,8 @@ public class CompetitorAnalysisRefreshService {
                         retrySession.readyTargets(),
                         runId, taskId, actorUserId,
                         retrySession,
-                        () -> refreshTaskFactory.detailBatchTakeover()
-                                .takeoverOrThrow(taskId, runId, watchProduct.getId())
+                        new CompetitorDetailBatchTakeoverFence(refreshTaskFactory
+                                .detailBatchTakeover(), taskId, runId, watchProduct.getId())
                 );
         return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
     }

@@ -6,6 +6,7 @@ import com.nuono.next.system.task.OperationalTaskService;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -27,7 +28,7 @@ class CompetitorDetailBatchTakeover {
         this.executionFinalizer = executionFinalizer;
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public CompetitorDetailBatchTakeoverOutcome takeoverOlderBatches(
             Long taskId,
             Long runId,
@@ -39,16 +40,6 @@ class CompetitorDetailBatchTakeover {
                 watchProductId,
                 () -> takeoverWithLease(taskId, runId, watchProductId)
         );
-    }
-
-    @Transactional
-    public int takeoverOrThrow(Long taskId, Long runId, Long watchProductId) {
-        CompetitorDetailBatchTakeoverOutcome outcome =
-                takeoverOlderBatches(taskId, runId, watchProductId);
-        if (outcome.isCurrentSuperseded()) {
-            throw new CompetitorRefreshLeaseLostException(taskId, runId);
-        }
-        return outcome.getOlderSuperseded();
     }
 
     @Transactional
