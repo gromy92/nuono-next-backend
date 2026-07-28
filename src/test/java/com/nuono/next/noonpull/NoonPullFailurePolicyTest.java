@@ -25,6 +25,7 @@ class NoonPullFailurePolicyTest {
 
     @Test
     void shouldClassifyKnownFailuresWithoutRelyingOnRawStrings() {
+        assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify("HTTP 502 Bad Gateway"));
         assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify("HTTP 503 provider unavailable"));
         assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify(
                 "provider unavailable: Noon Ads campaign metrics returned no campaigns for "

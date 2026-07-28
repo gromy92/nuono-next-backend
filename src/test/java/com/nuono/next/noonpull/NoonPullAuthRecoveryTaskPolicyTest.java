@@ -35,6 +35,12 @@ class NoonPullAuthRecoveryTaskPolicyTest {
         )));
         assertTrue(NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task(
                 NoonPullType.INTERFACE,
+                NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN,
+                NoonPullTriggerMode.MANUAL_REFRESH,
+                "official-warehouse-asn-list"
+        )));
+        assertTrue(NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task(
+                NoonPullType.INTERFACE,
                 NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY,
                 NoonPullTriggerMode.MANUAL_BACKFILL,
                 "official-warehouse-inventory:2026-07-16"

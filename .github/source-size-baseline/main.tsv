@@ -97,13 +97,13 @@ src/main/java/com/nuono/next/nooncompleteness/NoonHistoricalBackfillPolicy.java	
 src/main/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGate.java	349
 src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	913
-src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1150
+src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1127
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	821
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3082
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3037
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	387
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
