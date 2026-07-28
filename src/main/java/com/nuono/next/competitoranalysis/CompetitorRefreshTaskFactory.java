@@ -23,31 +23,31 @@ class CompetitorRefreshTaskFactory {
     private final OperationalTaskService operationalTaskService;
     private final CompetitorStaleTaskReconciler staleTaskReconciler;
     private final CompetitorRefreshExecutionFinalizer executionFinalizer;
-
-    CompetitorRefreshTaskFactory(
-            CompetitorAnalysisMapper mapper,
-            OperationalTaskService operationalTaskService
-    ) {
-        this(
-                mapper,
-                operationalTaskService,
-                CompetitorRefreshExecutionFinalizer.unfenced(
-                        mapper, operationalTaskService
-                )
-        );
+    private final CompetitorDetailBatchTakeover detailBatchTakeover;
+    CompetitorRefreshTaskFactory(CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService) {
+        this(mapper, operationalTaskService,
+                CompetitorRefreshExecutionFinalizer.unfenced(mapper, operationalTaskService));
     }
-
+    CompetitorRefreshTaskFactory(CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorRefreshExecutionFinalizer executionFinalizer) {
+        this(mapper, operationalTaskService, executionFinalizer,
+                new CompetitorDetailBatchTakeover(mapper, operationalTaskService, executionFinalizer));
+    }
     @Autowired
     CompetitorRefreshTaskFactory(
             CompetitorAnalysisMapper mapper,
             OperationalTaskService operationalTaskService,
-            CompetitorRefreshExecutionFinalizer executionFinalizer
+            CompetitorRefreshExecutionFinalizer executionFinalizer,
+            CompetitorDetailBatchTakeover detailBatchTakeover
     ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
-        this.staleTaskReconciler =
-                new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
+        this.staleTaskReconciler = new CompetitorStaleTaskReconciler(
+                mapper, operationalTaskService);
         this.executionFinalizer = executionFinalizer;
+        this.detailBatchTakeover = detailBatchTakeover;
     }
 
     @Transactional
@@ -133,6 +133,12 @@ class CompetitorRefreshTaskFactory {
         CompetitorRefreshRecoveryIdentity.validate(
                 staleTask, staleRun, watchProduct, mode
         );
+        if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
+                && detailBatchTakeover.supersedeStaleIfNewerBatchExists(
+                        staleTask, staleRun, watchProduct.getId()
+                )) {
+            return reconciledTerminal(staleTask);
+        }
         String replacementPayload = CompetitorRefreshRecoveryPayload.replacement(
                 staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
         );
@@ -288,5 +294,7 @@ class CompetitorRefreshTaskFactory {
     CompetitorRefreshExecutionFinalizer executionFinalizer() {
         return executionFinalizer;
     }
+
+    CompetitorDetailBatchTakeover detailBatchTakeover() { return detailBatchTakeover; }
 
 }

@@ -38,10 +38,14 @@ final class CompetitorProductDetailBatchRunner {
             Long searchRunId,
             Long taskId,
             Long actorUserId,
-            CompetitorDetailRetrySession retrySession
+            CompetitorDetailRetrySession retrySession,
+            Runnable beforeFirstRequest
     ) {
         if (detailAdapter == null || !snapshotServiceAvailable) {
             return unavailable(targets, retrySession);
+        }
+        if (beforeFirstRequest != null && targets != null && !targets.isEmpty()) {
+            beforeFirstRequest.run();
         }
         CompetitorProductDetailRefreshResult result =
                 CompetitorProductDetailRefreshResult.empty();

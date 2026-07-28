@@ -75,6 +75,18 @@ public class CompetitorProductDetailRefreshService {
             Long taskId,
             Long actorUserId
     ) {
+        return refreshConfirmedCompetitors(
+                watchProduct, searchRunId, taskId, actorUserId, null
+        );
+    }
+
+    public CompetitorProductDetailRefreshResult refreshConfirmedCompetitors(
+            CompetitorWatchProductRow watchProduct,
+            Long searchRunId,
+            Long taskId,
+            Long actorUserId,
+            Runnable beforeFirstRequest
+    ) {
         if (watchProduct == null || watchProduct.getId() == null) {
             return unavailable();
         }
@@ -86,7 +98,8 @@ public class CompetitorProductDetailRefreshService {
                 searchRunId,
                 taskId,
                 actorUserId,
-                null
+                null,
+                beforeFirstRequest
         );
     }
 
@@ -98,7 +111,8 @@ public class CompetitorProductDetailRefreshService {
             Long actorUserId
     ) {
         return refreshTargets(
-                watchProduct, targets, searchRunId, taskId, actorUserId, null
+                watchProduct, targets, searchRunId, taskId, actorUserId,
+                null, null
         );
     }
 
@@ -110,21 +124,36 @@ public class CompetitorProductDetailRefreshService {
             Long actorUserId,
             CompetitorDetailRetrySession retrySession
     ) {
+        return refreshTargets(
+                watchProduct, targets, searchRunId, taskId, actorUserId,
+                retrySession, null
+        );
+    }
+
+    CompetitorProductDetailRefreshResult refreshTargets(
+            CompetitorWatchProductRow watchProduct,
+            List<CompetitorProductDetailTarget> targets,
+            Long searchRunId,
+            Long taskId,
+            Long actorUserId,
+            CompetitorDetailRetrySession retrySession,
+            Runnable beforeFirstRequest
+    ) {
         if (watchProduct == null || watchProduct.getId() == null) {
-            return CompetitorProductDetailRefreshResult.unavailable(
-                    "DETAIL_ADAPTER_UNAVAILABLE",
-                    "竞品详情适配器或快照服务不可用。"
-            );
+            return unavailable();
         }
         List<CompetitorProductDetailTargetPlan.Entry> retryTargets =
-                CompetitorProductDetailTargetPlan.retry(mapper, watchProduct, targets);
+                CompetitorProductDetailTargetPlan.retry(
+                        mapper, watchProduct, targets
+                );
         return batchRunner.refresh(
                 watchProduct,
                 retryTargets,
                 searchRunId,
                 taskId,
                 actorUserId,
-                retrySession
+                retrySession,
+                beforeFirstRequest
         );
     }
 

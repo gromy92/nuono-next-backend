@@ -790,10 +790,10 @@ public class CompetitorAnalysisRefreshService {
                 : productDetailRefreshService.refreshTargets(
                         watchProduct,
                         retrySession.readyTargets(),
-                        runId,
-                        taskId,
-                        actorUserId,
-                        retrySession
+                        runId, taskId, actorUserId,
+                        retrySession,
+                        () -> refreshTaskFactory.detailBatchTakeover()
+                                .takeoverOrThrow(taskId, runId, watchProduct.getId())
                 );
         return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
     }

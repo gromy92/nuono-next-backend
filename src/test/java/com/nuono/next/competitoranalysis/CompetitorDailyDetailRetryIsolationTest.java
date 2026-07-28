@@ -69,6 +69,11 @@ class CompetitorDailyDetailRetryIsolationTest {
         }).when(mapper).insertSearchRun(any());
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(anyLong()))
                 .thenAnswer(invocation -> runsByTask.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunById(anyLong()))
+                .thenAnswer(invocation -> runsByTask.values().stream()
+                        .filter(run -> invocation.getArgument(0).equals(run.getId()))
+                        .findFirst()
+                        .orElse(null));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(anyLong()))
                 .thenReturn(1);
     }
@@ -102,16 +107,44 @@ class CompetitorDailyDetailRetryIsolationTest {
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(product);
         when(detailService.currentTargets(product)).thenReturn(List.of(refreshed));
+        when(mapper.listScheduledDetailOwnershipCandidates(
+                eq(product.getId()), anyLong(), eq(220123L)
+        )).thenReturn(List.of(candidate(previousRetry, 220122L)));
+        when(mapper.lockActiveScheduledDetailTask(previousRetry.getId()))
+                .thenReturn("QUEUED");
+        when(mapper.lockActiveScheduledDetailRun(
+                previousRetry.getId(), 220122L, product.getId()
+        )).thenReturn("QUEUED");
+        when(mapper.supersedeActiveScheduledDetailTask(
+                eq(previousRetry.getId()), eq("QUEUED"), any(), any()
+        )).thenAnswer(invocation -> {
+            OperationalTask stored = taskRepository.tasks.get(previousRetry.getId());
+            stored.setStatus(OperationalTaskStatus.SUCCEEDED);
+            stored.setResultJson(invocation.getArgument(2));
+            stored.setMessage(invocation.getArgument(3));
+            stored.setErrorCode(null);
+            return 1;
+        });
+        when(mapper.supersedeActiveScheduledDetailRun(
+                previousRetry.getId(), 220122L, product.getId(), "QUEUED"
+        )).thenAnswer(invocation -> {
+            runsByTask.get(previousRetry.getId()).setStatus("SUCCEEDED");
+            return 1;
+        });
         when(detailService.refreshTargets(
                 eq(product),
                 eq(List.of(refreshed)),
                 eq(220123L),
                 anyLong(),
                 org.mockito.ArgumentMatchers.isNull(),
-                any(CompetitorDetailRetrySession.class)
-        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
-                taskRepository, fullRefresh
-        ));
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
+        )).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(6).run();
+            return CompetitorDetailRetryMockSupport
+                    .checkpointing(taskRepository, fullRefresh)
+                    .answer(invocation);
+        });
 
         service.requestScheduledDetailMonitoring(501L, "STORE", "SA");
         submitted.get(0).run();
@@ -138,7 +171,17 @@ class CompetitorDailyDetailRetryIsolationTest {
                 eq(220123L),
                 eq(currentDayTask.getId()),
                 org.mockito.ArgumentMatchers.isNull(),
-                any(CompetitorDetailRetrySession.class)
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
+        );
+        OperationalTask superseded = taskRepository.tasks.get(previousRetry.getId());
+        assertEquals(OperationalTaskStatus.SUCCEEDED, superseded.getStatus());
+        assertTrue(superseded.getResultJson().contains(
+                "SUPERSEDED_BY_NEW_DETAIL_BATCH"
+        ));
+        assertEquals(
+                "SUCCEEDED",
+                runsByTask.get(previousRetry.getId()).getStatus()
         );
         verify(detailService, never()).refreshTargets(
                 eq(product),
@@ -146,7 +189,8 @@ class CompetitorDailyDetailRetryIsolationTest {
                 eq(220122L),
                 eq(previousRetry.getId()),
                 org.mockito.ArgumentMatchers.isNull(),
-                any(CompetitorDetailRetrySession.class)
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
         );
         verify(keywordRunner, never()).runKeyword(
                 anyLong(), anyLong(), any(), any(), any()
@@ -194,6 +238,20 @@ class CompetitorDailyDetailRetryIsolationTest {
         row.setWatchProductId(watchId);
         row.setTriggerMode(CompetitorRefreshExecutionMode.SCHEDULED_DETAIL.triggerMode());
         row.setStatus("QUEUED");
+        return row;
+    }
+
+    private static CompetitorDetailTakeoverCandidateRow candidate(
+            OperationalTask task,
+            long runId
+    ) {
+        CompetitorDetailTakeoverCandidateRow row =
+                new CompetitorDetailTakeoverCandidateRow();
+        row.setTaskId(task.getId());
+        row.setRunId(runId);
+        row.setTaskStatus("QUEUED");
+        row.setRunStatus("QUEUED");
+        row.setPayloadJson(task.getPayloadJson());
         return row;
     }
 
