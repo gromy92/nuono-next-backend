@@ -44,6 +44,15 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public OperationalTask selectLatestByNaturalKeyAndBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        return mapper.selectLatestByNaturalKeyAndBatchKey(taskType, naturalKey, batchKey);
+    }
+
+    @Override
     public void update(OperationalTask task) {
         mapper.update(task);
     }

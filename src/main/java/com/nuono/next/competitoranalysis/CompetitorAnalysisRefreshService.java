@@ -424,39 +424,27 @@ public class CompetitorAnalysisRefreshService {
     }
 
     private CompetitorRefreshRunView requestRefreshForWatchProduct(
-            CompetitorWatchProductRow watchProduct,
-            Long actorUserId,
+            CompetitorWatchProductRow watchProduct, Long actorUserId,
             CompetitorRefreshExecutionMode executionMode
     ) {
         return queueRefreshForWatchProduct(
-                watchProduct,
-                actorUserId,
-                executionMode,
-                null,
-                true
+                watchProduct, actorUserId, executionMode, null, true
         ).getView();
     }
 
     private CompetitorMonitoringEnqueueOutcome enqueueMonitoringRefresh(
-            CompetitorWatchProductRow watchProduct,
-            Long actorUserId,
+            CompetitorWatchProductRow watchProduct, Long actorUserId,
             CompetitorRefreshExecutionMode executionMode,
             String batchKey
     ) {
         return queueRefreshForWatchProduct(
-                watchProduct,
-                actorUserId,
-                executionMode,
-                batchKey,
-                false
+                watchProduct, actorUserId, executionMode, batchKey, false
         ).getOutcome();
     }
 
     private CompetitorQueuedRefresh queueRefreshForWatchProduct(
-            CompetitorWatchProductRow watchProduct,
-            Long actorUserId,
-            CompetitorRefreshExecutionMode executionMode,
-            String batchKey,
+            CompetitorWatchProductRow watchProduct, Long actorUserId,
+            CompetitorRefreshExecutionMode executionMode, String batchKey,
             boolean dispatchNow
     ) {
         CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
@@ -472,7 +460,8 @@ public class CompetitorAnalysisRefreshService {
             releaseStaleTask(activeTask);
         }
         if (StringUtils.hasText(batchKey)) {
-            OperationalTask latestTask = operationalTaskService.findLatest(TASK_TYPE, naturalKey).orElse(null);
+            OperationalTask latestTask = operationalTaskService
+                    .findLatestByBatchKey(TASK_TYPE, naturalKey, batchKey).orElse(null);
             if (latestTask != null && payloadHasBatchKey(latestTask, batchKey)) {
                 return new CompetitorQueuedRefresh(
                         CompetitorRefreshRunView.from(
@@ -565,13 +554,13 @@ public class CompetitorAnalysisRefreshService {
     }
 
     private void retryInterruptedRefresh(
-            CompetitorWatchProductRow watchProduct,
-            CompetitorSearchRunRow run
+            CompetitorWatchProductRow watchProduct, CompetitorSearchRunRow run
     ) {
-        requestRefreshForWatchProduct(
-                watchProduct,
-                run.getRequestedBy(),
-                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode())
+        OperationalTask interruptedTask = operationalTaskService.find(run.getTaskId()).orElse(null);
+        queueRefreshForWatchProduct(
+                watchProduct, run.getRequestedBy(),
+                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode()),
+                payloadBatchKey(interruptedTask), true
         );
     }
 
@@ -941,6 +930,16 @@ public class CompetitorAnalysisRefreshService {
                 && StringUtils.hasText(batchKey)
                 && StringUtils.hasText(task.getPayloadJson())
                 && task.getPayloadJson().contains("\"batchKey\":\"" + json(batchKey) + "\"");
+    }
+
+    private String payloadBatchKey(OperationalTask task) {
+        String payload = task == null ? null : task.getPayloadJson();
+        String marker = "\"batchKey\":\"";
+        int start = payload == null ? -1 : payload.indexOf(marker);
+        if (start < 0) return null;
+        start += marker.length();
+        int end = payload.indexOf('"', start);
+        return end < 0 ? null : payload.substring(start, end);
     }
 
     private String resultJson(

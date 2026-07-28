@@ -53,6 +53,24 @@ final class InMemoryOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public OperationalTask selectLatestByNaturalKeyAndBatchKey(
+            String taskType,
+            String naturalKey,
+            String batchKey
+    ) {
+        String marker = "\"batchKey\":\"" + batchKey + "\"";
+        return tasks.values().stream()
+                .filter(task -> taskType.equals(task.getTaskType()))
+                .filter(task -> naturalKey.equals(task.getNaturalKey()))
+                .filter(task -> task.getPayloadJson() != null && task.getPayloadJson().contains(marker))
+                .filter(task -> task.getStatus() != com.nuono.next.system.task.OperationalTaskStatus.FAILED
+                        || !"FAILED_STALE".equals(task.getErrorCode()))
+                .max(Comparator.comparing(OperationalTask::getId))
+                .map(OperationalTask::copy)
+                .orElse(null);
+    }
+
+    @Override
     public void update(OperationalTask task) {
         tasks.put(task.getId(), task.copy());
     }
