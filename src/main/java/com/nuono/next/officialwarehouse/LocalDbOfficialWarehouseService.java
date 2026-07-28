@@ -88,7 +88,9 @@ import org.springframework.util.StringUtils;
 
 @Service
 @Profile("local-db")
-public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumberSyncer {
+public class LocalDbOfficialWarehouseService implements
+        OfficialWarehouseAsnNumberSyncer,
+        OfficialWarehouseAsnListTaskExecutor {
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
@@ -198,6 +200,20 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         );
     }
 
+    @Override
+    public AsnListSyncView syncNoonAsnListForTask(
+            BusinessAccessContext access,
+            String storeCode,
+            String siteCode
+    ) {
+        String normalizedStoreCode = requireText(storeCode, "请选择店铺。");
+        String normalizedSiteCode = normalizeSite(requireText(siteCode, "请选择站点。"));
+        Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
+        StoreSiteRecord site = requireStoreSite(ownerUserId, normalizedStoreCode, normalizedSiteCode);
+        NoonSalesReportBinding binding = resolveBinding(ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode);
+        return executeNoonAsnListSync(access, ownerUserId, site, binding);
+    }
+
     private AsnListSyncView executeNoonAsnListSync(
             BusinessAccessContext access,
             Long ownerUserId,
@@ -251,11 +267,36 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             }
             return result;
         } catch (RuntimeException exception) {
-            if (appointmentAuthRecovery.isExplicitAuthFailure(exception)) {
+            if (shouldReleaseAsnListSyncClaim(exception)) {
                 releaseOfficialWarehouseAsnListSync(ownerUserId, site, claimToken);
             }
             throw exception;
         }
+    }
+
+    private boolean shouldReleaseAsnListSyncClaim(RuntimeException failure) {
+        if (appointmentAuthRecovery.isExplicitAuthFailure(failure)) {
+            return true;
+        }
+        NoonPullFailureType failureType = failurePolicy.classify(failureDetails(failure));
+        return failureType == NoonPullFailureType.PROVIDER_UNAVAILABLE
+                || failureType == NoonPullFailureType.TIMEOUT;
+    }
+
+    private String failureDetails(Throwable failure) {
+        StringBuilder details = new StringBuilder();
+        Throwable current = failure;
+        while (current != null) {
+            if (StringUtils.hasText(current.getMessage())) {
+                details.append(' ').append(current.getMessage());
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return details.toString().trim();
     }
 
     String claimOfficialWarehouseAsnListSync(Long ownerUserId, StoreSiteRecord site, Long operatorUserId) {

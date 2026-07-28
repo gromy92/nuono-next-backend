@@ -36,13 +36,16 @@ import org.springframework.web.server.ResponseStatusException;
 public class OfficialWarehouseController {
 
     private final ObjectProvider<LocalDbOfficialWarehouseService> serviceProvider;
+    private final ObjectProvider<OfficialWarehouseAsnListPullService> asnListPullServiceProvider;
     private final BusinessAccessResolver accessResolver;
 
     public OfficialWarehouseController(
             ObjectProvider<LocalDbOfficialWarehouseService> serviceProvider,
+            ObjectProvider<OfficialWarehouseAsnListPullService> asnListPullServiceProvider,
             BusinessAccessResolver accessResolver
     ) {
         this.serviceProvider = serviceProvider;
+        this.asnListPullServiceProvider = asnListPullServiceProvider;
         this.accessResolver = accessResolver;
     }
 
@@ -91,12 +94,23 @@ public class OfficialWarehouseController {
             HttpServletRequest request
     ) {
         try {
-            return service().syncNoonAsnList(storeAccess(request, storeCode), storeCode, siteCode);
+            return asnListPullService().sync(storeAccess(request, storeCode), storeCode, siteCode);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
             throw upstreamFailure(exception);
         }
+    }
+
+    private OfficialWarehouseAsnListPullService asnListPullService() {
+        OfficialWarehouseAsnListPullService service = asnListPullServiceProvider.getIfAvailable();
+        if (service == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "官方仓 ASN 同步任务服务未启用。"
+            );
+        }
+        return service;
     }
 
     @PostMapping("/asns/sync-noon-numbers")

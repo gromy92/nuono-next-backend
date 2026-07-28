@@ -274,6 +274,48 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
     }
 
     @Test
+    void provider502AfterClaimReleasesThrottleSoBackoffRetryCanRun() {
+        when(mapper.selectStoreSite(308L, "STR512183-NSA", "SA")).thenReturn(storeSite());
+        AtomicReference<String> claimToken = new AtomicReference<>();
+        when(mapper.claimOfficialWarehouseAsnListSync(
+                eq(308L),
+                eq("STR512183-NSA"),
+                eq("SA"),
+                any(),
+                eq(901L)
+        )).thenAnswer(invocation -> {
+            claimToken.set(invocation.getArgument(3));
+            return 1;
+        });
+        when(mapper.selectOfficialWarehouseAsnListSyncThrottle(
+                308L,
+                "STR512183-NSA",
+                "SA"
+        )).thenAnswer(invocation -> throttle(claimToken.get()));
+        IllegalStateException upstream = new IllegalStateException("HTTP 502 Bad Gateway");
+        when(noonInboundClient.syncAsnList(
+                nullable(NoonSessionGateway.NoonSession.class),
+                any(),
+                any(),
+                any()
+        )).thenThrow(upstream);
+
+        assertThatThrownBy(() -> service.syncNoonAsnListForTask(
+                access(),
+                "STR512183-NSA",
+                "SA"
+        )).isSameAs(upstream);
+
+        verify(mapper).releaseOfficialWarehouseAsnListSync(
+                308L,
+                "STR512183-NSA",
+                "SA",
+                claimToken.get()
+        );
+        verify(recoveryQueue, never()).enqueueProject(any(), any(), any());
+    }
+
+    @Test
     void expiredCookieQueuesSharedRecoveryAndKeepsSameAppointmentPending() {
         when(recoveryQueue.enqueueProject(
                 eq(308L),

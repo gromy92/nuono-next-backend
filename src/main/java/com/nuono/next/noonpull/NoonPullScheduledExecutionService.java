@@ -7,6 +7,7 @@ import com.nuono.next.noonmaintenance.StoreSiteMaintenanceGate;
 import com.nuono.next.orderfinance.NoonFinanceTransactionReportAdapter;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportQueryService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportService;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListPullService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseInventorySyncService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnExportCreateCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnReceivedImportCommand;
@@ -61,6 +62,7 @@ public class NoonPullScheduledExecutionService {
     private final Supplier<? extends NoonAdvertisingReportProvider> advertisingProvider;
     private final Supplier<? extends NoonSalesPageQueryProvider> salesPageQueryProvider;
     private final Supplier<? extends NoonProductInterfaceSmokeProvider> productProvider;
+    private OfficialWarehouseAsnListPullService officialWarehouseAsnListPullService;
     private final boolean enabled;
     private final int salesReportExecutionsPerTick;
     private final int productInterfaceExecutionsPerTick;
@@ -524,6 +526,13 @@ public class NoonPullScheduledExecutionService {
         return result;
     }
 
+    @Autowired(required = false)
+    void setOfficialWarehouseAsnListPullService(
+            OfficialWarehouseAsnListPullService officialWarehouseAsnListPullService
+    ) {
+        this.officialWarehouseAsnListPullService = officialWarehouseAsnListPullService;
+    }
+
     private boolean isScheduledMaintenance(NoonPullTaskRecord task) {
         return task != null
                 && task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY
@@ -602,16 +611,20 @@ public class NoonPullScheduledExecutionService {
         if (task.getDataDomain() == NoonPullDataDomain.FINANCE_TRANSACTION && task.getPullType() == NoonPullType.REPORT) {
             return 4;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
+        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN
                 && task.getPullType() == NoonPullType.INTERFACE) {
             return 5;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED
-                && task.getPullType() == NoonPullType.REPORT) {
+        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY
+                && task.getPullType() == NoonPullType.INTERFACE) {
             return 6;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING && task.getPullType() == NoonPullType.REPORT) {
+        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_FBN_RECEIVED
+                && task.getPullType() == NoonPullType.REPORT) {
             return 7;
+        }
+        if (task.getDataDomain() == NoonPullDataDomain.NOON_ADVERTISING && task.getPullType() == NoonPullType.REPORT) {
+            return 8;
         }
         return 10;
     }
@@ -627,6 +640,11 @@ public class NoonPullScheduledExecutionService {
         }
         if (task.getPullType() == NoonPullType.INTERFACE && task.getDataDomain() == NoonPullDataDomain.PRODUCT) {
             executeProductInterfaceTask(task, result);
+            return;
+        }
+        if (task.getPullType() == NoonPullType.INTERFACE
+                && task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN) {
+            executeOfficialWarehouseAsnTask(task, result);
             return;
         }
         if (task.getPullType() == NoonPullType.INTERFACE
@@ -659,6 +677,29 @@ public class NoonPullScheduledExecutionService {
             return;
         }
         result.skipped();
+    }
+
+    private void executeOfficialWarehouseAsnTask(
+            NoonPullTaskRecord task,
+            NoonPullScheduledExecutionResult result
+    ) {
+        if (officialWarehouseAsnListPullService == null) {
+            foundationService.markFailedWithPolicy(
+                    task.getId(),
+                    "provider not configured: scheduled official warehouse ASN list service is disabled",
+                    foundationService.attemptNumber(task)
+            );
+            result.failed();
+            return;
+        }
+        NoonPullTaskStatus status = officialWarehouseAsnListPullService.executeScheduled(task);
+        if (status == NoonPullTaskStatus.SUCCEEDED) {
+            result.executed();
+        } else if (status == NoonPullTaskStatus.BLOCKED_AUTH) {
+            result.skipped();
+        } else {
+            result.failed();
+        }
     }
 
     private void executeFinanceReportTask(NoonPullTaskRecord task, NoonPullScheduledExecutionResult result) {

@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -159,6 +160,8 @@ public class NoonPullFoundationService {
 
         NoonPullPlanRecord plan = requirePlan(persisted.getPlanId());
         plan.setLatestSuccessAt(now);
+        plan.setLatestFailureType(null);
+        plan.setNextRetryAt(null);
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
         return persisted;
@@ -629,6 +632,62 @@ public class NoonPullFoundationService {
                 .build()).orElseThrow();
     }
 
+    /**
+     * Recreates retryable failed tasks once their persisted plan backoff has elapsed.
+     *
+     * <p>This is intentionally task-driven rather than trigger-mode-driven: manual refreshes do
+     * not have a schedule expression that can reconstruct the original target, while the failed
+     * task does.</p>
+     */
+    public List<NoonPullTaskRecord> retryDueFailedTasks() {
+        LocalDateTime now = now();
+        List<NoonPullTaskRecord> retried = new ArrayList<>();
+        for (NoonPullTaskRecord task : repository.listTasks()) {
+            if (task == null
+                    || task.getStatus() != NoonPullTaskStatus.FAILED
+                    || !Boolean.TRUE.equals(task.getRetryable())
+                    || Boolean.TRUE.equals(task.getRequiresManualAction())
+                    || !StringUtils.hasText(task.getActiveLockKey())) {
+                continue;
+            }
+            NoonPullTaskRecord latest = repository.selectLatestTaskByLockKey(task.getActiveLockKey());
+            if (latest == null || !Objects.equals(latest.getId(), task.getId())) {
+                continue;
+            }
+            NoonPullPlanRecord plan = repository.selectPlan(task.getPlanId());
+            if (plan == null
+                    || !plan.isEnabled()
+                    || plan.isPaused()
+                    || plan.getNextRetryAt() == null
+                    || plan.getNextRetryAt().isAfter(now)) {
+                continue;
+            }
+            NoonPullTaskRecord retry = retryTask(task.getId());
+            if (!Objects.equals(retry.getId(), task.getId())) {
+                retried.add(retry);
+            }
+            plan = requirePlan(task.getPlanId());
+            plan.setNextRetryAt(null);
+            plan.setUpdatedAt(now);
+            repository.updatePlan(plan);
+        }
+        return retried;
+    }
+
+    public int attemptNumber(NoonPullTaskRecord task) {
+        if (task == null || !StringUtils.hasText(task.getActiveLockKey())) {
+            return 1;
+        }
+        long attempts = repository.listTasks().stream()
+                .filter(candidate -> candidate != null
+                        && task.getActiveLockKey().equals(candidate.getActiveLockKey())
+                        && candidate.getCreatedAt() != null
+                        && task.getCreatedAt() != null
+                        && !candidate.getCreatedAt().isAfter(task.getCreatedAt()))
+                .count();
+        return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, attempts));
+    }
+
     public int recoverStaleRunningTasks(Duration maxRunningAge) {
         Duration safeMaxAge = maxRunningAge == null || maxRunningAge.isNegative() || maxRunningAge.isZero()
                 ? Duration.ofHours(2)
@@ -712,6 +771,10 @@ public class NoonPullFoundationService {
 
     public List<NoonPullTaskRecord> listTasks() {
         return repository.listTasks();
+    }
+
+    public NoonPullTaskRecord getTask(Long taskId) {
+        return requireTask(taskId).copy();
     }
 
     public List<NoonPullTaskRecord> listActiveTasks() {
