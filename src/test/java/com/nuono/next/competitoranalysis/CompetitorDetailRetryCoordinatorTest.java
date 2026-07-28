@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -91,6 +92,7 @@ class CompetitorDetailRetryCoordinatorTest {
     void queuedRetryIsNotReadyBeforeNotBeforeAndBecomesReadyAtBoundary() {
         OperationalTask task = task(
                 "{\"retryAttempt\":1,"
+                        + "\"maxRetryAttempts\":4,"
                         + "\"retryNotBefore\":\"2026-07-28T02:02:00\","
                         + "\"failedDetailTargets\":[{"
                         + "\"subjectType\":\"SELF\","
@@ -110,6 +112,17 @@ class CompetitorDetailRetryCoordinatorTest {
     }
 
     @Test
+    void initialTaskIsNotRetryAndCannotYieldAnEmptyRetryTargetBatch() {
+        CompetitorRefreshTaskFactory taskFactory = mock(CompetitorRefreshTaskFactory.class);
+        CompetitorDetailRetryCoordinator coordinator =
+                new CompetitorDetailRetryCoordinator(taskFactory, CLOCK);
+        OperationalTask task = task("{\"watchProductId\":180123}");
+
+        assertFalse(coordinator.isRetry(task));
+        assertThrows(IllegalStateException.class, () -> coordinator.retryTargets(task));
+    }
+
+    @Test
     void fourthFailedRetryIsExhaustedAndDoesNotRequeueAgain() {
         CompetitorRefreshTaskFactory taskFactory = mock(CompetitorRefreshTaskFactory.class);
         CompetitorDetailRetryCoordinator coordinator =
@@ -119,6 +132,7 @@ class CompetitorDetailRetryCoordinatorTest {
         OperationalTask task = task(
                 "{\"retryAttempt\":4,"
                         + "\"maxRetryAttempts\":4,"
+                        + "\"retryNotBefore\":\"2026-07-28T01:50:00\","
                         + "\"failedDetailTargets\":[{"
                         + "\"subjectType\":\"SELF\","
                         + "\"noonProductCode\":\"ZSELF001\""

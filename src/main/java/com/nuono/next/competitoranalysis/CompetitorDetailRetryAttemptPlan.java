@@ -12,7 +12,6 @@ import org.springframework.util.StringUtils;
 
 final class CompetitorDetailRetryAttemptPlan {
     private final List<CompetitorDetailRetryState> pendingStates;
-    private final boolean retryableWithoutTarget;
     private final String fallbackErrorCode;
     private final String fallbackErrorMessage;
     private final int terminalFailureCount;
@@ -21,7 +20,6 @@ final class CompetitorDetailRetryAttemptPlan {
 
     private CompetitorDetailRetryAttemptPlan(
             List<CompetitorDetailRetryState> pendingStates,
-            boolean retryableWithoutTarget,
             String fallbackErrorCode,
             String fallbackErrorMessage,
             int terminalFailureCount,
@@ -29,7 +27,6 @@ final class CompetitorDetailRetryAttemptPlan {
             String terminalErrorMessage
     ) {
         this.pendingStates = pendingStates;
-        this.retryableWithoutTarget = retryableWithoutTarget;
         this.fallbackErrorCode = fallbackErrorCode;
         this.fallbackErrorMessage = fallbackErrorMessage;
         this.terminalFailureCount = terminalFailureCount;
@@ -56,8 +53,8 @@ final class CompetitorDetailRetryAttemptPlan {
             }
         }
 
-        boolean targetlessRetry = false;
         int terminalCount = 0;
+        boolean targetlessFailure = false;
         String terminalCode = null;
         String terminalMessage = null;
         String fallbackCode = policy.isRetryable(preferredErrorCode)
@@ -71,21 +68,13 @@ final class CompetitorDetailRetryAttemptPlan {
             }
             CompetitorProductDetailTarget target = failure.getTarget();
             if (target == null) {
-                if (policy.isRetryable(failure.getErrorCode())) {
-                    targetlessRetry = true;
-                    fallbackCode = firstNonBlank(fallbackCode, failure.getErrorCode());
-                    fallbackMessage = firstNonBlank(
-                            fallbackMessage,
-                            failure.getErrorMessage()
-                    );
-                } else {
-                    terminalCount++;
-                    terminalCode = firstNonBlank(terminalCode, failure.getErrorCode());
-                    terminalMessage = firstNonBlank(
-                            terminalMessage,
-                            failure.getErrorMessage()
-                    );
-                }
+                targetlessFailure = true;
+                terminalCount++;
+                terminalCode = firstNonBlank(terminalCode, failure.getErrorCode());
+                terminalMessage = firstNonBlank(
+                        terminalMessage,
+                        failure.getErrorMessage()
+                );
                 continue;
             }
             if (!processedTargets.add(target.identityKey())) {
@@ -125,11 +114,13 @@ final class CompetitorDetailRetryAttemptPlan {
                 );
             }
         }
+        if (targetlessFailure) {
+            pending.clear();
+        }
         List<CompetitorDetailRetryState> pendingStates =
                 delayForSharedRiskHold(pending.values(), sharedRiskHoldUntil);
         return new CompetitorDetailRetryAttemptPlan(
                 pendingStates,
-                targetlessRetry,
                 firstNonBlank(fallbackCode, "DETAIL_REFRESH_FAILED"),
                 firstNonBlank(fallbackMessage, preferredErrorMessage, "竞品详情抓取失败。"),
                 terminalCount,
@@ -144,10 +135,6 @@ final class CompetitorDetailRetryAttemptPlan {
 
     boolean hasPendingStates() {
         return !pendingStates.isEmpty();
-    }
-
-    boolean hasRetryableWithoutTarget() {
-        return retryableWithoutTarget;
     }
 
     String getFallbackErrorCode() {

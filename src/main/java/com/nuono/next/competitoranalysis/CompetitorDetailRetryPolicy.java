@@ -40,15 +40,7 @@ final class CompetitorDetailRetryPolicy {
                 current == null ? CompetitorDetailRetryPayload.empty() : current.copy();
         int maximum = Math.min(MAX_RETRY_ATTEMPTS, Math.max(0, next.getMaxRetryAttempts()));
         if (failedDetailTargets == null || failedDetailTargets.isEmpty()) {
-            return planTargetlessRetry(
-                    next,
-                    failedRunId,
-                    errorCode,
-                    errorMessage,
-                    failedAt,
-                    sharedRiskHoldUntil,
-                    maximum
-            );
+            return Optional.empty();
         }
         List<CompetitorDetailRetryState> plannedStates = new ArrayList<>();
         for (CompetitorProductDetailTarget target : failedDetailTargets) {
@@ -82,36 +74,6 @@ final class CompetitorDetailRetryPolicy {
         next.setRootRunId(firstNonNull(next.getRootRunId(), next.getRetryOfRunId(), failedRunId));
         next.setRetryOfRunId(failedRunId);
         next.setRetryStates(plannedStates);
-        return Optional.of(next);
-    }
-
-    private Optional<CompetitorDetailRetryPayload> planTargetlessRetry(
-            CompetitorDetailRetryPayload next,
-            Long failedRunId,
-            String errorCode,
-            String errorMessage,
-            LocalDateTime failedAt,
-            LocalDateTime sharedRiskHoldUntil,
-            int maximum
-    ) {
-        int nextAttempt = next.getRetryAttempt() + 1;
-        if (nextAttempt > maximum) {
-            return Optional.empty();
-        }
-        LocalDateTime retryNotBefore =
-                failedAt.plus(backoffForFailure(errorCode, nextAttempt));
-        if (isRiskFailure(errorCode)
-                && sharedRiskHoldUntil != null
-                && sharedRiskHoldUntil.isAfter(retryNotBefore)) {
-            retryNotBefore = sharedRiskHoldUntil;
-        }
-        next.setRetryAttempt(nextAttempt);
-        next.setMaxRetryAttempts(maximum);
-        next.setRetryNotBefore(retryNotBefore);
-        next.setRootRunId(firstNonNull(next.getRootRunId(), next.getRetryOfRunId(), failedRunId));
-        next.setRetryOfRunId(failedRunId);
-        next.setLastErrorCode(errorCode);
-        next.setMessage(errorMessage);
         return Optional.of(next);
     }
 

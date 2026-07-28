@@ -124,10 +124,22 @@ class CompetitorAnalysisDetailRiskBackoffTest {
 
     private static CompetitorProductDetailRefreshResult detailFailureWithLaterRisk() {
         CompetitorProductDetailRefreshResult result = CompetitorProductDetailRefreshResult.empty();
-        result.recordAttempt();
-        result.recordFailure("DETAIL_REFRESH_FAILED", "Noon detail parse failed");
-        result.recordAttempt();
-        result.recordFailure("RATE_LIMITED", "Noon 前台商品详情返回 HTTP 429。");
+        CompetitorProductDetailTarget ordinary =
+                CompetitorProductDetailTarget.self("ZSELF001");
+        CompetitorProductDetailTarget risk =
+                CompetitorProductDetailTarget.competitor(88002L, "ZRISK001", null);
+        result.recordAttempt(ordinary);
+        result.recordFailure(
+                ordinary,
+                "DETAIL_REFRESH_FAILED",
+                "Noon detail parse failed"
+        );
+        result.recordAttempt(risk);
+        result.recordFailure(
+                risk,
+                "RATE_LIMITED",
+                "Noon 前台商品详情返回 HTTP 429。"
+        );
         return result;
     }
 

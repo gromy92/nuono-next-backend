@@ -121,7 +121,7 @@ class CompetitorMixedDetailRetryRecoveryTest {
         assertEquals(OperationalTaskStatus.QUEUED, queued.getStatus());
         assertRetryWakes(
                 queued,
-                "2026-06-06T08:02:00",
+                "2026-06-06T08:30:00",
                 List.of("2026-06-06T08:02:00", "2026-06-06T08:30:00")
         );
 

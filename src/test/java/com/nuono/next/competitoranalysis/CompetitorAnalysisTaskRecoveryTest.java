@@ -174,7 +174,12 @@ class CompetitorAnalysisTaskRecoveryTest {
                 "2026-06-06T08:00:00"
         );
         valid.setPayloadJson(
-                "{\"retryAttempt\":1,\"retryNotBefore\":\"2026-06-06T07:59:00\"}"
+                "{\"retryAttempt\":1,"
+                        + "\"maxRetryAttempts\":4,"
+                        + "\"retryNotBefore\":\"2026-06-06T07:59:00\","
+                        + "\"failedDetailTargets\":[{"
+                        + "\"subjectType\":\"SELF\","
+                        + "\"noonProductCode\":\"ZSELF001\"}]}"
         );
         CompetitorSearchRunRow malformedRun = run(220001L, "QUEUED");
         CompetitorSearchRunRow validRun = run(220002L, "QUEUED");
