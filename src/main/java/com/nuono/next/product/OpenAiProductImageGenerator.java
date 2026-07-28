@@ -27,7 +27,9 @@ class OpenAiProductImageGenerator implements ProductImageGenerator {
     OpenAiProductImageGenerator(AiProperties properties, ObjectMapper objectMapper) {
         this.properties = properties;
         this.objectMapper = objectMapper;
-        this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .build();
     }
 
     @Override
@@ -36,25 +38,8 @@ class OpenAiProductImageGenerator implements ProductImageGenerator {
         if (!properties.isOpenAiConfigured()) {
             throw new IllegalStateException("OpenAI 图片生成未配置，请先配置 OPENAI_API_KEY。");
         }
-        List<String> publicReferences = new ArrayList<>();
-        for (String value : referenceImageUrls == null ? List.<String>of() : referenceImageUrls) {
-            if (StringUtils.hasText(value) && (value.startsWith("https://") || value.startsWith("http://"))) {
-                publicReferences.add(value.trim());
-            }
-            if (publicReferences.size() >= 4) break;
-        }
-        boolean edit = !publicReferences.isEmpty();
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("model", config.getDefaultImageModel());
-        payload.put("prompt", prompt);
-        payload.put("size", "1024x1024");
-        payload.put("quality", config.getImageQuality());
-        payload.put("output_format", "png");
-        if (edit) {
-            List<Map<String, String>> images = new ArrayList<>();
-            for (String url : publicReferences) images.add(Map.of("image_url", url));
-            payload.put("images", images);
-        }
+        Map<String, Object> payload = buildPayload(prompt, referenceImageUrls);
+        boolean edit = payload.containsKey("images");
         String path = edit ? config.getImageEditPath() : config.getImageGenerationPath();
         URI uri = URI.create(trimSlash(config.getBaseUrl()) + normalizePath(path));
         try {
@@ -79,6 +64,33 @@ class OpenAiProductImageGenerator implements ProductImageGenerator {
         } catch (IOException | IllegalArgumentException exception) {
             throw new IllegalStateException("图片生成请求失败：" + exception.getMessage(), exception);
         }
+    }
+
+    Map<String, Object> buildPayload(String prompt, List<String> referenceImageUrls) {
+        AiProperties.OpenAi config = properties.getOpenai();
+        List<String> publicReferences = new ArrayList<>();
+        for (String value : referenceImageUrls == null ? List.<String>of() : referenceImageUrls) {
+            if (StringUtils.hasText(value) && (value.startsWith("https://") || value.startsWith("http://"))) {
+                publicReferences.add(value.trim());
+            }
+            if (publicReferences.size() >= 4) break;
+        }
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", config.getDefaultImageModel());
+        payload.put("prompt", prompt);
+        payload.put("size", "1024x1024");
+        payload.put("quality", config.getImageQuality());
+        payload.put("output_format", "png");
+        if (StringUtils.hasText(prompt)
+                && prompt.contains(PapersayPackageImageComposer.CONTENT_LAYER_MARKER)) {
+            payload.put("background", "transparent");
+        }
+        if (!publicReferences.isEmpty()) {
+            List<Map<String, String>> images = new ArrayList<>();
+            for (String url : publicReferences) images.add(Map.of("image_url", url));
+            payload.put("images", images);
+        }
+        return payload;
     }
 
     private String trimSlash(String value) { return value == null ? "" : value.replaceAll("/+$", ""); }
