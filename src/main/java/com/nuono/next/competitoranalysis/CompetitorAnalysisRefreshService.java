@@ -33,7 +33,6 @@ public class CompetitorAnalysisRefreshService {
     private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisRefreshService.class);
     private static final Duration STALE_AFTER = Duration.ofMinutes(30);
     private static final String RUNNING_MESSAGE = "竞品刷新正在后台执行。";
-    private static final String STALE_MESSAGE = "刷新任务超过 30 分钟未完成，已自动释放。";
     private static final String FAILED_MESSAGE = "竞品刷新失败，请稍后重试。";
     private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
     private static final String PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE";
@@ -44,6 +43,7 @@ public class CompetitorAnalysisRefreshService {
     private final CompetitorTaskSubmitter taskSubmitter;
     private final CompetitorRefreshTaskDispatcher refreshTaskDispatcher;
     private final CompetitorRefreshTaskFactory refreshTaskFactory;
+    private final CompetitorRefreshRecoveryCoordinator refreshRecoveryCoordinator;
     private final CompetitorAnalysisTaskRecovery taskRecovery;
     private final CompetitorMonitoringBatchService monitoringBatchService;
     private final CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner;
@@ -241,12 +241,21 @@ public class CompetitorAnalysisRefreshService {
                 operationalTaskService,
                 this.taskSubmitter
         );
+        this.refreshRecoveryCoordinator = new CompetitorRefreshRecoveryCoordinator(
+                mapper,
+                operationalTaskService,
+                refreshTaskFactory,
+                refreshTaskDispatcher,
+                (task, watchProduct) -> detailRetryCoordinator.isReady(task)
+                        && currentNoonRiskBackoff(watchProduct).isEmpty(),
+                this::runRefresh
+        );
         this.taskRecovery = new CompetitorAnalysisTaskRecovery(
                 mapper,
                 operationalTaskService,
                 this.clock,
-                this::resubmitQueuedRefresh,
-                this::retryInterruptedRefresh,
+                refreshRecoveryCoordinator::resubmitQueued,
+                refreshRecoveryCoordinator::recoverInterrupted,
                 () -> refreshTaskDispatcher.availableCapacity(1000)
         );
         this.monitoringBatchService = new CompetitorMonitoringBatchService(
@@ -456,7 +465,6 @@ public class CompetitorAnalysisRefreshService {
             if (StringUtils.hasText(batchKey)) {
                 return existingRefresh(activeTask, batchKey);
             }
-            releaseStaleTask(activeTask);
         }
         if (StringUtils.hasText(batchKey)) {
             OperationalTask latestTask = operationalTaskService
@@ -487,6 +495,27 @@ public class CompetitorAnalysisRefreshService {
         }
         int keywordTotal = activeKeywords.size();
 
+        if (activeTask != null) {
+            CompetitorSearchRunRow staleRun = mapper.selectSearchRunByTaskId(activeTask.getId());
+            CompetitorQueuedRefresh replacement = refreshRecoveryCoordinator.replaceManualStale(
+                    activeTask,
+                    staleRun,
+                    watchProduct,
+                    LocalDateTime.now(clock).minus(STALE_AFTER),
+                    actorUserId,
+                    safeMode,
+                    batchKey,
+                    keywordTotal
+            );
+            if (replacement != null) {
+                return replacement;
+            }
+            OperationalTask currentTask =
+                    operationalTaskService.findActive(TASK_TYPE, naturalKey).orElse(null);
+            if (currentTask != null) {
+                return existingRefresh(currentTask, batchKey);
+            }
+        }
         CompetitorQueuedRefresh queued = refreshTaskFactory.persistQueued(
                 watchProduct,
                 actorUserId,
@@ -497,13 +526,7 @@ public class CompetitorAnalysisRefreshService {
                 payloadJsonOverride
         );
         if (dispatchNow && queued.getOutcome() != CompetitorMonitoringEnqueueOutcome.DEFERRED_ACTIVE) {
-            OperationalTask task = operationalTaskService.find(queued.getView().getTaskId()).orElse(null);
-            CompetitorSearchRunRow run = task == null ? null : mapper.selectSearchRunByTaskId(task.getId());
-            if (task != null
-                    && run != null
-                    && task.getStatus() == com.nuono.next.system.task.OperationalTaskStatus.QUEUED) {
-                submitQueuedRefresh(task, run, watchProduct, actorUserId, safeMode);
-            }
+            refreshRecoveryCoordinator.dispatchQueued(queued, watchProduct, actorUserId, safeMode);
         }
         return queued;
     }
@@ -516,52 +539,6 @@ public class CompetitorAnalysisRefreshService {
         return new CompetitorQueuedRefresh(
                 CompetitorRefreshRunView.from(task, mapper.selectSearchRunByTaskId(task.getId())),
                 outcome
-        );
-    }
-
-    private boolean submitQueuedRefresh(
-            OperationalTask task,
-            CompetitorSearchRunRow run,
-            CompetitorWatchProductRow watchProduct,
-            Long actorUserId,
-            CompetitorRefreshExecutionMode executionMode
-    ) {
-        return refreshTaskDispatcher.submit(
-                accountKey(watchProduct),
-                task,
-                run,
-                RUNNING_MESSAGE,
-                () -> detailRetryCoordinator.isReady(task) && riskBackoff.current(watchProduct).isEmpty(),
-                () -> runRefresh(task.getId(), run.getId(), watchProduct.getId(), actorUserId, executionMode)
-        );
-    }
-
-    private boolean resubmitQueuedRefresh(
-            OperationalTask task,
-            CompetitorSearchRunRow run,
-            CompetitorWatchProductRow watchProduct
-    ) {
-        if (!detailRetryCoordinator.isReady(task) || riskBackoff.current(watchProduct).isPresent()) {
-            return false;
-        }
-        return submitQueuedRefresh(
-                task,
-                run,
-                watchProduct,
-                run.getRequestedBy(),
-                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode())
-        );
-    }
-
-    private void retryInterruptedRefresh(
-            CompetitorWatchProductRow watchProduct, CompetitorSearchRunRow run
-    ) {
-        OperationalTask interruptedTask = operationalTaskService.find(run.getTaskId()).orElse(null);
-        queueRefreshForWatchProduct(
-                watchProduct, run.getRequestedBy(),
-                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode()),
-                payloadBatchKey(interruptedTask), true,
-                interruptedTask == null ? null : interruptedTask.getPayloadJson()
         );
     }
 
@@ -831,14 +808,6 @@ public class CompetitorAnalysisRefreshService {
         return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
     }
 
-    private void releaseStaleTask(OperationalTask task) {
-        operationalTaskService.fail(task.getId(), "FAILED_STALE", STALE_MESSAGE);
-        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
-        if (run != null) {
-            mapper.markSearchRunFailed(run.getId(), "FAILED_STALE", STALE_MESSAGE);
-        }
-    }
-
     private boolean isStale(OperationalTask task) {
         LocalDateTime updatedAt = task.getUpdatedAt();
         if (updatedAt == null) {
@@ -875,14 +844,6 @@ public class CompetitorAnalysisRefreshService {
         if (context == null || !context.canAccessStore(storeCode)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "COMPETITOR_STORE_SCOPE_REQUIRED");
         }
-    }
-
-    private String accountKey(CompetitorWatchProductRow watchProduct) {
-        return accountKey(watchProduct.getOwnerUserId(), watchProduct.getStoreCode());
-    }
-
-    private String accountKey(Long ownerUserId, String storeCode) {
-        return ownerUserId + "::" + normalize(storeCode);
     }
 
     private Long actorUserId(BusinessAccessContext context) {
@@ -936,16 +897,6 @@ public class CompetitorAnalysisRefreshService {
                 && StringUtils.hasText(batchKey)
                 && StringUtils.hasText(task.getPayloadJson())
                 && task.getPayloadJson().contains("\"batchKey\":\"" + json(batchKey) + "\"");
-    }
-
-    private String payloadBatchKey(OperationalTask task) {
-        String payload = task == null ? null : task.getPayloadJson();
-        String marker = "\"batchKey\":\"";
-        int start = payload == null ? -1 : payload.indexOf(marker);
-        if (start < 0) return null;
-        start += marker.length();
-        int end = payload.indexOf('"', start);
-        return end < 0 ? null : payload.substring(start, end);
     }
 
     private String resultJson(

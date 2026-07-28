@@ -56,6 +56,12 @@ class CompetitorBatchReplayTest {
                 (accountKey, task) -> submitted.add(task),
                 CLOCK
         );
+        org.mockito.Mockito.lenient().when(mapper.markActiveSearchRunFailedForTask(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()
+        )).thenReturn(1);
     }
 
     @Test

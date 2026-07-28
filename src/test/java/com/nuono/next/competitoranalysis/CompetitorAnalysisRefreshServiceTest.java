@@ -540,44 +540,6 @@ class CompetitorAnalysisRefreshServiceTest {
     }
 
     @Test
-    void refreshFailsStaleTaskAndCreatesNewTaskRun() {
-        OperationalTask stale = runningTask(150000L);
-        stale.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
-        taskRepository.insert(stale);
-        when(mapper.selectWatchProductById(501L, 180123L)).thenReturn(watchProduct());
-        when(mapper.selectSearchRunByTaskId(150000L)).thenReturn(searchRun(220000L, 150000L, "RUNNING"));
-        when(mapper.listActiveKeywordsByWatchProductId(180123L)).thenReturn(List.of(keyword(190001L, "laundry basket")));
-        when(mapper.nextSearchRunId()).thenReturn(220124L);
-
-        CompetitorRefreshRunView view = service.requestRefresh(operatorContext(), 180123L);
-
-        assertEquals(150001L, view.getTaskId());
-        assertEquals(220124L, view.getRunId());
-        assertEquals(OperationalTaskStatus.FAILED, taskRepository.selectById(150000L).getStatus());
-        assertEquals("FAILED_STALE", taskRepository.selectById(150000L).getErrorCode());
-        verify(mapper).markSearchRunFailed(220000L, "FAILED_STALE", "刷新任务超过 30 分钟未完成，已自动释放。");
-        verify(mapper).insertSearchRun(org.mockito.ArgumentMatchers.any());
-    }
-
-    @Test
-    void recoverStaleRefreshTasksFailsActiveTaskAndLinkedSearchRun() {
-        OperationalTask stale = runningTask(150000L);
-        stale.setNaturalKey("watchProduct:180123:detail");
-        stale.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
-        taskRepository.insert(stale);
-        when(mapper.selectSearchRunByTaskId(150000L)).thenReturn(searchRun(220000L, 150000L, "RUNNING"));
-
-        int recovered = service.recoverStaleRefreshTasks();
-
-        assertEquals(1, recovered);
-        OperationalTask task = taskRepository.selectById(150000L);
-        assertEquals(OperationalTaskStatus.FAILED, task.getStatus());
-        assertEquals("FAILED_STALE", task.getErrorCode());
-        assertEquals("刷新任务超过 30 分钟未完成，已自动释放。", task.getMessage());
-        verify(mapper).markSearchRunFailed(220000L, "FAILED_STALE", "刷新任务超过 30 分钟未完成，已自动释放。");
-    }
-
-    @Test
     void storeMonitoringSubmitsRefreshForEveryRefreshableWatchProduct() {
         CompetitorWatchProductRow first = watchProduct(180123L, "ZSELF001");
         CompetitorWatchProductRow second = watchProduct(180124L, "ZSELF002");

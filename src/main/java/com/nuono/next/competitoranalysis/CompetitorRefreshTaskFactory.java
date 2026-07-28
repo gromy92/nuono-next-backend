@@ -4,8 +4,13 @@ import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskPayload;
 import com.nuono.next.system.task.OperationalTaskService;
+import java.time.LocalDateTime;
+import java.util.Objects;
+import java.util.function.Consumer;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -114,6 +119,83 @@ class CompetitorRefreshTaskFactory {
     }
 
     @Transactional
+    public CompetitorQueuedRefresh replaceStale(
+            OperationalTask staleTask,
+            CompetitorSearchRunRow staleRun,
+            CompetitorWatchProductRow watchProduct,
+            LocalDateTime staleBefore,
+            Long requestedBy,
+            CompetitorRefreshExecutionMode mode,
+            String batchKey,
+            int keywordTotal,
+            Consumer<CompetitorQueuedRefresh> afterCommit
+    ) {
+        if (!claimLinkedStale(staleTask, staleRun, staleBefore, "FAILED_STALE",
+                "刷新任务超过 30 分钟未完成，已自动释放。")) {
+            return null;
+        }
+        CompetitorQueuedRefresh replacement = persistQueued(
+                watchProduct,
+                requestedBy,
+                mode,
+                staleTask.getNaturalKey(),
+                batchKey,
+                keywordTotal
+        );
+        if (replacement == null
+                || replacement.getOutcome() != CompetitorMonitoringEnqueueOutcome.CREATED
+                || replacement.getView() == null
+                || Objects.equals(staleTask.getId(), replacement.getView().getTaskId())) {
+            throw new IllegalStateException("Competitor stale replacement was not persisted.");
+        }
+        dispatchAfterCommit(replacement, afterCommit);
+        return replacement;
+    }
+
+    @Transactional
+    public boolean failStale(
+            OperationalTask staleTask,
+            CompetitorSearchRunRow staleRun,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String errorMessage
+    ) {
+        return claimLinkedStale(staleTask, staleRun, staleBefore, errorCode, errorMessage);
+    }
+
+    private boolean claimLinkedStale(
+            OperationalTask staleTask,
+            CompetitorSearchRunRow staleRun,
+            LocalDateTime staleBefore,
+            String errorCode,
+            String errorMessage
+    ) {
+        if (staleTask == null || staleTask.getId() == null || staleBefore == null) {
+            return false;
+        }
+        if (staleRun != null && !Objects.equals(staleTask.getId(), staleRun.getTaskId())) {
+            throw new IllegalArgumentException("Competitor search run is not linked to the stale task.");
+        }
+        if (!operationalTaskService.failStaleRunning(
+                staleTask.getId(),
+                staleBefore,
+                errorCode,
+                errorMessage
+        )) {
+            return false;
+        }
+        if (staleRun != null && mapper.markActiveSearchRunFailedForTask(
+                staleRun.getId(),
+                staleTask.getId(),
+                errorCode,
+                errorMessage
+        ) != 1) {
+            throw new IllegalStateException("Competitor search run changed during stale recovery.");
+        }
+        return true;
+    }
+
+    @Transactional
     public boolean failInvalidDetailRetryPayload(Long taskId) {
         String message = "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。";
         if (!operationalTaskService.claimQueued(taskId, message)) {
@@ -130,6 +212,26 @@ class CompetitorRefreshTaskFactory {
         }
         operationalTaskService.fail(taskId, INVALID_RETRY_PAYLOAD, message);
         return true;
+    }
+
+    private void dispatchAfterCommit(
+            CompetitorQueuedRefresh replacement,
+            Consumer<CompetitorQueuedRefresh> afterCommit
+    ) {
+        if (afterCommit == null) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isActualTransactionActive()
+                || !TransactionSynchronizationManager.isSynchronizationActive()) {
+            afterCommit.accept(replacement);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                afterCommit.accept(replacement);
+            }
+        });
     }
 
     private CompetitorQueuedRefresh existing(
