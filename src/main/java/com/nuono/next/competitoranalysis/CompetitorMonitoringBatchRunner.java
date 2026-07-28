@@ -48,8 +48,12 @@ final class CompetitorMonitoringBatchRunner {
         try {
             if ("CYCLE".equals(checkpoint.getBatchKind())) {
                 runCycle(task.getId(), checkpoint);
-            } else {
+            } else if ("STORE".equals(checkpoint.getBatchKind())) {
                 runStore(task.getId(), checkpoint);
+            } else {
+                throw new IllegalStateException(
+                        "Invalid competitor monitoring batch kind: " + checkpoint.getBatchKind()
+                );
             }
             checkpoint.setCompleted(true);
             operationalTaskService.complete(task.getId(), checkpoint.toJson(), completionMessage(checkpoint));

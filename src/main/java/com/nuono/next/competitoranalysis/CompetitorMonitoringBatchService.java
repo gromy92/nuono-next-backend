@@ -247,6 +247,7 @@ final class CompetitorMonitoringBatchService {
         try {
             taskSubmitter.submit(accountKey(task), () -> {
                 try {
+                    task.setPayloadJson(replacementPayload(task));
                     runner.run(task);
                 } finally {
                     submittedStoreTaskIds.remove(task.getId());
