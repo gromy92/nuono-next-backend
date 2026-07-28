@@ -44,7 +44,7 @@ src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	692
 src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	345
 src/test/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsServiceTest.java	1004
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	589
-src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	345
+src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	344
 src/test/java/com/nuono/next/operationsconfig/OperationConfigTypedVersionContentSupportTest.java	465
 src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryControllerTest.java	417
 src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryServiceTest.java	1417
