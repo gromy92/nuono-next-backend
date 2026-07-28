@@ -22,4 +22,26 @@ public interface CompetitorRefreshRecoveryMapper {
             @Param("errorCode") String errorCode,
             @Param("errorMessage") String errorMessage
     );
+
+    @Update({
+            "UPDATE operational_task",
+            "SET status = #{taskStatus},",
+            "    progress_percent = CASE WHEN #{taskStatus} = 'SUCCEEDED' THEN 100 ELSE progress_percent END,",
+            "    message = #{message},",
+            "    error_code = #{errorCode},",
+            "    finished_at = NOW(),",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND task_type = 'OPERATIONS_COMPETITOR_REFRESH'",
+            "  AND status = 'FAILED'",
+            "  AND error_code = #{claimedErrorCode}",
+            "  AND is_deleted = b'0'"
+    })
+    int alignFailedStaleTaskToTerminalRun(
+            @Param("taskId") Long taskId,
+            @Param("claimedErrorCode") String claimedErrorCode,
+            @Param("taskStatus") String taskStatus,
+            @Param("errorCode") String errorCode,
+            @Param("message") String message
+    );
 }

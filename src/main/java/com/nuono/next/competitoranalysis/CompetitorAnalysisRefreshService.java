@@ -248,7 +248,7 @@ public class CompetitorAnalysisRefreshService {
                 refreshTaskDispatcher,
                 (task, watchProduct) -> detailRetryCoordinator.isReady(task)
                         && currentNoonRiskBackoff(watchProduct).isEmpty(),
-                this::runRefresh
+                this::runRefresh, this.clock
         );
         this.taskRecovery = new CompetitorAnalysisTaskRecovery(
                 mapper,
@@ -494,7 +494,6 @@ public class CompetitorAnalysisRefreshService {
             throw badRequest("COMPETITOR_NO_ACTIVE_KEYWORD");
         }
         int keywordTotal = activeKeywords.size();
-
         if (activeTask != null) {
             CompetitorSearchRunRow staleRun = mapper.selectSearchRunByTaskId(activeTask.getId());
             CompetitorQueuedRefresh replacement = refreshRecoveryCoordinator.replaceManualStale(
@@ -507,7 +506,8 @@ public class CompetitorAnalysisRefreshService {
                     batchKey,
                     keywordTotal
             );
-            if (replacement != null) {
+            if (replacement != null && replacement.getOutcome()
+                    != CompetitorMonitoringEnqueueOutcome.STALE_TERMINAL_RECONCILED) {
                 return replacement;
             }
             OperationalTask currentTask =
