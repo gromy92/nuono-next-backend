@@ -2,11 +2,13 @@ package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,7 +35,7 @@ import org.mockito.ArgumentCaptor;
 class CompetitorAnalysisDetailRiskBackoffTest {
 
     @Test
-    void scheduledDetailMonitoringRecordsLaterRiskFailureInsteadOfFirstOrdinaryFailure() {
+    void scheduledDetailMonitoringQueuesRiskFailureAfterSharedHold() {
         CompetitorAnalysisMapper mapper = mock(CompetitorAnalysisMapper.class);
         CompetitorMonitoringMapper monitoringMapper = mock(CompetitorMonitoringMapper.class);
         OperationalTaskService taskService = mock(OperationalTaskService.class);
@@ -96,6 +98,14 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         });
         when(taskService.claimQueued(150000L, CompetitorMonitoringBatchRunner.RUNNING_MESSAGE)).thenReturn(true);
         when(taskService.claimQueued(150001L, "竞品刷新正在后台执行。")).thenReturn(true);
+        when(taskService.find(150001L)).thenReturn(Optional.of(productTask));
+        when(taskService.requeueRunning(
+                eq(150001L),
+                contains("\"retryAttempt\":1"),
+                eq(5),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        )).thenReturn(true);
         when(taskService.checkpointRunning(
                 eq(150000L), anyString(), any(), eq(CompetitorMonitoringBatchRunner.RUNNING_MESSAGE)
         )).thenReturn(true);
@@ -105,6 +115,11 @@ class CompetitorAnalysisDetailRiskBackoffTest {
                 .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(searchRun);
         when(mapper.markSearchRunRunning(220123L)).thenReturn(1);
+        when(mapper.requeueSearchRun(
+                eq(220123L),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        )).thenReturn(1);
         when(detailService.refreshConfirmedCompetitors(
                 eq(watchProduct),
                 eq(220123L),
@@ -116,21 +131,34 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         submittedTasks.get(0).run();
         submittedTasks.get(1).run();
 
-        verify(taskService).fail(
+        verify(taskService).requeueRunning(
                 eq(150001L),
-                eq("COMPETITOR_RISK_BACKOFF"),
-                contains("rate_limited")
-        );
-        verify(mapper).completeSearchRun(
-                eq(220123L),
-                eq("FAILED"),
-                eq(0),
-                eq(0),
-                eq(0),
-                eq(0),
+                contains("\"retryAttempt\":1"),
+                eq(5),
                 eq("RATE_LIMITED"),
-                contains("429"),
-                isNull()
+                contains("第 1/4 次退避重试")
+        );
+        verify(mapper).requeueSearchRun(
+                eq(220123L),
+                eq("RATE_LIMITED"),
+                contains("第 1/4 次退避重试")
+        );
+        verify(taskService, never()).fail(
+                eq(150001L),
+                anyString(),
+                anyString(),
+                anyString()
+        );
+        verify(mapper, never()).completeSearchRun(
+                eq(220123L),
+                anyString(),
+                anyInt(),
+                anyInt(),
+                anyInt(),
+                anyInt(),
+                any(),
+                any(),
+                any()
         );
         ArgumentCaptor<NoonRiskBackoffHold> holds = ArgumentCaptor.forClass(NoonRiskBackoffHold.class);
         verify(riskRepository, times(2)).upsert(holds.capture());

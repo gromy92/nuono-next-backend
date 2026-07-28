@@ -161,6 +161,28 @@ public interface OperationalTaskMapper {
 
     @Update({
             "UPDATE operational_task",
+            "SET status = 'QUEUED',",
+            "    payload_json = #{payloadJson},",
+            "    progress_percent = #{progressPercent},",
+            "    error_code = #{errorCode},",
+            "    message = #{message},",
+            "    finished_at = NULL,",
+            "    gmt_updated = #{updatedAt}",
+            "WHERE id = #{taskId}",
+            "  AND status = 'RUNNING'",
+            "  AND is_deleted = b'0'"
+    })
+    int requeueRunning(
+            @Param("taskId") Long taskId,
+            @Param("payloadJson") String payloadJson,
+            @Param("progressPercent") int progressPercent,
+            @Param("errorCode") String errorCode,
+            @Param("message") String message,
+            @Param("updatedAt") java.time.LocalDateTime updatedAt
+    );
+
+    @Update({
+            "UPDATE operational_task",
             "SET status = 'FAILED',",
             "    error_code = #{errorCode},",
             "    message = #{message},",

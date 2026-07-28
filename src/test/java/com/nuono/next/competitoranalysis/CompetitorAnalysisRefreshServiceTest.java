@@ -523,7 +523,7 @@ class CompetitorAnalysisRefreshServiceTest {
         OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
         assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
         assertEquals("竞品详情快照刷新完成。", productTask.getMessage());
-        assertTrue(productTask.getNaturalKey().endsWith(":detail"));
+        assertTrue(productTask.getNaturalKey().contains(":detail:"));
         verify(productDetailRefreshService).refreshConfirmedCompetitors(
                 watchProduct,
                 220123L,
