@@ -1,10 +1,9 @@
 package com.nuono.next.orderfinance;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.NoonFinanceTransactionMapper;
@@ -51,7 +50,7 @@ class NoonFinanceTransactionMapperSqlTest {
 
         verify(mapper).nextFinanceTransactionFactId();
         verify(mapper).upsertFinanceTransactionFact(eq(300001L), eq(fact));
-        verifyNoSchemaEnsureCalls();
+        verifyNoMoreInteractions(mapper);
     }
 
     @Test
@@ -78,17 +77,7 @@ class NoonFinanceTransactionMapperSqlTest {
         verify(mapper).selectCurrencySummaryRows(query);
         verify(mapper).selectSkuSummaryRows(query);
         verify(mapper).selectDataStatus(query);
-        verifyNoSchemaEnsureCalls();
-    }
-
-    private void verifyNoSchemaEnsureCalls() {
-        verify(mapper, never()).ensureIdSequenceTable();
-        verify(mapper, never()).ensureFactSequence();
-        verify(mapper, never()).ensureFactTable();
-        verify(mapper, never()).ensureFactNaturalUniqueKey();
-        verify(mapper, never()).dropNaturalUniqueKey();
-        verify(mapper, never()).addNaturalUniqueKey();
-        verify(mapper, never()).deleteDuplicateNaturalKeyRows();
+        verifyNoMoreInteractions(mapper);
     }
 
     private NoonFinanceTransactionFact sampleFact() {

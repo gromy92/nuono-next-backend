@@ -3,7 +3,6 @@ package com.nuono.next.noonpull;
 import com.nuono.next.infrastructure.mapper.NoonSalesFactMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.time.LocalDateTime;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -12,7 +11,6 @@ import org.springframework.stereotype.Service;
 public class MyBatisNoonSalesFactWriter implements NoonSalesFactWriter {
     private final NoonSalesFactMapper mapper;
     private final ProductManagementMapper productManagementMapper;
-    private final AtomicBoolean schemaEnsured = new AtomicBoolean(false);
 
     public MyBatisNoonSalesFactWriter(NoonSalesFactMapper mapper) {
         this(mapper, (ProductManagementMapper) null);
@@ -33,19 +31,9 @@ public class MyBatisNoonSalesFactWriter implements NoonSalesFactWriter {
 
     @Override
     public void upsert(NoonSalesDailyFact fact) {
-        ensureSchema();
         Long id = mapper.nextDailySalesFactId();
         mapper.upsertDailySalesFact(id, fact);
         refreshListingStartedAt(fact);
-    }
-
-    private void ensureSchema() {
-        if (!schemaEnsured.compareAndSet(false, true)) {
-            return;
-        }
-        mapper.ensureSalesDataIdSequence();
-        mapper.ensureDailySalesFactSequence();
-        mapper.ensureDailySalesFactTable();
     }
 
     private void refreshListingStartedAt(NoonSalesDailyFact fact) {

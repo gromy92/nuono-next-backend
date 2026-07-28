@@ -1,4 +1,5 @@
 validate_additive_migrations
+run_forward_schema_migrations
 ensure_migration_182
 assert_migration_189_mappable
 apply_migration "$MIGRATION_189"

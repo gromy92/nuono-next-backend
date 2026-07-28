@@ -1,9 +1,16 @@
 import importlib.util
+import sys
 import unittest
 from pathlib import Path
 
 
-MODULE_PATH = Path(__file__).parents[1] / "release_cutover_maintenance.py"
+SCRIPT_DIR = Path(__file__).parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from schema_migrations.artifact import RUNNER_RELATIVE_PATHS  # noqa: E402
+
+MODULE_PATH = SCRIPT_DIR / "release_cutover_maintenance.py"
 
 
 def load_module():
@@ -49,10 +56,12 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         script = self.additive_script()
         execution = script[script.index("validate_additive_migrations\n") :]
 
+        forward = execution.index("run_forward_schema_migrations")
         migration_182 = execution.index("ensure_migration_182")
         migration_204 = execution.index('apply_migration "$MIGRATION_204"')
         migration_205 = execution.index('apply_migration "$MIGRATION_205"')
 
+        self.assertLess(forward, migration_182)
         self.assertLess(migration_182, migration_204)
         self.assertLess(migration_204, migration_205)
         self.assertIn("SKIPPED_READY", script)
@@ -140,14 +149,42 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertIn("postcheck_migration_182", script)
         self.assertIn('"$(backend_jvm_count)" = 0', execution)
 
-    def test_database_credentials_use_a_mode_0600_client_file_and_are_cleaned(self):
-        for script in (self.additive_script(), self.irreversible_script()):
-            with self.subTest(action=script.split("WORK_DIR=", 1)[1].splitlines()[0]):
-                self.assertNotIn('source "$APP_DIR/.env"', script)
-                self.assertNotIn('cat "$APP_DIR/.env"', script)
-                self.assertIn("os.O_EXCL, 0o600", script)
-                self.assertIn('--defaults-extra-file="$MYSQL_CNF"', script)
-                self.assertIn('rm -f -- "$MYSQL_CNF"', script)
+    def test_additive_uses_a_frozen_release_only_database_account(self):
+        script = self.additive_script()
+
+        self.assertNotIn('source "$APP_DIR/.env"', script)
+        self.assertNotIn('cat "$APP_DIR/.env"', script)
+        self.assertIn('MIGRATION_CNF_SOURCE="$APP_DIR/.migration.cnf"', script)
+        self.assertNotIn("NUONO_NEXT_DB_PASSWORD", script)
+        self.assertNotIn("NUONO_NEXT_DB_USERNAME", script)
+        self.assertIn("os.O_EXCL", script)
+        self.assertIn("0o600", script)
+        self.assertIn('--defaults-file="$MYSQL_CNF"', script)
+        self.assertIn("--no-login-paths", script)
+        self.assertIn('rm -f -- "$MYSQL_CNF"', script)
+        self.assertIn('FROZEN_JAR="$WORK_DIR/staged-backend.jar"', script)
+        self.assertIn("freeze_staged_jar", script)
+        self.assertNotIn('unzip -p "$STAGED_JAR"', script)
+        self.assertIn('--staged-jar "$FROZEN_JAR"', script)
+        self.assertIn('--host="$EXPECTED_DB_HOST"', script)
+        self.assertIn('--port="$EXPECTED_DB_PORT"', script)
+        self.assertIn('--database="$EXPECTED_SCHEMA"', script)
+        self.assertIn('--expected-host "$EXPECTED_DB_HOST"', script)
+        self.assertIn('--expected-port "$EXPECTED_DB_PORT"', script)
+
+    def test_additive_extracts_every_runner_file_bound_to_the_jar(self):
+        script = self.additive_script()
+
+        for relative in RUNNER_RELATIVE_PATHS:
+            self.assertIn(relative.as_posix(), script)
+
+    def test_irreversible_credentials_remain_private_and_cleaned(self):
+        script = self.irreversible_script()
+
+        self.assertNotIn('source "$APP_DIR/.env"', script)
+        self.assertNotIn('cat "$APP_DIR/.env"', script)
+        self.assertIn("os.O_EXCL, 0o600", script)
+        self.assertIn('rm -f -- "$MYSQL_CNF"', script)
 
 
 if __name__ == "__main__":

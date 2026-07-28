@@ -16,6 +16,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: nuono_schema_migration_ci
+          MYSQL_USER: migration_ci
+          MYSQL_PASSWORD: migration_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +72,34 @@ jobs:
           cache: maven
 
       - name: Release artifact contract tests
-        run: python3 -m unittest scripts/ci/test_package_release_artifact.py
+        run: >-
+          python3 -m unittest
+          scripts/ci/test_package_release_artifact.py
+          scripts/tests/test_release_schema_migrations.py
+          scripts/tests/test_schema_migration_artifact.py
+          scripts/tests/test_mysql_migration_client.py
+          scripts/tests/test_mysql_migration_database.py
+          scripts/tests/test_release_schema_jar_freeze.py
+
+      - name: Verify release schema migrations against MySQL
+        env:
+          NUONO_MIGRATION_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/nuono-migration.cnf
+          NUONO_MIGRATION_EXPECTED_SCHEMA: nuono_schema_migration_ci
+        run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-client
+          }
+          umask 077
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3306' \
+            'user=migration_ci' \
+            'password=migration_ci' \
+            'database=nuono_schema_migration_ci' \
+            > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
+          python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py
 
       - name: Test and package
         run: mvn -q package
