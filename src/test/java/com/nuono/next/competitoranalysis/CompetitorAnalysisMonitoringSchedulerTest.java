@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -112,6 +113,16 @@ class CompetitorAnalysisMonitoringSchedulerTest {
 
         verify(refreshService).resumeQueuedRefreshTasks();
         verify(refreshService).recoverStaleRefreshTasks();
+    }
+
+    @Test
+    void startupRecoveryFailureDoesNotAbortApplicationReadiness() {
+        when(refreshService.resumeQueuedRefreshTasks())
+                .thenThrow(new IllegalStateException("database unavailable"));
+
+        assertDoesNotThrow(scheduler::resumeQueuedRefreshTasksAfterStartup);
+
+        verify(refreshService).resumeQueuedRefreshTasks();
     }
 
     @Test
