@@ -91,6 +91,8 @@ class LocalDbProductListingProjectionBackfillTest {
         assertEquals("PRJ69486", snapshot.getStoreContext().get("projectCode"));
         assertEquals("NN-TEST-PSKU", snapshot.getIdentity().get("partnerSku"));
         assertTrue(String.valueOf(snapshot.getIdentity().get("skuParent")).startsWith("LOCAL-NN-TEST-PSKU"));
+        assertEquals(10001L, snapshot.getIdentity().get("listingDraftId"));
+        assertEquals("PLD-10001", snapshot.getIdentity().get("listingDraftNo"));
         assertEquals("本地草稿中文标题", snapshot.getContent().get("titleCn"));
         assertEquals(List.of("https://example.test/images/sku-main.jpg"), snapshot.getContent().get("images"));
         assertEquals(1, snapshot.getSiteOffers().size());
