@@ -655,7 +655,6 @@ public class CompetitorAnalysisRefreshService {
             }
             if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
                     && runningTask != null
-                    && detailResult.getFailedCount() > 0
                     && detailRetryCoordinator.scheduleFailure(
                             runningTask,
                             runId,

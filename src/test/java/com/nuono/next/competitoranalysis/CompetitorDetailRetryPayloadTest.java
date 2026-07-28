@@ -87,6 +87,13 @@ class CompetitorDetailRetryPayloadTest {
         JsonNode persisted = JSON.readTree(restored.toJson());
         assertEquals("ZFAIL001", persisted.path("failedDetailTargets").path(0)
                 .path("noonProductCode").asText());
+        assertEquals(1, persisted.path("detailRetryStates").size());
+        assertEquals(2, persisted.path("detailRetryStates").path(0)
+                .path("retryAttempt").asInt());
+        assertEquals("2026-07-28T02:06:00", persisted.path("detailRetryStates").path(0)
+                .path("retryNotBefore").asText());
+        assertEquals("PROVIDER_UNAVAILABLE", persisted.path("detailRetryStates").path(0)
+                .path("errorCode").asText());
     }
 
     @Test
@@ -97,6 +104,33 @@ class CompetitorDetailRetryPayloadTest {
         assertFalse(payload.isReadyAt(LocalDateTime.parse("2026-07-28T02:01:59")));
         assertTrue(payload.isReadyAt(LocalDateTime.parse("2026-07-28T02:02:00")));
         assertTrue(payload.isReadyAt(LocalDateTime.parse("2026-07-28T02:02:01")));
+    }
+
+    @Test
+    void riskHoldDelaysReadyTargetWithoutShorteningLaterTarget() throws Exception {
+        CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.fromJson(
+                "{\"detailRetryStates\":[{"
+                        + "\"subjectType\":\"SELF\","
+                        + "\"noonProductCode\":\"ZREADY\","
+                        + "\"retryAttempt\":1,"
+                        + "\"retryNotBefore\":\"2026-07-28T02:02:00\""
+                        + "},{"
+                        + "\"subjectType\":\"COMPETITOR\","
+                        + "\"competitorProductId\":88003,"
+                        + "\"noonProductCode\":\"ZLATER\","
+                        + "\"retryAttempt\":1,"
+                        + "\"retryNotBefore\":\"2026-07-28T03:00:00\""
+                        + "}]}"
+        );
+
+        payload.delayRetryStatesUntil(LocalDateTime.parse("2026-07-28T02:11:00"));
+
+        JsonNode persisted = JSON.readTree(payload.toJson());
+        assertEquals("2026-07-28T02:11:00", persisted.path("retryNotBefore").asText());
+        assertEquals("2026-07-28T02:11:00", persisted.path("detailRetryStates").path(0)
+                .path("retryNotBefore").asText());
+        assertEquals("2026-07-28T03:00:00", persisted.path("detailRetryStates").path(1)
+                .path("retryNotBefore").asText());
     }
 
     @Test

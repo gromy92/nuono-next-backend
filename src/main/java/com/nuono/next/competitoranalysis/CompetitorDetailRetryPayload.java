@@ -3,13 +3,10 @@ package com.nuono.next.competitoranalysis;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
 import org.springframework.util.StringUtils;
 
@@ -28,7 +25,7 @@ final class CompetitorDetailRetryPayload {
     private LocalDateTime retryNotBefore;
     private Long rootRunId;
     private Long retryOfRunId;
-    private List<CompetitorProductDetailTarget> failedDetailTargets;
+    private List<CompetitorDetailRetryState> retryStates;
     private String lastErrorCode;
     private String message;
     private int detailTargetTotal;
@@ -47,12 +44,23 @@ final class CompetitorDetailRetryPayload {
                         CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
                 )
         );
-        this.retryNotBefore = localDateTime(this.original.get("retryNotBefore"));
+        this.retryNotBefore = CompetitorDetailRetryStateJson.dateTime(
+                this.original.get("retryNotBefore")
+        );
         this.rootRunId = nullableLong(this.original.get("rootRunId"));
         this.retryOfRunId = nullableLong(this.original.get("retryOfRunId"));
-        this.failedDetailTargets = targets(this.original.get("failedDetailTargets"));
         this.lastErrorCode = text(this.original.get("lastErrorCode"));
         this.message = text(this.original.get("message"));
+        this.retryStates = CompetitorDetailRetryStateJson.read(
+                this.original,
+                retryAttempt,
+                retryNotBefore,
+                lastErrorCode,
+                message
+        );
+        if (!retryStates.isEmpty()) {
+            refreshRetrySummary();
+        }
         this.detailTargetTotal = nonNegativeInt(this.original.get("detailTargetTotal"), 0);
         this.detailRequestAttemptCount =
                 nonNegativeInt(this.original.get("detailRequestAttemptCount"), 0);
@@ -100,6 +108,14 @@ final class CompetitorDetailRetryPayload {
     }
 
     boolean isReadyAt(LocalDateTime now) {
+        if (!retryStates.isEmpty()) {
+            for (CompetitorDetailRetryState state : retryStates) {
+                if (state.isReadyAt(now)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         return retryNotBefore == null || (now != null && !now.isBefore(retryNotBefore));
     }
 
@@ -114,10 +130,58 @@ final class CompetitorDetailRetryPayload {
     Long getRetryOfRunId() { return retryOfRunId; }
     void setRetryOfRunId(Long value) { this.retryOfRunId = value; }
     List<CompetitorProductDetailTarget> getFailedDetailTargets() {
-        return Collections.unmodifiableList(failedDetailTargets);
+        List<CompetitorProductDetailTarget> targets = new ArrayList<>();
+        for (CompetitorDetailRetryState state : retryStates) {
+            targets.add(state.getTarget());
+        }
+        return Collections.unmodifiableList(targets);
     }
     void setFailedDetailTargets(List<CompetitorProductDetailTarget> value) {
-        this.failedDetailTargets = safeTargets(value);
+        List<CompetitorDetailRetryState> states = new ArrayList<>();
+        if (value != null) {
+            for (CompetitorProductDetailTarget target : value) {
+                if (target != null) {
+                    states.add(new CompetitorDetailRetryState(
+                            target,
+                            retryAttempt,
+                            retryNotBefore,
+                            lastErrorCode,
+                            message
+                    ));
+                }
+            }
+        }
+        setRetryStates(states);
+    }
+    List<CompetitorDetailRetryState> getRetryStates() {
+        return Collections.unmodifiableList(new ArrayList<>(retryStates));
+    }
+    void setRetryStates(List<CompetitorDetailRetryState> value) {
+        retryStates = CompetitorDetailRetryStateJson.unique(value);
+        refreshRetrySummary();
+    }
+    List<CompetitorProductDetailTarget> getReadyTargetsAt(LocalDateTime now) {
+        List<CompetitorProductDetailTarget> targets = new ArrayList<>();
+        for (CompetitorDetailRetryState state : retryStates) {
+            if (state.isReadyAt(now)) {
+                targets.add(state.getTarget());
+            }
+        }
+        return Collections.unmodifiableList(targets);
+    }
+    void delayRetryStatesUntil(LocalDateTime holdUntil) {
+        if (retryStates.isEmpty()) {
+            if (holdUntil != null
+                    && (retryNotBefore == null || holdUntil.isAfter(retryNotBefore))) {
+                retryNotBefore = holdUntil;
+            }
+            return;
+        }
+        List<CompetitorDetailRetryState> delayed = new ArrayList<>();
+        for (CompetitorDetailRetryState state : retryStates) {
+            delayed.add(state.delayedUntil(holdUntil));
+        }
+        setRetryStates(delayed);
     }
     String getLastErrorCode() { return lastErrorCode; }
     void setLastErrorCode(String value) { this.lastErrorCode = normalize(value); }
@@ -151,12 +215,7 @@ final class CompetitorDetailRetryPayload {
         putDateTime(output, "retryNotBefore", retryNotBefore);
         putLong(output, "rootRunId", rootRunId);
         putLong(output, "retryOfRunId", retryOfRunId);
-        ArrayNode targetArray = output.putArray("failedDetailTargets");
-        for (CompetitorProductDetailTarget target : failedDetailTargets) {
-            if (target != null) {
-                targetArray.add(targetNode(target));
-            }
-        }
+        CompetitorDetailRetryStateJson.write(output, retryStates);
         putText(output, "lastErrorCode", lastErrorCode);
         putText(output, "message", message);
         output.put("detailTargetTotal", detailTargetTotal);
@@ -168,52 +227,30 @@ final class CompetitorDetailRetryPayload {
         return output;
     }
 
-    private static List<CompetitorProductDetailTarget> targets(JsonNode value) {
-        if (value == null || value.isNull()) {
-            return new ArrayList<>();
+    private void refreshRetrySummary() {
+        if (retryStates.isEmpty()) {
+            retryAttempt = 0;
+            retryNotBefore = null;
+            return;
         }
-        if (!value.isArray()) {
-            throw new CompetitorDetailRetryPayloadException(
-                    "failedDetailTargets must be a JSON array."
-            );
-        }
-        List<CompetitorProductDetailTarget> targets = new ArrayList<>();
-        for (JsonNode item : value) {
-            if (item == null || !item.isObject()) {
-                throw new CompetitorDetailRetryPayloadException("Invalid failed detail target.");
-            }
-            CompetitorProductDetailTarget target = new CompetitorProductDetailTarget();
-            target.setSubjectType(text(item.get("subjectType")));
-            target.setCompetitorProductId(nullableLong(item.get("competitorProductId")));
-            target.setNoonProductCode(text(item.get("noonProductCode")));
-            target.setCanonicalUrl(text(item.get("canonicalUrl")));
-            targets.add(target);
-        }
-        return safeTargets(targets);
-    }
-
-    private static ObjectNode targetNode(CompetitorProductDetailTarget target) {
-        ObjectNode value = JSON.createObjectNode();
-        putText(value, "subjectType", target.getSubjectType());
-        putLong(value, "competitorProductId", target.getCompetitorProductId());
-        putText(value, "noonProductCode", target.getNoonProductCode());
-        putText(value, "canonicalUrl", target.getCanonicalUrl());
-        return value;
-    }
-
-    private static List<CompetitorProductDetailTarget> safeTargets(
-            List<CompetitorProductDetailTarget> value
-    ) {
-        if (value == null || value.isEmpty()) {
-            return new ArrayList<>();
-        }
-        LinkedHashSet<CompetitorProductDetailTarget> unique = new LinkedHashSet<>();
-        for (CompetitorProductDetailTarget target : value) {
-            if (target != null) {
-                unique.add(target);
+        CompetitorDetailRetryState earliest = null;
+        retryAttempt = 0;
+        for (CompetitorDetailRetryState state : retryStates) {
+            retryAttempt = Math.max(retryAttempt, state.getRetryAttempt());
+            if (earliest == null
+                    || earlier(state.getRetryNotBefore(), earliest.getRetryNotBefore())) {
+                earliest = state;
             }
         }
-        return new ArrayList<>(unique);
+        retryNotBefore = earliest == null ? null : earliest.getRetryNotBefore();
+        if (earliest != null) {
+            lastErrorCode = earliest.getErrorCode();
+            message = earliest.getErrorMessage();
+        }
+    }
+
+    private boolean earlier(LocalDateTime candidate, LocalDateTime current) {
+        return candidate == null || (current != null && candidate.isBefore(current));
     }
 
     private static int nonNegativeInt(JsonNode value, int fallback) {
@@ -226,21 +263,6 @@ final class CompetitorDetailRetryPayload {
 
     private static Long nullableLong(JsonNode value) {
         return value == null || value.isNull() ? null : value.asLong();
-    }
-
-    private static LocalDateTime localDateTime(JsonNode value) {
-        String text = text(value);
-        if (!StringUtils.hasText(text)) {
-            return null;
-        }
-        try {
-            return LocalDateTime.parse(text);
-        } catch (DateTimeParseException exception) {
-            throw new CompetitorDetailRetryPayloadException(
-                    "Invalid retryNotBefore value.",
-                    exception
-            );
-        }
     }
 
     private static String text(JsonNode value) {
