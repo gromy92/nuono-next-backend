@@ -75,6 +75,16 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         if (lines.isEmpty()) {
             throw new IllegalArgumentException("请选择至少一个确认商品。");
         }
+        Map<Long, ConfirmationLineCommand> linesByItem = new LinkedHashMap<>();
+        for (ConfirmationLineCommand line : lines) {
+            Long itemId = parseLongId(
+                    line == null ? null : line.purchaseOrderItemId,
+                    "采购单商品不存在或已删除。"
+            );
+            if (linesByItem.putIfAbsent(itemId, line) != null) {
+                throw new IllegalArgumentException("同一采购单商品不能重复确认，请合并数量后重试。");
+            }
+        }
 
         Long confirmationId = mapper.nextConfirmationId();
         List<FulfillmentConfirmationLineInsertRecord> lineRows = new ArrayList<>();
@@ -88,8 +98,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         int expectedTotal = 0;
         int confirmedTotal = 0;
         int abnormalTotal = 0;
-        for (ConfirmationLineCommand lineCommand : lines) {
-            Long itemId = parseLongId(lineCommand == null ? null : lineCommand.purchaseOrderItemId, "采购单商品不存在或已删除。");
+        for (Map.Entry<Long, ConfirmationLineCommand> entry : linesByItem.entrySet()) {
+            Long itemId = entry.getKey();
+            ConfirmationLineCommand lineCommand = entry.getValue();
             PurchaseOrderItemRecord item = requireItem(order, itemId);
             int confirmedDelta = nonNull(lineCommand.confirmedQuantity);
             int abnormalDelta = nonNull(lineCommand.abnormalQuantity);
@@ -196,7 +207,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
             mapper.insertConfirmationLine(row);
         }
         for (BalanceQuantityDelta delta : balanceDeltas) {
-            mapper.updateBalanceQuantities(delta);
+            if (mapper.updateBalanceQuantities(delta) != 1) {
+                throw new WarehouseInventoryStateConflictException("收货库存状态已变化，请刷新后重试。");
+            }
         }
         log(null, "CREATE_FULFILLMENT_CONFIRMATION", access.getSessionUserId(), null, "CONFIRMED", view.confirmationNo);
         view.expectedQuantity = expectedTotal;

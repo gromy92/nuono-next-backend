@@ -82,6 +82,11 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "    updated_by = #{row.operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{row.balanceId}",
+            "  AND #{row.confirmedDelta} >= 0",
+            "  AND #{row.abnormalDelta} >= 0",
+            "  AND confirmed_quantity + #{row.confirmedDelta}",
+            "        >= abnormal_quantity + #{row.abnormalDelta}",
+            "        + reserved_quantity + logistics_handoff_quantity",
             "  AND is_deleted = b'0'"
     })
     int updateBalanceQuantities(@Param("row") BalanceQuantityDelta row);

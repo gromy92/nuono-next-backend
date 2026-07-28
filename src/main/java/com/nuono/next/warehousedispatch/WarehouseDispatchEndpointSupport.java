@@ -37,7 +37,7 @@ abstract class WarehouseDispatchEndpointSupport {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
     }
 
-    protected ResponseStatusException conflict(IllegalStateException exception) {
+    protected ResponseStatusException conflict(WarehouseInventoryStateConflictException exception) {
         return new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
     }
 }

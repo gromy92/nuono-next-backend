@@ -1,12 +1,14 @@
 package com.nuono.next.warehousedispatch;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +51,7 @@ class WarehouseDispatchControllerTest {
         when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
                 .thenReturn(access);
         when(service.markLogisticsHandoffSuccess(access, "HANDOFF-340001"))
-                .thenThrow(new IllegalStateException("物流交接库存状态已变化，请刷新后重试。"));
+                .thenThrow(new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。"));
 
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
@@ -58,5 +60,48 @@ class WarehouseDispatchControllerTest {
 
         assertEquals(HttpStatus.CONFLICT, error.getStatus());
         assertEquals("物流交接库存状态已变化，请刷新后重试。", error.getReason());
+    }
+
+    @Test
+    void createConfirmationMapsInventoryStateChangeToConflict() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .build();
+        ConfirmationCommand command = new ConfirmationCommand();
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.createConfirmation(access, command))
+                .thenThrow(new WarehouseInventoryStateConflictException("收货库存状态已变化，请刷新后重试。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.createConfirmation(command, request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals("收货库存状态已变化，请刷新后重试。", error.getReason());
+    }
+
+    @Test
+    void createConfirmationDoesNotMaskInternalIllegalStateAsInventoryConflict() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .build();
+        ConfirmationCommand command = new ConfirmationCommand();
+        IllegalStateException internalError = new IllegalStateException("内部序列化失败");
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.createConfirmation(access, command)).thenThrow(internalError);
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                () -> controller.createConfirmation(command, request)
+        );
+
+        assertSame(internalError, error);
     }
 }

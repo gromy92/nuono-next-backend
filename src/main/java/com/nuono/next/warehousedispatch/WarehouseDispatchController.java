@@ -72,6 +72,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().createConfirmation(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -192,7 +194,7 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
-        } catch (IllegalStateException exception) {
+        } catch (WarehouseInventoryStateConflictException exception) {
             throw conflict(exception);
         }
     }

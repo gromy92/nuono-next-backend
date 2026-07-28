@@ -222,7 +222,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         if (changed > 0) {
             List<DispatchPlanLineSourceRecord> sources = mapper.listDispatchLineSources(plan.id);
             if (sources == null || sources.isEmpty()) {
-                throw new IllegalStateException("物流交接库存状态已变化，请刷新后重试。");
+                throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
             }
             for (DispatchPlanLineSourceRecord source : sources) {
                 int moved = mapper.moveReservedToLogisticsHandoff(
@@ -231,7 +231,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
                         access.getSessionUserId()
                 );
                 if (moved != 1) {
-                    throw new IllegalStateException("物流交接库存状态已变化，请刷新后重试。");
+                    throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
                 }
             }
             log(plan.id, "HANDOFF_SUCCESS", access.getSessionUserId(), plan.status, "LOGISTICS_REQUESTED", requestNo);

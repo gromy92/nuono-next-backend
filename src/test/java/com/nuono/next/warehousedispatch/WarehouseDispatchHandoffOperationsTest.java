@@ -25,7 +25,7 @@ class WarehouseDispatchHandoffOperationsTest extends WarehouseDispatchServiceTes
         when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of());
 
         assertThatThrownBy(() -> service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(WarehouseInventoryStateConflictException.class)
                 .hasMessageContaining("交接库存状态已变化");
     }
 
@@ -39,7 +39,7 @@ class WarehouseDispatchHandoffOperationsTest extends WarehouseDispatchServiceTes
         when(mapper.moveReservedToLogisticsHandoff(900001L, 5, 307L)).thenReturn(0);
 
         assertThatThrownBy(() -> service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(WarehouseInventoryStateConflictException.class)
                 .hasMessageContaining("交接库存状态已变化");
     }
 
