@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 
 public class NoonSearchResult {
     private Integer position;
+    private Integer rankPosition;
     private String noonProductCode;
     private String codeType;
     private String canonicalUrl;
@@ -22,6 +23,8 @@ public class NoonSearchResult {
 
     public Integer getPosition() { return position; }
     public void setPosition(Integer position) { this.position = position; }
+    public Integer getRankPosition() { return rankPosition; }
+    public void setRankPosition(Integer rankPosition) { this.rankPosition = rankPosition; }
     public String getNoonProductCode() { return noonProductCode; }
     public void setNoonProductCode(String noonProductCode) { this.noonProductCode = noonProductCode; }
     public String getCodeType() { return codeType; }

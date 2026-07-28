@@ -212,7 +212,7 @@ class CompetitorAnalysisMapperSqlTest {
                     .contains("recent7dcompetitorchangecount")
                     .contains("operations_competitor_product_change_event ce")
                     .contains("ce.subject_type = 'competitor'")
-                    .contains("ce.fact_date >= date_sub(current_date, interval 6 day)")
+                    .contains("ce.fact_date >= date_sub(date(date_add(utc_timestamp(), interval 8 hour)), interval 6 day)")
                     .contains("ce.is_deleted = b'0'");
         }
     }

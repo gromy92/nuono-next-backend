@@ -93,7 +93,12 @@ class ProductImageWorkflowService {
                 ProductImageSuiteAssetRecord asset = saveGeneratedImage(suite, role, image, storeCode, (roleIndex + 1) * 10);
                 mapper.insertSuiteAsset(asset);
             }
-            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PENDING_REVIEW, null, null, operatorUserId);
+            List<ProductImageSuiteAssetRecord> completedAssets = mapper.selectSuiteAssets(suiteId);
+            if (ProductImageSuiteReadinessPolicy.isReadyForReview(completedAssets)) {
+                mapper.updateSuiteWorkflowStatus(
+                        suiteId, ProductImageSuiteStatus.PENDING_REVIEW, null, null, operatorUserId
+                );
+            }
         } catch (RuntimeException exception) {
             mapper.updateSuiteWorkflowStatus(
                     suiteId, ProductImageSuiteStatus.FAILED, "GENERATION", safeMessage(exception), operatorUserId

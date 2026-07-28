@@ -37,8 +37,11 @@ final class ProductImageSuiteRetryCoordinator {
             Long operatorUserId
     ) {
         ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId, true);
-        ProductImagePublishCheckpoint attempt =
-                ProductImagePublishCheckpoint.start(mapper.selectSuiteAssets(suite.getId()));
+        List<ProductImageSuiteAssetRecord> assets = mapper.selectSuiteAssets(suite.getId());
+        if (!ProductImageSuiteReadinessPolicy.isReadyForReview(assets)) {
+            throw new IllegalArgumentException("主图、细节图、尺寸图和场景图尚未全部制作完成，不能审核通过。");
+        }
+        ProductImagePublishCheckpoint attempt = ProductImagePublishCheckpoint.start(assets);
         if (!StringUtils.hasText(mapper.selectSkuParentByProductMasterId(profile.getProductMasterId()))) {
             throw new IllegalArgumentException("该商品尚未在 Noon 上线，不能发布图片。");
         }

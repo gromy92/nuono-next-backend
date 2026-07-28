@@ -572,17 +572,26 @@ public class CompetitorAnalysisRefreshService {
                 safeFailTask(taskId, COMPETITOR_RISK_BACKOFF, message);
                 return;
             }
-            if (safeMode.runsDetail()) {
-                refreshConfirmedCompetitorDetails(taskId, runId, watchProduct, actorUserId);
+            CompetitorProductDetailRefreshResult detailResult = safeMode.runsDetail()
+                    ? refreshConfirmedCompetitorDetails(taskId, runId, watchProduct, actorUserId)
+                    : CompetitorProductDetailRefreshResult.empty();
+            NoonRiskBackoffHold riskBackoffHold = null;
+            if (detailResult.getFailedCount() > 0) {
+                firstErrorCode = detailResult.getFirstErrorCode();
+                firstErrorMessage = detailResult.getFirstErrorMessage();
+                if (detailResult.hasRiskBackoffFailure()) {
+                    firstErrorCode = detailResult.getRiskErrorCode();
+                    firstErrorMessage = detailResult.getRiskErrorMessage();
+                    riskBackoffHold = recordRiskBackoff(watchProduct, taskId, firstErrorCode, firstErrorMessage);
+                }
             }
-            List<CompetitorKeywordRow> keywords = safeMode.runsRank()
+            List<CompetitorKeywordRow> keywords = safeMode.runsRank() && riskBackoffHold == null
                     ? mapper.listActiveKeywordsByWatchProductId(watchProductId)
                     : List.of();
             int total = keywords.size();
             List<KeywordRetryCandidate> retryCandidates = new ArrayList<>();
             int keywordRetried = 0;
             int keywordRetryRecovered = 0;
-            NoonRiskBackoffHold riskBackoffHold = null;
             for (CompetitorKeywordRow keyword : keywords) {
                 CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
                 if (result.isSuccess()) {
@@ -639,8 +648,8 @@ public class CompetitorAnalysisRefreshService {
                 );
             }
 
-            String status = resolveRunStatus(success, failed);
-            String message = resolveRunMessage(safeMode, status, success, failed);
+            String status = CompetitorRefreshRunResultSupport.status(success, failed, detailResult);
+            String message = resolveRunMessage(safeMode, status, success, failed, detailResult);
             mapper.completeSearchRun(
                     runId,
                     status,
@@ -665,7 +674,15 @@ public class CompetitorAnalysisRefreshService {
                 }
                 operationalTaskService.complete(
                         taskId,
-                        resultJson(safeMode, status, success, failed, keywordRetried, keywordRetryRecovered),
+                        CompetitorRefreshRunResultSupport.resultJson(
+                                safeMode,
+                                status,
+                                success,
+                                failed,
+                                detailResult,
+                                keywordRetried,
+                                keywordRetryRecovered
+                        ),
                         message
                 );
             }
@@ -757,27 +774,18 @@ public class CompetitorAnalysisRefreshService {
                 + "。";
     }
 
-    private void refreshConfirmedCompetitorDetails(
+    private CompetitorProductDetailRefreshResult refreshConfirmedCompetitorDetails(
             Long taskId,
             Long runId,
             CompetitorWatchProductRow watchProduct,
             Long actorUserId
     ) {
         if (productDetailRefreshService == null) {
-            return;
+            return CompetitorProductDetailRefreshResult.empty();
         }
-        try {
-            productDetailRefreshService.refreshConfirmedCompetitors(watchProduct, runId, taskId, actorUserId);
-        } catch (RuntimeException exception) {
-            log.warn(
-                    "competitor confirmed product detail refresh skipped watchProductId={} runId={} taskId={} error={}",
-                    watchProduct == null ? null : watchProduct.getId(),
-                    runId,
-                    taskId,
-                    exception.getMessage(),
-                    exception
-            );
-        }
+        CompetitorProductDetailRefreshResult result =
+                productDetailRefreshService.refreshConfirmedCompetitors(watchProduct, runId, taskId, actorUserId);
+        return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
     }
 
     private void releaseStaleTask(OperationalTask task) {
@@ -894,7 +902,13 @@ public class CompetitorAnalysisRefreshService {
         return success > 0 ? "PARTIAL_FAILED" : "FAILED";
     }
 
-    private String resolveRunMessage(CompetitorRefreshExecutionMode executionMode, String status, int success, int failed) {
+    private String resolveRunMessage(
+            CompetitorRefreshExecutionMode executionMode,
+            String status,
+            int success,
+            int failed,
+            CompetitorProductDetailRefreshResult detailResult
+    ) {
         CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
         if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL) {
             if ("SUCCEEDED".equals(status)) {
@@ -910,6 +924,9 @@ public class CompetitorAnalysisRefreshService {
                 return "竞品排名部分关键词失败。";
             }
             return failed > 0 && success <= 0 ? "竞品排名刷新失败。" : FAILED_MESSAGE;
+        }
+        if ("PARTIAL_FAILED".equals(status) && detailResult != null && detailResult.getFailedCount() > 0) {
+            return "竞品刷新部分详情失败。";
         }
         if ("SUCCEEDED".equals(status)) {
             return "竞品刷新完成。";
@@ -929,28 +946,6 @@ public class CompetitorAnalysisRefreshService {
                 + ",\"executionMode\":\"" + json(safeMode.taskKey()) + "\""
                 + ",\"rankRefresh\":" + safeMode.runsRank()
                 + ",\"detailRefresh\":" + safeMode.runsDetail()
-                + "}";
-    }
-
-    private String resultJson(
-            CompetitorRefreshExecutionMode executionMode,
-            String status,
-            int success,
-            int failed,
-            int keywordRetried,
-            int keywordRetryRecovered
-    ) {
-        CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
-        return "{"
-                + "\"status\":\"" + status + "\""
-                + ",\"triggerMode\":\"" + json(safeMode.triggerMode()) + "\""
-                + ",\"executionMode\":\"" + json(safeMode.taskKey()) + "\""
-                + ",\"rankRefresh\":" + safeMode.runsRank()
-                + ",\"detailRefresh\":" + safeMode.runsDetail()
-                + ",\"keywordSuccess\":" + success
-                + ",\"keywordFailed\":" + failed
-                + ",\"keywordRetried\":" + keywordRetried
-                + ",\"keywordRetryRecovered\":" + keywordRetryRecovered
                 + "}";
     }
 
