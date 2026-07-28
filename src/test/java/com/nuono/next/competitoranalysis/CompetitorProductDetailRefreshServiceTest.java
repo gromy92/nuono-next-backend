@@ -59,6 +59,10 @@ class CompetitorProductDetailRefreshServiceTest {
                         confirmedProduct(200011L, "ZCOMP001", "https://www.noon.com/saudi-en/duplicate/ZCOMP001/p/"),
                         confirmedProduct(200012L, "ZSELF001", "https://www.noon.com/saudi-en/self/ZSELF001/p/")
                 ));
+        when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct);
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(180123L, 200010L))
+                .thenReturn(confirmed);
+        when(mapper.updateCompetitorProductFromDetail(any())).thenReturn(1);
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class))).thenAnswer((invocation) -> {
             NoonProductDetailRequest request = invocation.getArgument(0);
             return detail(request.getNoonProductCode());
@@ -111,6 +115,9 @@ class CompetitorProductDetailRefreshServiceTest {
         confirmed.setRatingSnapshot(new BigDecimal("4.30"));
         confirmed.setReviewCountSnapshot(88);
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L)).thenReturn(List.of(confirmed));
+        when(mapper.lockWatchProductForDetailWrite(180123L)).thenReturn(watchProduct);
+        when(mapper.lockConfirmedCompetitorProductForDetailWrite(180123L, 200010L))
+                .thenReturn(confirmed);
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class)))
                 .thenThrow(new IllegalStateException("Noon catalog returned empty product list"));
 

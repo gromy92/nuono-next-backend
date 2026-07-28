@@ -118,7 +118,7 @@ final class CompetitorMonitoringBatchRunner {
     }
 
     private void drainCurrentScope(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
-        CompetitorRefreshExecutionMode mode = CompetitorRefreshExecutionMode.fromTriggerMode(
+        CompetitorRefreshExecutionMode mode = CompetitorRefreshExecutionMode.strictFromTriggerMode(
                 checkpoint.getTriggerMode()
         );
         while (true) {

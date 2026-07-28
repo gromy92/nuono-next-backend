@@ -109,7 +109,7 @@ class CompetitorManualRefreshTakeoverTest {
         run.setTaskId(150001L);
         run.setWatchProductId(180001L);
         run.setStatus("RUNNING");
-        run.setTriggerMode("MANUAL");
+        run.setTriggerMode("MANUAL_REFRESH");
         run.setRequestedBy(90001L);
         return run;
     }

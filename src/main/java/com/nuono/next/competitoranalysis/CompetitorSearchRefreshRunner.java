@@ -24,7 +24,6 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
     private static final int CANDIDATE_DISCOVERY_LIMIT = 20;
     private static final int RANK_SCAN_DEPTH = 100;
     private static final int MAX_TITLE_SNAPSHOT_LENGTH = 500;
-
     private final CompetitorAnalysisMapper mapper;
     private final NoonFrontendSearchAdapter adapter;
 
@@ -46,6 +45,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 .keyword(keyword.getKeyword())
                 .limit(RANK_SCAN_DEPTH)
                 .build());
+        context.validateLease();
 
         Map<String, NoonSearchResult> resultsByCode = firstResultsByCode(page.getResults(), RANK_SCAN_DEPTH);
         Map<String, NoonSearchResult> candidateResultsByCode = firstResultsByCode(

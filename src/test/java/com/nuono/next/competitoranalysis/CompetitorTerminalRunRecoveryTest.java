@@ -85,6 +85,9 @@ class CompetitorTerminalRunRecoveryTest {
                 any(), any(), any(OperationalTaskPayload.class)
         );
         verify(taskSubmitter, never()).submit(any(), any());
+        verify(mapper).updateLatestRefreshRunIfNotOlder(
+                180001L, 220001L, "PARTIAL_FAILED", 90001L
+        );
     }
 
     @Test
@@ -174,6 +177,9 @@ class CompetitorTerminalRunRecoveryTest {
                         .claim(staleTask, failedRun, STALE_BEFORE, "FAILED_STALE", STALE_MESSAGE);
 
         assertEquals(CompetitorStaleTaskReconciler.Outcome.TERMINAL_RECONCILED, outcome);
+        verify(mapper).updateLatestRefreshRunIfNotOlder(
+                180001L, 220001L, "FAILED", 90001L
+        );
     }
 
     @Test

@@ -7,6 +7,7 @@ import com.nuono.next.system.task.OperationalTaskService;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.function.Consumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -20,15 +21,32 @@ class CompetitorRefreshTaskFactory {
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorStaleTaskReconciler staleTaskReconciler;
+    private final CompetitorRefreshExecutionFinalizer executionFinalizer;
 
     CompetitorRefreshTaskFactory(
             CompetitorAnalysisMapper mapper,
             OperationalTaskService operationalTaskService
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                CompetitorRefreshExecutionFinalizer.unfenced(
+                        mapper, operationalTaskService
+                )
+        );
+    }
+
+    @Autowired
+    CompetitorRefreshTaskFactory(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorRefreshExecutionFinalizer executionFinalizer
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.staleTaskReconciler =
                 new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
+        this.executionFinalizer = executionFinalizer;
     }
 
     @Transactional
@@ -111,6 +129,12 @@ class CompetitorRefreshTaskFactory {
             int keywordTotal,
             Consumer<CompetitorQueuedRefresh> afterCommit
     ) {
+        CompetitorRefreshRecoveryIdentity.validate(
+                staleTask, staleRun, watchProduct, mode
+        );
+        String replacementPayload = CompetitorRefreshRecoveryPayload.replacement(
+                staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
+        );
         CompetitorStaleTaskReconciler.Outcome claim = staleTaskReconciler.claim(
                 staleTask,
                 staleRun,
@@ -131,9 +155,7 @@ class CompetitorRefreshTaskFactory {
                 staleTask.getNaturalKey(),
                 batchKey,
                 keywordTotal,
-                CompetitorRefreshRecoveryPayload.replacement(
-                        staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
-                )
+                replacementPayload
         );
         if (replacement == null
                 || replacement.getOutcome() != CompetitorMonitoringEnqueueOutcome.CREATED
@@ -221,6 +243,10 @@ class CompetitorRefreshTaskFactory {
     private boolean payloadHasBatchKey(OperationalTask task, String batchKey) {
         return StringUtils.hasText(batchKey)
                 && batchKey.trim().equals(CompetitorRefreshRecoveryPayload.batchKey(task));
+    }
+
+    CompetitorRefreshExecutionFinalizer executionFinalizer() {
+        return executionFinalizer;
     }
 
 }

@@ -100,9 +100,19 @@ class CompetitorRiskQueuedRecoveryTest {
         when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(first);
         when(mapper.selectWatchProductForRefresh(180124L)).thenReturn(second);
-        when(keywordRunner.runKeyword(220123L, first, firstKeyword, null))
+        when(keywordRunner.runKeyword(
+                anyLong(), org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(first),
+                org.mockito.ArgumentMatchers.eq(firstKeyword),
+                org.mockito.ArgumentMatchers.isNull()
+        ))
                 .thenReturn(CompetitorKeywordRefreshResult.failure("RATE_LIMITED", "HTTP 429"));
-        when(keywordRunner.runKeyword(220124L, second, secondKeyword, null))
+        when(keywordRunner.runKeyword(
+                anyLong(), org.mockito.ArgumentMatchers.eq(220124L),
+                org.mockito.ArgumentMatchers.eq(second),
+                org.mockito.ArgumentMatchers.eq(secondKeyword),
+                org.mockito.ArgumentMatchers.isNull()
+        ))
                 .thenReturn(CompetitorKeywordRefreshResult.success(1, 1));
 
         CompetitorTaskView parent = service.requestScheduledRankMonitoring(501L, "STORE", "SA");
@@ -112,14 +122,24 @@ class CompetitorRiskQueuedRecoveryTest {
 
         Long pausedTaskId = parent.getTaskId() + 2L;
         assertEquals(OperationalTaskStatus.QUEUED, taskRepository.selectById(pausedTaskId).getStatus());
-        verify(keywordRunner, never()).runKeyword(220124L, second, secondKeyword, null);
+        verify(keywordRunner, never()).runKeyword(
+                anyLong(), org.mockito.ArgumentMatchers.eq(220124L),
+                org.mockito.ArgumentMatchers.eq(second),
+                org.mockito.ArgumentMatchers.eq(secondKeyword),
+                org.mockito.ArgumentMatchers.isNull()
+        );
 
         clock.advanceSeconds(3600L);
         assertEquals(1, service.resumeQueuedRefreshTasks());
         submitted.get(3).run();
 
         assertEquals(OperationalTaskStatus.SUCCEEDED, taskRepository.selectById(pausedTaskId).getStatus());
-        verify(keywordRunner, times(1)).runKeyword(220124L, second, secondKeyword, null);
+        verify(keywordRunner, times(1)).runKeyword(
+                anyLong(), org.mockito.ArgumentMatchers.eq(220124L),
+                org.mockito.ArgumentMatchers.eq(second),
+                org.mockito.ArgumentMatchers.eq(secondKeyword),
+                org.mockito.ArgumentMatchers.isNull()
+        );
     }
 
     private static List<CompetitorWatchProductRow> page(

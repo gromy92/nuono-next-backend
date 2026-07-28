@@ -44,7 +44,7 @@ class CompetitorStaleRecoveryPayloadTest {
     private CompetitorTaskSubmitter taskSubmitter;
 
     @Test
-    void staleReplacementPreservesRetryStateAndWaitsForNotBefore() throws Exception {
+    void staleReplacementPreservesTargetedRetryStateAndParksForTypedCoordinator() throws Exception {
         OperationalTask staleTask = staleTask();
         CompetitorSearchRunRow staleRun = run(220001L, 150001L, "RUNNING");
         CompetitorSearchRunRow queuedRun = run(220002L, 150002L, "QUEUED");
@@ -127,7 +127,7 @@ class CompetitorStaleRecoveryPayloadTest {
         assertFalse(CompetitorRefreshRecoveryPayload.isReady(
                 replacementReference.get(), LocalDateTime.parse("2026-06-06T08:00:00")
         ));
-        assertTrue(CompetitorRefreshRecoveryPayload.isReady(
+        assertFalse(CompetitorRefreshRecoveryPayload.isReady(
                 replacementReference.get(), LocalDateTime.parse("2026-06-06T09:00:00")
         ));
         verify(taskSubmitter, never()).submit(any(), any());

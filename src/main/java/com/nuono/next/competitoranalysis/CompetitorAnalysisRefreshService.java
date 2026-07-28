@@ -33,7 +33,6 @@ public class CompetitorAnalysisRefreshService {
 
     private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisRefreshService.class);
     private static final Duration STALE_AFTER = Duration.ofMinutes(30);
-    private static final String NATURAL_KEY_PREFIX = "watchProduct:";
     private static final String RUNNING_MESSAGE = "竞品刷新正在后台执行。";
     private static final String FAILED_MESSAGE = "竞品刷新失败，请稍后重试。";
     private static final int MAX_ERROR_MESSAGE_LENGTH = 1024;
@@ -258,6 +257,7 @@ public class CompetitorAnalysisRefreshService {
                 this.clock,
                 refreshRecoveryCoordinator::resubmitQueued,
                 refreshRecoveryCoordinator::recoverInterrupted,
+                refreshTaskFactory.executionFinalizer(),
                 () -> refreshTaskDispatcher.availableCapacity(1000)
         );
         this.monitoringBatchService = new CompetitorMonitoringBatchService(
@@ -369,66 +369,7 @@ public class CompetitorAnalysisRefreshService {
     }
 
     public int retryRecentTransientRankKeywordFailures(Duration lookback, int limit) {
-        Duration safeLookback = lookback == null || lookback.isNegative() || lookback.isZero()
-                ? Duration.ofHours(24)
-                : lookback;
-        int safeLimit = Math.max(1, limit);
-        LocalDateTime sinceTime = LocalDateTime.now(clock).minus(safeLookback);
-        List<CompetitorTransientKeywordFailureRow> failures = mapper.listRetryableTransientRankKeywordFailures(
-                sinceTime,
-                safeLimit
-        );
-        int recovered = 0;
-        for (CompetitorTransientKeywordFailureRow failure : failures) {
-            if (retryTransientRankKeywordFailure(failure)) {
-                recovered++;
-            }
-        }
-        return recovered;
-    }
-
-    private boolean retryTransientRankKeywordFailure(CompetitorTransientKeywordFailureRow failure) {
-        if (failure == null || failure.getSearchRunId() == null || failure.getWatchProductId() == null || failure.getKeywordId() == null) {
-            return false;
-        }
-        CompetitorSearchRunRow run = mapper.selectSearchRunById(failure.getSearchRunId());
-        if (run == null || !"PARTIAL_FAILED".equals(run.getStatus())) {
-            return false;
-        }
-        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(failure.getWatchProductId());
-        CompetitorKeywordRow keyword = mapper.selectKeywordById(failure.getKeywordId());
-        if (watchProduct == null || keyword == null || !"ACTIVE".equals(keyword.getStatus())) {
-            return false;
-        }
-        CompetitorKeywordRefreshResult retryResult = keywordRefreshRunner.runKeyword(
-                run.getId(),
-                watchProduct,
-                keyword,
-                run.getRequestedBy()
-        );
-        if (!retryResult.isSuccess()) {
-            return false;
-        }
-        int success = nullToZero(run.getKeywordSuccess()) + 1;
-        int failed = Math.max(0, nullToZero(run.getKeywordFailed()) - 1);
-        int candidateUpsertedCount = nullToZero(run.getCandidateUpsertedCount())
-                + retryResult.getCandidateUpsertedCount();
-        int rankFactWrittenCount = nullToZero(run.getRankFactWrittenCount())
-                + retryResult.getRankFactWrittenCount();
-        String status = resolveRunStatus(success, failed);
-        mapper.completeSearchRun(
-                run.getId(),
-                status,
-                success,
-                failed,
-                candidateUpsertedCount,
-                rankFactWrittenCount,
-                failed > 0 ? run.getErrorCode() : null,
-                failed > 0 ? truncateMessage(run.getErrorMessage()) : null,
-                run.getRequestedBy()
-        );
-        mapper.updateWatchProductLatestRun(watchProduct.getId(), run.getId(), status, run.getRequestedBy());
-        return true;
+        return 0;
     }
 
     private CompetitorRefreshRunView requestRefreshForWatchProduct(
@@ -584,7 +525,9 @@ public class CompetitorAnalysisRefreshService {
         String firstErrorCode = null;
         String firstErrorMessage = null;
         try {
-            operationalTaskService.progress(taskId, 5, RUNNING_MESSAGE);
+            refreshTaskFactory.executionFinalizer().progress(
+                    taskId, runId, watchProductId, 5, RUNNING_MESSAGE
+            );
             CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(watchProductId);
             if (watchProduct == null) {
                 throw new IllegalStateException("监控商品不存在或已删除。");
@@ -592,9 +535,14 @@ public class CompetitorAnalysisRefreshService {
             Optional<NoonRiskBackoffHold> activeRiskBackoff = currentNoonRiskBackoff(watchProduct);
             if (activeRiskBackoff.isPresent()) {
                 String message = riskBackoffMessage(activeRiskBackoff.get());
-                safeMarkRunFailed(runId, COMPETITOR_RISK_BACKOFF, message);
-                safeUpdateWatchLatestRun(watchProductId, runId, "FAILED", actorUserId);
-                safeFailTask(taskId, COMPETITOR_RISK_BACKOFF, message);
+                refreshTaskFactory.executionFinalizer().fail(
+                        taskId,
+                        runId,
+                        watchProductId,
+                        COMPETITOR_RISK_BACKOFF,
+                        message,
+                        actorUserId
+                );
                 return;
             }
             if (safeMode.runsDetail()) {
@@ -609,7 +557,9 @@ public class CompetitorAnalysisRefreshService {
             int keywordRetryRecovered = 0;
             NoonRiskBackoffHold riskBackoffHold = null;
             for (CompetitorKeywordRow keyword : keywords) {
-                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
+                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(
+                        taskId, runId, watchProduct, keyword, actorUserId
+                );
                 if (result.isSuccess()) {
                     success++;
                     candidateUpsertedCount += result.getCandidateUpsertedCount();
@@ -617,15 +567,22 @@ public class CompetitorAnalysisRefreshService {
                 } else {
                     failed++;
                     if (isRiskBackoffFailure(result.getErrorCode())) {
-                        riskBackoffHold = recordRiskBackoff(
-                                watchProduct,
-                                taskId,
-                                result.getErrorCode(),
-                                result.getErrorMessage()
+                        riskBackoffHold = refreshTaskFactory
+                                .executionFinalizer()
+                                .withLease(
+                                        taskId,
+                                        runId,
+                                        watchProductId,
+                                        () -> recordRiskBackoff(
+                                                watchProduct,
+                                                taskId,
+                                                result.getErrorCode(),
+                                                result.getErrorMessage()
+                                        )
                         );
                         firstErrorCode = firstNonBlank(firstErrorCode, result.getErrorCode());
                         firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
-                        updateProgress(taskId, total, success + failed);
+                        updateProgress(taskId, runId, watchProductId, total, success + failed);
                         break;
                     }
                     if (shouldRetryTransientKeywordFailure(safeMode, result)) {
@@ -635,12 +592,13 @@ public class CompetitorAnalysisRefreshService {
                         firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
                     }
                 }
-                updateProgress(taskId, total, success + failed);
+                updateProgress(taskId, runId, watchProductId, total, success + failed);
             }
 
             for (KeywordRetryCandidate retryCandidate : retryCandidates) {
                 keywordRetried++;
                 CompetitorKeywordRefreshResult retryResult = keywordRefreshRunner.runKeyword(
+                        taskId,
                         runId,
                         watchProduct,
                         retryCandidate.keyword,
@@ -666,8 +624,18 @@ public class CompetitorAnalysisRefreshService {
 
             String status = resolveRunStatus(success, failed);
             String message = resolveRunMessage(safeMode, status, success, failed);
-            mapper.completeSearchRun(
+            String taskErrorCode = riskBackoffHold != null
+                    ? COMPETITOR_RISK_BACKOFF
+                    : "FAILED".equals(status)
+                            ? firstNonBlank(firstErrorCode, "REFRESH_FAILED")
+                            : null;
+            String taskMessage = riskBackoffHold == null
+                    ? message
+                    : riskBackoffMessage(riskBackoffHold);
+            refreshTaskFactory.executionFinalizer().complete(
+                    taskId,
                     runId,
+                    watchProductId,
                     status,
                     success,
                     failed,
@@ -675,30 +643,51 @@ public class CompetitorAnalysisRefreshService {
                     rankFactWrittenCount,
                     firstErrorCode,
                     truncateMessage(firstErrorMessage),
-                    actorUserId
+                    actorUserId,
+                    taskErrorCode,
+                    taskErrorCode == null
+                            ? resultJson(
+                                    safeMode,
+                                    status,
+                                    success,
+                                    failed,
+                                    keywordRetried,
+                                    keywordRetryRecovered
+                            )
+                            : null,
+                    taskMessage
             );
-            mapper.updateWatchProductLatestRun(watchProductId, runId, status, actorUserId);
             if (riskBackoffHold != null) {
-                operationalTaskService.fail(taskId, COMPETITOR_RISK_BACKOFF, riskBackoffMessage(riskBackoffHold));
                 return;
             }
-            if ("FAILED".equals(status)) {
-                operationalTaskService.fail(taskId, firstNonBlank(firstErrorCode, "REFRESH_FAILED"), message);
-            } else {
-                if ("SUCCEEDED".equals(status)) {
-                    riskBackoffGuard.recordSuccess(competitorRiskScope(watchProduct.getOwnerUserId(), watchProduct.getStoreCode(), watchProduct.getSiteCode()), "PUBLIC_SEARCH");
-                }
-                operationalTaskService.complete(
-                        taskId,
-                        resultJson(safeMode, status, success, failed, keywordRetried, keywordRetryRecovered),
-                        message
-                );
+            if ("SUCCEEDED".equals(status)) {
+                riskBackoffGuard.recordSuccess(competitorRiskScope(watchProduct.getOwnerUserId(), watchProduct.getStoreCode(), watchProduct.getSiteCode()), "PUBLIC_SEARCH");
             }
+        } catch (CompetitorRefreshLeaseLostException exception) {
+            log.info(
+                    "competitor refresh stopped after lease loss watchProductId={} runId={} taskId={}",
+                    watchProductId,
+                    runId,
+                    taskId
+            );
         } catch (RuntimeException exception) {
             String message = truncateMessage(firstNonBlank(exception.getMessage(), FAILED_MESSAGE));
-            safeMarkRunFailed(runId, "REFRESH_FAILED", message);
-            safeUpdateWatchLatestRun(watchProductId, runId, "FAILED", actorUserId);
-            safeFailTask(taskId, "REFRESH_FAILED", message);
+            try {
+                refreshTaskFactory.executionFinalizer().fail(
+                        taskId,
+                        runId,
+                        watchProductId,
+                        "REFRESH_FAILED",
+                        message,
+                        actorUserId
+                );
+            } catch (CompetitorRefreshLeaseLostException ignored) {
+                log.info(
+                        "competitor refresh failure ignored after lease loss runId={} taskId={}",
+                        runId,
+                        taskId
+                );
+            }
             log.warn(
                     "competitor analysis refresh failed watchProductId={} runId={} taskId={} error={}",
                     watchProductId,
@@ -793,6 +782,8 @@ public class CompetitorAnalysisRefreshService {
         }
         try {
             productDetailRefreshService.refreshConfirmedCompetitors(watchProduct, runId, taskId, actorUserId);
+        } catch (CompetitorRefreshLeaseLostException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             log.warn(
                     "competitor confirmed product detail refresh skipped watchProductId={} runId={} taskId={} error={}",
@@ -816,12 +807,20 @@ public class CompetitorAnalysisRefreshService {
         return Duration.between(updatedAt, LocalDateTime.now(clock)).compareTo(STALE_AFTER) > 0;
     }
 
-    private void updateProgress(Long taskId, int total, int finished) {
+    private void updateProgress(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            int total,
+            int finished
+    ) {
         if (total <= 0) {
             return;
         }
         int progress = 5 + (int) Math.floor((finished * 90.0d) / total);
-        operationalTaskService.progress(taskId, progress, RUNNING_MESSAGE);
+        refreshTaskFactory.executionFinalizer().progress(
+                taskId, runId, watchProductId, progress, RUNNING_MESSAGE
+        );
     }
 
     private CompetitorWatchProductRow requireWatchProduct(BusinessAccessContext context, Long watchProductId) {
@@ -845,8 +844,7 @@ public class CompetitorAnalysisRefreshService {
 
     private String naturalKey(Long watchProductId, CompetitorRefreshExecutionMode executionMode) {
         CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
-        String key = NATURAL_KEY_PREFIX + watchProductId;
-        return safeMode == CompetitorRefreshExecutionMode.FULL_MANUAL ? key : key + ":" + safeMode.taskKey();
+        return CompetitorRefreshRecoveryIdentity.naturalKey(watchProductId, safeMode);
     }
 
     private Long actorUserId(BusinessAccessContext context) {
@@ -930,36 +928,8 @@ public class CompetitorAnalysisRefreshService {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private void safeMarkRunFailed(Long runId, String errorCode, String message) {
-        try {
-            mapper.markSearchRunFailed(runId, errorCode, truncateMessage(message));
-        } catch (RuntimeException ignored) {
-            log.debug("competitor search run {} was already terminal while recording failure", runId);
-        }
-    }
-
-    private void safeUpdateWatchLatestRun(Long watchProductId, Long runId, String runStatus, Long actorUserId) {
-        try {
-            mapper.updateWatchProductLatestRun(watchProductId, runId, runStatus, actorUserId);
-        } catch (RuntimeException ignored) {
-            log.debug("watch product {} latest run update failed for run {}", watchProductId, runId);
-        }
-    }
-
-    private void safeFailTask(Long taskId, String errorCode, String message) {
-        try {
-            operationalTaskService.fail(taskId, errorCode, truncateMessage(message));
-        } catch (RuntimeException ignored) {
-            log.debug("operational task {} was already terminal while recording refresh failure", taskId);
-        }
-    }
-
     private String firstNonBlank(String first, String second) {
         return StringUtils.hasText(first) ? first : second;
-    }
-
-    private int nullToZero(Integer value) {
-        return value == null ? 0 : value;
     }
 
     private String truncateMessage(String value) {

@@ -82,7 +82,7 @@ final class CompetitorRefreshRecoveryCoordinator {
             );
         }
         CompetitorRefreshExecutionMode mode =
-                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode());
+                CompetitorRefreshExecutionMode.strictFromTriggerMode(run.getTriggerMode());
         int keywordTotal = mode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId()).size()
                 : 0;
@@ -109,13 +109,19 @@ final class CompetitorRefreshRecoveryCoordinator {
         ) || !executionAllowed.test(watchProduct)) {
             return false;
         }
-        return submit(
-                task,
-                run,
-                watchProduct,
-                run.getRequestedBy(),
-                CompetitorRefreshExecutionMode.fromTriggerMode(run.getTriggerMode())
-        );
+        try {
+            return submit(
+                    task,
+                    run,
+                    watchProduct,
+                    run.getRequestedBy(),
+                    CompetitorRefreshExecutionMode.strictFromTriggerMode(
+                            run.getTriggerMode()
+                    )
+            );
+        } catch (CompetitorRefreshRecoveryIdentityException exception) {
+            return false;
+        }
     }
 
     void dispatchQueued(
@@ -144,6 +150,7 @@ final class CompetitorRefreshRecoveryCoordinator {
             Long actorUserId,
             CompetitorRefreshExecutionMode mode
     ) {
+        CompetitorRefreshRecoveryIdentity.validate(task, run, watchProduct, mode);
         return taskDispatcher.submit(
                 accountKey(watchProduct),
                 task,

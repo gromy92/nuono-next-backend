@@ -24,6 +24,7 @@ final class CompetitorAnalysisTaskRecovery {
     private final Clock clock;
     private final QueuedTaskSubmitter queuedTaskSubmitter;
     private final InterruptedTaskRetry interruptedTaskRetry;
+    private final CompetitorRefreshExecutionFinalizer executionFinalizer;
     private final IntSupplier dispatchCapacity;
     private long queuedScanCursor;
     private long staleScanCursor;
@@ -41,6 +42,9 @@ final class CompetitorAnalysisTaskRecovery {
                 clock,
                 queuedTaskSubmitter,
                 interruptedTaskRetry,
+                CompetitorRefreshExecutionFinalizer.unfenced(
+                        mapper, operationalTaskService
+                ),
                 () -> RECOVERY_LIMIT
         );
     }
@@ -53,11 +57,34 @@ final class CompetitorAnalysisTaskRecovery {
             InterruptedTaskRetry interruptedTaskRetry,
             IntSupplier dispatchCapacity
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                clock,
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                CompetitorRefreshExecutionFinalizer.unfenced(
+                        mapper, operationalTaskService
+                ),
+                dispatchCapacity
+        );
+    }
+
+    CompetitorAnalysisTaskRecovery(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            Clock clock,
+            QueuedTaskSubmitter queuedTaskSubmitter,
+            InterruptedTaskRetry interruptedTaskRetry,
+            CompetitorRefreshExecutionFinalizer executionFinalizer,
+            IntSupplier dispatchCapacity
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.clock = clock;
         this.queuedTaskSubmitter = queuedTaskSubmitter;
         this.interruptedTaskRetry = interruptedTaskRetry;
+        this.executionFinalizer = executionFinalizer;
         this.dispatchCapacity = dispatchCapacity;
     }
 
@@ -187,13 +214,10 @@ final class CompetitorAnalysisTaskRecovery {
     }
 
     private void failMissingWatchProduct(OperationalTask task, CompetitorSearchRunRow run) {
-        mapper.markSearchRunFailed(
-                run.getId(),
-                "COMPETITOR_WATCH_PRODUCT_NOT_FOUND",
-                "监控商品不存在或已删除。"
-        );
-        operationalTaskService.fail(
+        executionFinalizer.failQueued(
                 task.getId(),
+                run.getId(),
+                run.getWatchProductId(),
                 "COMPETITOR_WATCH_PRODUCT_NOT_FOUND",
                 "监控商品不存在或已删除。"
         );

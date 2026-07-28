@@ -37,7 +37,10 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMapper {
+public interface CompetitorAnalysisMapper
+        extends CompetitorRefreshRecoveryMapper,
+        CompetitorRefreshExecutionMapper,
+        CompetitorProductDetailWriteMapper {
 
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -1634,28 +1637,6 @@ public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMappe
 
     @Update({
             "UPDATE operations_competitor_product",
-            "SET canonical_url = COALESCE(#{canonicalUrl}, canonical_url),",
-            "    title_snapshot = COALESCE(#{titleSnapshot}, title_snapshot),",
-            "    title_en_snapshot = COALESCE(#{titleEnSnapshot}, title_en_snapshot),",
-            "    title_ar_snapshot = COALESCE(#{titleArSnapshot}, title_ar_snapshot),",
-            "    brand_snapshot = COALESCE(#{brandSnapshot}, brand_snapshot),",
-            "    image_url_snapshot = COALESCE(#{imageUrlSnapshot}, image_url_snapshot),",
-            "    price_amount_snapshot = COALESCE(#{priceAmountSnapshot}, price_amount_snapshot),",
-            "    currency_code_snapshot = COALESCE(#{currencyCodeSnapshot}, currency_code_snapshot),",
-            "    rating_snapshot = COALESCE(#{ratingSnapshot}, rating_snapshot),",
-            "    review_count_snapshot = COALESCE(#{reviewCountSnapshot}, review_count_snapshot),",
-            "    tags_snapshot_json = COALESCE(#{tagsSnapshotJson}, tags_snapshot_json),",
-            "    source_type = COALESCE(#{sourceType}, source_type),",
-            "    last_seen_at = NOW(),",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateCompetitorProductFromDetail(CompetitorProductInsertCommand command);
-
-    @Update({
-            "UPDATE operations_competitor_product",
             "SET review_status = 'CONFIRMED',",
             "    confirmed_by = #{actorUserId},",
             "    confirmed_at = NOW(),",
@@ -2162,49 +2143,6 @@ public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMappe
     })
     CompetitorSearchRunRow selectSearchRunByTaskId(@Param("taskId") Long taskId);
 
-    @Update({
-            "UPDATE operations_competitor_search_run",
-            "SET status = 'FAILED',",
-            "    finished_at = NOW(),",
-            "    error_code = #{errorCode},",
-            "    error_message = #{errorMessage},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{runId}",
-            "  AND is_deleted = b'0'"
-    })
-    int markSearchRunFailed(
-            @Param("runId") Long runId,
-            @Param("errorCode") String errorCode,
-            @Param("errorMessage") String errorMessage
-    );
-
-    @Update({
-            "UPDATE operations_competitor_search_run",
-            "SET status = #{status},",
-            "    finished_at = NOW(),",
-            "    keyword_success = #{keywordSuccess},",
-            "    keyword_failed = #{keywordFailed},",
-            "    candidate_upserted_count = #{candidateUpsertedCount},",
-            "    rank_fact_written_count = #{rankFactWrittenCount},",
-            "    error_code = #{errorCode},",
-            "    error_message = #{errorMessage},",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{runId}",
-            "  AND is_deleted = b'0'"
-    })
-    int completeSearchRun(
-            @Param("runId") Long runId,
-            @Param("status") String status,
-            @Param("keywordSuccess") int keywordSuccess,
-            @Param("keywordFailed") int keywordFailed,
-            @Param("candidateUpsertedCount") int candidateUpsertedCount,
-            @Param("rankFactWrittenCount") int rankFactWrittenCount,
-            @Param("errorCode") String errorCode,
-            @Param("errorMessage") String errorMessage,
-            @Param("actorUserId") Long actorUserId
-    );
-
     @Insert({
             "INSERT INTO operations_competitor_keyword_run (",
             "  id, search_run_id, keyword_id, keyword_snapshot, locale_snapshot, provider_status,",
@@ -2481,23 +2419,6 @@ public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMappe
             @Param("keywordId") Long keywordId,
             @Param("errorCode") String errorCode,
             @Param("errorMessage") String errorMessage,
-            @Param("actorUserId") Long actorUserId
-    );
-
-    @Update({
-            "UPDATE operations_competitor_watch_product",
-            "SET latest_run_id = #{runId},",
-            "    latest_run_status = #{runStatus},",
-            "    latest_run_at = NOW(),",
-            "    updated_by = #{actorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{watchProductId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateWatchProductLatestRun(
-            @Param("watchProductId") Long watchProductId,
-            @Param("runId") Long runId,
-            @Param("runStatus") String runStatus,
             @Param("actorUserId") Long actorUserId
     );
 

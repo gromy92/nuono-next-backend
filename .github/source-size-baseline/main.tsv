@@ -2,9 +2,8 @@
 # Format: repository-relative path<TAB>physical-line ceiling.
 src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	1015
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	985
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1198
-src/main/java/com/nuono/next/competitoranalysis/CompetitorProductDetailRefreshService.java	322
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	355
 src/main/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunner.java	323
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
@@ -26,7 +25,7 @@ src/main/java/com/nuono/next/filemanagement/parse/OfficeFileParseInputExtractor.
 src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	417
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688CollectionMapper.java	425
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688HistoricalOrderMapper.java	2311
-src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2504
+src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2425
 src/main/java/com/nuono/next/infrastructure/mapper/FileManagementParseMapper.java	2154
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitFreightCostMapper.java	429
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsLineMapper.java	472

@@ -69,6 +69,12 @@ final class CompetitorStaleTaskReconciler {
                 : "PARTIAL_FAILED".equals(terminalRun.getStatus())
                         ? "竞品刷新部分完成。"
                         : "竞品刷新已完成。";
+        mapper.updateLatestRefreshRunIfNotOlder(
+                terminalRun.getWatchProductId(),
+                terminalRun.getId(),
+                terminalRun.getStatus(),
+                terminalRun.getRequestedBy()
+        );
         if (mapper.alignFailedStaleTaskToTerminalRun(
                 taskId, claimedErrorCode, taskStatus, terminalErrorCode, message
         ) != 1) {

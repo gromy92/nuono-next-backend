@@ -1,19 +1,31 @@
 package com.nuono.next.competitoranalysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.system.task.OperationalTask;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
+import java.util.Iterator;
 import java.util.List;
 import org.springframework.util.StringUtils;
 
 final class CompetitorRefreshRecoveryPayload {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private static final List<String> STALE_IDENTITY_FIELDS =
             List.of("taskId", "runId", "naturalKey");
+    private static final List<String> LEGACY_TARGETED_RETRY_FIELDS = List.of(
+            "failedDetailTargets",
+            "retryAttempt",
+            "maxRetryAttempts",
+            "rootRunId",
+            "retryOfRunId",
+            "lastErrorCode",
+            "message"
+    );
 
     private CompetitorRefreshRecoveryPayload() {
     }
@@ -50,8 +62,8 @@ final class CompetitorRefreshRecoveryPayload {
     }
 
     static String batchKey(OperationalTask task) {
-        ObjectNode payload = objectOrNull(task == null ? null : task.getPayloadJson());
-        JsonNode value = payload == null ? null : payload.get("batchKey");
+        ObjectNode payload = object(task == null ? null : task.getPayloadJson());
+        JsonNode value = payload.get("batchKey");
         return value != null && value.isTextual() && StringUtils.hasText(value.asText())
                 ? value.asText().trim()
                 : null;
@@ -62,29 +74,21 @@ final class CompetitorRefreshRecoveryPayload {
         if (!StringUtils.hasText(payloadJson)) {
             return true;
         }
-        ObjectNode payload = objectOrNull(payloadJson);
-        if (payload == null) {
-            return false;
-        }
         try {
-            JsonNode states = payload.get("detailRetryStates");
-            if (states != null && !states.isNull()) {
-                if (!states.isArray()) {
+            ObjectNode payload = object(payloadJson);
+            Iterator<String> fieldNames = payload.fieldNames();
+            while (fieldNames.hasNext()) {
+                if (fieldNames.next().startsWith("detailRetry")) {
                     return false;
                 }
-                if (!states.isEmpty()) {
-                    for (JsonNode state : states) {
-                        if (state != null
-                                && state.isObject()
-                                && readyAt(state.get("retryNotBefore"), now)) {
-                            return true;
-                        }
-                    }
+            }
+            for (String field : LEGACY_TARGETED_RETRY_FIELDS) {
+                if (payload.has(field)) {
                     return false;
                 }
             }
             return readyAt(payload.get("retryNotBefore"), now);
-        } catch (DateTimeParseException exception) {
+        } catch (DateTimeParseException | CompetitorRefreshRecoveryPayloadException exception) {
             return false;
         }
     }
@@ -114,27 +118,33 @@ final class CompetitorRefreshRecoveryPayload {
     }
 
     private static boolean readyAt(JsonNode value, LocalDateTime now) {
-        if (value == null || value.isNull() || !StringUtils.hasText(value.asText())) {
+        if (value == null) {
             return true;
+        }
+        if (!value.isTextual() || !StringUtils.hasText(value.textValue())) {
+            return false;
         }
         LocalDateTime notBefore = LocalDateTime.parse(value.asText().trim());
         return now != null && !now.isBefore(notBefore);
     }
 
     private static ObjectNode object(String payloadJson) {
-        ObjectNode value = objectOrNull(payloadJson);
-        return value == null ? JSON.createObjectNode() : value;
-    }
-
-    private static ObjectNode objectOrNull(String payloadJson) {
         if (!StringUtils.hasText(payloadJson)) {
             return JSON.createObjectNode();
         }
         try {
             JsonNode value = JSON.readTree(payloadJson);
-            return value != null && value.isObject() ? ((ObjectNode) value).deepCopy() : null;
+            if (value == null || !value.isObject()) {
+                throw new CompetitorRefreshRecoveryPayloadException(
+                        "Competitor refresh payload must be a JSON object."
+                );
+            }
+            return ((ObjectNode) value).deepCopy();
         } catch (JsonProcessingException exception) {
-            return null;
+            throw new CompetitorRefreshRecoveryPayloadException(
+                    "Competitor refresh payload is malformed.",
+                    exception
+            );
         }
     }
 

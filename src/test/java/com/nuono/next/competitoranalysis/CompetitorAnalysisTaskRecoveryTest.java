@@ -35,6 +35,8 @@ class CompetitorAnalysisTaskRecoveryTest {
     private CompetitorAnalysisTaskRecovery.QueuedTaskSubmitter queuedTaskSubmitter;
     @Mock
     private CompetitorAnalysisTaskRecovery.InterruptedTaskRetry interruptedTaskRetry;
+    @Mock
+    private CompetitorRefreshExecutionFinalizer executionFinalizer;
 
     private CompetitorAnalysisTaskRecovery recovery;
 
@@ -82,6 +84,43 @@ class CompetitorAnalysisTaskRecoveryTest {
         verify(operationalTaskService, never()).fail(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString()
+        );
+    }
+
+    @Test
+    void missingQueuedWatchUsesAtomicRunAndTaskFinalizer() {
+        OperationalTask queued = task(OperationalTaskStatus.QUEUED, "2026-06-06T08:00:00");
+        CompetitorSearchRunRow run = run("QUEUED");
+        recovery = new CompetitorAnalysisTaskRecovery(
+                mapper,
+                operationalTaskService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                queuedTaskSubmitter,
+                interruptedTaskRetry,
+                executionFinalizer,
+                () -> 1000
+        );
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE, 0L, 1000
+        )).thenReturn(List.of(queued));
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000
+        )).thenReturn(List.of());
+        when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
+        when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(null);
+
+        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+
+        verify(executionFinalizer).failQueued(
+                150001L,
+                220001L,
+                180001L,
+                "COMPETITOR_WATCH_PRODUCT_NOT_FOUND",
+                "监控商品不存在或已删除。"
+        );
+        verify(operationalTaskService, never()).fail(
+                anyLong(), org.mockito.ArgumentMatchers.anyString(),
                 org.mockito.ArgumentMatchers.anyString()
         );
     }
