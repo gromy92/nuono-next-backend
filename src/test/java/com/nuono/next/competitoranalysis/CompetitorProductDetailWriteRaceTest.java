@@ -87,6 +87,7 @@ class CompetitorProductDetailWriteRaceTest {
 
     private static void assertStale(CompetitorProductDetailRefreshResult result) {
         assertEquals(1, result.getAttemptedCount());
+        assertEquals(1, result.getRequestAttemptCount());
         assertEquals(0, result.getSucceededCount());
         assertEquals(1, result.getFailedCount());
         assertEquals("DETAIL_TARGET_STALE", result.getFirstErrorCode());

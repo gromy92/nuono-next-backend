@@ -101,9 +101,17 @@ class CompetitorDailyDetailRetryIsolationTest {
         ));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(product);
-        when(detailService.refreshConfirmedCompetitors(
-                eq(product), eq(220123L), anyLong(), org.mockito.ArgumentMatchers.isNull()
-        )).thenReturn(fullRefresh);
+        when(detailService.currentTargets(product)).thenReturn(List.of(refreshed));
+        when(detailService.refreshTargets(
+                eq(product),
+                eq(List.of(refreshed)),
+                eq(220123L),
+                anyLong(),
+                org.mockito.ArgumentMatchers.isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, fullRefresh
+        ));
 
         service.requestScheduledDetailMonitoring(501L, "STORE", "SA");
         submitted.get(0).run();
@@ -120,19 +128,30 @@ class CompetitorDailyDetailRetryIsolationTest {
         for (Runnable runnable : new ArrayList<>(submitted.subList(1, submitted.size()))) {
             runnable.run();
         }
-        verify(detailService).refreshConfirmedCompetitors(
+        currentDayTask = taskRepository.selectById(currentDayTask.getId());
+        assertEquals(OperationalTaskStatus.SUCCEEDED, currentDayTask.getStatus());
+        assertEquals("竞品详情快照刷新完成。", currentDayTask.getMessage());
+        assertTrue(currentDayTask.getNaturalKey().contains(":detail:"));
+        verify(detailService).refreshTargets(
                 eq(product),
+                eq(List.of(refreshed)),
                 eq(220123L),
                 eq(currentDayTask.getId()),
-                org.mockito.ArgumentMatchers.isNull()
+                org.mockito.ArgumentMatchers.isNull(),
+                any(CompetitorDetailRetrySession.class)
         );
         verify(detailService, never()).refreshTargets(
                 eq(product),
                 any(),
                 eq(220122L),
                 eq(previousRetry.getId()),
-                org.mockito.ArgumentMatchers.isNull()
+                org.mockito.ArgumentMatchers.isNull(),
+                any(CompetitorDetailRetrySession.class)
         );
+        verify(keywordRunner, never()).runKeyword(
+                anyLong(), anyLong(), any(), any(), any()
+        );
+        verify(mapper, never()).listActiveKeywordsByWatchProductId(180123L);
     }
 
     private static List<CompetitorWatchProductRow> page(

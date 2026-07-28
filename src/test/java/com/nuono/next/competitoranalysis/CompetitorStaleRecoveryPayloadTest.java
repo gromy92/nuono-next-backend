@@ -134,6 +134,57 @@ class CompetitorStaleRecoveryPayloadTest {
         verify(operationalTaskService, never()).claimQueued(any(), any());
     }
 
+    @Test
+    void staleScheduledDetailWithoutTargetStateFailsClosed() {
+        assertUntrustedStalePayloadFailsClosed("{}");
+    }
+
+    @Test
+    void malformedStaleScheduledDetailPayloadFailsClosed() {
+        assertUntrustedStalePayloadFailsClosed("{");
+    }
+
+    private void assertUntrustedStalePayloadFailsClosed(String payloadJson) {
+        OperationalTask task = staleTask();
+        task.setPayloadJson(payloadJson);
+        CompetitorSearchRunRow staleRun = run(220001L, 150001L, "RUNNING");
+        when(operationalTaskService.failStaleRunning(
+                150001L,
+                STALE_BEFORE,
+                "INVALID_DETAIL_RETRY_PAYLOAD",
+                "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。"
+        )).thenReturn(true);
+        when(mapper.markActiveSearchRunFailedForTask(
+                220001L,
+                150001L,
+                "INVALID_DETAIL_RETRY_PAYLOAD",
+                "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。"
+        )).thenReturn(1);
+        CompetitorRefreshTaskFactory factory =
+                new CompetitorRefreshTaskFactory(
+                        mapper, operationalTaskService
+                );
+        CompetitorRefreshRecoveryCoordinator coordinator =
+                new CompetitorRefreshRecoveryCoordinator(
+                        mapper,
+                        operationalTaskService,
+                        factory,
+                        new CompetitorRefreshTaskDispatcher(
+                                mapper, operationalTaskService, taskSubmitter
+                        ),
+                        ignored -> true,
+                        (taskId, runId, watchProductId, actorUserId, mode) -> {
+                        },
+                        CLOCK
+                );
+
+        assertTrue(coordinator.recoverInterrupted(
+                task, watchProduct(), staleRun, STALE_BEFORE
+        ));
+        verify(operationalTaskService, never()).queue(any(), any(), any());
+        verify(taskSubmitter, never()).submit(any(), any());
+    }
+
     private static OperationalTask staleTask() {
         OperationalTask task = new OperationalTask();
         task.setId(150001L);
@@ -141,13 +192,13 @@ class CompetitorStaleRecoveryPayloadTest {
         task.setNaturalKey("watchProduct:180001:detail");
         task.setStatus(OperationalTaskStatus.RUNNING);
         task.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
-        task.setPayloadJson("{"
-                + "\"watchProductId\":999,"
+        task.setPayloadJson(CompetitorDetailRetryPayload.fromJson("{"
+                + "\"watchProductId\":180001,"
                 + "\"keywordTotal\":9,"
-                + "\"triggerMode\":\"WRONG\","
-                + "\"executionMode\":\"wrong\","
-                + "\"rankRefresh\":true,"
-                + "\"detailRefresh\":false,"
+                + "\"triggerMode\":\"SCHEDULED_DETAIL_MONITOR\","
+                + "\"executionMode\":\"detail\","
+                + "\"rankRefresh\":false,"
+                + "\"detailRefresh\":true,"
                 + "\"batchKey\" : \"batch-20260606\","
                 + "\"taskId\":1,\"runId\":2,\"naturalKey\":\"dirty\","
                 + "\"retryAttempt\":3,\"maxRetryAttempts\":4,"
@@ -159,20 +210,12 @@ class CompetitorStaleRecoveryPayloadTest {
                 + "\"detailSucceededCount\":4,\"detailTerminalFailedCount\":2,"
                 + "\"detailTerminalErrorCode\":\"INVALID_NOON_PRODUCT_CODE\","
                 + "\"detailTerminalErrorMessage\":\"invalid code\","
-                + "\"detailRetryStates\":[{"
-                + "\"subjectType\":\"COMPETITOR\","
-                + "\"competitorProductId\":200001,"
-                + "\"noonProductCode\":\"N123\","
-                + "\"retryAttempt\":3,"
-                + "\"retryNotBefore\":\"2026-06-06T09:00:00\","
-                + "\"errorCode\":\"PUBLIC_DETAIL_NOT_FOUND\","
-                + "\"errorMessage\":\"retry later\"}],"
                 + "\"failedDetailTargets\":[{"
                 + "\"subjectType\":\"COMPETITOR\","
                 + "\"competitorProductId\":200001,"
                 + "\"noonProductCode\":\"N123\"}],"
                 + "\"extension\":{\"keep\":true}"
-                + "}");
+                + "}").toJson());
         return task;
     }
 

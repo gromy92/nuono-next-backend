@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -9,15 +10,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import org.springframework.util.StringUtils;
-/**
- * Typed retry metadata embedded in an existing competitor refresh task payload.
- *
- * <p>The original JSON document is retained so retry scheduling does not discard
- * watch-product, execution-mode, or batch checkpoint fields written by older code.</p>
- */
 final class CompetitorDetailRetryPayload {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     private final ObjectNode original;
+    private boolean initialized;
     private int retryAttempt;
     private int maxRetryAttempts;
     private LocalDateTime retryNotBefore;
@@ -36,39 +33,21 @@ final class CompetitorDetailRetryPayload {
     private CompetitorDetailRetryPayload(ObjectNode original) {
         this.original = original == null ? JSON.createObjectNode() : original.deepCopy();
         this.retryAttempt = CompetitorDetailRetryJsonSupport.optionalInt(
-                this.original,
-                "retryAttempt",
-                0,
-                0,
-                CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
+                this.original, "retryAttempt", 0, 0, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
         );
         this.maxRetryAttempts = CompetitorDetailRetryJsonSupport.optionalInt(
-                this.original,
-                "maxRetryAttempts",
-                CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS,
-                1,
-                CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
+                this.original, "maxRetryAttempts", CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS,
+                1, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
         );
-        this.retryNotBefore = CompetitorDetailRetryJsonSupport.optionalDateTime(
-                this.original,
-                "retryNotBefore"
-        );
-        this.rootRunId = CompetitorDetailRetryJsonSupport.optionalPositiveLong(
-                this.original,
-                "rootRunId"
-        );
-        this.retryOfRunId = CompetitorDetailRetryJsonSupport.optionalPositiveLong(
-                this.original,
-                "retryOfRunId"
-        );
-        this.lastErrorCode = CompetitorDetailRetryJsonSupport.optionalText(
-                this.original,
-                "lastErrorCode"
-        );
-        this.message = CompetitorDetailRetryJsonSupport.optionalText(
-                this.original,
-                "message"
-        );
+        this.retryNotBefore =
+                CompetitorDetailRetryJsonSupport.optionalDateTime(this.original, "retryNotBefore");
+        this.rootRunId =
+                CompetitorDetailRetryJsonSupport.optionalPositiveLong(this.original, "rootRunId");
+        this.retryOfRunId =
+                CompetitorDetailRetryJsonSupport.optionalPositiveLong(this.original, "retryOfRunId");
+        this.lastErrorCode =
+                CompetitorDetailRetryJsonSupport.optionalText(this.original, "lastErrorCode");
+        this.message = CompetitorDetailRetryJsonSupport.optionalText(this.original, "message");
         this.retryStates = CompetitorDetailRetryProtocol.read(
                 this.original,
                 retryAttempt,
@@ -77,6 +56,7 @@ final class CompetitorDetailRetryPayload {
                 lastErrorCode,
                 message
         );
+        this.initialized = CompetitorDetailRetryProtocol.hasTargetedMetadata(this.original);
         if (!retryStates.isEmpty()) {
             refreshRetrySummary();
         }
@@ -84,20 +64,20 @@ final class CompetitorDetailRetryPayload {
         this.detailRequestAttemptCount = count("detailRequestAttemptCount");
         this.detailSucceededCount = count("detailSucceededCount");
         this.detailTerminalFailedCount = count("detailTerminalFailedCount");
+        if (initialized) {
+            this.detailTargetTotal = Math.max(detailTargetTotal, accountedTargets());
+        }
         this.detailTerminalErrorCode = CompetitorDetailRetryJsonSupport.optionalText(
-                this.original,
-                "detailTerminalErrorCode"
+                this.original, "detailTerminalErrorCode"
         );
         this.detailTerminalErrorMessage = CompetitorDetailRetryJsonSupport.optionalText(
-                this.original,
-                "detailTerminalErrorMessage"
+                this.original, "detailTerminalErrorMessage"
         );
     }
 
     static CompetitorDetailRetryPayload empty() {
         return new CompetitorDetailRetryPayload(JSON.createObjectNode());
     }
-
     static CompetitorDetailRetryPayload fromJson(String payloadJson) {
         if (!StringUtils.hasText(payloadJson)) {
             return empty();
@@ -117,9 +97,9 @@ final class CompetitorDetailRetryPayload {
             );
         }
     }
-
     CompetitorDetailRetryPayload copy() {
         CompetitorDetailRetryPayload copy = new CompetitorDetailRetryPayload(original);
+        copy.initialized = initialized;
         copy.retryAttempt = retryAttempt;
         copy.maxRetryAttempts = maxRetryAttempts;
         copy.retryNotBefore = retryNotBefore;
@@ -135,6 +115,27 @@ final class CompetitorDetailRetryPayload {
         copy.detailTerminalErrorCode = detailTerminalErrorCode;
         copy.detailTerminalErrorMessage = detailTerminalErrorMessage;
         return copy;
+    }
+
+    boolean isInitialized() { return initialized; }
+    CompetitorDetailRetryState state(CompetitorProductDetailTarget target) {
+        if (target != null) {
+            for (CompetitorDetailRetryState state : retryStates) {
+                if (target.identityKey().equals(state.identityKey())) {
+                    return state;
+                }
+            }
+        }
+        return null;
+    }
+    void removeRetryState(CompetitorProductDetailTarget target) {
+        List<CompetitorDetailRetryState> remaining = new ArrayList<>();
+        for (CompetitorDetailRetryState state : retryStates) {
+            if (target == null || !target.identityKey().equals(state.identityKey())) {
+                remaining.add(state);
+            }
+        }
+        setRetryStates(remaining);
     }
     String toJson() {
         try {
@@ -154,10 +155,9 @@ final class CompetitorDetailRetryPayload {
     }
     int getRetryAttempt() { return retryAttempt; }
     void setRetryAttempt(int value) {
-        this.retryAttempt = Math.max(
-                0,
-                Math.min(value, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS)
-        );
+        this.retryAttempt = Math.max(0, Math.min(
+                value, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
+        ));
     }
     int getMaxRetryAttempts() { return maxRetryAttempts; }
     void setMaxRetryAttempts(int value) { this.maxRetryAttempts = boundedMaxRetries(value); }
@@ -179,6 +179,8 @@ final class CompetitorDetailRetryPayload {
     }
     void setRetryStates(List<CompetitorDetailRetryState> value) {
         retryStates = CompetitorDetailRetryStateJson.unique(value);
+        initialized = true;
+        detailTargetTotal = Math.max(detailTargetTotal, accountedTargets());
         refreshRetrySummary();
     }
     List<CompetitorProductDetailTarget> getReadyTargetsAt(LocalDateTime now) {
@@ -227,37 +229,40 @@ final class CompetitorDetailRetryPayload {
 
     private ObjectNode toObjectNode() {
         ObjectNode output = original.deepCopy();
-        if (retryStates.isEmpty()) {
+        if (!initialized) {
             CompetitorDetailRetryProtocol.clear(output);
-        } else {
-            output.put("maxRetryAttempts", maxRetryAttempts);
-            CompetitorDetailRetryJsonSupport.putLong(output, "rootRunId", rootRunId);
-            CompetitorDetailRetryJsonSupport.putLong(output, "retryOfRunId", retryOfRunId);
-            CompetitorDetailRetryJsonSupport.putText(
-                    output,
-                    "lastErrorCode",
-                    lastErrorCode
-            );
-            CompetitorDetailRetryJsonSupport.putText(output, "message", message);
-            CompetitorDetailRetryProtocol.write(output, retryStates, maxRetryAttempts);
+            clearCounters(output);
+            return output;
         }
+        output.put("maxRetryAttempts", maxRetryAttempts);
+        CompetitorDetailRetryJsonSupport.putLong(output, "rootRunId", rootRunId);
+        CompetitorDetailRetryJsonSupport.putLong(output, "retryOfRunId", retryOfRunId);
+        CompetitorDetailRetryJsonSupport.putText(output, "lastErrorCode", lastErrorCode);
+        CompetitorDetailRetryJsonSupport.putText(output, "message", message);
         output.put("detailTargetTotal", detailTargetTotal);
         output.put("detailRequestAttemptCount", detailRequestAttemptCount);
         output.put("detailSucceededCount", detailSucceededCount);
         output.put("detailTerminalFailedCount", detailTerminalFailedCount);
         CompetitorDetailRetryJsonSupport.putText(
-                output,
-                "detailTerminalErrorCode",
-                detailTerminalErrorCode
+                output, "detailTerminalErrorCode", detailTerminalErrorCode
         );
         CompetitorDetailRetryJsonSupport.putText(
-                output,
-                "detailTerminalErrorMessage",
-                detailTerminalErrorMessage
+                output, "detailTerminalErrorMessage", detailTerminalErrorMessage
+        );
+        CompetitorDetailRetryProtocol.write(
+                output, retryStates, maxRetryAttempts, true
         );
         return output;
     }
 
+    private void clearCounters(ObjectNode output) {
+        output.remove("detailTargetTotal");
+        output.remove("detailRequestAttemptCount");
+        output.remove("detailSucceededCount");
+        output.remove("detailTerminalFailedCount");
+        output.remove("detailTerminalErrorCode");
+        output.remove("detailTerminalErrorMessage");
+    }
     private void refreshRetrySummary() {
         if (retryStates.isEmpty()) {
             retryAttempt = 0;
@@ -276,24 +281,19 @@ final class CompetitorDetailRetryPayload {
             message = earliest.getErrorMessage();
         }
     }
-
     private int count(String field) {
         return CompetitorDetailRetryJsonSupport.optionalInt(
-                original,
-                field,
-                0,
-                0,
-                Integer.MAX_VALUE
+                original, field, 0, 0, Integer.MAX_VALUE
         );
     }
-
+    private int accountedTargets() {
+        return detailSucceededCount + detailTerminalFailedCount + retryStates.size();
+    }
     private static int boundedMaxRetries(int value) {
-        return Math.max(
-                1,
-                Math.min(value, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS)
-        );
+        return Math.max(1, Math.min(
+                value, CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS
+        ));
     }
-
     private static String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
     }

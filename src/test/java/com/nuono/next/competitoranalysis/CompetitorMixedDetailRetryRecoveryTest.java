@@ -63,7 +63,9 @@ class CompetitorMixedDetailRetryRecoveryTest {
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(anyLong()))
                 .thenAnswer(invocation -> runsByTask.get(invocation.getArgument(0)));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(anyLong())).thenReturn(1);
-        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(anyLong(), any(), any()))
+        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(
+                anyLong(), anyLong(), anyLong(), any(), any()
+        ))
                 .thenReturn(1);
     }
 
@@ -100,15 +102,38 @@ class CompetitorMixedDetailRetryRecoveryTest {
         ));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(product);
-        when(detailService.refreshConfirmedCompetitors(
-                eq(product), eq(220123L), anyLong(), isNull()
-        )).thenReturn(mixedFailure);
+        when(detailService.currentTargets(product))
+                .thenReturn(List.of(ordinary, notFound));
         when(detailService.refreshTargets(
-                eq(product), eq(List.of(ordinary)), eq(220123L), anyLong(), isNull()
-        )).thenReturn(ordinaryRecovered);
+                eq(product),
+                eq(List.of(ordinary, notFound)),
+                eq(220123L),
+                anyLong(),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, mixedFailure
+        ));
         when(detailService.refreshTargets(
-                eq(product), eq(List.of(notFound)), eq(220123L), anyLong(), isNull()
-        )).thenReturn(notFoundRecovered);
+                eq(product),
+                eq(List.of(ordinary)),
+                eq(220123L),
+                anyLong(),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, ordinaryRecovered
+        ));
+        when(detailService.refreshTargets(
+                eq(product),
+                eq(List.of(notFound)),
+                eq(220123L),
+                anyLong(),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, notFoundRecovered
+        ));
 
         CompetitorAnalysisRefreshService service = service();
         CompetitorTaskView parent =
@@ -139,7 +164,12 @@ class CompetitorMixedDetailRetryRecoveryTest {
                 List.of("2026-06-06T08:30:00")
         );
         verify(detailService).refreshTargets(
-                eq(product), eq(List.of(ordinary)), eq(220123L), eq(taskId), isNull()
+                eq(product),
+                eq(List.of(ordinary)),
+                eq(220123L),
+                eq(taskId),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
         );
 
         submitted.clear();
@@ -153,10 +183,20 @@ class CompetitorMixedDetailRetryRecoveryTest {
         assertTrue(completed.getResultJson().contains("\"detailRequestAttempts\":4"));
         assertTrue(completed.getResultJson().contains("\"detailSuccess\":2"));
         verify(detailService).refreshTargets(
-                eq(product), eq(List.of(notFound)), eq(220123L), eq(taskId), isNull()
+                eq(product),
+                eq(List.of(notFound)),
+                eq(220123L),
+                eq(taskId),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
         );
-        verify(detailService, times(1)).refreshConfirmedCompetitors(
-                eq(product), eq(220123L), eq(taskId), isNull()
+        verify(detailService, times(1)).refreshTargets(
+                eq(product),
+                eq(List.of(ordinary, notFound)),
+                eq(220123L),
+                eq(taskId),
+                isNull(),
+                any(CompetitorDetailRetrySession.class)
         );
     }
 

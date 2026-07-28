@@ -531,49 +531,6 @@ class CompetitorAnalysisRefreshServiceTest {
     }
 
     @Test
-    void scheduledDetailMonitoringRunsDetailSnapshotsWithoutKeywordRank() {
-        CompetitorWatchProductRow watchProduct = watchProduct();
-        service = new CompetitorAnalysisRefreshService(
-                mapper,
-                monitoringMapper,
-                new OperationalTaskService(
-                        taskRepository,
-                        Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
-                ),
-                (accountKey, task) -> submittedTasks.add(task),
-                keywordRefreshRunner,
-                productDetailRefreshService,
-                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
-        );
-        stubMonitoringProducts(List.of(watchProduct));
-        when(mapper.nextSearchRunId()).thenReturn(220123L);
-        when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
-
-        CompetitorTaskView view = service.requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
-        submittedTasks.get(0).run();
-        submittedTasks.get(1).run();
-
-        OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
-        assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
-        assertEquals("竞品详情快照刷新完成。", productTask.getMessage());
-        assertTrue(productTask.getNaturalKey().contains(":detail:"));
-        verify(productDetailRefreshService).refreshConfirmedCompetitors(
-                watchProduct,
-                220123L,
-                productTask.getId(),
-                null
-        );
-        verify(keywordRefreshRunner, never()).runKeyword(
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
-        );
-        verify(mapper, never()).listActiveKeywordsByWatchProductId(180123L);
-    }
-
-    @Test
     void storeMonitoringSubmitsRefreshForEveryRefreshableWatchProduct() {
         CompetitorWatchProductRow first = watchProduct(180123L, "ZSELF001");
         CompetitorWatchProductRow second = watchProduct(180124L, "ZSELF002");

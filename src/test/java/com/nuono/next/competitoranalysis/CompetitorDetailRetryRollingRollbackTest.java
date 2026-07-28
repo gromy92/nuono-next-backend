@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
 import java.util.Arrays;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CompetitorDetailRetryRollingRollbackTest {
@@ -96,7 +97,7 @@ class CompetitorDetailRetryRollingRollbackTest {
     }
 
     @Test
-    void newWriterPersistsSchemaAndBothIntegrityChecks() throws Exception {
+    void newWriterPersistsSchemaAndAllIntegrityChecks() throws Exception {
         JsonNode persisted = JSON.readTree(
                 CompetitorDetailRetryPayload.fromJson(
                         "{\"retryAttempt\":1,"
@@ -108,10 +109,42 @@ class CompetitorDetailRetryRollingRollbackTest {
                 ).toJson()
         );
 
-        assertEquals(2, persisted.path("detailRetrySchemaVersion").asInt());
+        assertEquals(3, persisted.path("detailRetrySchemaVersion").asInt());
         assertEquals(1, persisted.path("detailRetryProjectionVersion").asInt());
         assertTrue(persisted.path("detailRetryStateChecksum").asText().length() >= 32);
         assertTrue(persisted.path("detailRetryLegacyProjectionChecksum").asText().length() >= 32);
+        assertTrue(persisted.path("detailRetryEnvelopeChecksum").asText().length() >= 32);
+    }
+
+    @Test
+    void validVersionTwoPayloadStillMigratesToSealedVersionThree()
+            throws Exception {
+        CompetitorDetailRetryState state = state(
+                "SELF", null, "ZSELF001", 1, "2026-07-28T02:02:00"
+        );
+        ObjectNode versionTwo = markedPayload(state);
+        versionTwo.put("detailRetrySchemaVersion", 2);
+        versionTwo.remove("detailRetryPhase");
+        versionTwo.remove("detailRetryEnvelopeChecksum");
+        for (JsonNode item : versionTwo.withArray("detailRetryStates")) {
+            ((ObjectNode) item).remove("requestInFlight");
+        }
+        versionTwo.put(
+                "detailRetryStateChecksum",
+                CompetitorDetailRetrySealedProtocol.previousStateChecksum(
+                        List.of(state), 4
+                )
+        );
+
+        JsonNode migrated = JSON.readTree(
+                CompetitorDetailRetryPayload.fromJson(
+                        versionTwo.toString()
+                ).toJson()
+        );
+
+        assertEquals(3, migrated.path("detailRetrySchemaVersion").asInt());
+        assertTrue(migrated.hasNonNull("detailRetryEnvelopeChecksum"));
+        assertEquals(1, migrated.path("detailRetryStates").size());
     }
 
     @Test

@@ -57,6 +57,52 @@ class CompetitorRefreshExecutionFinalizer {
     }
 
     @Transactional
+    public void checkpointDetailRetry(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            String payloadJson
+    ) {
+        leaseGuard.acquire(taskId, runId, watchProductId);
+        if (!operationalTaskService.checkpointRunning(
+                taskId, payloadJson, 5, "竞品详情重试状态已保存。"
+        )) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+    }
+
+    @Transactional
+    public void requeueDetailRetry(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            String payloadJson,
+            String errorCode,
+            String errorMessage
+    ) {
+        leaseGuard.acquire(taskId, runId, watchProductId);
+        if (!operationalTaskService.requeueRunning(
+                taskId,
+                payloadJson,
+                5,
+                errorCode,
+                errorMessage
+        )) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        int affectedRows = mapper.requeueSearchRun(
+                taskId,
+                runId,
+                watchProductId,
+                errorCode,
+                errorMessage
+        );
+        if (affectedRows != 1) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+    }
+
+    @Transactional
     public boolean failQueued(
             Long taskId,
             Long runId,

@@ -12,11 +12,15 @@ public interface CompetitorRefreshRetryMapper {
             "    error_message = #{errorMessage},",
             "    gmt_updated = NOW()",
             "WHERE id = #{runId}",
+            "  AND task_id = #{taskId}",
+            "  AND watch_product_id = #{watchProductId}",
             "  AND status = 'RUNNING'",
             "  AND is_deleted = b'0'"
     })
     int requeueSearchRun(
+            @Param("taskId") Long taskId,
             @Param("runId") Long runId,
+            @Param("watchProductId") Long watchProductId,
             @Param("errorCode") String errorCode,
             @Param("errorMessage") String errorMessage
     );

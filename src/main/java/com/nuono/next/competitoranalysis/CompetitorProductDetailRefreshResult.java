@@ -36,6 +36,14 @@ public class CompetitorProductDetailRefreshResult {
         requestAttemptCount++;
     }
 
+    void recordTarget() {
+        attemptedCount++;
+    }
+
+    void recordRequestAttempt() {
+        requestAttemptCount++;
+    }
+
     void recordAttempt(CompetitorProductDetailTarget target) {
         recordAttempt();
     }
@@ -97,6 +105,26 @@ public class CompetitorProductDetailRefreshResult {
         }
         if (safeCount > 0 && !StringUtils.hasText(firstErrorMessage)) {
             firstErrorMessage = errorMessage;
+        }
+    }
+
+    void useCumulativeCounts(
+            int targetTotal,
+            int requestAttempts,
+            int succeeded,
+            int terminalFailed,
+            String terminalErrorCode,
+            String terminalErrorMessage
+    ) {
+        attemptedCount = Math.max(0, targetTotal);
+        requestAttemptCount = Math.max(0, requestAttempts);
+        succeededCount = Math.max(0, succeeded);
+        failedCount = Math.max(failedCount, Math.max(0, terminalFailed));
+        if (failedCount > 0 && !StringUtils.hasText(firstErrorCode)) {
+            firstErrorCode = terminalErrorCode;
+        }
+        if (failedCount > 0 && !StringUtils.hasText(firstErrorMessage)) {
+            firstErrorMessage = terminalErrorMessage;
         }
     }
 

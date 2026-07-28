@@ -21,16 +21,38 @@ final class CompetitorDetailRetryCoordinator {
 
     boolean isReady(OperationalTask task) {
         try {
-            return payload(task).isReadyAt(LocalDateTime.now(clock));
+            CompetitorDetailRetryPayload payload = payload(task);
+            if (!payload.isInitialized() && requiresTargetedPayload(task)) {
+                throw new CompetitorDetailRetryPayloadException(
+                        "Queued detail retry lost its checkpoint payload."
+                );
+            }
+            return payload.isInitialized()
+                    ? payload.isReadyAt(LocalDateTime.now(clock))
+                    : CompetitorRefreshRecoveryPayload.isReady(
+                            task, LocalDateTime.now(clock)
+                    );
         } catch (CompetitorDetailRetryPayloadException exception) {
-            taskFactory.failInvalidDetailRetryPayload(task.getId());
+            if (task != null && task.getId() != null) {
+                taskFactory.failInvalidDetailRetryPayload(task.getId());
+            }
             return false;
         }
     }
 
     boolean isRetry(OperationalTask task) {
-        CompetitorDetailRetryPayload payload = payload(task);
-        return !payload.getRetryStates().isEmpty();
+        return payload(task).isInitialized();
+    }
+
+    CompetitorDetailRetrySession openSession(
+            OperationalTask task,
+            Long runId,
+            Long watchProductId,
+            List<CompetitorProductDetailTarget> initialTargets
+    ) {
+        return new CompetitorDetailRetrySession(
+                taskFactory, task, runId, watchProductId, initialTargets, clock
+        );
     }
 
     List<CompetitorProductDetailTarget> retryTargets(OperationalTask task) {
@@ -173,6 +195,18 @@ final class CompetitorDetailRetryCoordinator {
 
     private CompetitorDetailRetryPayload payload(OperationalTask task) {
         return CompetitorDetailRetryPayload.fromJson(task == null ? null : task.getPayloadJson());
+    }
+
+    private boolean requiresTargetedPayload(OperationalTask task) {
+        String naturalKey = task == null ? null : task.getNaturalKey();
+        boolean detailKey = StringUtils.hasText(naturalKey)
+                && (naturalKey.endsWith(":detail")
+                || naturalKey.contains(":detail:"));
+        return detailKey
+                && (task.getStartedAt() != null
+                || task.getProgressPercent() != null
+                && task.getProgressPercent() > 0
+                || StringUtils.hasText(task.getErrorCode()));
     }
 
     private String retryMessage(CompetitorDetailRetryPayload payload) {

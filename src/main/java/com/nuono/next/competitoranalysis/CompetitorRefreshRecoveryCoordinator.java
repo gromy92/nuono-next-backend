@@ -16,12 +16,21 @@ final class CompetitorRefreshRecoveryCoordinator {
             LoggerFactory.getLogger(CompetitorRefreshRecoveryCoordinator.class);
     private static final String RUNNING_MESSAGE = "竞品刷新正在后台执行。";
     private static final String STALE_MESSAGE = "刷新任务超过 30 分钟未完成，已自动释放。";
+    private static final String INVALID_DETAIL_RETRY =
+            "INVALID_DETAIL_RETRY_PAYLOAD";
+    private static final String INVALID_DETAIL_RETRY_MESSAGE =
+            "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。";
+    private static final String INVALID_RECOVERY_PAYLOAD =
+            "INVALID_REFRESH_RECOVERY_PAYLOAD";
+    private static final String INVALID_RECOVERY_MESSAGE =
+            "陈旧竞品刷新任务的恢复身份或载荷无效，已安全终止。";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorRefreshTaskFactory taskFactory;
     private final CompetitorRefreshTaskDispatcher taskDispatcher;
     private final Predicate<CompetitorWatchProductRow> executionAllowed;
+    private final Predicate<OperationalTask> taskReadiness;
     private final RefreshExecution refreshExecution;
     private final Clock clock;
 
@@ -34,6 +43,28 @@ final class CompetitorRefreshRecoveryCoordinator {
             RefreshExecution refreshExecution,
             Clock clock
     ) {
+        this(
+                mapper,
+                operationalTaskService,
+                taskFactory,
+                taskDispatcher,
+                executionAllowed,
+                null,
+                refreshExecution,
+                clock
+        );
+    }
+
+    CompetitorRefreshRecoveryCoordinator(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorRefreshTaskFactory taskFactory,
+            CompetitorRefreshTaskDispatcher taskDispatcher,
+            Predicate<CompetitorWatchProductRow> executionAllowed,
+            Predicate<OperationalTask> taskReadiness,
+            RefreshExecution refreshExecution,
+            Clock clock
+    ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.taskFactory = taskFactory;
@@ -41,6 +72,11 @@ final class CompetitorRefreshRecoveryCoordinator {
         this.executionAllowed = executionAllowed;
         this.refreshExecution = refreshExecution;
         this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.taskReadiness = taskReadiness == null
+                ? task -> CompetitorRefreshRecoveryPayload.isReady(
+                        task, LocalDateTime.now(this.clock)
+                )
+                : taskReadiness;
     }
 
     CompetitorQueuedRefresh replaceManualStale(
@@ -81,11 +117,47 @@ final class CompetitorRefreshRecoveryCoordinator {
                     STALE_MESSAGE
             );
         }
-        CompetitorRefreshExecutionMode mode =
-                CompetitorRefreshExecutionMode.strictFromTriggerMode(run.getTriggerMode());
+        CompetitorRefreshExecutionMode mode;
+        try {
+            mode = CompetitorRefreshExecutionMode.strictFromTriggerMode(
+                    run.getTriggerMode()
+            );
+        } catch (CompetitorRefreshRecoveryIdentityException exception) {
+            return taskFactory.failStale(
+                    interruptedTask,
+                    run,
+                    staleBefore,
+                    INVALID_RECOVERY_PAYLOAD,
+                    INVALID_RECOVERY_MESSAGE
+            );
+        }
+        if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
+                && !hasRecoverableDetailState(
+                        interruptedTask, watchProduct.getId(), mode
+                )) {
+            return taskFactory.failStale(
+                    interruptedTask,
+                    run,
+                    staleBefore,
+                    INVALID_DETAIL_RETRY,
+                    INVALID_DETAIL_RETRY_MESSAGE
+            );
+        }
         int keywordTotal = mode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId()).size()
                 : 0;
+        String batchKey;
+        try {
+            batchKey = CompetitorRefreshRecoveryPayload.batchKey(interruptedTask);
+        } catch (CompetitorRefreshRecoveryPayloadException exception) {
+            return taskFactory.failStale(
+                    interruptedTask,
+                    run,
+                    staleBefore,
+                    INVALID_RECOVERY_PAYLOAD,
+                    INVALID_RECOVERY_MESSAGE
+            );
+        }
         return taskFactory.replaceStale(
                 interruptedTask,
                 run,
@@ -93,10 +165,28 @@ final class CompetitorRefreshRecoveryCoordinator {
                 staleBefore,
                 run.getRequestedBy(),
                 mode,
-                CompetitorRefreshRecoveryPayload.batchKey(interruptedTask),
+                batchKey,
                 keywordTotal,
                 queued -> dispatchSafely(queued, watchProduct, run.getRequestedBy(), mode)
         ) != null;
+    }
+
+    private boolean hasRecoverableDetailState(
+            OperationalTask task,
+            Long watchProductId,
+            CompetitorRefreshExecutionMode mode
+    ) {
+        try {
+            return CompetitorDetailRetryPayload.fromJson(
+                    task == null ? null : task.getPayloadJson()
+            ).isInitialized()
+                    && CompetitorRefreshRecoveryPayload.matchesIdentity(
+                            task, watchProductId, mode
+                    );
+        } catch (CompetitorDetailRetryPayloadException
+                | CompetitorRefreshRecoveryPayloadException exception) {
+            return false;
+        }
     }
 
     boolean resubmitQueued(
@@ -104,9 +194,7 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorSearchRunRow run,
             CompetitorWatchProductRow watchProduct
     ) {
-        if (!CompetitorRefreshRecoveryPayload.isReady(
-                task, LocalDateTime.now(clock)
-        ) || !executionAllowed.test(watchProduct)) {
+        if (!taskReadiness.test(task) || !executionAllowed.test(watchProduct)) {
             return false;
         }
         try {
@@ -138,7 +226,7 @@ final class CompetitorRefreshRecoveryCoordinator {
         if (task != null
                 && run != null
                 && task.getStatus() == OperationalTaskStatus.QUEUED
-                && CompetitorRefreshRecoveryPayload.isReady(task, LocalDateTime.now(clock))) {
+                && taskReadiness.test(task)) {
             submit(task, run, watchProduct, actorUserId, mode);
         }
     }
@@ -156,9 +244,7 @@ final class CompetitorRefreshRecoveryCoordinator {
                 task,
                 run,
                 RUNNING_MESSAGE,
-                () -> CompetitorRefreshRecoveryPayload.isReady(
-                        task, LocalDateTime.now(clock)
-                ) && executionAllowed.test(watchProduct),
+                () -> taskReadiness.test(task) && executionAllowed.test(watchProduct),
                 () -> refreshExecution.run(
                         task.getId(),
                         run.getId(),

@@ -43,8 +43,14 @@ class CompetitorInvalidDetailRetryPayloadTest {
         CompetitorSearchRunRow run = run(task.getId());
         when(mapper.selectSearchRunByTaskId(task.getId())).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct());
-        when(mapper.markSearchRunFailed(
+        when(mapper.lockQueuedRefreshTask(task.getId())).thenReturn(task.getId());
+        when(mapper.lockQueuedRefreshRun(
+                task.getId(), 220123L, 180123L
+        )).thenReturn(220123L);
+        when(mapper.failQueuedRefreshRun(
+                task.getId(),
                 220123L,
+                180123L,
                 "INVALID_DETAIL_RETRY_PAYLOAD",
                 "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。"
         )).thenReturn(1);
@@ -64,8 +70,7 @@ class CompetitorInvalidDetailRetryPayloadTest {
                     detailFetches.incrementAndGet();
                     return true;
                 },
-                (product, interruptedRun) -> {
-                }
+                (interruptedTask, product, interruptedRun, staleBefore) -> false
         );
 
         assertEquals(0, recovery.resumeQueuedRefreshTasks());
@@ -78,6 +83,7 @@ class CompetitorInvalidDetailRetryPayloadTest {
     private static Stream<String> invalidPayloads() throws Exception {
         return Stream.of(
                 "{\"detailRetryStates\":[]}",
+                "{\"detailRetryProtocol\":\"v2\"}",
                 "{\"retryAttempt\":1,"
                         + "\"maxRetryAttempts\":4,"
                         + "\"retryNotBefore\":\"2026-07-28T02:02:00\","

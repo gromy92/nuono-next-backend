@@ -12,6 +12,7 @@ final class CompetitorDetailRetryState {
     private final LocalDateTime retryNotBefore;
     private final String errorCode;
     private final String errorMessage;
+    private final boolean requestInFlight;
 
     CompetitorDetailRetryState(
             CompetitorProductDetailTarget target,
@@ -20,11 +21,30 @@ final class CompetitorDetailRetryState {
             String errorCode,
             String errorMessage
     ) {
+        this(
+                target,
+                retryAttempt,
+                retryNotBefore,
+                errorCode,
+                errorMessage,
+                false
+        );
+    }
+
+    CompetitorDetailRetryState(
+            CompetitorProductDetailTarget target,
+            int retryAttempt,
+            LocalDateTime retryNotBefore,
+            String errorCode,
+            String errorMessage,
+            boolean requestInFlight
+    ) {
         this.target = target;
         this.retryAttempt = Math.max(0, retryAttempt);
         this.retryNotBefore = retryNotBefore;
         this.errorCode = normalize(errorCode);
         this.errorMessage = normalize(errorMessage);
+        this.requestInFlight = requestInFlight;
     }
 
     CompetitorDetailRetryState copy() {
@@ -33,7 +53,8 @@ final class CompetitorDetailRetryState {
                 retryAttempt,
                 retryNotBefore,
                 errorCode,
-                errorMessage
+                errorMessage,
+                requestInFlight
         );
     }
 
@@ -47,7 +68,19 @@ final class CompetitorDetailRetryState {
                 retryAttempt,
                 delayed,
                 errorCode,
-                errorMessage
+                errorMessage,
+                requestInFlight
+        );
+    }
+
+    CompetitorDetailRetryState withRequestInFlight(boolean value) {
+        return new CompetitorDetailRetryState(
+                target,
+                retryAttempt,
+                retryNotBefore,
+                errorCode,
+                errorMessage,
+                value
         );
     }
 
@@ -77,6 +110,10 @@ final class CompetitorDetailRetryState {
 
     String getErrorMessage() {
         return errorMessage;
+    }
+
+    boolean isRequestInFlight() {
+        return requestInFlight;
     }
 
     private static String normalize(String value) {

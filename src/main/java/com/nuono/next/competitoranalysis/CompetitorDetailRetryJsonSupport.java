@@ -74,6 +74,21 @@ final class CompetitorDetailRetryJsonSupport {
         return value;
     }
 
+    static boolean optionalBoolean(
+            JsonNode payload,
+            String field,
+            boolean fallback
+    ) {
+        JsonNode value = payload == null ? null : payload.get(field);
+        if (value == null) {
+            return fallback;
+        }
+        if (!value.isBoolean()) {
+            throw invalid(field + " must be a boolean.");
+        }
+        return value.booleanValue();
+    }
+
     static LocalDateTime optionalDateTime(ObjectNode payload, String field) {
         JsonNode value = payload.get(field);
         if (value == null || value.isNull()) {

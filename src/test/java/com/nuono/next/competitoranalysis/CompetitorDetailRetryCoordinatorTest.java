@@ -30,11 +30,11 @@ class CompetitorDetailRetryCoordinatorTest {
         CompetitorRefreshTaskFactory taskFactory = mock(CompetitorRefreshTaskFactory.class);
         CompetitorDetailRetryCoordinator coordinator =
                 new CompetitorDetailRetryCoordinator(taskFactory, CLOCK);
-        OperationalTask task = task(
-                "{\"watchProductId\":180123,"
-                        + "\"detailTargetTotal\":5,"
-                        + "\"detailSucceededCount\":2}"
-        );
+        CompetitorDetailRetryPayload prior = CompetitorDetailRetryPayload.empty();
+        prior.setRetryStates(List.of());
+        prior.setDetailTargetTotal(5);
+        prior.setDetailSucceededCount(2);
+        OperationalTask task = task(prior.toJson());
         CompetitorProductDetailTarget succeeded =
                 CompetitorProductDetailTarget.self("ZSELF001");
         CompetitorProductDetailTarget failed =

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
@@ -144,6 +145,93 @@ class CompetitorDetailRetryPayloadTest {
                 () -> CompetitorDetailRetryPayload.fromJson(
                         "{\"retryNotBefore\":\"not-a-date\"}"
                 )
+        );
+    }
+
+    @Test
+    void trailingJsonFailsClosed() {
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(
+                        "{\"watchProductId\":180123}{}"
+                )
+        );
+    }
+
+    @Test
+    void sealedIdentityAndCountersCannotBeRewrittenWithoutDetection()
+            throws Exception {
+        ObjectNode sealed = (ObjectNode) JSON.readTree(
+                CompetitorDetailRetryPayload.fromJson(
+                        "{\"watchProductId\":180123,"
+                                + "\"triggerMode\":\"SCHEDULED_DETAIL_MONITOR\","
+                                + "\"executionMode\":\"detail\","
+                                + "\"rankRefresh\":false,"
+                                + "\"detailRefresh\":true,"
+                                + "\"batchKey\":\"detail:2026-07-28\","
+                                + "\"retryAttempt\":1,"
+                                + "\"maxRetryAttempts\":4,"
+                                + "\"retryNotBefore\":\"2026-07-28T02:02:00\","
+                                + "\"rootRunId\":220123,"
+                                + "\"retryOfRunId\":220123,"
+                                + "\"failedDetailTargets\":[{"
+                                + "\"subjectType\":\"SELF\","
+                                + "\"noonProductCode\":\"ZSELF001\"}]}"
+                ).toJson()
+        );
+
+        assertMutationRejected(sealed, "rootRunId", 220999L);
+        assertMutationRejected(sealed, "watchProductId", 180999L);
+        assertMutationRejected(sealed, "detailTargetTotal", 9L);
+        assertTextMutationRejected(
+                sealed, "batchKey", "detail:2026-07-29"
+        );
+    }
+
+    @Test
+    void sealedPayloadCannotDowngradeToLegacySchema() throws Exception {
+        ObjectNode sealed = (ObjectNode) JSON.readTree(
+                CompetitorDetailRetryPayload.fromJson(
+                        "{\"retryAttempt\":1,"
+                                + "\"maxRetryAttempts\":4,"
+                                + "\"retryNotBefore\":\"2026-07-28T02:02:00\","
+                                + "\"failedDetailTargets\":[{"
+                                + "\"subjectType\":\"SELF\","
+                                + "\"noonProductCode\":\"ZSELF001\"}]}"
+                ).toJson()
+        );
+        sealed.put("detailRetrySchemaVersion", 2);
+        sealed.put("detailSucceededCount", 1);
+
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(sealed.toString())
+        );
+    }
+
+    private static void assertMutationRejected(
+            ObjectNode sealed,
+            String field,
+            long value
+    ) {
+        ObjectNode changed = sealed.deepCopy();
+        changed.put(field, value);
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(changed.toString())
+        );
+    }
+
+    private static void assertTextMutationRejected(
+            ObjectNode sealed,
+            String field,
+            String value
+    ) {
+        ObjectNode changed = sealed.deepCopy();
+        changed.put(field, value);
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(changed.toString())
         );
     }
 

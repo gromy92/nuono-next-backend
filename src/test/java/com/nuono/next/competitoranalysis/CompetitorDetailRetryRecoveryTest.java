@@ -69,7 +69,9 @@ class CompetitorDetailRetryRecoveryTest {
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(anyLong()))
                 .thenAnswer(invocation -> runsByTask.get(invocation.getArgument(0)));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(anyLong())).thenReturn(1);
-        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(anyLong(), any(), any()))
+        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(
+                anyLong(), anyLong(), anyLong(), any(), any()
+        ))
                 .thenReturn(1);
     }
 
@@ -107,16 +109,28 @@ class CompetitorDetailRetryRecoveryTest {
         ));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(product);
-        when(detailService.refreshConfirmedCompetitors(
-                eq(product), eq(220123L), anyLong(), org.mockito.ArgumentMatchers.isNull()
-        )).thenReturn(firstAttempt);
+        when(detailService.currentTargets(product))
+                .thenReturn(List.of(succeeded, failed));
+        when(detailService.refreshTargets(
+                eq(product),
+                eq(List.of(succeeded, failed)),
+                eq(220123L),
+                anyLong(),
+                org.mockito.ArgumentMatchers.isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, firstAttempt
+        ));
         when(detailService.refreshTargets(
                 eq(product),
                 eq(List.of(failed)),
                 eq(220123L),
                 anyLong(),
-                org.mockito.ArgumentMatchers.isNull()
-        )).thenReturn(retryAttempt);
+                org.mockito.ArgumentMatchers.isNull(),
+                any(CompetitorDetailRetrySession.class)
+        )).thenAnswer(CompetitorDetailRetryMockSupport.checkpointing(
+                taskRepository, retryAttempt
+        ));
 
         CompetitorTaskView parent =
                 service.requestScheduledDetailMonitoring(501L, "STORE", "SA");
@@ -146,14 +160,29 @@ class CompetitorDetailRetryRecoveryTest {
                 .contains("\"detailRequestAttempts\":3"));
         assertTrue(taskRepository.selectById(productTaskId).getResultJson()
                 .contains("\"detailSuccess\":2"));
-        verify(detailService, times(1)).refreshConfirmedCompetitors(
-                eq(product), eq(220123L), eq(productTaskId), any()
+        verify(detailService, times(1)).refreshTargets(
+                eq(product),
+                eq(List.of(succeeded, failed)),
+                eq(220123L),
+                eq(productTaskId),
+                any(),
+                any(CompetitorDetailRetrySession.class)
         );
         verify(detailService, times(1)).refreshTargets(
-                eq(product), eq(List.of(failed)), eq(220123L), eq(productTaskId), any()
+                eq(product),
+                eq(List.of(failed)),
+                eq(220123L),
+                eq(productTaskId),
+                any(),
+                any(CompetitorDetailRetrySession.class)
         );
         verify(detailService, never()).refreshTargets(
-                eq(product), eq(List.of(succeeded)), anyLong(), anyLong(), any()
+                eq(product),
+                eq(List.of(succeeded)),
+                anyLong(),
+                anyLong(),
+                any(),
+                any(CompetitorDetailRetrySession.class)
         );
     }
 

@@ -43,9 +43,13 @@ final class CompetitorDetailRetryStateJson {
                             "retryNotBefore"
                     ),
                     CompetitorDetailRetryJsonSupport.optionalText(item, "errorCode"),
-                    CompetitorDetailRetryJsonSupport.optionalText(item, "errorMessage")
+                    CompetitorDetailRetryJsonSupport.optionalText(item, "errorMessage"),
+                    CompetitorDetailRetryJsonSupport.optionalBoolean(
+                            item, "requestInFlight", false
+                    )
             ));
         }
+        requireAtMostOneInFlight(states);
         return states;
     }
 
@@ -106,6 +110,7 @@ final class CompetitorDetailRetryStateJson {
                     "errorMessage",
                     state.getErrorMessage()
             );
+            stateNode.put("requestInFlight", state.isRequestInFlight());
             stateArray.add(stateNode);
             targetArray.add(
                     CompetitorDetailRetryJsonSupport.targetNode(state.getTarget())
@@ -128,6 +133,7 @@ final class CompetitorDetailRetryStateJson {
             }
             states.add(state.copy());
         }
+        requireAtMostOneInFlight(states);
         return states;
     }
 
@@ -143,6 +149,35 @@ final class CompetitorDetailRetryStateJson {
             value.append(CompetitorDetailRetryJsonSupport.part(state.getErrorMessage()));
         }
         return value.toString();
+    }
+
+    static String sealedStateCanonical(List<CompetitorDetailRetryState> states) {
+        StringBuilder value = new StringBuilder();
+        for (CompetitorDetailRetryState state : validated(states)) {
+            value.append(CompetitorDetailRetryJsonSupport.part(
+                    CompetitorDetailRetryJsonSupport.targetCanonical(state.getTarget())
+            ));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getRetryAttempt()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getRetryNotBefore()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getErrorCode()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getErrorMessage()));
+            value.append(CompetitorDetailRetryJsonSupport.part(
+                    state.isRequestInFlight()
+            ));
+        }
+        return value.toString();
+    }
+
+    static boolean hasRequestReservation(JsonNode value) {
+        if (value == null || !value.isArray()) {
+            return false;
+        }
+        for (JsonNode item : value) {
+            if (item != null && item.has("requestInFlight")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     static String legacyCanonical(
@@ -220,6 +255,17 @@ final class CompetitorDetailRetryStateJson {
             throw invalid("Detail retry state attempt is outside the allowed range.");
         }
         CompetitorDetailRetryJsonSupport.validateTarget(state.getTarget());
+    }
+
+    private static void requireAtMostOneInFlight(
+            List<CompetitorDetailRetryState> states
+    ) {
+        int inFlight = 0;
+        for (CompetitorDetailRetryState state : states) {
+            if (state.isRequestInFlight() && ++inFlight > 1) {
+                throw invalid("Only one detail request may be in flight.");
+            }
+        }
     }
 
     private static void requireNonEmptyArray(JsonNode value, String field) {
