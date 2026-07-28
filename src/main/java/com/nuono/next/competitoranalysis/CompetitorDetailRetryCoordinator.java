@@ -5,7 +5,6 @@ import com.nuono.next.system.task.OperationalTask;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 import org.springframework.util.StringUtils;
 
 final class CompetitorDetailRetryCoordinator {
@@ -31,11 +30,16 @@ final class CompetitorDetailRetryCoordinator {
 
     boolean isRetry(OperationalTask task) {
         CompetitorDetailRetryPayload payload = payload(task);
-        return payload.getRetryAttempt() > 0 || !payload.getRetryStates().isEmpty();
+        return !payload.getRetryStates().isEmpty();
     }
 
     List<CompetitorProductDetailTarget> retryTargets(OperationalTask task) {
-        return payload(task).getReadyTargetsAt(LocalDateTime.now(clock));
+        List<CompetitorProductDetailTarget> targets =
+                payload(task).getReadyTargetsAt(LocalDateTime.now(clock));
+        if (targets.isEmpty()) {
+            throw new IllegalStateException("No detail retry target is ready.");
+        }
+        return targets;
     }
 
     boolean scheduleFailure(
@@ -69,20 +73,6 @@ final class CompetitorDetailRetryCoordinator {
                     runId
             ));
             next.setRetryOfRunId(runId);
-        } else if (attemptPlan.hasRetryableWithoutTarget()) {
-            Optional<CompetitorDetailRetryPayload> planned = policy.planNextRetry(
-                    current,
-                    runId,
-                    List.of(),
-                    attemptPlan.getFallbackErrorCode(),
-                    attemptPlan.getFallbackErrorMessage(),
-                    failedAt,
-                    holdUntil
-            );
-            if (planned.isEmpty()) {
-                return false;
-            }
-            next = planned.get();
         } else {
             return false;
         }

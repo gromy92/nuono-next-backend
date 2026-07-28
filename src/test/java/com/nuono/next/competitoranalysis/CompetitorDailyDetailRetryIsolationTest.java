@@ -194,6 +194,7 @@ class CompetitorDailyDetailRetryIsolationTest {
                         + "\"detailRefresh\":true,"
                         + "\"batchKey\":\"previous-day\","
                         + "\"retryAttempt\":3,"
+                        + "\"maxRetryAttempts\":4,"
                         + "\"retryNotBefore\":\"2026-06-06T10:00:00\","
                         + "\"failedDetailTargets\":[{"
                         + "\"subjectType\":\"COMPETITOR\","

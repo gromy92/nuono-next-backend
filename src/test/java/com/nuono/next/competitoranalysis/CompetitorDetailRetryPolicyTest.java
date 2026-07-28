@@ -192,6 +192,19 @@ class CompetitorDetailRetryPolicyTest {
         assertEquals(Duration.ofMinutes(16), policy.backoffForAttempt(4));
     }
 
+    @Test
+    void targetlessFailureNeverCreatesRetryMetadata() {
+        assertFalse(policy.planNextRetry(
+                legacyPayload(),
+                220101L,
+                List.of(),
+                "DETAIL_REFRESH_FAILED",
+                "target resolution failed",
+                LocalDateTime.parse("2026-07-28T02:00:00"),
+                null
+        ).isPresent());
+    }
+
     private CompetitorDetailRetryPayload legacyPayload() {
         return CompetitorDetailRetryPayload.fromJson(
                 "{\"watchProductId\":180123,\"executionMode\":\"scheduledDetail\"}"
@@ -199,11 +212,6 @@ class CompetitorDetailRetryPolicyTest {
     }
 
     private List<CompetitorProductDetailTarget> targets() {
-        return CompetitorDetailRetryPayload.fromJson(
-                "{\"failedDetailTargets\":[{"
-                        + "\"subjectType\":\"SELF\","
-                        + "\"noonProductCode\":\"ZSELF001\""
-                        + "}]}"
-        ).getFailedDetailTargets();
+        return List.of(CompetitorProductDetailTarget.self("ZSELF001"));
     }
 }

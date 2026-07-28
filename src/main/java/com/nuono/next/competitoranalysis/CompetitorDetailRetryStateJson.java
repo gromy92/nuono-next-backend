@@ -4,183 +4,231 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
-import org.springframework.util.StringUtils;
+import java.util.Set;
 
 final class CompetitorDetailRetryStateJson {
-    private static final String STATE_FIELD = "detailRetryStates";
-    private static final String LEGACY_TARGET_FIELD = "failedDetailTargets";
+    static final String STATE_FIELD = "detailRetryStates";
+    static final String LEGACY_TARGET_FIELD = "failedDetailTargets";
 
     private CompetitorDetailRetryStateJson() {
     }
 
-    static List<CompetitorDetailRetryState> read(
-            ObjectNode payload,
-            int legacyAttempt,
-            LocalDateTime legacyNotBefore,
-            String legacyErrorCode,
-            String legacyErrorMessage
-    ) {
-        JsonNode states = payload.get(STATE_FIELD);
-        if (states != null && !states.isNull()) {
-            return readStates(states);
-        }
-        List<CompetitorDetailRetryState> migrated = new ArrayList<>();
-        for (CompetitorProductDetailTarget target : readTargets(payload.get(LEGACY_TARGET_FIELD))) {
-            migrated.add(new CompetitorDetailRetryState(
+    static List<CompetitorDetailRetryState> readStates(JsonNode value, int maximumAttempts) {
+        requireNonEmptyArray(value, STATE_FIELD);
+        List<CompetitorDetailRetryState> states = new ArrayList<>();
+        Set<String> identities = new LinkedHashSet<>();
+        for (JsonNode item : value) {
+            if (item == null || !item.isObject()) {
+                throw invalid("Invalid detail retry state.");
+            }
+            CompetitorProductDetailTarget target =
+                    CompetitorDetailRetryJsonSupport.target(item);
+            if (!identities.add(target.identityKey())) {
+                throw invalid("Duplicate detail retry target identity.");
+            }
+            int attempt = CompetitorDetailRetryJsonSupport.requiredInt(
+                    item,
+                    "retryAttempt",
+                    0,
+                    maximumAttempts
+            );
+            states.add(new CompetitorDetailRetryState(
                     target,
-                    legacyAttempt,
-                    legacyNotBefore,
-                    legacyErrorCode,
-                    legacyErrorMessage
+                    attempt,
+                    CompetitorDetailRetryJsonSupport.requiredDateTime(
+                            item,
+                            "retryNotBefore"
+                    ),
+                    CompetitorDetailRetryJsonSupport.optionalText(item, "errorCode"),
+                    CompetitorDetailRetryJsonSupport.optionalText(item, "errorMessage")
             ));
         }
-        return migrated;
+        return states;
     }
 
-    static void write(ObjectNode payload, List<CompetitorDetailRetryState> states) {
+    static List<CompetitorProductDetailTarget> readTargets(JsonNode value) {
+        requireNonEmptyArray(value, LEGACY_TARGET_FIELD);
+        List<CompetitorProductDetailTarget> targets = new ArrayList<>();
+        Set<String> identities = new LinkedHashSet<>();
+        for (JsonNode item : value) {
+            CompetitorProductDetailTarget target =
+                    CompetitorDetailRetryJsonSupport.target(item);
+            if (!identities.add(target.identityKey())) {
+                throw invalid("Duplicate failed detail target identity.");
+            }
+            targets.add(target);
+        }
+        return targets;
+    }
+
+    static List<CompetitorDetailRetryState> migrateLegacy(
+            List<CompetitorProductDetailTarget> targets,
+            int attempt,
+            LocalDateTime notBefore,
+            String errorCode,
+            String errorMessage
+    ) {
+        List<CompetitorDetailRetryState> states = new ArrayList<>();
+        for (CompetitorProductDetailTarget target : targets) {
+            states.add(new CompetitorDetailRetryState(
+                    target,
+                    attempt,
+                    notBefore,
+                    errorCode,
+                    errorMessage
+            ));
+        }
+        return states;
+    }
+
+    static void writeArrays(ObjectNode payload, List<CompetitorDetailRetryState> states) {
         ArrayNode stateArray = payload.putArray(STATE_FIELD);
         ArrayNode targetArray = payload.putArray(LEGACY_TARGET_FIELD);
-        for (CompetitorDetailRetryState state : unique(states)) {
-            if (state == null || state.getTarget() == null) {
-                continue;
-            }
-            ObjectNode stateNode = targetNode(state.getTarget());
+        for (CompetitorDetailRetryState state : validated(states)) {
+            ObjectNode stateNode =
+                    CompetitorDetailRetryJsonSupport.targetNode(state.getTarget());
             stateNode.put("retryAttempt", state.getRetryAttempt());
-            putDateTime(stateNode, "retryNotBefore", state.getRetryNotBefore());
-            putText(stateNode, "errorCode", state.getErrorCode());
-            putText(stateNode, "errorMessage", state.getErrorMessage());
+            CompetitorDetailRetryJsonSupport.putDateTime(
+                    stateNode,
+                    "retryNotBefore",
+                    state.getRetryNotBefore()
+            );
+            CompetitorDetailRetryJsonSupport.putText(
+                    stateNode,
+                    "errorCode",
+                    state.getErrorCode()
+            );
+            CompetitorDetailRetryJsonSupport.putText(
+                    stateNode,
+                    "errorMessage",
+                    state.getErrorMessage()
+            );
             stateArray.add(stateNode);
-            targetArray.add(targetNode(state.getTarget()));
+            targetArray.add(
+                    CompetitorDetailRetryJsonSupport.targetNode(state.getTarget())
+            );
         }
     }
 
     static List<CompetitorDetailRetryState> unique(
             List<CompetitorDetailRetryState> values
     ) {
-        Map<String, CompetitorDetailRetryState> unique = new LinkedHashMap<>();
-        if (values != null) {
-            for (CompetitorDetailRetryState state : values) {
-                if (state != null && state.getTarget() != null) {
-                    unique.putIfAbsent(state.identityKey(), state.copy());
-                }
-            }
-        }
-        return new ArrayList<>(unique.values());
-    }
-
-    static LocalDateTime dateTime(JsonNode value) {
-        String text = text(value);
-        if (!StringUtils.hasText(text)) {
-            return null;
-        }
-        try {
-            return LocalDateTime.parse(text);
-        } catch (DateTimeParseException exception) {
-            throw new CompetitorDetailRetryPayloadException(
-                    "Invalid retryNotBefore value.",
-                    exception
-            );
-        }
-    }
-
-    private static List<CompetitorDetailRetryState> readStates(JsonNode value) {
-        requireArray(value, STATE_FIELD);
-        List<CompetitorDetailRetryState> states = new ArrayList<>();
-        for (JsonNode item : value) {
-            if (item == null || !item.isObject()) {
-                throw invalid("Invalid detail retry state.");
-            }
-            states.add(new CompetitorDetailRetryState(
-                    target(item),
-                    nonNegativeInt(item.get("retryAttempt"), 0),
-                    dateTime(item.get("retryNotBefore")),
-                    text(item.get("errorCode")),
-                    text(item.get("errorMessage"))
-            ));
-        }
-        return unique(states);
-    }
-
-    private static List<CompetitorProductDetailTarget> readTargets(JsonNode value) {
-        if (value == null || value.isNull()) {
+        if (values == null || values.isEmpty()) {
             return new ArrayList<>();
         }
-        requireArray(value, LEGACY_TARGET_FIELD);
-        Map<String, CompetitorProductDetailTarget> unique = new LinkedHashMap<>();
-        for (JsonNode item : value) {
-            if (item == null || !item.isObject()) {
-                throw invalid("Invalid failed detail target.");
+        List<CompetitorDetailRetryState> states = new ArrayList<>();
+        Set<String> identities = new LinkedHashSet<>();
+        for (CompetitorDetailRetryState state : values) {
+            validateState(state);
+            if (!identities.add(state.identityKey())) {
+                throw invalid("Duplicate detail retry target identity.");
             }
-            CompetitorProductDetailTarget target = target(item);
-            unique.putIfAbsent(target.identityKey(), target);
+            states.add(state.copy());
         }
-        return new ArrayList<>(unique.values());
+        return states;
     }
 
-    private static CompetitorProductDetailTarget target(JsonNode item) {
-        CompetitorProductDetailTarget target = new CompetitorProductDetailTarget();
-        target.setSubjectType(text(item.get("subjectType")));
-        target.setCompetitorProductId(nullableLong(item.get("competitorProductId")));
-        target.setNoonProductCode(text(item.get("noonProductCode")));
-        target.setCanonicalUrl(text(item.get("canonicalUrl")));
-        return target;
+    static String stateCanonical(List<CompetitorDetailRetryState> states) {
+        StringBuilder value = new StringBuilder();
+        for (CompetitorDetailRetryState state : validated(states)) {
+            value.append(CompetitorDetailRetryJsonSupport.part(
+                    CompetitorDetailRetryJsonSupport.targetCanonical(state.getTarget())
+            ));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getRetryAttempt()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getRetryNotBefore()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getErrorCode()));
+            value.append(CompetitorDetailRetryJsonSupport.part(state.getErrorMessage()));
+        }
+        return value.toString();
     }
 
-    private static ObjectNode targetNode(CompetitorProductDetailTarget target) {
-        ObjectNode value = com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode();
-        putText(value, "subjectType", target.getSubjectType());
-        putLong(value, "competitorProductId", target.getCompetitorProductId());
-        putText(value, "noonProductCode", target.getNoonProductCode());
-        putText(value, "canonicalUrl", target.getCanonicalUrl());
-        return value;
+    static String legacyCanonical(
+            List<CompetitorProductDetailTarget> targets,
+            int attempt,
+            LocalDateTime notBefore
+    ) {
+        StringBuilder value = new StringBuilder();
+        value.append(CompetitorDetailRetryJsonSupport.part(attempt));
+        value.append(CompetitorDetailRetryJsonSupport.part(notBefore));
+        for (CompetitorProductDetailTarget target : targets) {
+            value.append(CompetitorDetailRetryJsonSupport.part(
+                    CompetitorDetailRetryJsonSupport.targetCanonical(target)
+            ));
+        }
+        return value.toString();
     }
 
-    private static void requireArray(JsonNode value, String field) {
-        if (value == null || !value.isArray()) {
-            throw invalid(field + " must be a JSON array.");
+    static List<CompetitorProductDetailTarget> targets(
+            List<CompetitorDetailRetryState> states
+    ) {
+        List<CompetitorProductDetailTarget> targets = new ArrayList<>();
+        for (CompetitorDetailRetryState state : validated(states)) {
+            targets.add(state.getTarget());
+        }
+        return targets;
+    }
+
+    static int maximumAttempt(List<CompetitorDetailRetryState> states) {
+        int maximum = 0;
+        for (CompetitorDetailRetryState state : validated(states)) {
+            maximum = Math.max(maximum, state.getRetryAttempt());
+        }
+        return maximum;
+    }
+
+    static LocalDateTime earliestWake(List<CompetitorDetailRetryState> states) {
+        LocalDateTime earliest = null;
+        for (CompetitorDetailRetryState state : validated(states)) {
+            if (earliest == null || state.getRetryNotBefore().isBefore(earliest)) {
+                earliest = state.getRetryNotBefore();
+            }
+        }
+        return earliest;
+    }
+
+    static LocalDateTime latestWake(List<CompetitorDetailRetryState> states) {
+        LocalDateTime latest = null;
+        for (CompetitorDetailRetryState state : validated(states)) {
+            if (latest == null || state.getRetryNotBefore().isAfter(latest)) {
+                latest = state.getRetryNotBefore();
+            }
+        }
+        return latest;
+    }
+
+    private static List<CompetitorDetailRetryState> validated(
+            List<CompetitorDetailRetryState> states
+    ) {
+        if (states == null || states.isEmpty()) {
+            throw invalid("Detail retry states must not be empty.");
+        }
+        for (CompetitorDetailRetryState state : states) {
+            validateState(state);
+        }
+        return states;
+    }
+
+    private static void validateState(CompetitorDetailRetryState state) {
+        if (state == null || state.getRetryNotBefore() == null) {
+            throw invalid("Detail retry state requires retryNotBefore.");
+        }
+        if (state.getRetryAttempt() < 0
+                || state.getRetryAttempt() > CompetitorDetailRetryPolicy.MAX_RETRY_ATTEMPTS) {
+            throw invalid("Detail retry state attempt is outside the allowed range.");
+        }
+        CompetitorDetailRetryJsonSupport.validateTarget(state.getTarget());
+    }
+
+    private static void requireNonEmptyArray(JsonNode value, String field) {
+        if (value == null || !value.isArray() || value.isEmpty()) {
+            throw invalid(field + " must be a non-empty JSON array.");
         }
     }
 
     private static CompetitorDetailRetryPayloadException invalid(String message) {
-        return new CompetitorDetailRetryPayloadException(message);
-    }
-
-    private static int nonNegativeInt(JsonNode value, int fallback) {
-        return value == null || value.isNull() ? fallback : Math.max(0, value.asInt(fallback));
-    }
-
-    private static Long nullableLong(JsonNode value) {
-        return value == null || value.isNull() ? null : value.asLong();
-    }
-
-    private static String text(JsonNode value) {
-        return value == null || value.isNull() ? null : normalize(value.asText());
-    }
-
-    private static String normalize(String value) {
-        return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private static void putDateTime(ObjectNode target, String name, LocalDateTime value) {
-        if (value != null) {
-            target.put(name, value.toString());
-        }
-    }
-
-    private static void putLong(ObjectNode target, String name, Long value) {
-        if (value != null) {
-            target.put(name, value);
-        }
-    }
-
-    private static void putText(ObjectNode target, String name, String value) {
-        if (value != null) {
-            target.put(name, value);
-        }
+        return CompetitorDetailRetryJsonSupport.invalid(message);
     }
 }

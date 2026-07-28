@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class CompetitorDetailRetryPayloadTest {
@@ -39,8 +40,9 @@ class CompetitorDetailRetryPayloadTest {
         assertFalse(persisted.path("rankRefresh").asBoolean());
         assertTrue(persisted.path("detailRefresh").asBoolean());
         assertEquals("detail:2026-07-28", persisted.path("batchKey").asText());
-        assertEquals(0, persisted.path("retryAttempt").asInt());
-        assertEquals(4, persisted.path("maxRetryAttempts").asInt());
+        assertFalse(persisted.has("retryAttempt"));
+        assertFalse(persisted.has("maxRetryAttempts"));
+        assertFalse(persisted.has("detailRetryStates"));
     }
 
     @Test
@@ -57,11 +59,6 @@ class CompetitorDetailRetryPayloadTest {
                 + "\"competitorProductId\":190123,"
                 + "\"noonProductCode\":\"ZFAIL001\","
                 + "\"canonicalUrl\":\"https://www.noon.com/item/ZFAIL001\""
-                + "},{"
-                + "\"subjectType\":\"competitor\","
-                + "\"competitorProductId\":190999,"
-                + "\"noonProductCode\":\"zfail001\","
-                + "\"canonicalUrl\":\"https://www.noon.com/duplicate/ZFAIL001\""
                 + "}],"
                 + "\"lastErrorCode\":\"PROVIDER_UNAVAILABLE\","
                 + "\"message\":\"Noon detail timed out\","
@@ -98,8 +95,14 @@ class CompetitorDetailRetryPayloadTest {
 
     @Test
     void readinessUsesInclusiveRetryBoundary() {
-        CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.empty();
-        payload.setRetryNotBefore(LocalDateTime.parse("2026-07-28T02:02:00"));
+        CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.fromJson(
+                "{\"retryAttempt\":1,"
+                        + "\"maxRetryAttempts\":4,"
+                        + "\"retryNotBefore\":\"2026-07-28T02:02:00\","
+                        + "\"failedDetailTargets\":[{"
+                        + "\"subjectType\":\"SELF\","
+                        + "\"noonProductCode\":\"ZSELF001\"}]}"
+        );
 
         assertFalse(payload.isReadyAt(LocalDateTime.parse("2026-07-28T02:01:59")));
         assertTrue(payload.isReadyAt(LocalDateTime.parse("2026-07-28T02:02:00")));
@@ -108,25 +111,26 @@ class CompetitorDetailRetryPayloadTest {
 
     @Test
     void riskHoldDelaysReadyTargetWithoutShorteningLaterTarget() throws Exception {
-        CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.fromJson(
-                "{\"detailRetryStates\":[{"
-                        + "\"subjectType\":\"SELF\","
-                        + "\"noonProductCode\":\"ZREADY\","
-                        + "\"retryAttempt\":1,"
-                        + "\"retryNotBefore\":\"2026-07-28T02:02:00\""
-                        + "},{"
-                        + "\"subjectType\":\"COMPETITOR\","
-                        + "\"competitorProductId\":88003,"
-                        + "\"noonProductCode\":\"ZLATER\","
-                        + "\"retryAttempt\":1,"
-                        + "\"retryNotBefore\":\"2026-07-28T03:00:00\""
-                        + "}]}"
-        );
+        CompetitorDetailRetryPayload payload = CompetitorDetailRetryPayload.empty();
+        payload.setRetryStates(Arrays.asList(
+                state(
+                        CompetitorProductDetailTarget.self("ZREADY01"),
+                        "2026-07-28T02:02:00"
+                ),
+                state(
+                        CompetitorProductDetailTarget.competitor(
+                                88003L,
+                                "ZLATER01",
+                                null
+                        ),
+                        "2026-07-28T03:00:00"
+                )
+        ));
 
         payload.delayRetryStatesUntil(LocalDateTime.parse("2026-07-28T02:11:00"));
 
         JsonNode persisted = JSON.readTree(payload.toJson());
-        assertEquals("2026-07-28T02:11:00", persisted.path("retryNotBefore").asText());
+        assertEquals("2026-07-28T03:00:00", persisted.path("retryNotBefore").asText());
         assertEquals("2026-07-28T02:11:00", persisted.path("detailRetryStates").path(0)
                 .path("retryNotBefore").asText());
         assertEquals("2026-07-28T03:00:00", persisted.path("detailRetryStates").path(1)
@@ -140,6 +144,19 @@ class CompetitorDetailRetryPayloadTest {
                 () -> CompetitorDetailRetryPayload.fromJson(
                         "{\"retryNotBefore\":\"not-a-date\"}"
                 )
+        );
+    }
+
+    private static CompetitorDetailRetryState state(
+            CompetitorProductDetailTarget target,
+            String wake
+    ) {
+        return new CompetitorDetailRetryState(
+                target,
+                1,
+                LocalDateTime.parse(wake),
+                null,
+                null
         );
     }
 }
