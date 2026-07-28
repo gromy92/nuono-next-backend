@@ -292,7 +292,6 @@ class ProductSiteOfferFetcher {
         }
         return index;
     }
-
     private JsonNode safePostOptional(
             NoonSession session,
             String url,
@@ -303,11 +302,11 @@ class ProductSiteOfferFetcher {
         try {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             log.warn("{}：{}", warningPrefix, noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }
-
     private String noonFailureMessage(RuntimeException exception) {
         if (productNoonAdapter == null) {
             return shrink(exception.getMessage());

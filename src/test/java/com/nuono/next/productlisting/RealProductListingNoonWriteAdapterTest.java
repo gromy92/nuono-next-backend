@@ -94,7 +94,7 @@ abstract class RealProductListingNoonWriteAdapterTest {
         boolean failOnIdProductFullTypeLookup;
         RuntimeException taxonomyFailure;
         boolean failCreateTransport;
-        boolean failCreateAuthentication;
+        boolean failCreateRedirect;
         boolean createResponseMissingReferences;
         boolean offerListContainsProduct;
         boolean failOfferListAuthentication;
@@ -288,7 +288,7 @@ abstract class RealProductListingNoonWriteAdapterTest {
         public JsonNode postWriteJson(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
             calls.add(new Call(url, body, withProject, extraHeaders));
             if (ProductListingRealWriteProperties.Endpoints.DEFAULT_CREATE_PRODUCT_URL.equals(url)) {
-                if (failCreateAuthentication) {
+                if (failCreateRedirect) {
                     throw new NoonHttpException(
                             307,
                             "authentication expired after request write",

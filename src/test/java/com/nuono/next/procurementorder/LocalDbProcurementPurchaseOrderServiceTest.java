@@ -839,13 +839,13 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     @Test
     void listShippingOrdersReturnsMissingYiteMaterialCount() {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord order = shippingOrder();
-        order.missingYiteMaterialCount = 75;
-        when(mapper.listShippingOrders(307L, "")).thenReturn(List.of(order));
+        order.missingYiteMaterialCount = 75; ShippingOrderSegmentRecord segment = shippingOrderSegment(292001L, "SA", "AIR"); segment.purchaseOrderCount = 2; segment.purchaseOrderNames = "SGGR-0717、canman-0717";
+        when(mapper.listShippingOrders(307L, "")).thenReturn(List.of(order)); when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(segment));
 
         List<ShippingOrderView> orders = service.listShippingOrders(access(), null);
 
         assertThat(orders).hasSize(1);
-        assertThat(orders.get(0).missingYiteMaterialCount).isEqualTo(75);
+        assertThat(orders.get(0).missingYiteMaterialCount).isEqualTo(75); assertThat(orders.get(0).segments).singleElement().satisfies(value -> { assertThat(value.purchaseOrderCount).isEqualTo(2); assertThat(value.purchaseOrderNames).isEqualTo("SGGR-0717、canman-0717"); });
         verify(mapper).listShippingOrders(307L, "");
     }
 

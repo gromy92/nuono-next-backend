@@ -53,7 +53,7 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
             @Arg(column = "partnerSku", javaType = String.class)
     })
     @Select({
-            "SELECT pb.logical_store_id AS logicalStoreId, pb.partner_sku AS partnerSku",
+            "SELECT MIN(pb.logical_store_id) AS logicalStoreId, MIN(pb.partner_sku) AS partnerSku",
             "FROM product_barcode pb",
             "JOIN product_master pm",
             "  ON pm.id = pb.product_master_id",
@@ -69,7 +69,7 @@ public interface InTransitGoodsLineMapper extends InTransitGoodsSequenceMapper {
             "  AND pb.logical_store_id IS NOT NULL",
             "  AND NULLIF(TRIM(pb.partner_sku), '') IS NOT NULL",
             "  AND COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
-            "LIMIT 1"
+            "HAVING COUNT(DISTINCT pb.logical_store_id) = 1"
     })
     BarcodeProductIdentity selectProductIdentityByBarcode(
             @Param("ownerUserId") Long ownerUserId,

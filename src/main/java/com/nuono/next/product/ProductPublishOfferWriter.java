@@ -72,41 +72,33 @@ class ProductPublishOfferWriter {
             headers.put("X-Project", session.getProjectCode());
         }
         String partnerSku = firstNonBlank(textValue(siteOffer.get("partnerSku")), textValue(fieldValue(baselineOffer, "partnerSku")));
-        if (priceChanged(siteOffer, baselineOffer)) {
-            productNoonAdapter.postWriteJson(
-                    session,
-                    OFFER_MGMT_PRICE_UPSERT_URL,
-                    buildOfferPriceBody(pskuCode, partnerSku, siteOffer),
-                    false,
-                    headers
-            );
-        }
-        if (integerFieldChanged(siteOffer, baselineOffer, "idWarranty")) {
-            productNoonAdapter.postWriteJson(
-                    session,
-                    OFFER_MGMT_ID_WARRANTY_UPSERT_URL,
-                    buildOfferIdWarrantyBody(pskuCode, partnerSku, siteOffer),
-                    false,
-                    headers
-            );
-        }
-        if (textFieldChanged(siteOffer, baselineOffer, "offerNote")) {
-            productNoonAdapter.postWriteJson(
-                    session,
-                    OFFER_MGMT_OFFER_NOTE_UPSERT_URL,
-                    buildOfferNoteBody(pskuCode, partnerSku, siteOffer),
-                    false,
-                    headers
-            );
-        }
-        if (booleanFieldChanged(siteOffer, baselineOffer, "isActive")) {
-            productNoonAdapter.postWriteJson(
-                    session,
-                    OFFER_MGMT_IS_ACTIVE_UPSERT_URL,
-                    buildOfferActivationBody(pskuCode, partnerSku, siteOffer),
-                    false,
-                    headers
-            );
+        boolean writeCompleted = false;
+        try {
+            if (priceChanged(siteOffer, baselineOffer)) {
+                ProductPublishWriteOutcomeUnknownException.postJson(productNoonAdapter, session, OFFER_MGMT_PRICE_UPSERT_URL,
+                        buildOfferPriceBody(pskuCode, partnerSku, siteOffer),
+                        headers, writeCompleted, "Offer 价格写入");
+                writeCompleted = true;
+            }
+            if (integerFieldChanged(siteOffer, baselineOffer, "idWarranty")) {
+                ProductPublishWriteOutcomeUnknownException.postJson(productNoonAdapter, session, OFFER_MGMT_ID_WARRANTY_UPSERT_URL,
+                        buildOfferIdWarrantyBody(pskuCode, partnerSku, siteOffer),
+                        headers, writeCompleted, "Offer 质保写入");
+                writeCompleted = true;
+            }
+            if (textFieldChanged(siteOffer, baselineOffer, "offerNote")) {
+                ProductPublishWriteOutcomeUnknownException.postJson(productNoonAdapter, session, OFFER_MGMT_OFFER_NOTE_UPSERT_URL,
+                        buildOfferNoteBody(pskuCode, partnerSku, siteOffer),
+                        headers, writeCompleted, "Offer 备注写入");
+                writeCompleted = true;
+            }
+            if (booleanFieldChanged(siteOffer, baselineOffer, "isActive")) {
+                ProductPublishWriteOutcomeUnknownException.postJson(productNoonAdapter, session, OFFER_MGMT_IS_ACTIVE_UPSERT_URL,
+                        buildOfferActivationBody(pskuCode, partnerSku, siteOffer),
+                        headers, writeCompleted, "Offer 上下架写入");
+            }
+        } catch (RuntimeException exception) {
+            throw ProductPublishWriteOutcomeUnknownException.afterStageFailure("Offer 后续处理", writeCompleted, exception);
         }
         if (siteOffer.get("fbnStock") != null || siteOffer.get("supermallStock") != null || siteOffer.get("fbpStock") != null) {
             actionWarnings.add("当前页面展示的是库存汇总，本轮发布不会直接改 Noon 仓库库存。");

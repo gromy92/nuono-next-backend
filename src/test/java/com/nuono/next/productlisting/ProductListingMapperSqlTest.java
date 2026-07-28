@@ -83,7 +83,6 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("LIMIT #{limit}"));
     }
 
-
     @Test
     void listedPartnerSkuLookupShouldUseOwnerStoreSkuAndKnownWrittenStates() {
         Method method = mapperMethod("selectListedPartnerSkuTask");
@@ -95,7 +94,7 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("store_code = #{storeCode}"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status IN ('submitted', 'running', 'succeeded', 'written_verify_failed')"));
-        assertTrue(sql.contains("status = 'failed' AND failure_code = 'partner_sku_already_exists'"));
+        assertTrue(sql.contains("'partner_sku_already_exists'") && sql.contains("'noon_auth_required'"));
         assertTrue(sql.contains("JSON_EXTRACT(input_snapshot_json, '$.psku')"));
         assertTrue(sql.contains("UPPER(TRIM(#{partnerSku}))"));
     }
@@ -120,6 +119,7 @@ class ProductListingMapperSqlTest {
         String sql = compact(select.value());
 
         assertTrue(sql.contains("JSON_EXTRACT(input_snapshot_json, '$.barcode')"));
+        assertTrue(sql.contains("status = 'failed' AND failure_code = 'noon_auth_required'"));
         assertTrue(sql.contains("FROM product_publish_task delete_task"));
         assertTrue(sql.contains("JSON_EXTRACT(product_listing_task.input_snapshot_json, '$.psku')"));
         assertTrue(sql.contains("delete_task.status = 'synced'"));
@@ -224,7 +224,6 @@ class ProductListingMapperSqlTest {
         assertTrue(sql.contains("status = 'running'"));
         assertTrue(sql.contains("gmt_updated < #{staleBefore}"));
     }
-
 
     @Test
     void updateTaskResultShouldPersistNoonResultAndFailureCategory() {

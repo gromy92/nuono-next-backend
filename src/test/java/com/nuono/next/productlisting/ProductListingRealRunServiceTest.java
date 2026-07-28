@@ -68,11 +68,12 @@ abstract class ProductListingRealRunServiceTest {
         create.setStatus("failed");
         create.setFailureCode("noon_create_outcome_unknown");
         create.setFailureMessage("connection reset after request write");
+        create.setWriteMayHaveOccurred(true);
         return ProductListingNoonWriteResult.failed(
                 "noon_api",
                 "noon_create_outcome_unknown",
                 "connection reset after request write",
-                List.of(create)
+                List.of(preCreateAbsenceStep(), create)
         );
     }
 
@@ -83,12 +84,25 @@ abstract class ProductListingRealRunServiceTest {
         create.setStatus("failed");
         create.setFailureCode("noon_create_outcome_unknown");
         create.setFailureMessage("authentication expired after request write");
+        create.setWriteMayHaveOccurred(true);
         return ProductListingNoonWriteResult.failed(
                 "authentication",
                 "noon_auth_required",
                 "authentication expired after request write",
-                List.of(create)
+                List.of(preCreateAbsenceStep(), create)
         );
+    }
+
+    protected ProductListingNoonWriteStepResult preCreateAbsenceStep() {
+        ProductListingNoonWriteStepResult absence =
+                new ProductListingNoonWriteStepResult();
+        absence.setStepKey("pre_create_absence_verified");
+        absence.setStatus("succeeded");
+        absence.setExternalReference(
+                "storeCode=STR245027-NAE;partnerSku=NN-TEST-PSKU;"
+                        + "realRunTaskId=20002;checkedAt=2026-07-27T10:15:30+08:00");
+        absence.setWriteMayHaveOccurred(false);
+        return absence;
     }
 
     protected ProductListingNoonWriteResult

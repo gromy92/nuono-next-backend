@@ -1,6 +1,5 @@
 package com.nuono.next.product;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
 import java.io.IOException;
@@ -14,6 +13,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,9 @@ class ProductImageWorkflowService {
     private final ProductImageGenerator generator;
     private final ObjectProvider<ProductImageNoonPublisher> publisherProvider;
     private final ObjectMapper objectMapper;
+    private final PapersayPackageImageComposer packageComposer;
+    private final ProductImagePublishExecutionLocks publishExecutionLocks =
+            new ProductImagePublishExecutionLocks();
 
     ProductImageWorkflowService(
             ProductImageProfileMapper mapper,
@@ -45,12 +49,15 @@ class ProductImageWorkflowService {
         this.generator = generator;
         this.publisherProvider = publisherProvider;
         this.objectMapper = objectMapper;
+        this.packageComposer = new PapersayPackageImageComposer(objectMapper);
     }
 
     void generate(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
-        boolean rework = suite.getParentSuiteId() != null;
+        List<ProductImageSuiteReviewTargetRecord> reviewTargets = mapper.selectReviewTargets(suiteId);
+        if (reviewTargets == null) reviewTargets = List.of();
+        boolean rework = suite.getParentSuiteId() != null || !reviewTargets.isEmpty();
         mapper.updateSuiteWorkflowStatus(
                 suiteId,
                 rework ? ProductImageSuiteStatus.REGENERATING : ProductImageSuiteStatus.GENERATING,
@@ -60,16 +67,28 @@ class ProductImageWorkflowService {
         );
         try {
             List<ProductImageSuiteAssetRecord> existing = mapper.selectSuiteAssets(suiteId);
+            boolean papersayPackageComposition = packageComposer.supports(suite);
+            ProductImageSuiteReworkGenerator.replace(
+                    mapper, generator, suite, reviewTargets, existing,
+                    role -> ProductImageReferenceSelector.select(mapper, profile, role),
+                    papersayPackageComposition,
+                    storeCode, this::rolePrompt, this::saveGeneratedImage
+            );
             Set<ProductImageSuiteAssetRole> completed = existing.stream()
                     .map(ProductImageSuiteAssetRecord::getImageRole)
                     .collect(Collectors.toCollection(LinkedHashSet::new));
-            List<String> baseReferences = baseReferences(profile);
             for (int roleIndex = 0; roleIndex < REQUIRED_ROLES.size(); roleIndex++) {
                 ProductImageSuiteAssetRole role = REQUIRED_ROLES.get(roleIndex);
                 if (completed.contains(role)) continue;
-                List<String> references = new ArrayList<>(baseReferences);
+                List<String> references = new ArrayList<>(
+                        ProductImageReferenceSelector.select(mapper, profile, role)
+                );
                 String previous = previousImage(suite, role);
-                if (StringUtils.hasText(previous)) references.add(0, previous);
+                if (!(papersayPackageComposition
+                        && role == ProductImageSuiteAssetRole.PACKAGE_LIST)
+                        && StringUtils.hasText(previous)) {
+                    references.add(0, previous);
+                }
                 GeneratedProductImage image = generator.generate(rolePrompt(suite, role), references);
                 ProductImageSuiteAssetRecord asset = saveGeneratedImage(suite, role, image, storeCode, (roleIndex + 1) * 10);
                 mapper.insertSuiteAsset(asset);
@@ -83,23 +102,86 @@ class ProductImageWorkflowService {
         }
     }
 
-    void publish(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
+    void publish(
+            Long suiteId,
+            Long ownerUserId,
+            String storeCode,
+            Long operatorUserId,
+            String attemptId
+    ) {
+        Lock executionLock = publishExecutionLocks.lockFor(suiteId);
+        executionLock.lock();
+        try {
+            publishAttempt(suiteId, ownerUserId, storeCode, operatorUserId, attemptId);
+        } finally {
+            executionLock.unlock();
+        }
+    }
+
+    private void publishAttempt(
+            Long suiteId,
+            Long ownerUserId,
+            String storeCode,
+            Long operatorUserId,
+            String attemptId
+    ) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
+        ProductImagePublishCheckpoint checkpoint =
+                ProductImagePublishCheckpoint.parse(objectMapper, suite.getPublishManifestJson());
+        if (suite.getSuiteStatus() != ProductImageSuiteStatus.PUBLISHING
+                || !checkpoint.matchesAttempt(attemptId)) {
+            return;
+        }
+        String executionToken = UUID.randomUUID().toString();
+        if (mapper.claimSuitePublishExecution(
+                suiteId, attemptId, executionToken, operatorUserId
+        ) == 0) {
+            return;
+        }
         try {
             ProductImageNoonPublisher publisher = publisherProvider.getIfAvailable();
             if (publisher == null) throw new IllegalStateException("Noon 图片发布服务暂时不可用。");
-            List<String> images = mapper.selectSuiteAssets(suiteId).stream()
-                    .map(ProductImageSuiteAssetRecord::getImageUrl)
-                    .filter(StringUtils::hasText)
-                    .collect(Collectors.toList());
+            List<String> images = checkpoint.approvedImageUrls();
             if (images.isEmpty()) throw new IllegalArgumentException("套图没有可发布的图片。");
             String skuParent = mapper.selectSkuParentByProductMasterId(profile.getProductMasterId());
-            List<String> noonUrls = publisher.publish(ownerUserId, storeCode, skuParent, images);
-            mapper.markSuiteOnline(suiteId, writeManifest(noonUrls));
+            AtomicReference<String> latestCheckpointJson =
+                    new AtomicReference<>(suite.getPublishManifestJson());
+            publisher.publish(
+                    ownerUserId,
+                    storeCode,
+                    skuParent,
+                    images,
+                    suite.getPublishManifestJson(),
+                    nextCheckpoint -> {
+                        if (mapper.updateSuitePublishManifest(
+                                suiteId,
+                                attemptId,
+                                executionToken,
+                                nextCheckpoint,
+                                operatorUserId
+                        ) == 0) {
+                            throw new IllegalStateException("商品图片发布任务状态已变化，已停止继续写入。");
+                        }
+                        latestCheckpointJson.set(nextCheckpoint);
+                    }
+            );
+            if (mapper.markSuiteOnline(
+                    suiteId, attemptId, executionToken, latestCheckpointJson.get()
+            ) == 0) {
+                throw new IllegalStateException("商品图片发布任务状态已变化，已停止写入在线状态。");
+            }
         } catch (RuntimeException exception) {
-            mapper.updateSuiteWorkflowStatus(
-                    suiteId, ProductImageSuiteStatus.FAILED, "PUBLISH", safeMessage(exception), operatorUserId
+            String failureStage = ProductWriteAuthRequiredException.find(exception) == null
+                    ? "PUBLISH"
+                    : "PUBLISH_AUTH_RECOVERY";
+            mapper.failPublishingSuiteWorkflow(
+                    suiteId,
+                    attemptId,
+                    executionToken,
+                    failureStage,
+                    safeMessage(exception),
+                    operatorUserId
             );
             throw exception;
         }
@@ -117,16 +199,6 @@ class ProductImageWorkflowService {
         return profile;
     }
 
-    private List<String> baseReferences(ProductImageProfileRecord profile) {
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (ProductImageProfileAssetRecord asset : mapper.selectAssets(profile.getId())) result.add(asset.getImageUrl());
-        if (profile.getProductMasterId() != null) {
-            for (ProductImageProfileAssetRecord asset : mapper.selectCurrentProductImages(profile.getProductMasterId())) result.add(asset.getImageUrl());
-        }
-        result.removeIf(value -> !StringUtils.hasText(value));
-        return new ArrayList<>(result);
-    }
-
     private String previousImage(ProductImageSuiteRecord suite, ProductImageSuiteAssetRole role) {
         if (suite.getParentSuiteId() == null) return null;
         return mapper.selectSuiteAssets(suite.getParentSuiteId()).stream()
@@ -136,7 +208,7 @@ class ProductImageWorkflowService {
                 .orElse(null);
     }
 
-    private String rolePrompt(ProductImageSuiteRecord suite, ProductImageSuiteAssetRole role) {
+    String rolePrompt(ProductImageSuiteRecord suite, ProductImageSuiteAssetRole role) {
         String label;
         switch (role) {
             case MAIN: label = "主图1：商品主体清晰完整，使用选定店铺皮肤"; break;
@@ -144,7 +216,12 @@ class ProductImageWorkflowService {
             case CORE_FEATURE: label = "功能图1：展示一个已确认的核心卖点"; break;
             case MATERIAL_DETAIL: label = "细节图1：商品局部特写，不做多图拼版"; break;
             case USAGE_SCENE: label = "场景图1：使用场景必须符合商品真实用途"; break;
-            default: label = "包装图1：只展示已确认包含的商品和配件";
+            default:
+                label = packageComposer.supports(suite)
+                        ? "包装内容层1：只展示已确认包含的商品和配件，"
+                                + PapersayPackageImageComposer.CONTENT_LAYER_MARKER + "，"
+                                + PapersayPackageImageComposer.CONTENT_LAYER_EXCLUSIONS
+                        : "包装图1：只展示已确认包含的商品和配件";
         }
         String feedback = StringUtils.hasText(suite.getReviewComment())
                 ? "\n审核返工意见：" + suite.getReviewComment()
@@ -163,13 +240,16 @@ class ProductImageWorkflowService {
             int sortOrder
     ) {
         try {
+            GeneratedProductImage finalized = role == ProductImageSuiteAssetRole.PACKAGE_LIST
+                    ? packageComposer.compose(suite, generated)
+                    : generated;
             String normalizedStore = storeCode.trim().toUpperCase(Locale.ROOT);
             Path dir = ProductImageAssetFileSupport.productImageUploadDir().resolve("profiles").resolve(normalizedStore).normalize();
             Files.createDirectories(dir);
             String filename = "ai-" + suite.getId() + "-" + role.name().toLowerCase(Locale.ROOT) + "-" + UUID.randomUUID() + ".png";
             Path file = dir.resolve(filename).normalize();
             if (!file.startsWith(dir)) throw new IllegalStateException("AI 图片保存路径不合法。");
-            Files.write(file, generated.content());
+            Files.write(file, finalized.content());
             ProductImageSuiteAssetRecord asset = new ProductImageSuiteAssetRecord();
             asset.setSuiteId(suite.getId());
             asset.setImageRole(role);
@@ -177,19 +257,14 @@ class ProductImageWorkflowService {
             asset.setImageUrl("/api/product-images/assets/"
                     + UriUtils.encodePathSegment(normalizedStore, java.nio.charset.StandardCharsets.UTF_8)
                     + "/" + UriUtils.encodePathSegment(filename, java.nio.charset.StandardCharsets.UTF_8));
-            asset.setContentType(generated.contentType());
-            asset.setSizeBytes((long) generated.content().length);
-            asset.setSha256(sha256(generated.content()));
+            asset.setContentType(finalized.contentType());
+            asset.setSizeBytes((long) finalized.content().length);
+            asset.setSha256(sha256(finalized.content()));
             asset.setSortOrder(sortOrder);
             return asset;
         } catch (IOException exception) {
             throw new IllegalStateException("AI 图片保存失败：" + exception.getMessage(), exception);
         }
-    }
-
-    private String writeManifest(List<String> noonUrls) {
-        try { return objectMapper.writeValueAsString(noonUrls); }
-        catch (JsonProcessingException exception) { throw new IllegalStateException("发布清单保存失败。", exception); }
     }
 
     private String sha256(byte[] content) {

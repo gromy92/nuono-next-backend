@@ -16,8 +16,8 @@ class ProductBarcodeProjectionWriterTest {
     void shouldRejectBarcodeAlreadyAssignedToAnotherProduct() {
         ProductManagementMapper mapper = mock(ProductManagementMapper.class);
         ProductBarcodeProjectionWriter writer = new ProductBarcodeProjectionWriter(mapper);
-        when(mapper.selectProductBarcodeIdByBarcode("PAPERSAYSB440")).thenReturn(55001L);
-        when(mapper.selectProductBarcodeProductMasterIdByBarcode("PAPERSAYSB440")).thenReturn(52999L);
+        when(mapper.selectProductBarcodeIdByBarcode(50003L, "PAPERSAYSB440")).thenReturn(55001L);
+        when(mapper.selectProductBarcodeProductMasterIdByBarcode(50003L, "PAPERSAYSB440")).thenReturn(52999L);
 
         assertThrows(
                 IllegalStateException.class,

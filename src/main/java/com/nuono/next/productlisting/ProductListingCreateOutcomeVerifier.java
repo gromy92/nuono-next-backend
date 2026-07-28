@@ -47,6 +47,8 @@ final class ProductListingCreateOutcomeVerifier {
         if (existing.complete()) {
             return found(task.getId(), partnerSku, existing);
         }
+        ProductListingCreateContinuationPolicy.requireRecoverable(
+                previous, task.getId(), task.getStoreCode(), partnerSku);
 
         ProductListingNoonWriteStepResult lookup;
         try {

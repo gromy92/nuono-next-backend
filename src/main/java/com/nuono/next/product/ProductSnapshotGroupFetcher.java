@@ -118,6 +118,7 @@ class ProductSnapshotGroupFetcher {
         try {
             return productNoonAdapter.getJson(session, url, withProject);
         } catch (IllegalStateException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
@@ -134,6 +135,7 @@ class ProductSnapshotGroupFetcher {
         try {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
+            ProductWriteAuthRequiredException.rethrowIfPresent(exception);
             warnings.add(warningPrefix + "：" + noonFailureMessage(exception));
             return MissingNode.getInstance();
         }

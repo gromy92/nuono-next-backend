@@ -67,32 +67,72 @@ class ProductPublishWriteService {
         String resolvedProjectCode = writeOperations.resolveProjectCode(session, projectCode, store, actionWarnings);
         session = writeOperations.withProjectAndStore(session, resolvedProjectCode, storeCode);
 
-        if (writeOperations.sharedZskuChanged(draft, baseline)) {
-            writeOperations.publishSharedAttributes(session, draft, baseline, liveBeforePublish, unsupportedChanges, actionWarnings);
-        }
-        if (writeOperations.groupChanged(draft, baseline)) {
-            productGroupPublishService.publishGroupChanges(session, draft, baseline, command.getOwnerUserId(), storeCode);
-        }
-
-        List<Map<String, Object>> targetOffers = writeOperations.targetOffers(draft, currentSiteCode);
-        Map<String, Map<String, Object>> baselineOffers = writeOperations.baselineOffers(baseline);
-        for (Map<String, Object> siteOffer : targetOffers) {
-            String siteCode = textValue(siteOffer.get("storeCode"));
-            Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
-            if (baselineOffer == null) {
-                continue;
+        boolean writeCompleted = false;
+        try {
+            if (writeOperations.sharedZskuChanged(draft, baseline)) {
+                writeOperations.publishSharedAttributes(
+                        session, draft, baseline, liveBeforePublish, unsupportedChanges, actionWarnings
+                );
+                writeCompleted = true;
             }
-            if (!writeOperations.siteOfferChanged(siteOffer, baselineOffer)) {
-                continue;
+            if (writeOperations.groupChanged(draft, baseline)) {
+                productGroupPublishService.publishGroupChanges(
+                        session, draft, baseline, command.getOwnerUserId(), storeCode
+                );
+                writeCompleted = true;
             }
-            String resolvedPskuCode = firstNonBlank(
-                    textValue(siteOffer.get("pskuCode")),
-                    textValue(baselineOffer.get("pskuCode"))
-            );
-            writeOperations.publishOffer(writeOperations.withStore(session, siteCode), resolvedPskuCode, siteOffer, baselineOffer, actionWarnings);
-        }
 
-        appendUnsupportedWarnings(unsupportedChanges, actionWarnings);
+            List<Map<String, Object>> targetOffers = writeOperations.targetOffers(draft, currentSiteCode);
+            Map<String, Map<String, Object>> baselineOffers = writeOperations.baselineOffers(baseline);
+            for (Map<String, Object> siteOffer : targetOffers) {
+                String siteCode = textValue(siteOffer.get("storeCode"));
+                Map<String, Object> baselineOffer = baselineOffers.get(siteCode);
+                if (baselineOffer == null || !writeOperations.siteOfferChanged(siteOffer, baselineOffer)) {
+                    continue;
+                }
+                String resolvedPskuCode = firstNonBlank(
+                        textValue(siteOffer.get("pskuCode")),
+                        textValue(baselineOffer.get("pskuCode"))
+                );
+                writeOperations.publishOffer(
+                        writeOperations.withStore(session, siteCode),
+                        resolvedPskuCode,
+                        siteOffer,
+                        baselineOffer,
+                        actionWarnings
+                );
+                writeCompleted = true;
+            }
+            appendUnsupportedWarnings(unsupportedChanges, actionWarnings);
+        } catch (ProductWriteAuthRequiredException exception) {
+            throw writeCompleted ? exception.withWriteMayHaveOccurred() : exception;
+        } catch (ProductPublishWriteOutcomeUnknownException exception) {
+            throw writeCompleted ? exception.withPriorWriteCompleted() : exception;
+        } catch (RuntimeException exception) {
+            ProductWriteAuthRequiredException authRequired =
+                    ProductWriteAuthRequiredException.find(exception);
+            if (authRequired != null) {
+                if (writeCompleted && !authRequired.isWriteMayHaveOccurred()) {
+                    throw authRequired.withWriteMayHaveOccurred();
+                }
+                throw exception;
+            }
+            if (exception instanceof ProductGroupPartialPublishException) {
+                throw ProductPublishWriteOutcomeUnknownException.forProviderFailure(
+                        "Group 写入",
+                        true,
+                        exception
+                );
+            }
+            if (writeCompleted) {
+                throw ProductPublishWriteOutcomeUnknownException.forProviderFailure(
+                        "已有商品发布后续写入",
+                        true,
+                        exception
+                );
+            }
+            throw exception;
+        }
     }
 
     private void appendUnsupportedWarnings(

@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonauth.NoonProjectAuthStateSynchronizer;
@@ -16,17 +17,21 @@ public class ProductListingReauthenticationCommitter {
     private final StoreSyncMapper storeSyncMapper;
     private final ProductListingWorkflowService workflowService;
     private final NoonProjectAuthStateSynchronizer projectAuthStateSynchronizer;
+    private final ProductListingSharedRecoveryEvidence sharedRecoveryEvidence;
 
     @Autowired
     public ProductListingReauthenticationCommitter(
             ProductListingMapper listingMapper,
             StoreSyncMapper storeSyncMapper,
             ProductListingWorkflowService workflowService,
-            ObjectProvider<NoonProjectAuthStateSynchronizer> synchronizerProvider
+            ObjectProvider<NoonProjectAuthStateSynchronizer> synchronizerProvider,
+            ObjectMapper objectMapper
     ) {
         this.listingMapper = listingMapper;
         this.storeSyncMapper = storeSyncMapper;
         this.workflowService = workflowService;
+        this.sharedRecoveryEvidence =
+                new ProductListingSharedRecoveryEvidence(objectMapper);
         this.projectAuthStateSynchronizer = synchronizerProvider == null
                 ? NoonProjectAuthStateSynchronizer.noop()
                 : synchronizerProvider.getIfAvailable(
@@ -39,7 +44,13 @@ public class ProductListingReauthenticationCommitter {
             StoreSyncMapper storeSyncMapper,
             ProductListingWorkflowService workflowService
     ) {
-        this(listingMapper, storeSyncMapper, workflowService, null);
+        this(
+                listingMapper,
+                storeSyncMapper,
+                workflowService,
+                null,
+                new ObjectMapper()
+        );
     }
 
     @Transactional
@@ -102,6 +113,36 @@ public class ProductListingReauthenticationCommitter {
             advanceRecoveryTask(realRun, command.resumeAction);
         }
         return workflowService.loadWorkflow(context, command.draftId);
+    }
+
+    @Transactional
+    public ProductListingWorkflowView advanceSharedRecovery(
+            BusinessAccessContext context,
+            Long realRunTaskId,
+            Long ownerUserId,
+            String expectedNoonResultJson,
+            Long expectedRecoveryId,
+            ResumeAction resumeAction
+    ) {
+        ProductListingTaskRecord realRun = listingMapper.selectTaskByIdForUpdate(
+                realRunTaskId,
+                ownerUserId
+        );
+        sharedRecoveryEvidence.requireExact(
+                realRun,
+                ownerUserId,
+                expectedNoonResultJson,
+                expectedRecoveryId
+        );
+        ProductListingWorkflowView current = workflowService.loadWorkflow(
+                context,
+                realRun.getDraftId()
+        );
+        if (!isReauthenticationTarget(current, realRunTaskId, resumeAction)) {
+            throw conflict("上架任务状态已变化，请刷新后再处理。");
+        }
+        advanceRecoveryTask(realRun, resumeAction);
+        return workflowService.loadWorkflow(context, realRun.getDraftId());
     }
 
     private void requireSameAttempt(

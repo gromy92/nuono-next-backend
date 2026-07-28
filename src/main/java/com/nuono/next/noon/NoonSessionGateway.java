@@ -1850,7 +1850,17 @@ public class NoonSessionGateway {
 
         public String getProjectCode(){ return projectCode; }
 
-        public JsonNode getJson(String url, boolean withProject){ return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null)); }
+        public Long getOwnerUserId() {
+            return ownerUserId;
+        }
+
+        public String getStoreCode() {
+            return storeCode;
+        }
+
+        public JsonNode getJson(String url, boolean withProject) {
+            return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null));
+        }
 
         public JsonNode getJson(String url, boolean withProject, Map<String, String> extraHeaders){ return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, extraHeaders)); }
 
@@ -2041,22 +2051,7 @@ public class NoonSessionGateway {
     }
 
     private boolean shouldRefreshAfterTransientTransportFailure(IllegalStateException exception) {
-        if (!proxyEnabled || exception == null){ return false; }
-        String message = throwableMessage(exception).toLowerCase(Locale.ROOT);
-        return message.contains("http/1.1 header parser received no bytes")
-                || message.contains("connection reset")
-                || message.contains("connection refused")
-                || message.contains("connect timed out")
-                || message.contains("request timed out")
-                || message.contains("read timed out")
-                || message.contains("unexpected end")
-                || message.contains("closed")
-                || message.contains("tunnel failed")
-                || message.contains("http 407")
-                || message.contains("http 408")
-                || message.contains("http 502")
-                || message.contains("http 503")
-                || message.contains("http 504");
+        return NoonTransientTransportFailurePolicy.shouldRefresh(proxyEnabled, exception);
     }
 
     private static String throwableMessage(Throwable throwable) {
@@ -3022,15 +3017,18 @@ public class NoonSessionGateway {
         private final String requestPath;
 
         private SessionExpiredException(int statusCode, String responseBody, String requestPath) {
-            super("Noon session expired with HTTP " + statusCode);
+            super("Noon session expired with HTTP " + statusCode
+                    + NoonTransientTransportFailurePolicy.safeDeterministicAuthMarker(responseBody));
             this.statusCode = statusCode;
             this.responseBody = responseBody;
             this.requestPath = requestPath;
         }
-
-        private NoonHttpException toHttpException(){ return new NoonHttpException(statusCode, responseBody, requestPath); }
+        private NoonHttpException toHttpException() {
+            NoonHttpException exception = new NoonHttpException(statusCode, responseBody, requestPath);
+            exception.initCause(this);
+            return exception;
+        }
     }
-
     public static final class NoonCookieAuthRequiredException extends IllegalStateException {
         private NoonCookieAuthRequiredException(String message) {
             super(message);
@@ -3040,7 +3038,6 @@ public class NoonSessionGateway {
             super(message, cause);
         }
     }
-
     private static final class FixedProxySelector extends ProxySelector {
         private final Proxy proxy;
 

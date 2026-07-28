@@ -79,6 +79,7 @@ public class NoonPullFailurePolicy {
             return NoonPullFailureType.PARTIAL_SUCCESS;
         }
         if (value.contains("provider unavailable") || value.contains("provider_unavailable")
+                || value.contains("http 502") || value.contains("502") || value.contains("bad gateway")
                 || value.contains("http 503") || value.contains("503")
                 || value.contains("header parser received no bytes")
                 || value.contains("received no bytes")) {

@@ -15,7 +15,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,7 +33,6 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class ProductListingService {
-
     private static final Logger LOGGER = LoggerFactory.getLogger(ProductListingService.class);
     private static final String DRY_RUN_MODE = "DRY_RUN";
     private static final String REAL_RUN_MODE = "REAL_RUN";
@@ -56,7 +54,6 @@ public class ProductListingService {
     private final ProductListingImageMetadataEnricher imageMetadataEnricher;
     private final ProductListingDryRunFreshness dryRunFreshness;
     private final ProductListingWorkflowGuard workflowGuard;
-    private final ProductListingRealRunHeartbeat realRunHeartbeat;
 
     @Autowired
     public ProductListingService(
@@ -88,7 +85,6 @@ public class ProductListingService {
                 : imageMetadataEnricher;
         this.dryRunFreshness = new ProductListingDryRunFreshness(objectMapper);
         this.workflowGuard = new ProductListingWorkflowGuard(mapper, objectMapper);
-        this.realRunHeartbeat = new ProductListingRealRunHeartbeat(mapper);
     }
 
     public ProductListingService(
@@ -111,7 +107,6 @@ public class ProductListingService {
                 null
         );
     }
-
     public ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -252,7 +247,6 @@ public class ProductListingService {
                 command.getSourceRefId()
         );
     }
-
     public ProductListingDraftView validateDraft(BusinessAccessContext context, Long draftId) {
         requireContext(context);
         Long ownerUserId = requireOwnerUserId(context);
@@ -513,8 +507,7 @@ public class ProductListingService {
                         partnerSku
                 );
                 if ((existingProductId != null && !isSameRebuildSourceProduct(existingProductId, dryRunDraft))
-                        || (existingPartnerSkuTask != null
-                        && !isHistoricalRebuildPartnerSkuTask(dryRunTask, dryRunDraft, existingPartnerSkuTask))) {
+                        || existingPartnerSkuTask != null) {
                     return insertRejectedRealRunTask(
                             context,
                             dryRunTask,
@@ -538,8 +531,7 @@ public class ProductListingService {
                         barcode
                 );
                 if ((existingProductId != null && !isSameRebuildSourceProduct(existingProductId, dryRunDraft))
-                        || (existingBarcodeTask != null
-                        && !isHistoricalRebuildPartnerSkuTask(dryRunTask, dryRunDraft, existingBarcodeTask))) {
+                        || existingBarcodeTask != null) {
                     return insertRejectedRealRunTask(
                             context,
                             dryRunTask,
@@ -626,23 +618,12 @@ public class ProductListingService {
         if (task.getStartedAt() == null) {
             task.setStartedAt(startedAt);
         }
-        LocalDateTime claimedStartedAt = task.getStartedAt();
-        ScheduledFuture<?> heartbeat = realRunHeartbeat.start(task.getId(), claimedStartedAt);
-        try {
-            ProductListingNoonWriteResult result = executeNoonWrite(task);
+        try (ProductListingTaskLease lease = ProductListingTaskLease.start(mapper, task)) {
+            ProductListingNoonWriteResult result = executeNoonWrite(task, lease);
+            lease.heartbeatOrThrow();
             applyNoonWriteResult(task, result);
-            if (mapper.updateRunningTaskResult(task) == 1){ return taskView(task, readIssues(task.getValidationJson())); }
-            ProductListingTaskRecord latest = mapper.selectTaskByIdForWorker(realRunTaskId);
-            if (latest == null) {
-                throw new IllegalArgumentException("Product listing real-run task not found.");
-            }
-            LOGGER.warn(
-                    "Discarded late product-listing worker result after its running claim was lost: taskId={}",
-                    realRunTaskId
-            );
-            return taskView(latest, readIssues(latest.getValidationJson()));
-        } finally {
-            heartbeat.cancel(false);
+            task = lease.completeOrReload(task);
+            return taskView(task, readIssues(task.getValidationJson()));
         }
     }
 
@@ -653,7 +634,6 @@ public class ProductListingService {
         LocalDateTime staleBefore = LocalDateTime.now().minus(safeMaxRunningAge);
         return mapper.recoverStaleRunningRealRunTasks(staleBefore);
     }
-
     private List<String> acquireIdentityLocks(
             Long ownerUserId,
             String storeCode,
@@ -748,18 +728,23 @@ public class ProductListingService {
     ) {
         ProductListingTaskRecord task = workflowGuard.requireRecoveryTask(
                 context, realRunTaskId, ProductListingWorkflowView.NextAction.VERIFY_READBACK);
-        ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson());
-        NoonWriteReferences references = requireNoonWriteReferences(previousResult);
-        ProductListingNoonWriteStepResult readBack = noonWriteAdapter.verifyReadBack(
-                noonWriteRequest(context, task),
-                references.skuParent,
-                references.pskuCode,
-                references.uploadedImagePaths
-        );
-        ProductListingNoonWriteResult result = resultWithReadBack(previousResult, readBack);
-        applyNoonWriteResult(task, result);
-        mapper.updateTaskResult(task);
-        return taskView(task, readIssues(task.getValidationJson()));
+        task = ProductListingTaskLease.claimRecovery(mapper, task);
+        try (ProductListingTaskLease lease = ProductListingTaskLease.start(mapper, task)) {
+            ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson());
+            try {
+                NoonWriteReferences references = requireNoonWriteReferences(previousResult);
+                ProductListingNoonWriteRequest request = noonWriteRequest(context, task);
+                request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
+                ProductListingNoonWriteStepResult readBack = noonWriteAdapter.verifyReadBack(
+                        request, references.skuParent, references.pskuCode, references.uploadedImagePaths);
+                ProductListingNoonWriteResult result = resultWithReadBack(previousResult, readBack);
+                lease.heartbeatOrThrow();
+                return completeManualRecovery(task, lease, result);
+            } catch (RuntimeException exception) {
+                return completeManualRecovery(task, lease,
+                        ProductListingManualRecoveryResult.fromException(previousResult, "verify_noon_readback", exception));
+            }
+        }
     }
 
     @Transactional
@@ -776,20 +761,36 @@ public class ProductListingService {
             throw new IllegalArgumentException("Real Noon listing writes are disabled by kill switch.");
         }
         ProductListingNoonWriteResult previousResult = readNoonResult(task.getNoonResultJson());
-        NoonWriteReferences references = noonWriteReferences(previousResult);
-        if (!StringUtils.hasText(references.skuParent) || !StringUtils.hasText(references.pskuCode)) {
-            throw new IllegalArgumentException(
-                    "请先核对创建结果并保存 Noon 商品引用，再继续创建后的步骤。"
-            );
+        String partnerSku = readPartnerSku(task.getInputSnapshotJson());
+        ProductListingCreateContinuationPolicy.requireContinuationWriteAllowed(
+                previousResult, task.getId(), task.getStoreCode(), partnerSku);
+        task = ProductListingTaskLease.claimRecovery(mapper, task);
+        try (ProductListingTaskLease lease = ProductListingTaskLease.start(mapper, task)) {
+            ProductListingNoonWriteRequest request = noonWriteRequest(context, task);
+            request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
+            NoonWriteReferences references = noonWriteReferences(previousResult);
+            try {
+                if (!StringUtils.hasText(references.skuParent) || !StringUtils.hasText(references.pskuCode)) {
+                    throw new IllegalArgumentException(
+                            "请先通过只读创建结果核对保存 Noon 商品引用，再继续创建后的步骤。"
+                    );
+                }
+                ProductListingNoonWriteResult continuationResult =
+                        noonWriteAdapter.continueAfterCreate(request, references.skuParent, references.pskuCode);
+                ProductListingNoonWriteResult result = resultWithContinuation(previousResult, continuationResult);
+                lease.heartbeatOrThrow();
+                return completeManualRecovery(task, lease, result);
+            } catch (RuntimeException exception) {
+                return completeManualRecovery(task, lease,
+                        ProductListingManualRecoveryResult.fromException(previousResult, "continue_after_create", exception));
+            }
         }
-        ProductListingNoonWriteResult continuationResult = noonWriteAdapter.continueAfterCreate(
-                noonWriteRequest(context, task),
-                references.skuParent,
-                references.pskuCode
-        );
-        ProductListingNoonWriteResult result = resultWithContinuation(previousResult, continuationResult);
+    }
+
+    private ProductListingTaskView completeManualRecovery(
+            ProductListingTaskRecord task, ProductListingTaskLease lease, ProductListingNoonWriteResult result) {
         applyNoonWriteResult(task, result);
-        mapper.updateTaskResult(task);
+        task = lease.completeOrReload(task);
         return taskView(task, readIssues(task.getValidationJson()));
     }
 
@@ -925,9 +926,14 @@ public class ProductListingService {
         return task;
     }
 
-    private ProductListingNoonWriteResult executeNoonWrite(ProductListingTaskRecord realRunTask) {
+    private ProductListingNoonWriteResult executeNoonWrite(
+            ProductListingTaskRecord realRunTask,
+            ProductListingTaskLease lease
+    ) {
         try {
-            ProductListingNoonWriteResult result = noonWriteAdapter.execute(noonWriteRequest(realRunTask));
+            ProductListingNoonWriteRequest request = noonWriteRequest(realRunTask);
+            request.setExecutionLeaseHeartbeat(lease::heartbeatOrThrow);
+            ProductListingNoonWriteResult result = noonWriteAdapter.execute(request);
             if (result == null) {
                 return ProductListingNoonWriteResult.failed(
                         "configuration",
@@ -1018,7 +1024,7 @@ public class ProductListingService {
                         ? safeReadBack.getFailureMessage()
                         : "Noon listing read-back failed.",
                 steps
-        );
+        ).withPriorWriteCompleted();
     }
 
     private ProductListingNoonWriteResult resultWithContinuation(
@@ -1052,7 +1058,7 @@ public class ProductListingService {
                         ? safeContinuation.getFailureMessage()
                         : "Product listing Noon write continuation failed.",
                 steps
-        );
+        ).withPriorWriteCompleted();
     }
 
     private ProductListingNoonWriteStepResult failedReadBackStep(String failureCode, String failureMessage) {
@@ -1063,7 +1069,6 @@ public class ProductListingService {
         step.setFailureMessage(failureMessage);
         return step;
     }
-
     private void applyNoonWriteResult(
             ProductListingTaskRecord task,
             ProductListingNoonWriteResult result
@@ -1085,6 +1090,24 @@ public class ProductListingService {
             task.setFailureMessage(null);
             return;
         }
+        if (ProductListingWriteAuthRecovery.FAILURE_CODE.equals(result.getFailureCode())) {
+            task.setStatus(Boolean.TRUE.equals(result.getWriteMayHaveOccurred())
+                    ? REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED
+                    : "failed");
+            task.setFailureCategory("authorization");
+            task.setFailureCode(ProductListingWriteAuthRecovery.FAILURE_CODE);
+            task.setFailureMessage(StringUtils.hasText(result.getFailureMessage())
+                    ? result.getFailureMessage()
+                    : "Noon Project 授权恢复中；系统不会自动重放本次上架。");
+            return;
+        }
+        if (isCreateOutcomeUnknown(result)) {
+            task.setStatus(REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED);
+            task.setFailureCategory("noon_uncertain_write");
+            task.setFailureCode("noon_create_outcome_unknown");
+            task.setFailureMessage("Noon 创建请求结果未知；请核对创建结果并继续后续步骤，不要重复提交上架。");
+            return;
+        }
         if (isWrittenButVerificationFailed(result)) {
             task.setStatus(REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED);
             task.setFailureCategory(StringUtils.hasText(result.getFailureCategory())
@@ -1098,22 +1121,6 @@ public class ProductListingService {
                     : "Noon product was written, but readback verification failed.");
             return;
         }
-        if (isCreateOutcomeUnknown(result)) {
-            task.setStatus(REAL_RUN_STATUS_WRITTEN_VERIFY_FAILED);
-            boolean authenticationRequired =
-                    "noon_auth_required".equalsIgnoreCase(
-                            result.getFailureCode());
-            task.setFailureCategory(authenticationRequired
-                    ? "authentication"
-                    : "noon_uncertain_write");
-            task.setFailureCode(authenticationRequired
-                    ? "noon_auth_required"
-                    : "noon_create_outcome_unknown");
-            task.setFailureMessage(authenticationRequired
-                    ? "Noon 创建请求结果未知且授权已失效；请重新授权后只读核对，不要重复提交上架。"
-                    : "Noon 创建请求结果未知；请核对创建结果并继续后续步骤，不要重复提交上架。");
-            return;
-        }
         task.setStatus("failed");
         task.setFailureCategory(StringUtils.hasText(result.getFailureCategory())
                 ? result.getFailureCategory()
@@ -1125,7 +1132,6 @@ public class ProductListingService {
                 ? result.getFailureMessage()
                 : "Product listing Noon write failed.");
     }
-
     private boolean backfillProductProjection(
             ProductListingTaskRecord task,
             ProductListingNoonWriteResult result
@@ -1581,22 +1587,9 @@ public class ProductListingService {
         return "PRODUCT_REBUILD".equalsIgnoreCase(normalizeText(command.getSourceType()));
     }
 
-    private boolean isHistoricalRebuildPartnerSkuTask(
-            ProductListingTaskRecord dryRunTask,
-            ProductListingDraftCommand dryRunDraft,
-            ProductListingTaskRecord existingPartnerSkuTask
-    ) {
-        if (!isProductRebuildDraft(dryRunDraft)
-                || dryRunTask == null
-                || dryRunTask.getId() == null
-                || existingPartnerSkuTask == null
-                || existingPartnerSkuTask.getId() == null) {
-            return false;
-        }
-        return existingPartnerSkuTask.getId() < dryRunTask.getId();
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
-
-    private String normalizeText(String value){ return StringUtils.hasText(value) ? value.trim() : null; }
 
     private String draftNo(Long draftId){ return "PLD-" + draftId; }
 

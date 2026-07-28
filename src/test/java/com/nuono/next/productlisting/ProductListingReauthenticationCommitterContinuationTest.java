@@ -2,6 +2,7 @@ package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -15,6 +16,69 @@ import org.junit.jupiter.api.Test;
 
 
 class ProductListingReauthenticationCommitterContinuationTest extends ProductListingReauthenticationCommitterTestSupport {
+
+    @Test
+    void sharedRecoveryAdvancesExactTaskWithoutWritingCookie() {
+        ProductListingTaskRecord realRun = task(
+                20002L, "REAL_RUN", "written_verify_failed", 20001L);
+        String expectedResult = "{\"recoveryId\":991,\"steps\":[]}";
+        realRun.setNoonResultJson(expectedResult);
+        when(listingMapper.selectTaskByIdForUpdate(20002L, 10002L))
+                .thenReturn(realRun);
+        when(workflowService.loadWorkflow(context, 10001L)).thenReturn(
+                workflow(
+                        ProductListingWorkflowView.NextAction.REAUTHENTICATE,
+                        ProductListingWorkflowView.WriteCertainty.UNKNOWN,
+                        20002L),
+                workflow(
+                        ProductListingWorkflowView.NextAction.CHECK_CREATE_RESULT,
+                        ProductListingWorkflowView.WriteCertainty.UNKNOWN,
+                        20002L)
+        );
+        when(listingMapper.updateTaskResult(realRun)).thenReturn(1);
+
+        ProductListingWorkflowView result = committer.advanceSharedRecovery(
+                context,
+                20002L,
+                10002L,
+                expectedResult,
+                991L,
+                ProductListingReauthenticationCommitter.ResumeAction
+                        .CHECK_CREATE_RESULT
+        );
+
+        assertEquals(
+                ProductListingWorkflowView.NextAction.CHECK_CREATE_RESULT,
+                result.getNextAction());
+        assertEquals("noon_create_outcome_unknown", realRun.getFailureCode());
+        verify(storeSyncMapper, never()).updateProjectReauthenticationSuccess(
+                any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void sharedRecoveryRejectsStaleJsonOrRecoveryIdentity() {
+        ProductListingTaskRecord realRun = task(
+                20002L, "REAL_RUN", "written_verify_failed", 20001L);
+        realRun.setNoonResultJson("{\"recoveryId\":991,\"steps\":[]}");
+        when(listingMapper.selectTaskByIdForUpdate(20002L, 10002L))
+                .thenReturn(realRun);
+
+        assertThrows(
+                ProductListingReauthenticationException.class,
+                () -> committer.advanceSharedRecovery(
+                        context,
+                        20002L,
+                        10002L,
+                        "{\"recoveryId\":992,\"steps\":[]}",
+                        992L,
+                        ProductListingReauthenticationCommitter.ResumeAction
+                                .CHECK_CREATE_RESULT)
+        );
+
+        verify(listingMapper, never()).updateTaskResult(any());
+        verify(storeSyncMapper, never()).updateProjectReauthenticationSuccess(
+                any(), any(), any(), any(), any());
+    }
 
     @Test
     void unknownCreateAuthenticationRecoveryReturnsOnlyToReadOnlyLookup() {

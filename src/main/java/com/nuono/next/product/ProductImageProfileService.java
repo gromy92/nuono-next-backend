@@ -54,15 +54,13 @@ public class ProductImageProfileService {
     private final ProductPublicDetailMapper productPublicDetailMapper;
     private final AiCapabilityService aiCapabilityService;
     private final ApplicationEventPublisher eventPublisher;
+    private final ProductImageSuiteRetryCoordinator suiteRetryCoordinator;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final NoonImageTechnicalComplianceEvaluator noonComplianceEvaluator = new NoonImageTechnicalComplianceEvaluator();
-
     @Autowired
     public ProductImageProfileService(
-            ProductImageProfileMapper mapper,
-            OperationsSkinMapper operationsSkinMapper,
-            ProductPublicDetailMapper productPublicDetailMapper,
-            AiCapabilityService aiCapabilityService,
+            ProductImageProfileMapper mapper, OperationsSkinMapper operationsSkinMapper,
+            ProductPublicDetailMapper productPublicDetailMapper, AiCapabilityService aiCapabilityService,
             ApplicationEventPublisher eventPublisher
     ) {
         this.mapper = mapper;
@@ -71,8 +69,13 @@ public class ProductImageProfileService {
         this.productPublicDetailMapper = productPublicDetailMapper;
         this.aiCapabilityService = aiCapabilityService;
         this.eventPublisher = eventPublisher == null ? event -> { } : eventPublisher;
+        this.suiteRetryCoordinator = new ProductImageSuiteRetryCoordinator(mapper, this.eventPublisher, objectMapper);
     }
 
+    @Autowired(required = false)
+    void setProductWriteAuthRecovery(ProductWriteAuthRecovery authRecovery) {
+        suiteRetryCoordinator.setProductWriteAuthRecovery(authRecovery);
+    }
     ProductImageProfileService(
             ProductImageProfileMapper mapper,
             OperationsSkinMapper operationsSkinMapper,
@@ -85,7 +88,6 @@ public class ProductImageProfileService {
     ProductImageProfileService(ProductImageProfileMapper mapper, OperationsSkinMapper operationsSkinMapper) {
         this(mapper, operationsSkinMapper, null, null, null);
     }
-
     @Transactional
     public ProductImageProfileListView list(ProductImageProfileListCommand command) {
         Long ownerUserId = requireOwnerUserId(command == null ? null : command.getOwnerUserId());
@@ -1068,7 +1070,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         mapper.markAdoptedSuitesHistorical(profile.getId(), operatorUserId);
         if (mapper.updateSuiteStatus(suiteId, profile.getId(), ProductImageSuiteStatus.ADOPTED, operatorUserId) == 0) {
             throw notFound();
@@ -1087,7 +1090,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         if (mapper.updateSuiteStatus(suiteId, profile.getId(), ProductImageSuiteStatus.DISCARDED, operatorUserId) == 0) {
             throw notFound();
         }
@@ -1105,7 +1109,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         if (mapper.softDeleteSuite(suiteId, profile.getId(), operatorUserId) == 0) {
             throw notFound();
         }
@@ -1124,7 +1129,8 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
+        ProductImageSuiteMutationGuard.requireMutable(suite);
         requireSuiteAsset(suiteId, assetId);
         if (mapper.deleteSuiteAsset(suiteId, assetId) == 0) {
             throw notFound();
@@ -1152,6 +1158,8 @@ public class ProductImageProfileService {
                 ? sourceSuite.getId()
                 : command.getTargetSuiteId();
         ProductImageSuiteRecord targetSuite = requireSuite(profile.getId(), targetSuiteId);
+        ProductImageSuiteMutationGuard.requireMutable(sourceSuite);
+        ProductImageSuiteMutationGuard.requireMutable(targetSuite);
         int targetIndex = command == null || command.getTargetIndex() == null ? Integer.MAX_VALUE : command.getTargetIndex();
 
         if (!Objects.equals(sourceSuite.getId(), targetSuite.getId())) {
@@ -1213,23 +1221,43 @@ public class ProductImageProfileService {
         );
 
         LocalDateTime now = LocalDateTime.now();
-        ProductImageSuiteRecord suite = new ProductImageSuiteRecord();
-        suite.setProfileId(profile.getId());
-        suite.setRevisionNo(1);
-        suite.setSuiteName(buildDraftSuiteName(profile, now));
-        suite.setSkinId(activeSkin.skin().getId());
-        suite.setSkinName(activeSkin.skin().getSkinName());
-        suite.setGenerationTaskId(buildDraftTaskId(profile, now));
-        suite.setDraftPackageJson(draftPackageJson);
-        suite.setDraftPromptText(draftPromptText);
-        suite.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
-        suite.setCreatedBy(operatorUserId);
-        suite.setUpdatedBy(operatorUserId);
-        suite.setCreatedAt(now);
-        suite.setUpdatedAt(now);
-        suite.setDeleted(false);
-        if (mapper.insertSuite(suite) == 0 || suite.getId() == null) {
-            throw new IllegalStateException("AI 套图任务保存失败。");
+        String suiteName = buildCanonicalSuiteName(profile);
+        String generationTaskId = buildDraftTaskId(profile, now);
+        ProductImageSuiteRecord suite = mapper.selectLatestSuiteForUpdate(profile.getId());
+        if (suite == null) {
+            suite = new ProductImageSuiteRecord();
+            suite.setProfileId(profile.getId());
+            suite.setRevisionNo(1);
+            suite.setSuiteName(suiteName);
+            suite.setSkinId(activeSkin.skin().getId());
+            suite.setSkinName(activeSkin.skin().getSkinName());
+            suite.setGenerationTaskId(generationTaskId);
+            suite.setDraftPackageJson(draftPackageJson);
+            suite.setDraftPromptText(draftPromptText);
+            suite.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
+            suite.setCreatedBy(operatorUserId);
+            suite.setUpdatedBy(operatorUserId);
+            suite.setCreatedAt(now);
+            suite.setUpdatedAt(now);
+            suite.setDeleted(false);
+            if (mapper.insertSuite(suite) == 0 || suite.getId() == null) {
+                throw new IllegalStateException("AI 套图任务保存失败。");
+            }
+        } else {
+            if (mapper.restartSuiteGeneration(
+                    suite.getId(), profile.getId(),
+                    suiteName,
+                    activeSkin.skin().getId(),
+                    activeSkin.skin().getSkinName(),
+                    generationTaskId,
+                    draftPackageJson,
+                    draftPromptText,
+                    operatorUserId
+            ) == 0) {
+                throw new IllegalArgumentException("当前套图正在处理，请完成后再申请做图。");
+            }
+            mapper.deleteReviewTargets(suite.getId());
+            mapper.insertReviewTarget(suite.getId(), "SUITE", null, null, null, operatorUserId);
         }
         eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
                 suite.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
@@ -1244,19 +1272,13 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
-        if (safeList(mapper.selectSuiteAssets(suiteId)).isEmpty()) throw new IllegalArgumentException("套图没有可发布的图片。");
-        if (!StringUtils.hasText(mapper.selectSkuParentByProductMasterId(profile.getProductMasterId()))) {
-            throw new IllegalArgumentException("该商品尚未在 Noon 上线，不能发布图片。");
-        }
-        if (mapper.reviewSuite(
-                suiteId, profile.getId(), ProductImageSuiteStatus.PUBLISHING, null, operatorUserId
-        ) == 0) {
-            throw new IllegalArgumentException("只有待审核或当前采用套图可以审核通过。");
-        }
-        eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
-                suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-        ));
+        suiteRetryCoordinator.approve(
+                profile,
+                suiteId,
+                resolvedOwnerUserId,
+                normalizedStoreCode,
+                operatorUserId
+        );
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 
@@ -1283,11 +1305,13 @@ public class ProductImageProfileService {
         if (!wholeSuite && sourceAssets.stream().filter(asset -> selectedIds.contains(asset.getId())).count() != selectedIds.size()) {
             throw new IllegalArgumentException("选择的返工图片不属于当前套图。");
         }
-        if (mapper.reviewSuite(
-                suiteId, profile.getId(), ProductImageSuiteStatus.HISTORICAL, comment, operatorUserId
+        LocalDateTime now = LocalDateTime.now();
+        if (mapper.restartSuiteForRework(
+                suiteId, profile.getId(), buildDraftTaskId(profile, now), comment, operatorUserId
         ) == 0) {
             throw new IllegalArgumentException("只有待审核或当前采用套图可以驳回返工。");
         }
+        mapper.deleteReviewTargets(suiteId);
         if (wholeSuite) {
             mapper.insertReviewTarget(suiteId, "SUITE", null, null, null, operatorUserId);
         } else {
@@ -1299,37 +1323,8 @@ public class ProductImageProfileService {
                 }
             }
         }
-
-        LocalDateTime now = LocalDateTime.now();
-        ProductImageSuiteRecord revision = new ProductImageSuiteRecord();
-        revision.setProfileId(profile.getId());
-        revision.setParentSuiteId(source.getId());
-        revision.setRevisionNo((source.getRevisionNo() == null ? 1 : source.getRevisionNo()) + 1);
-        revision.setSuiteName(source.getSuiteName() + " 返工版" + revision.getRevisionNo());
-        revision.setSkinId(source.getSkinId());
-        revision.setSkinName(source.getSkinName());
-        revision.setGenerationTaskId(buildDraftTaskId(profile, now));
-        revision.setDraftPackageJson(source.getDraftPackageJson());
-        revision.setDraftPromptText(source.getDraftPromptText());
-        revision.setSuiteStatus(ProductImageSuiteStatus.PENDING_GENERATION);
-        revision.setReviewComment(comment);
-        revision.setCreatedBy(operatorUserId);
-        revision.setUpdatedBy(operatorUserId);
-        revision.setCreatedAt(now);
-        revision.setUpdatedAt(now);
-        revision.setDeleted(false);
-        if (mapper.insertSuite(revision) == 0 || revision.getId() == null) throw new IllegalStateException("返工任务保存失败。");
-        for (ProductImageSuiteAssetRecord sourceAsset : sourceAssets) {
-            if (wholeSuite || selectedIds.contains(sourceAsset.getId())) continue;
-            ProductImageSuiteAssetRecord retained = copySuiteAsset(
-                    sourceAsset,
-                    revision.getId(),
-                    sourceAsset.getSortOrder() == null ? 10 : sourceAsset.getSortOrder()
-            );
-            mapper.insertSuiteAsset(retained);
-        }
         eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
-                revision.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+                source.getId(), resolvedOwnerUserId, normalizedStoreCode, operatorUserId
         ));
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
@@ -1341,19 +1336,9 @@ public class ProductImageProfileService {
         Long resolvedOwnerUserId = requireOwnerUserId(ownerUserId);
         String normalizedStoreCode = requireStoreCode(storeCode);
         ProductImageProfileRecord profile = requireAccessibleProfile(profileId, resolvedOwnerUserId, normalizedStoreCode);
-        ProductImageSuiteRecord suite = requireSuite(profile.getId(), suiteId);
-        if (suite.getSuiteStatus() != ProductImageSuiteStatus.FAILED) throw new IllegalArgumentException("只有失败任务可以重试。");
-        if ("PUBLISH".equalsIgnoreCase(suite.getFailureStage())) {
-            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PUBLISHING, null, null, operatorUserId);
-            eventPublisher.publishEvent(new ProductImagePublishSubmittedEvent(
-                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-            ));
-        } else {
-            mapper.updateSuiteWorkflowStatus(suiteId, ProductImageSuiteStatus.PENDING_GENERATION, null, null, operatorUserId);
-            eventPublisher.publishEvent(new ProductImageGenerationSubmittedEvent(
-                    suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
-            ));
-        }
+        suiteRetryCoordinator.retry(
+                profile, suiteId, resolvedOwnerUserId, normalizedStoreCode, operatorUserId
+        );
         return detail(resolvedOwnerUserId, normalizedStoreCode, profile.getId());
     }
 
@@ -1561,23 +1546,6 @@ public class ProductImageProfileService {
         view.setImageUrl(record.getImageUrl());
         view.setSortOrder(record.getSortOrder());
         return view;
-    }
-
-    private ProductImageSuiteAssetRecord copySuiteAsset(
-            ProductImageSuiteAssetRecord source,
-            Long targetSuiteId,
-            int sortOrder
-    ) {
-        ProductImageSuiteAssetRecord target = new ProductImageSuiteAssetRecord();
-        target.setSuiteId(targetSuiteId);
-        target.setImageRole(source.getImageRole());
-        target.setRoleOrdinal(source.getRoleOrdinal() == null ? 1 : source.getRoleOrdinal());
-        target.setImageUrl(source.getImageUrl());
-        target.setContentType(source.getContentType());
-        target.setSizeBytes(source.getSizeBytes());
-        target.setSha256(source.getSha256());
-        target.setSortOrder(sortOrder);
-        return target;
     }
 
     private List<ProductImageSectionRecord> normalizeSections(
@@ -1829,10 +1797,9 @@ public class ProductImageProfileService {
         return index < 0 ? Integer.MAX_VALUE : index;
     }
 
-    private String buildDraftSuiteName(ProductImageProfileRecord profile, LocalDateTime now) {
+    private String buildCanonicalSuiteName(ProductImageProfileRecord profile) {
         String pskuCode = trimToNull(profile.getPskuCode());
-        String prefix = pskuCode == null ? "AI 套图草稿" : pskuCode + " AI 套图草稿";
-        return prefix + " " + TASK_TIME_FORMATTER.format(now);
+        return pskuCode == null ? "通用 V1" : pskuCode + " 通用 V1";
     }
 
     private String buildDraftTaskId(ProductImageProfileRecord profile, LocalDateTime now) {
