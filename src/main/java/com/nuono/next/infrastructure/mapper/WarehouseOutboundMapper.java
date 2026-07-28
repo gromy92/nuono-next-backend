@@ -90,11 +90,13 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "WHERE id = #{batchId}",
             "  AND owner_user_id = #{ownerUserId}",
             "  AND status = 'OPTION_SELECTED'",
+            "  AND selected_option_id = #{expectedOptionId}",
             "  AND is_deleted = b'0'"
     })
     int updateShippingBatchOutboundCreated(
             @Param("batchId") Long batchId,
             @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedOptionId") Long expectedOptionId,
             @Param("operatorUserId") Long operatorUserId
     );
 

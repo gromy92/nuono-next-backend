@@ -71,7 +71,20 @@ private DispatchPlanRecord requireDispatchPlanOwnerAccess(
     }
 
 protected ShippingBatchRecord requireShippingBatchAccess(BusinessAccessContext access, Long shippingBatchId) {
-        ShippingBatchRecord batch = mapper.selectShippingBatchById(shippingBatchId);
+        return requireShippingBatchOwnerAccess(access, mapper.selectShippingBatchById(shippingBatchId));
+    }
+
+protected ShippingBatchRecord requireShippingBatchAccessForUpdate(
+            BusinessAccessContext access,
+            Long shippingBatchId
+    ) {
+        return requireShippingBatchOwnerAccess(access, mapper.selectShippingBatchByIdForUpdate(shippingBatchId));
+    }
+
+private ShippingBatchRecord requireShippingBatchOwnerAccess(
+            BusinessAccessContext access,
+            ShippingBatchRecord batch
+    ) {
         if (batch == null) {
             throw new IllegalArgumentException("发货批次不存在或已删除。");
         }

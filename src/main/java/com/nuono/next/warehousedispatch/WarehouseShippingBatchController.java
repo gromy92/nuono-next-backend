@@ -110,6 +110,8 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
             return service().selectShippingOption(access(request), shippingBatchId, optionId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -122,6 +124,8 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
             return service().createOutboundOrders(access(request), shippingBatchId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 

@@ -137,7 +137,7 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
             CreateShippingTargetOptionCommand command
     ) {
         Long parsedBatchId = parseLongId(shippingBatchId, "发货批次不存在或已删除。");
-        ShippingBatchRecord batch = requireShippingBatchAccess(access, parsedBatchId);
+        ShippingBatchRecord batch = requireShippingBatchAccessForUpdate(access, parsedBatchId);
         if (!"DRAFT".equals(batch.status) && !"OPTION_SELECTED".equals(batch.status)) {
             throw new IllegalArgumentException("只有草稿状态的发货批次可以新增目标货代方案。");
         }
@@ -167,7 +167,7 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
     ) {
         Long parsedBatchId = parseLongId(shippingBatchId, "发货批次不存在或已删除。");
         Long parsedOptionId = parseLongId(optionId, "货运计划方案不存在或已删除。");
-        ShippingBatchRecord batch = requireShippingBatchAccess(access, parsedBatchId);
+        ShippingBatchRecord batch = requireShippingBatchAccessForUpdate(access, parsedBatchId);
         if (!"DRAFT".equals(batch.status) && !"OPTION_SELECTED".equals(batch.status)) {
             throw new IllegalArgumentException("只有草稿状态的发货批次可以选择建议方案。");
         }
@@ -182,7 +182,7 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
             throw new IllegalArgumentException("货运计划方案不存在或已失效。");
         }
         if (mapper.updateShippingBatchSelectedOption(batch.id, batch.ownerUserId, option.id, operatorUserId) != 1) {
-            throw new IllegalArgumentException("发货批次状态已变化，请刷新后重试。");
+            throw new WarehouseInventoryStateConflictException("发货批次状态已变化，请刷新后重试。");
         }
         log(null, "SELECT_SHIPPING_OPTION", operatorUserId, batch.status, "OPTION_SELECTED", option.optionType);
 
@@ -193,7 +193,7 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
 @Transactional
     public List<OutboundOrderView> createOutboundOrders(BusinessAccessContext access, String shippingBatchId) {
         Long parsedBatchId = parseLongId(shippingBatchId, "发货批次不存在或已删除。");
-        ShippingBatchRecord batch = requireShippingBatchAccess(access, parsedBatchId);
+        ShippingBatchRecord batch = requireShippingBatchAccessForUpdate(access, parsedBatchId);
         if (!"OPTION_SELECTED".equals(batch.status)) {
             throw new IllegalArgumentException("请先选择货运计划方案。");
         }
@@ -278,8 +278,10 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
             result.add(orderView);
         }
 
-        if (mapper.updateShippingBatchOutboundCreated(batch.id, batch.ownerUserId, operatorUserId) != 1) {
-            throw new IllegalArgumentException("发货批次状态已变化，请刷新后重试。");
+        if (mapper.updateShippingBatchOutboundCreated(
+                batch.id, batch.ownerUserId, batch.selectedOptionId, operatorUserId
+        ) != 1) {
+            throw new WarehouseInventoryStateConflictException("发货批次方案已变化，请刷新后重试。");
         }
         log(null, "CREATE_OUTBOUND_ORDER", operatorUserId, batch.status, "OUTBOUND_CREATED", batch.batchNo);
         return result;

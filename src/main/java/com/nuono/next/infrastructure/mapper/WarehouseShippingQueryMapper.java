@@ -96,6 +96,15 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
     ShippingBatchRecord selectShippingBatchById(@Param("batchId") Long batchId);
 
 @Select({
+            "SELECT id, owner_user_id AS ownerUserId, batch_no AS batchNo, status,",
+            "       selected_option_id AS selectedOptionId",
+            "FROM warehouse_shipping_batch",
+            "WHERE id = #{batchId} AND is_deleted = b'0'",
+            "LIMIT 1 FOR UPDATE"
+    })
+    ShippingBatchRecord selectShippingBatchByIdForUpdate(@Param("batchId") Long batchId);
+
+@Select({
             "SELECT source.id, source.batch_id AS batchId, source.owner_user_id AS ownerUserId,",
             "       source.fulfillment_balance_id AS fulfillmentBalanceId,",
             "       source.source_store_code AS sourceStoreCode, source.source_store_name AS sourceStoreName,",

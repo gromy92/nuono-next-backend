@@ -78,7 +78,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         seaLineSource.fulfillmentBalanceId = 900002L;
         seaLineSource.plannedTransportMode = "SEA";
 
-        when(mapper.selectShippingBatchById(700001L)).thenReturn(shippingBatch());
+        when(mapper.selectShippingBatchByIdForUpdate(700001L)).thenReturn(shippingBatch());
         when(mapper.selectShippingSuggestionOptionById(710001L)).thenReturn(selectedOption());
         when(mapper.listShippingBatchSources(700001L)).thenReturn(List.of(airSource, seaSource));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(airLine, seaLine));
@@ -86,7 +86,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         when(mapper.nextOutboundOrderId()).thenReturn(800001L, 800002L);
         when(mapper.nextOutboundOrderLineId()).thenReturn(820001L, 820002L);
         when(mapper.nextOutboundOrderLineSourceId()).thenReturn(825001L, 825002L);
-        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 307L)).thenReturn(1);
+        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 710001L, 307L)).thenReturn(1);
 
         var orders = service.createOutboundOrders(access(), "700001");
 
