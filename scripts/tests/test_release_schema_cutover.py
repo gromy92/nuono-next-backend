@@ -31,6 +31,9 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
             expected_190_sha256="2" * 64,
             expected_204_sha256="3" * 64,
             expected_205_sha256="4" * 64,
+            approved_managed_migrations=(
+                "215_procurement_fulfillment_balance_quantity_invariant.sql",
+            ),
             app_dir="/app",
             release_name="schema-test",
         )
@@ -177,6 +180,20 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
 
         for relative in RUNNER_RELATIVE_PATHS:
             self.assertIn(relative.as_posix(), script)
+
+    def test_additive_passes_only_explicit_managed_approvals(self):
+        script = self.additive_script()
+
+        self.assertIn(
+            "APPROVED_MANAGED_MIGRATIONS="
+            "215_procurement_fulfillment_balance_quantity_invariant.sql",
+            script,
+        )
+        self.assertIn(
+            'runner_args+=(--approve-managed "$migration_key")',
+            script,
+        )
+        self.assertIn('result="$("${runner_args[@]}")"', script)
 
     def test_irreversible_credentials_remain_private_and_cleaned(self):
         script = self.irreversible_script()

@@ -2,6 +2,7 @@
 """Render governed additive and irreversible schema cutover scripts."""
 from __future__ import annotations
 
+import re
 import shlex
 from pathlib import Path
 
@@ -22,6 +23,15 @@ def _render(values: dict[str, str | int], *templates: str) -> str:
     return f"#!/usr/bin/env bash\nset -Eeuo pipefail\n{_assignments(values)}\n{body}\n"
 
 
+def _managed_approvals(values: tuple[str, ...]) -> str:
+    if len(set(values)) != len(values):
+        raise ValueError("managed migration approvals must be unique")
+    for value in values:
+        if not re.fullmatch(r"[0-9]{3}_[a-z0-9_]+\.sql", value):
+            raise ValueError(f"invalid managed migration key: {value!r}")
+    return "\n".join(values)
+
+
 def build_additive_schema_migration_script(
     *,
     staged_jar: str,
@@ -32,10 +42,11 @@ def build_additive_schema_migration_script(
     expected_190_sha256: str,
     expected_204_sha256: str,
     expected_205_sha256: str,
+    approved_managed_migrations: tuple[str, ...],
     app_dir: str,
     release_name: str,
 ) -> str:
-    """Return the locked body for conditional 182 plus additive 204/205."""
+    """Return the locked additive schema script with explicit approvals."""
     return _render(
         {
             "APP_DIR": app_dir,
@@ -47,6 +58,9 @@ def build_additive_schema_migration_script(
             "EXPECTED_190_SHA256": expected_190_sha256,
             "EXPECTED_204_SHA256": expected_204_sha256,
             "EXPECTED_205_SHA256": expected_205_sha256,
+            "APPROVED_MANAGED_MIGRATIONS": _managed_approvals(
+                approved_managed_migrations
+            ),
             "RELEASE_NAME": release_name,
         },
         "additive_schema_migrations.sh",

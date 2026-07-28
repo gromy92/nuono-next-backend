@@ -156,12 +156,37 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             installed_by="unit-test",
         )
 
-        with self.assertRaisesRegex(MigrationError, "approvals must exactly match"):
+        with self.assertRaisesRegex(MigrationError, "approvals must cover pending"):
             runner.apply()
         self.assertNotIn(("script", managed.key), database.events)
+        with self.assertRaisesRegex(MigrationError, "not allowed"):
+            runner.apply(
+                approved_managed=[managed.key, self.migrations[0].key],
+            )
+        with self.assertRaisesRegex(MigrationError, "not allowed"):
+            runner.apply(
+                approved_managed=[managed.key, "209_unknown_managed.sql"],
+            )
 
         runner.apply(approved_managed=[managed.key])
         self.assertIn(("applied", managed.key, 1), database.events)
+        self.assertEqual([], runner.apply(approved_managed=[managed.key]))
+
+        database.states[managed.key] = replace(
+            database.states[managed.key],
+            state="FAILED",
+        )
+        with self.assertRaisesRegex(MigrationError, "approvals must cover pending"):
+            runner.repair_forward(managed.key)
+        with self.assertRaisesRegex(MigrationError, "approvals must cover pending"):
+            runner.repair_forward(
+                managed.key,
+                approved_managed=["209_wrong_managed.sql"],
+            )
+        runner.repair_forward(
+            managed.key,
+            approved_managed=[managed.key],
+        )
 
     def test_history_must_be_a_continuous_applied_prefix(self):
         bootstrap, feature = self.migrations

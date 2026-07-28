@@ -199,17 +199,22 @@ apply_migration() {
 
 run_forward_schema_migrations() {
   local result
-  result="$(
-    python3 "$RUNNER_MAIN" apply \
-      --staged-jar "$FROZEN_JAR" \
-      --governed-jar-sha256 "$EXPECTED_JAR_SHA256" \
-      --mysql-defaults-file "$MYSQL_CNF" \
-      --expected-schema "$EXPECTED_SCHEMA" \
-      --expected-host "$EXPECTED_DB_HOST" \
-      --expected-port "$EXPECTED_DB_PORT" \
-      --release-commit "$EXPECTED_COMMIT" \
-      --installed-by "governed-cutover:$RELEASE_NAME"
-  )"
+  local migration_key
+  local -a runner_args=(
+    python3 "$RUNNER_MAIN" apply
+    --staged-jar "$FROZEN_JAR"
+    --governed-jar-sha256 "$EXPECTED_JAR_SHA256"
+    --mysql-defaults-file "$MYSQL_CNF"
+    --expected-schema "$EXPECTED_SCHEMA"
+    --expected-host "$EXPECTED_DB_HOST"
+    --expected-port "$EXPECTED_DB_PORT"
+    --release-commit "$EXPECTED_COMMIT"
+    --installed-by "governed-cutover:$RELEASE_NAME"
+  )
+  while IFS= read -r migration_key; do
+    [ -z "$migration_key" ] || runner_args+=(--approve-managed "$migration_key")
+  done <<< "$APPROVED_MANAGED_MIGRATIONS"
+  result="$("${runner_args[@]}")"
   emit FORWARD_SCHEMA_MIGRATIONS "$result"
 }
 

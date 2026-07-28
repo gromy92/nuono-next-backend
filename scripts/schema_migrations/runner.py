@@ -43,7 +43,11 @@ class MigrationRunner:
             states = self.database.load_states()
             pending = plan_migrations(self.migrations, states)
             self._validate_live(completed_prefix(self.migrations, states))
-            self._validate_managed_approvals(pending, approved_managed)
+            self._validate_managed_approvals(
+                pending,
+                approved_managed,
+                allow_completed=True,
+            )
             for migration in pending:
                 if migration.kind == "BOOTSTRAP":
                     raise MigrationError("history bootstrap was not recorded")
@@ -69,7 +73,11 @@ class MigrationRunner:
             )
             target_index = migration_index(self.migrations, migration.key)
             self._validate_live(self.migrations[:target_index])
-            self._validate_managed_approvals((migration,), approved_managed)
+            self._validate_managed_approvals(
+                (migration,),
+                approved_managed,
+                allow_completed=False,
+            )
             if self.database.postcheck(migration):
                 self.database.reconcile(
                     migration,
@@ -131,29 +139,41 @@ class MigrationRunner:
                     f"{migration.key}: live schema drift; add a new forward migration"
                 )
 
-    @staticmethod
     def _validate_managed_approvals(
+        self,
         pending: Sequence[Migration],
         approved_managed: Sequence[str],
+        *,
+        allow_completed: bool,
     ) -> None:
         approved = tuple(approved_managed)
         required = {
             migration.key for migration in pending if migration.kind == "MANAGED"
         }
         supplied = set(approved)
+        allowed = (
+            {
+                migration.key
+                for migration in self.migrations
+                if migration.kind == "MANAGED"
+            }
+            if allow_completed
+            else required
+        )
         if len(supplied) != len(approved):
             raise MigrationError("managed migration approvals contain duplicates")
-        if supplied != required:
+        if not required.issubset(supplied) or not supplied.issubset(allowed):
             missing = sorted(required - supplied)
-            stale = sorted(supplied - required)
+            stale = sorted(supplied - allowed)
             details = []
             if missing:
                 details.append("missing " + ", ".join(missing))
             if stale:
-                details.append("not pending " + ", ".join(stale))
+                details.append("not allowed " + ", ".join(stale))
             raise MigrationError(
-                "managed migration approvals must exactly match pending MANAGED "
-                "migrations: " + "; ".join(details)
+                "managed migration approvals must cover pending MANAGED "
+                "migrations and contain only allowed catalog keys: "
+                + "; ".join(details)
             )
 
     def _find(self, migration_key: str) -> Migration:
