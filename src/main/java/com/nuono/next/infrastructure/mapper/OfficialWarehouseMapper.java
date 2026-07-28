@@ -18,6 +18,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
 import java.util.Collection;
 import java.util.List;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -129,6 +130,20 @@ public interface OfficialWarehouseMapper {
             @Param("siteCode") String siteCode,
             @Param("claimToken") String claimToken,
             @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Delete({
+            "DELETE FROM official_warehouse_asn_sync_throttle",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND store_code = #{storeCode}",
+            "  AND site_code = #{siteCode}",
+            "  AND claim_token = #{claimToken}"
+    })
+    int releaseOfficialWarehouseAsnListSync(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("storeCode") String storeCode,
+            @Param("siteCode") String siteCode,
+            @Param("claimToken") String claimToken
     );
 
     @Select({
