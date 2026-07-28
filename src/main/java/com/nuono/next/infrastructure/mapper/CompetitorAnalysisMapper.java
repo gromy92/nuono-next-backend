@@ -37,7 +37,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface CompetitorAnalysisMapper {
+public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMapper {
 
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",

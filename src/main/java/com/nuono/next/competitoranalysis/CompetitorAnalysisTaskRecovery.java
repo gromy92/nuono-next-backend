@@ -123,11 +123,17 @@ final class CompetitorAnalysisTaskRecovery {
                     continue;
                 }
                 CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
-                if (!release(task, run, staleBefore)) {
+                if (run == null) {
+                    if (releaseStaleRunningOrphan(task, staleBefore)) {
+                        recovered++;
+                    }
                     continue;
                 }
-                recovered++;
-                retryInterruptedRun(task, run);
+                CompetitorWatchProductRow watchProduct =
+                        mapper.selectWatchProductForRefresh(run.getWatchProductId());
+                if (recoverInterruptedRun(task, run, watchProduct, staleBefore)) {
+                    recovered++;
+                }
                 if (recovered >= RECOVERY_LIMIT) {
                     break;
                 }
@@ -145,37 +151,30 @@ final class CompetitorAnalysisTaskRecovery {
         );
     }
 
-    private void retryInterruptedRun(OperationalTask task, CompetitorSearchRunRow run) {
-        if (run == null) {
-            return;
-        }
-        CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(run.getWatchProductId());
-        if (watchProduct == null) {
-            return;
-        }
+    private boolean recoverInterruptedRun(
+            OperationalTask task,
+            CompetitorSearchRunRow run,
+            CompetitorWatchProductRow watchProduct,
+            LocalDateTime staleBefore
+    ) {
         try {
-            interruptedTaskRetry.retry(watchProduct, run);
+            return interruptedTaskRetry.retry(task, watchProduct, run, staleBefore);
         } catch (RuntimeException exception) {
             log.warn(
                     "competitor interrupted refresh retry failed taskId={} runId={} watchProductId={} error={}",
                     task.getId(), run.getId(), run.getWatchProductId(), exception.getMessage(), exception
             );
+            return false;
         }
     }
 
-    private boolean release(OperationalTask task, CompetitorSearchRunRow run, LocalDateTime staleBefore) {
-        if (!operationalTaskService.failStaleRunning(
+    private boolean releaseStaleRunningOrphan(OperationalTask task, LocalDateTime staleBefore) {
+        return operationalTaskService.failStaleRunning(
                 task.getId(),
                 staleBefore,
                 "FAILED_STALE",
                 STALE_MESSAGE
-        )) {
-            return false;
-        }
-        if (run != null) {
-            mapper.markSearchRunFailed(run.getId(), "FAILED_STALE", STALE_MESSAGE);
-        }
-        return true;
+        );
     }
 
     private void releaseStaleOrphan(OperationalTask task) {
@@ -212,6 +211,11 @@ final class CompetitorAnalysisTaskRecovery {
 
     @FunctionalInterface
     interface InterruptedTaskRetry {
-        void retry(CompetitorWatchProductRow watchProduct, CompetitorSearchRunRow run);
+        boolean retry(
+                OperationalTask task,
+                CompetitorWatchProductRow watchProduct,
+                CompetitorSearchRunRow run,
+                LocalDateTime staleBefore
+        );
     }
 }

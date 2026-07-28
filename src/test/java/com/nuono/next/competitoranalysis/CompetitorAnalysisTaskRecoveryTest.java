@@ -117,23 +117,21 @@ class CompetitorAnalysisTaskRecoveryTest {
                 .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
-        when(operationalTaskService.failStaleRunning(
-                150001L,
-                LocalDateTime.parse("2026-06-06T07:30:00"),
-                "FAILED_STALE",
-                "刷新任务超过 30 分钟未完成，已自动释放。"
+        when(interruptedTaskRetry.retry(
+                running,
+                watchProduct,
+                run,
+                LocalDateTime.parse("2026-06-06T07:30:00")
         )).thenReturn(true);
 
         assertEquals(1, recovery.recoverStaleRefreshTasks());
 
-        verify(operationalTaskService).failStaleRunning(
-                150001L,
-                LocalDateTime.parse("2026-06-06T07:30:00"),
-                "FAILED_STALE",
-                "刷新任务超过 30 分钟未完成，已自动释放。"
+        verify(interruptedTaskRetry).retry(
+                running,
+                watchProduct,
+                run,
+                LocalDateTime.parse("2026-06-06T07:30:00")
         );
-        verify(mapper).markSearchRunFailed(220001L, "FAILED_STALE", "刷新任务超过 30 分钟未完成，已自动释放。");
-        verify(interruptedTaskRetry).retry(watchProduct, run);
     }
 
     @Test
