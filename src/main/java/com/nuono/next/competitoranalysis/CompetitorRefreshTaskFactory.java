@@ -17,6 +17,7 @@ import org.springframework.util.StringUtils;
 @Service
 class CompetitorRefreshTaskFactory {
     private static final String TASK_MESSAGE = "竞品刷新正在后台执行。";
+    private static final String INVALID_RETRY_PAYLOAD = "INVALID_DETAIL_RETRY_PAYLOAD";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
@@ -210,6 +211,48 @@ class CompetitorRefreshTaskFactory {
                 afterCommit.accept(replacement);
             }
         });
+    }
+
+    @Transactional
+    public boolean requeueDetailRetry(
+            Long taskId,
+            Long runId,
+            String payloadJson,
+            String errorCode,
+            String message
+    ) {
+        if (!operationalTaskService.requeueRunning(
+                taskId,
+                payloadJson,
+                5,
+                errorCode,
+                message
+        )) {
+            return false;
+        }
+        if (mapper.requeueSearchRun(runId, errorCode, message) != 1) {
+            throw new IllegalStateException("Competitor search run retry transition conflict: " + runId);
+        }
+        return true;
+    }
+
+    @Transactional
+    public boolean failInvalidDetailRetryPayload(Long taskId) {
+        String message = "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。";
+        if (!operationalTaskService.claimQueued(taskId, message)) {
+            return false;
+        }
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
+        if (run == null) {
+            operationalTaskService.fail(taskId, INVALID_RETRY_PAYLOAD, message);
+            return true;
+        }
+        Long runId = run.getId();
+        if (mapper.markSearchRunFailed(runId, INVALID_RETRY_PAYLOAD, message) != 1) {
+            throw new IllegalStateException("Competitor search run invalid payload conflict: " + runId);
+        }
+        operationalTaskService.fail(taskId, INVALID_RETRY_PAYLOAD, message);
+        return true;
     }
 
     private CompetitorQueuedRefresh existing(

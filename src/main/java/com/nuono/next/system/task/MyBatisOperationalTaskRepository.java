@@ -87,6 +87,25 @@ public class MyBatisOperationalTaskRepository implements OperationalTaskReposito
     }
 
     @Override
+    public boolean requeueRunning(
+            Long taskId,
+            String payloadJson,
+            int progressPercent,
+            String errorCode,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        return mapper.requeueRunning(
+                taskId,
+                payloadJson,
+                progressPercent,
+                errorCode,
+                message,
+                updatedAt
+        ) == 1;
+    }
+
+    @Override
     public boolean failStaleRunning(
             Long taskId,
             LocalDateTime staleBefore,

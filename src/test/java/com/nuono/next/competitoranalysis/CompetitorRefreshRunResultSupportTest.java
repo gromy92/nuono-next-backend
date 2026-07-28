@@ -28,6 +28,7 @@ class CompetitorRefreshRunResultSupportTest {
 
         assertEquals("FAILED", status);
         assertTrue(resultJson.contains("\"detailAttempted\":1"));
+        assertTrue(resultJson.contains("\"detailRequestAttempts\":0"));
         assertTrue(resultJson.contains("\"detailFailed\":1"));
         assertTrue(resultJson.contains("\"keywordFailed\":0"));
     }

@@ -1,6 +1,8 @@
 package com.nuono.next.competitoranalysis;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -18,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -146,6 +149,71 @@ class CompetitorAnalysisTaskRecoveryTest {
     }
 
     @Test
+    void malformedRetryNotBeforeDoesNotBlockLaterValidQueuedTask() {
+        CompetitorRefreshTaskFactory taskFactory =
+                org.mockito.Mockito.mock(CompetitorRefreshTaskFactory.class);
+        CompetitorDetailRetryCoordinator retryCoordinator =
+                new CompetitorDetailRetryCoordinator(
+                        taskFactory,
+                        Clock.fixed(
+                                Instant.parse("2026-06-06T08:00:00Z"),
+                                ZoneOffset.UTC
+                        )
+                );
+        OperationalTask malformed = task(
+                150001L,
+                OperationalTaskStatus.QUEUED,
+                "2026-06-06T08:00:00"
+        );
+        malformed.setPayloadJson(
+                "{\"retryAttempt\":1,\"retryNotBefore\":\"not-a-date\"}"
+        );
+        OperationalTask valid = task(
+                150002L,
+                OperationalTaskStatus.QUEUED,
+                "2026-06-06T08:00:00"
+        );
+        valid.setPayloadJson(
+                "{\"retryAttempt\":1,\"retryNotBefore\":\"2026-06-06T07:59:00\"}"
+        );
+        CompetitorSearchRunRow malformedRun = run(220001L, "QUEUED");
+        CompetitorSearchRunRow validRun = run(220002L, "QUEUED");
+        CompetitorWatchProductRow watchProduct = watchProduct();
+        AtomicBoolean validSubmitted = new AtomicBoolean(false);
+        recovery = new CompetitorAnalysisTaskRecovery(
+                mapper,
+                operationalTaskService,
+                Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC),
+                (task, run, product) -> {
+                    if (!retryCoordinator.isReady(task)) {
+                        return false;
+                    }
+                    if (task.getId().equals(valid.getId())) {
+                        validSubmitted.set(true);
+                    }
+                    return true;
+                },
+                interruptedTaskRetry
+        );
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE,
+                0L,
+                1000
+        )).thenReturn(List.of(malformed, valid));
+        when(operationalTaskService.listActiveAfter(
+                CompetitorAnalysisRefreshService.TASK_TYPE,
+                150002L,
+                1000
+        )).thenReturn(List.of());
+        when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(malformedRun);
+        when(mapper.selectSearchRunByTaskId(150002L)).thenReturn(validRun);
+        when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
+
+        assertDoesNotThrow(recovery::resumeQueuedRefreshTasks);
+        assertTrue(validSubmitted.get());
+    }
+
+    @Test
     void staleRunningTaskIsFailedAndRetriedAsANewRun() {
         OperationalTask running = task(OperationalTaskStatus.RUNNING, "2026-06-06T07:20:00");
         CompetitorSearchRunRow run = run("RUNNING");
@@ -215,8 +283,12 @@ class CompetitorAnalysisTaskRecoveryTest {
     }
 
     private static CompetitorSearchRunRow run(String status) {
+        return run(220001L, status);
+    }
+
+    private static CompetitorSearchRunRow run(long id, String status) {
         CompetitorSearchRunRow run = new CompetitorSearchRunRow();
-        run.setId(220001L);
+        run.setId(id);
         run.setWatchProductId(180001L);
         run.setStatus(status);
         run.setTriggerMode("SCHEDULED_RANK_MONITOR");

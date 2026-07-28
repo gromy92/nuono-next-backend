@@ -126,6 +126,26 @@ public class OperationalTaskService {
         );
     }
 
+    public boolean requeueRunning(
+            Long taskId,
+            String payloadJson,
+            Integer progressPercent,
+            String errorCode,
+            String message
+    ) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId is required");
+        }
+        return repository.requeueRunning(
+                taskId,
+                normalize(payloadJson),
+                clampProgress(progressPercent),
+                normalize(errorCode),
+                normalize(message),
+                now()
+        );
+    }
+
     public boolean failStaleRunning(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
         if (taskId == null || staleBefore == null) {
             throw new IllegalArgumentException("taskId and staleBefore are required");

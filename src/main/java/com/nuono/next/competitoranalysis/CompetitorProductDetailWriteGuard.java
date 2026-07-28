@@ -1,7 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
-import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
+import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
