@@ -13,15 +13,19 @@ import com.nuono.next.infrastructure.mapper.CompetitorProductSnapshotMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.TimeZone;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
+@ResourceLock("default-time-zone")
 class CompetitorProductSnapshotServiceTest {
 
     @Mock
@@ -89,6 +93,60 @@ class CompetitorProductSnapshotServiceTest {
         assertEquals("ZSELF001", snapshotCaptor.getValue().getNoonProductCode());
         assertEquals(new BigDecimal("35.50"), snapshotCaptor.getValue().getPriceAmount());
         verify(mapper).selectPreviousSnapshot(180123L, "SELF", "ZSELF001", LocalDate.parse("2026-06-08"));
+    }
+
+    @Test
+    void assignsShanghaiMidnightSnapshotToTheNewBusinessDate() {
+        CompetitorProductSnapshotService service = new CompetitorProductSnapshotService(mapper);
+        when(mapper.nextProductSnapshotId()).thenReturn(260125L);
+        NoonProductDetail detail = selfDetail();
+        detail.setCapturedAt(LocalDateTime.parse("2026-07-27T00:00:00"));
+
+        service.recordProductDetailSnapshot(
+                context().getWatchProduct(),
+                null,
+                detail,
+                220123L,
+                601L
+        );
+
+        ArgumentCaptor<CompetitorProductSnapshotCommand> snapshotCaptor =
+                ArgumentCaptor.forClass(CompetitorProductSnapshotCommand.class);
+        verify(mapper).insertProductSnapshot(snapshotCaptor.capture());
+        assertEquals(LocalDate.parse("2026-07-27"), snapshotCaptor.getValue().getFactDate());
+        assertEquals(LocalDateTime.parse("2026-07-27T00:00:00"), snapshotCaptor.getValue().getCapturedAt());
+    }
+
+    @Test
+    void fillsMissingCapturedAtInShanghaiWhenJvmDefaultIsUtc() {
+        TimeZone previousZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("UTC"));
+            CompetitorProductSnapshotService service = new CompetitorProductSnapshotService(mapper);
+            when(mapper.nextProductSnapshotId()).thenReturn(260126L);
+            NoonProductDetail detail = selfDetail();
+            detail.setCapturedAt(null);
+            LocalDateTime before = LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusSeconds(1);
+
+            service.recordProductDetailSnapshot(
+                    context().getWatchProduct(),
+                    null,
+                    detail,
+                    220123L,
+                    601L
+            );
+
+            LocalDateTime after = LocalDateTime.now(ZoneId.of("Asia/Shanghai")).plusSeconds(1);
+            ArgumentCaptor<CompetitorProductSnapshotCommand> snapshotCaptor =
+                    ArgumentCaptor.forClass(CompetitorProductSnapshotCommand.class);
+            verify(mapper).insertProductSnapshot(snapshotCaptor.capture());
+            LocalDateTime capturedAt = snapshotCaptor.getValue().getCapturedAt();
+            assertEquals(capturedAt.toLocalDate(), snapshotCaptor.getValue().getFactDate());
+            org.junit.jupiter.api.Assertions.assertFalse(capturedAt.isBefore(before));
+            org.junit.jupiter.api.Assertions.assertFalse(capturedAt.isAfter(after));
+        } finally {
+            TimeZone.setDefault(previousZone);
+        }
     }
 
     private static CompetitorKeywordRefreshContext context() {

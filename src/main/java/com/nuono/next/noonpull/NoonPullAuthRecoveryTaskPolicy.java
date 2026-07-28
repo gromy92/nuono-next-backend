@@ -30,7 +30,8 @@ public final class NoonPullAuthRecoveryTaskPolicy {
         if (task.getPullType() != NoonPullType.INTERFACE) {
             return false;
         }
-        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY) {
+        if (task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_ASN
+                || task.getDataDomain() == NoonPullDataDomain.OFFICIAL_WAREHOUSE_INVENTORY) {
             return true;
         }
         return isReconstructibleProductList(task);

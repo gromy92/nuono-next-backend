@@ -4,6 +4,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import org.junit.jupiter.api.Test;
 
 class NoonProductDetailPageParserTest {
@@ -48,5 +52,24 @@ class NoonProductDetailPageParserTest {
         assertEquals(321, detail.getReviewCount());
         assertEquals("https://f.nooncdn.com/p/detail/image-key.jpg", detail.getMainImageUrlNormalized());
         assertEquals("IN_STOCK", detail.getAvailabilityStatus());
+    }
+
+    @Test
+    void recordsCapturedAtAcrossShanghaiBusinessMidnight() {
+        assertCapturedAt("2026-07-26T15:59:59Z", "2026-07-26T23:59:59");
+        assertCapturedAt("2026-07-26T16:00:00Z", "2026-07-27T00:00:00");
+    }
+
+    private static void assertCapturedAt(String instant, String expected) {
+        NoonProductDetailPageParser parser = new NoonProductDetailPageParser(
+                new ObjectMapper(),
+                Clock.fixed(Instant.parse(instant), ZoneOffset.UTC)
+        );
+        NoonProductDetail detail = parser.parse(
+                "{\"sku\":\"ZCOMP001\",\"name\":\"Detail title\"}",
+                "https://www.noon.com/saudi-en/sample/ZCOMP001/p/",
+                200
+        );
+        assertEquals(LocalDateTime.parse(expected), detail.getCapturedAt());
     }
 }

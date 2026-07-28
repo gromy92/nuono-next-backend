@@ -119,7 +119,7 @@ public class CompetitorProductSnapshotService {
         if (!StringUtils.hasText(noonCode)) {
             return null;
         }
-        LocalDateTime capturedAt = page.getCapturedAt() == null ? LocalDateTime.now() : page.getCapturedAt();
+        LocalDateTime capturedAt = page.getCapturedAt() == null ? com.nuono.next.noon.NoonShanghaiBusinessTime.now() : page.getCapturedAt();
         CompetitorWatchProductRow watchProduct = context.getWatchProduct();
         CompetitorProductSnapshotCommand command = new CompetitorProductSnapshotCommand();
         command.setOwnerUserId(watchProduct.getOwnerUserId());
@@ -168,7 +168,7 @@ public class CompetitorProductSnapshotService {
             return null;
         }
         boolean selfSnapshot = product == null || noonCode.equals(selfCode);
-        LocalDateTime capturedAt = detail.getCapturedAt() == null ? LocalDateTime.now() : detail.getCapturedAt();
+        LocalDateTime capturedAt = detail.getCapturedAt() == null ? com.nuono.next.noon.NoonShanghaiBusinessTime.now() : detail.getCapturedAt();
         CompetitorProductSnapshotCommand command = new CompetitorProductSnapshotCommand();
         command.setOwnerUserId(watchProduct.getOwnerUserId());
         command.setWatchProductId(watchProduct.getId());
