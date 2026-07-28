@@ -1512,7 +1512,6 @@ public class ProductImageProfileService {
         view.setEnabled(record.getEnabled());
         return view;
     }
-
     private ProductImageSuiteView toSuiteView(ProductImageSuiteRecord record) {
         List<ProductImageSuiteAssetRecord> assets = safeList(mapper.selectSuiteAssets(record.getId()));
         ProductImageSuiteView view = new ProductImageSuiteView();
@@ -1525,10 +1524,7 @@ public class ProductImageProfileService {
         view.setGenerationTaskId(record.getGenerationTaskId());
         view.setDraftPackageJson(record.getDraftPackageJson());
         view.setDraftPromptText(record.getDraftPromptText());
-        view.setSuiteStatus(ProductImageSuiteReadinessPolicy.operatorFacingStatus(
-                record.getSuiteStatus(),
-                assets
-        ));
+        view.setSuiteStatus(ProductImageSuiteReadinessPolicy.operatorFacingStatus(record.getSuiteStatus(), assets));
         view.setReviewComment(record.getReviewComment());
         view.setFailureStage(record.getFailureStage());
         view.setFailureReason(record.getFailureReason());
