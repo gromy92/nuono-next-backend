@@ -36,7 +36,9 @@ import org.apache.ibatis.annotations.Update;
 public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper {
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage,",
@@ -49,7 +51,9 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
     List<DispatchPlanRecord> listDispatchPlans(@Param("ownerUserId") Long ownerUserId);
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage,",
@@ -62,7 +66,9 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
     DispatchPlanRecord selectDispatchPlanById(@Param("dispatchPlanId") Long dispatchPlanId);
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage,",
@@ -76,7 +82,30 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
     DispatchPlanRecord selectDispatchPlanByIdForUpdate(@Param("dispatchPlanId") Long dispatchPlanId);
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount, total_quantity AS totalQuantity,",
+            "       site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
+            "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
+            "       handoff_error_message AS handoffErrorMessage,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM procurement_dispatch_plan",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND client_request_id = #{clientRequestId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    DispatchPlanRecord selectDispatchPlanByClientRequestId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("clientRequestId") String clientRequestId
+    );
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage",
@@ -88,7 +117,9 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
     DispatchPlanRecord selectDispatchPlanByHandoffRequest(@Param("handoffRequestNo") String handoffRequestNo);
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, plan_no AS planNo, status, item_count AS itemCount, sku_count AS skuCount,",
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
+            "       item_count AS itemCount, sku_count AS skuCount,",
             "       total_quantity AS totalQuantity, site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson,",
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage",

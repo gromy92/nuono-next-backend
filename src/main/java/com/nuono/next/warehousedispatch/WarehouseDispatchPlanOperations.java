@@ -25,6 +25,8 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         if (command == null || command.sources == null || command.sources.isEmpty()) {
             throw new IllegalArgumentException("请选择可发运商品。");
         }
+        String clientRequestId = normalizeDispatchClientRequestId(command.clientRequestId);
+        RequestFingerprint requestFingerprint = dispatchRequestFingerprint(command);
         LinkedHashMap<Long, List<DispatchPlanSourceCommand>> requested = new LinkedHashMap<>();
         for (DispatchPlanSourceCommand source : command.sources) {
             if (source == null || source.fulfillmentBalanceId == null || nonNull(source.quantity) <= 0) {
@@ -34,6 +36,13 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         }
         if (requested.isEmpty()) {
             throw new IllegalArgumentException("请选择可发运商品。");
+        }
+
+        Long operatorUserId = access.getSessionUserId();
+        Long ownerUserId = ownerUserId(access);
+        DispatchPlanView existing = lockAndReplayDispatchPlan(ownerUserId, clientRequestId, requestFingerprint);
+        if (existing != null) {
+            return existing;
         }
 
         List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(new ArrayList<>(requested.keySet()));
@@ -53,8 +62,6 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         }
         requireSingleLogisticsPartition(partitionKeys);
 
-        Long operatorUserId = access.getSessionUserId();
-        Long ownerUserId = ownerUserId(access);
         Long planId = mapper.nextDispatchPlanId();
         String planNo = "DP-" + planId;
 
@@ -117,6 +124,8 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         DispatchPlanRecord plan = new DispatchPlanRecord();
         plan.id = planId;
         plan.ownerUserId = ownerUserId;
+        plan.clientRequestId = clientRequestId;
+        plan.requestFingerprint = requestFingerprint.persistedValue();
         plan.planNo = planNo;
         plan.status = "DRAFT";
         plan.remark = trimToNull(command.remark);

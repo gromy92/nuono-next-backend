@@ -149,6 +149,8 @@ public class WarehouseProcurementRecords {
     public static class FulfillmentConfirmationInsertRecord {
         public Long id;
         public Long ownerUserId;
+        public String clientRequestId;
+        public String requestFingerprint;
         public Long logicalStoreId;
         public Long purchaseOrderId;
         public String confirmationNo;

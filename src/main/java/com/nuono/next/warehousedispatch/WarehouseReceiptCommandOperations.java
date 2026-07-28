@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueSupport {
+abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempotencySupport {
 
     protected WarehouseReceiptCommandOperations(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);
@@ -68,8 +68,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         if (command == null) {
             throw new IllegalArgumentException("缺少收货确认参数。");
         }
+        String clientRequestId = normalizeReceiptClientRequestId(command.clientRequestId);
+        RequestFingerprint requestFingerprint = confirmationRequestFingerprint(command);
         Long purchaseOrderId = parseLongId(command.purchaseOrderId, "采购单不存在或已删除。");
-        PurchaseOrderAccessRecord order = requireOrderAccess(access, purchaseOrderId);
         String confirmationType = normalizeConfirmationType(command.confirmationType);
         List<ConfirmationLineCommand> lines = command.lines == null ? List.of() : command.lines;
         if (lines.isEmpty()) {
@@ -84,6 +85,21 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
             if (linesByItem.putIfAbsent(itemId, line) != null) {
                 throw new IllegalArgumentException("同一采购单商品不能重复确认，请合并数量后重试。");
             }
+        }
+
+        PurchaseOrderAccessRecord order = requireOrderAccess(access, purchaseOrderId);
+        requireRequestOwnerLock(order.ownerUserId);
+        FulfillmentConfirmationInsertRecord existing = mapper.selectConfirmationByClientRequestId(
+                order.ownerUserId,
+                clientRequestId
+        );
+        if (existing != null) {
+            requireMatchingRequestFingerprint(
+                    existing.requestFingerprint,
+                    requestFingerprint,
+                    "同一客户端请求号不能提交不同的收货数据。"
+            );
+            return toConfirmationView(existing, mapper.listConfirmationLines(existing.id));
         }
 
         Long confirmationId = mapper.nextConfirmationId();
@@ -191,6 +207,8 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         FulfillmentConfirmationInsertRecord header = new FulfillmentConfirmationInsertRecord();
         header.id = confirmationId;
         header.ownerUserId = order.ownerUserId;
+        header.clientRequestId = clientRequestId;
+        header.requestFingerprint = requestFingerprint.persistedValue();
         header.logicalStoreId = order.logicalStoreId;
         header.purchaseOrderId = order.id;
         header.confirmationNo = view.confirmationNo;

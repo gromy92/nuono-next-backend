@@ -85,6 +85,15 @@ String BALANCE_SELECT = ""
             + " AND pvlp.is_deleted = b'0' "
             ;
 
+@Select({
+            "SELECT id",
+            "FROM `user`",
+            "WHERE id = #{ownerUserId}",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    Long lockDispatchOwner(@Param("ownerUserId") Long ownerUserId);
+
 @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",

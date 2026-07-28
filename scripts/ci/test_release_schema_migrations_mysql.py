@@ -24,7 +24,10 @@ from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E40
 from schema_migrations.mysql_support import MySqlExecutionError  # noqa: E402
 
 
-INTEGRITY_MIGRATION_KEY = "215_procurement_fulfillment_balance_quantity_invariant.sql"
+INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
+REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
+    "232_warehouse_command_request_idempotency.sql"
+)
 
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
@@ -54,7 +57,13 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
 
         self.assertEqual({}, database.load_states())
         self.prepare_fulfillment_balance_fixture(database)
+        self.prepare_warehouse_request_idempotency_fixture(database)
         integrity = next(item for item in migrations if item.key == INTEGRITY_MIGRATION_KEY)
+        request_idempotency = next(
+            item
+            for item in migrations
+            if item.key == REQUEST_IDEMPOTENCY_MIGRATION_KEY
+        )
         approvals = [integrity.key]
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
             runner.apply()
@@ -110,13 +119,54 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             integrity.key, rerun=True, approved_managed=approvals
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
-        self.assertEqual([], runner.apply(approved_managed=approvals))
+        self.assertEqual(
+            [request_idempotency.key],
+            runner.apply(approved_managed=approvals),
+        )
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
         self.assertTrue(database.postcheck(integrity))
+        self.assertTrue(database.postcheck(request_idempotency))
         database.run_script(integrity)
         database.run_script(integrity)
+        database.run_script(request_idempotency)
+        database.run_script(request_idempotency)
         self.assertTrue(database.postcheck(integrity))
+        self.assertTrue(database.postcheck(request_idempotency))
+        self.assertEqual(
+            "2",
+            database.client.execute(
+                "SELECT ("
+                "(SELECT COUNT(*) FROM procurement_dispatch_plan "
+                " WHERE client_request_id IS NULL AND request_fingerprint IS NULL)"
+                "+"
+                "(SELECT COUNT(*) FROM procurement_fulfillment_confirmation "
+                " WHERE client_request_id IS NULL AND request_fingerprint IS NULL)"
+                ");"
+            ),
+        )
+        database.client.execute(
+            "INSERT INTO procurement_dispatch_plan "
+            "(id, owner_user_id, client_request_id, request_fingerprint) "
+            "VALUES (2, 307, 'dispatch-request-1', REPEAT('a', 64)),"
+            "       (3, 308, 'dispatch-request-1', REPEAT('b', 64));"
+            "INSERT INTO procurement_fulfillment_confirmation "
+            "(id, owner_user_id, client_request_id, request_fingerprint) "
+            "VALUES (2, 307, 'receipt-request-1', REPEAT('c', 64)),"
+            "       (3, 308, 'receipt-request-1', REPEAT('d', 64));"
+        )
+        self.assert_mysql_duplicate_rejected(
+            database,
+            "INSERT INTO procurement_dispatch_plan "
+            "(id, owner_user_id, client_request_id, request_fingerprint) "
+            "VALUES (4, 307, 'dispatch-request-1', REPEAT('e', 64));",
+        )
+        self.assert_mysql_duplicate_rejected(
+            database,
+            "INSERT INTO procurement_fulfillment_confirmation "
+            "(id, owner_user_id, client_request_id, request_fingerprint) "
+            "VALUES (4, 307, 'receipt-request-1', REPEAT('f', 64));",
+        )
         database.client.execute(
             "INSERT INTO procurement_fulfillment_balance "
             "(id, planned_quantity, confirmed_quantity, abnormal_quantity, "
@@ -323,10 +373,34 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             "(2, 10, 8, 1, 1, 1, 6);"
         )
 
+    @staticmethod
+    def prepare_warehouse_request_idempotency_fixture(database):
+        database.client.execute(
+            "CREATE TABLE procurement_dispatch_plan ("
+            "id BIGINT NOT NULL,"
+            "owner_user_id BIGINT NOT NULL,"
+            "PRIMARY KEY (id)"
+            ") ENGINE=InnoDB;"
+            "CREATE TABLE procurement_fulfillment_confirmation ("
+            "id BIGINT NOT NULL,"
+            "owner_user_id BIGINT NOT NULL,"
+            "PRIMARY KEY (id)"
+            ") ENGINE=InnoDB;"
+            "INSERT INTO procurement_dispatch_plan "
+            "(id, owner_user_id) VALUES (1, 307);"
+            "INSERT INTO procurement_fulfillment_confirmation "
+            "(id, owner_user_id) VALUES (1, 307);"
+        )
+
     def assert_mysql_check_rejects(self, database, sql):
         with self.assertRaises(MySqlExecutionError) as caught:
             database.client.execute(sql)
         self.assertEqual(3819, caught.exception.error_code)
+
+    def assert_mysql_duplicate_rejected(self, database, sql):
+        with self.assertRaises(MySqlExecutionError) as caught:
+            database.client.execute(sql)
+        self.assertEqual(1062, caught.exception.error_code)
 
     @staticmethod
     def migration(root, order, key, script, postcheck):

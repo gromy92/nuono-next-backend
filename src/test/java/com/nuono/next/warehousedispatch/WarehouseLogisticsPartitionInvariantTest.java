@@ -33,6 +33,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(air, sea));
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
+        command.clientRequestId = "dispatch-mixed-partition-test";
         command.sources = List.of(dispatchSource(900001L, "SA", "AIR"), dispatchSource(900002L, "SA", "SEA"));
 
         assertThatThrownBy(() -> service.createDispatchPlan(access(), command))

@@ -24,7 +24,6 @@ class WarehouseReceiptConfirmationOperationsTest extends WarehouseDispatchServic
 
     @Test
     void createConfirmationRejectsDuplicatePurchaseOrderItemsBeforeReadingBalances() {
-        when(mapper.selectOrderAccess(200001L)).thenReturn(purchaseOrder());
         ConfirmationCommand command = confirmation(
                 confirmationLine(210001L, 5),
                 confirmationLine(210001L, 5)
@@ -61,6 +60,7 @@ class WarehouseReceiptConfirmationOperationsTest extends WarehouseDispatchServic
 
     private ConfirmationCommand confirmation(ConfirmationLineCommand... lines) {
         ConfirmationCommand command = new ConfirmationCommand();
+        command.clientRequestId = "receipt-confirmation-test-request";
         command.purchaseOrderId = "200001";
         command.confirmationType = "WAREHOUSE_RECEIPT";
         command.lines = List.of(lines);

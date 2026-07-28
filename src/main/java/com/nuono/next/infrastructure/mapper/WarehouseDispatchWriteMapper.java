@@ -68,10 +68,12 @@ public interface WarehouseDispatchWriteMapper extends WarehouseReceiptMapper {
 
 @Insert({
             "INSERT INTO procurement_dispatch_plan (",
-            "id, owner_user_id, plan_no, status, item_count, sku_count, total_quantity, site_summary_json, transport_summary_json,",
+            "id, owner_user_id, client_request_id, request_fingerprint, plan_no, status, item_count, sku_count, total_quantity,",
+            "site_summary_json, transport_summary_json,",
             "remark, handoff_generation_no, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.planNo}, #{row.status}, #{row.itemCount}, #{row.skuCount}, #{row.totalQuantity},",
+            "#{row.id}, #{row.ownerUserId}, #{row.clientRequestId}, #{row.requestFingerprint}, #{row.planNo},",
+            "#{row.status}, #{row.itemCount}, #{row.skuCount}, #{row.totalQuantity},",
             "#{row.siteSummaryJson}, #{row.transportSummaryJson}, #{row.remark}, #{row.handoffGenerationNo}, b'0',",
             "#{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
     })

@@ -9,6 +9,7 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,6 +84,35 @@ class WarehouseDispatchControllerTest {
 
         assertEquals(HttpStatus.CONFLICT, error.getStatus());
         assertEquals("收货库存状态已变化，请刷新后重试。", error.getReason());
+    }
+
+    @Test
+    void createCommandsMapChangedIdempotencyPayloadToConflict() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .build();
+        ConfirmationCommand confirmation = new ConfirmationCommand();
+        CreateDispatchPlanCommand dispatchPlan = new CreateDispatchPlanCommand();
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.createConfirmation(access, confirmation))
+                .thenThrow(new WarehouseRequestConflictException("同一客户端请求号不能提交不同的收货数据。"));
+        when(service.createDispatchPlan(access, dispatchPlan))
+                .thenThrow(new WarehouseRequestConflictException("同一客户端请求号不能提交不同的发货商品。"));
+
+        ResponseStatusException receiptError = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.createConfirmation(confirmation, request)
+        );
+        ResponseStatusException dispatchError = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.createDispatchPlan(dispatchPlan, request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, receiptError.getStatus());
+        assertEquals(HttpStatus.CONFLICT, dispatchError.getStatus());
     }
 
     @Test

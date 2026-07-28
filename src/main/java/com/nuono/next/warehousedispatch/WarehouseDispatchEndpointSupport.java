@@ -40,4 +40,8 @@ abstract class WarehouseDispatchEndpointSupport {
     protected ResponseStatusException conflict(WarehouseInventoryStateConflictException exception) {
         return new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
     }
+
+    protected ResponseStatusException conflict(WarehouseRequestConflictException exception) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+    }
 }

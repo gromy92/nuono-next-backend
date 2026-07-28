@@ -37,16 +37,38 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
 
 @Insert({
             "INSERT INTO procurement_fulfillment_confirmation (",
-            "id, owner_user_id, logical_store_id, purchase_order_id, confirmation_no, confirmation_type, status,",
+            "id, owner_user_id, client_request_id, request_fingerprint, logical_store_id, purchase_order_id, confirmation_no, confirmation_type, status,",
             "source_party_name, related_confirmation_id, relation_type, operator_user_id, confirmed_at, expected_quantity,",
             "confirmed_quantity_delta, abnormal_quantity_delta, remark, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.purchaseOrderId}, #{row.confirmationNo},",
+            "#{row.id}, #{row.ownerUserId}, #{row.clientRequestId}, #{row.requestFingerprint}, #{row.logicalStoreId},",
+            "#{row.purchaseOrderId}, #{row.confirmationNo},",
             "#{row.confirmationType}, #{row.status}, #{row.sourcePartyName}, #{row.relatedConfirmationId}, #{row.relationType},",
             "#{row.operatorUserId}, NOW(), #{row.expectedQuantity}, #{row.confirmedQuantityDelta}, #{row.abnormalQuantityDelta},",
             "#{row.remark}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
     int insertConfirmation(@Param("row") FulfillmentConfirmationInsertRecord row);
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, logical_store_id AS logicalStoreId,",
+            "       purchase_order_id AS purchaseOrderId, confirmation_no AS confirmationNo,",
+            "       confirmation_type AS confirmationType, status, source_party_name AS sourcePartyName,",
+            "       related_confirmation_id AS relatedConfirmationId, relation_type AS relationType,",
+            "       operator_user_id AS operatorUserId, expected_quantity AS expectedQuantity,",
+            "       confirmed_quantity_delta AS confirmedQuantityDelta,",
+            "       abnormal_quantity_delta AS abnormalQuantityDelta, remark",
+            "FROM procurement_fulfillment_confirmation",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND client_request_id = #{clientRequestId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    FulfillmentConfirmationInsertRecord selectConfirmationByClientRequestId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("clientRequestId") String clientRequestId
+    );
 
 @Insert({
             "INSERT INTO procurement_fulfillment_confirmation_line (",
@@ -62,6 +84,26 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "#{row.exceptionReason}, #{row.snapshotJson}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
     int insertConfirmationLine(@Param("row") FulfillmentConfirmationLineInsertRecord row);
+
+@Select({
+            "SELECT id, confirmation_id AS confirmationId, owner_user_id AS ownerUserId,",
+            "       logical_store_id AS logicalStoreId, purchase_order_id AS purchaseOrderId,",
+            "       purchase_order_item_id AS purchaseOrderItemId, product_master_id AS productMasterId,",
+            "       product_variant_id AS productVariantId, partner_sku AS partnerSku, sku_parent AS skuParent,",
+            "       title_cache AS titleCache, image_url_cache AS imageUrlCache, fulfillment_type AS fulfillmentType,",
+            "       expected_quantity AS expectedQuantity, confirmed_quantity_delta AS confirmedQuantityDelta,",
+            "       abnormal_quantity_delta AS abnormalQuantityDelta,",
+            "       related_confirmation_line_id AS relatedConfirmationLineId, exception_reason AS exceptionReason,",
+            "       snapshot_json AS snapshotJson",
+            "FROM procurement_fulfillment_confirmation_line",
+            "WHERE confirmation_id = #{confirmationId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC",
+            "FOR UPDATE"
+    })
+    List<FulfillmentConfirmationLineInsertRecord> listConfirmationLines(
+            @Param("confirmationId") Long confirmationId
+    );
 
 @Select({
             BALANCE_SELECT,

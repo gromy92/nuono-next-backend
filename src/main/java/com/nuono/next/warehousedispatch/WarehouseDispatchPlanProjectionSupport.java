@@ -36,6 +36,7 @@ protected DispatchPlanView toDispatchPlanView(DispatchPlanRecord record) {
         }
         view.id = String.valueOf(record.id);
         view.ownerUserId = record.ownerUserId;
+        view.clientRequestId = record.clientRequestId;
         view.planNo = record.planNo;
         view.status = record.status;
         view.itemCount = nonNull(record.itemCount);

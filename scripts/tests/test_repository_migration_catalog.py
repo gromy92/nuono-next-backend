@@ -26,6 +26,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "229_noon_fact_runtime_schema_convergence.sql",
                 "230_noon_finance_runtime_schema_convergence.sql",
                 "231_procurement_fulfillment_balance_quantity_invariant.sql",
+                "232_warehouse_command_request_idempotency.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -36,6 +37,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
                 "MANAGED",
+                "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
         )
@@ -52,7 +54,12 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
 
     def test_fulfillment_balance_invariant_is_fail_closed(self):
         resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = load_catalog(resource_root)[-1]
+        migration = next(
+            migration
+            for migration in load_catalog(resource_root)
+            if migration.key
+            == "231_procurement_fulfillment_balance_quantity_invariant.sql"
+        )
         script = migration.script_sql
         postcheck = migration.postcheck_sql
         compact_script = self.compact(script)
@@ -115,6 +122,35 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
             postcheck,
             re.compile(
                 r"\bFROM\s+`?procurement_fulfillment_balance\b",
+                re.IGNORECASE,
+            ),
+        )
+
+    def test_warehouse_request_idempotency_is_additive_and_fail_closed(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+        migration = next(
+            migration
+            for migration in load_catalog(resource_root)
+            if migration.key == "232_warehouse_command_request_idempotency.sql"
+        )
+
+        self.assertEqual("AUTO_ADDITIVE", migration.kind)
+        self.assertIn("duplicate_group_count", migration.script_sql)
+        self.assertIn("uk_dispatch_plan_owner_client_request", migration.script_sql)
+        self.assertIn(
+            "uk_fulfillment_confirmation_owner_client_request",
+            migration.script_sql,
+        )
+        self.assertIn(
+            "1:owner_user_id,2:client_request_id",
+            migration.postcheck_sql,
+        )
+        self.assertNotRegex(
+            migration.script_sql,
+            re.compile(
+                r"\b(?:UPDATE|DELETE\s+FROM)\s+"
+                r"`?(?:procurement_dispatch_plan|"
+                r"procurement_fulfillment_confirmation)\b",
                 re.IGNORECASE,
             ),
         )

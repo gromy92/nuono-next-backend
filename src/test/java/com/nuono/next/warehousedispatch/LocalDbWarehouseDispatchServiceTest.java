@@ -54,6 +54,7 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
+        command.clientRequestId = "dispatch-pending-quote-test";
         DispatchPlanSourceCommand source = new DispatchPlanSourceCommand();
         source.fulfillmentBalanceId = 900001L;
         source.quantity = 5;
@@ -96,6 +97,7 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of());
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
+        command.clientRequestId = "dispatch-merge-variant-test";
         DispatchPlanSourceCommand firstSource = new DispatchPlanSourceCommand();
         firstSource.fulfillmentBalanceId = 900001L;
         firstSource.quantity = 5;
