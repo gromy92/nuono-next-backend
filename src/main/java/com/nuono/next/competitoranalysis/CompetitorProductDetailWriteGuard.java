@@ -4,7 +4,9 @@ import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -12,17 +14,33 @@ import org.springframework.util.StringUtils;
 public class CompetitorProductDetailWriteGuard {
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorProductSnapshotService snapshotService;
+    private final CompetitorRefreshLeaseGuard leaseGuard;
 
+    @Autowired
     public CompetitorProductDetailWriteGuard(
             CompetitorAnalysisMapper mapper,
-            CompetitorProductSnapshotService snapshotService
+            CompetitorProductSnapshotService snapshotService,
+            CompetitorRefreshLeaseGuard leaseGuard
     ) {
         this.mapper = mapper;
         this.snapshotService = snapshotService;
+        this.leaseGuard = leaseGuard;
     }
 
-    @Transactional
+    CompetitorProductDetailWriteGuard(
+            CompetitorAnalysisMapper mapper,
+            CompetitorProductSnapshotService snapshotService
+    ) {
+        this(
+                mapper,
+                snapshotService,
+                CompetitorRefreshLeaseGuard.disabled(mapper)
+        );
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean writeIfCurrent(
+            Long taskId,
             CompetitorWatchProductRow watchProduct,
             CompetitorProductRow product,
             CompetitorProductDetailTarget target,
@@ -30,6 +48,11 @@ public class CompetitorProductDetailWriteGuard {
             Long sourceRunId,
             Long actorUserId
     ) {
+        leaseGuard.acquire(
+                taskId,
+                sourceRunId,
+                watchProduct == null ? null : watchProduct.getId()
+        );
         String expectedCode = normalize(target == null ? null : target.getNoonProductCode());
         if (watchProduct == null
                 || watchProduct.getId() == null

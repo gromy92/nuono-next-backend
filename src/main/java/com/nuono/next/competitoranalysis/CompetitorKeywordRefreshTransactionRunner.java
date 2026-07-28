@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,13 +20,42 @@ public class CompetitorKeywordRefreshTransactionRunner {
 
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorKeywordRefreshRunner runner;
+    private final CompetitorRefreshLeaseGuard leaseGuard;
+
+    @Autowired
+    public CompetitorKeywordRefreshTransactionRunner(
+            CompetitorAnalysisMapper mapper,
+            CompetitorKeywordRefreshRunner runner,
+            CompetitorRefreshLeaseGuard leaseGuard
+    ) {
+        this.mapper = mapper;
+        this.runner = runner == null ? new NoopCompetitorKeywordRefreshRunner() : runner;
+        this.leaseGuard = leaseGuard;
+    }
 
     public CompetitorKeywordRefreshTransactionRunner(
             CompetitorAnalysisMapper mapper,
             CompetitorKeywordRefreshRunner runner
     ) {
-        this.mapper = mapper;
-        this.runner = runner == null ? new NoopCompetitorKeywordRefreshRunner() : runner;
+        this(mapper, runner, CompetitorRefreshLeaseGuard.disabled(mapper));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public CompetitorKeywordRefreshResult runKeyword(
+            Long taskId,
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct,
+            CompetitorKeywordRow keyword,
+            Long actorUserId
+    ) {
+        return runKeyword(
+                taskId,
+                searchRunId,
+                watchProduct,
+                keyword,
+                actorUserId,
+                true
+        );
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -35,15 +65,36 @@ public class CompetitorKeywordRefreshTransactionRunner {
             CompetitorKeywordRow keyword,
             Long actorUserId
     ) {
+        return runKeyword(
+                null,
+                searchRunId,
+                watchProduct,
+                keyword,
+                actorUserId,
+                false
+        );
+    }
+
+    private CompetitorKeywordRefreshResult runKeyword(
+            Long taskId,
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct,
+            CompetitorKeywordRow keyword,
+            Long actorUserId,
+            boolean leaseRequired
+    ) {
         Long keywordRunId = mapper.nextKeywordRunId();
         try {
             CompetitorKeywordRefreshOutcome outcome = runner.refresh(CompetitorKeywordRefreshContext.builder()
+                    .taskId(taskId)
                     .searchRunId(searchRunId)
                     .keywordRunId(keywordRunId)
                     .watchProduct(watchProduct)
                     .keyword(keyword)
                     .actorUserId(actorUserId)
+                    .executionLeaseRequired(leaseRequired)
                     .build());
+            acquireLease(leaseRequired, taskId, searchRunId, watchProduct);
             if (outcome == null) {
                 outcome = CompetitorKeywordRefreshOutcome.success(0);
             }
@@ -70,6 +121,10 @@ public class CompetitorKeywordRefreshTransactionRunner {
             mapper.markKeywordProviderFailed(keyword.getId(), errorCode, errorMessage, actorUserId);
             return CompetitorKeywordRefreshResult.failure(errorCode, errorMessage);
         } catch (RuntimeException exception) {
+            if (exception instanceof CompetitorRefreshLeaseLostException) {
+                throw exception;
+            }
+            acquireLease(leaseRequired, taskId, searchRunId, watchProduct);
             String message = truncate(
                     firstNonBlank(exception.getMessage(), DEFAULT_PROVIDER_FAILURE_MESSAGE),
                     MAX_ERROR_MESSAGE_LENGTH
@@ -91,6 +146,21 @@ public class CompetitorKeywordRefreshTransactionRunner {
             mapper.insertKeywordRun(buildKeywordRun(keywordRunId, searchRunId, keyword, failed, actorUserId));
             mapper.markKeywordProviderFailed(keyword.getId(), errorCode, message, actorUserId);
             return CompetitorKeywordRefreshResult.failure(errorCode, message);
+        }
+    }
+
+    private void acquireLease(
+            boolean required,
+            Long taskId,
+            Long searchRunId,
+            CompetitorWatchProductRow watchProduct
+    ) {
+        if (required) {
+            leaseGuard.acquire(
+                    taskId,
+                    searchRunId,
+                    watchProduct == null ? null : watchProduct.getId()
+            );
         }
     }
 

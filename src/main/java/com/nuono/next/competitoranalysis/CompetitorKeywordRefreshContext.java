@@ -1,16 +1,20 @@
 package com.nuono.next.competitoranalysis;
 
 public class CompetitorKeywordRefreshContext {
+    private Long taskId;
     private Long searchRunId;
     private Long keywordRunId;
     private CompetitorWatchProductRow watchProduct;
     private CompetitorKeywordRow keyword;
     private Long actorUserId;
+    private boolean executionLeaseRequired;
 
     public static Builder builder() {
         return new Builder();
     }
 
+    public Long getTaskId() { return taskId; }
+    public void setTaskId(Long taskId) { this.taskId = taskId; }
     public Long getSearchRunId() { return searchRunId; }
     public void setSearchRunId(Long searchRunId) { this.searchRunId = searchRunId; }
     public Long getKeywordRunId() { return keywordRunId; }
@@ -21,9 +25,16 @@ public class CompetitorKeywordRefreshContext {
     public void setKeyword(CompetitorKeywordRow keyword) { this.keyword = keyword; }
     public Long getActorUserId() { return actorUserId; }
     public void setActorUserId(Long actorUserId) { this.actorUserId = actorUserId; }
+    public boolean isExecutionLeaseRequired() { return executionLeaseRequired; }
+    public void setExecutionLeaseRequired(boolean value) { executionLeaseRequired = value; }
 
     public static final class Builder {
         private final CompetitorKeywordRefreshContext context = new CompetitorKeywordRefreshContext();
+
+        public Builder taskId(Long taskId) {
+            context.taskId = taskId;
+            return this;
+        }
 
         public Builder searchRunId(Long searchRunId) {
             context.searchRunId = searchRunId;
@@ -47,6 +58,11 @@ public class CompetitorKeywordRefreshContext {
 
         public Builder actorUserId(Long actorUserId) {
             context.actorUserId = actorUserId;
+            return this;
+        }
+
+        public Builder executionLeaseRequired(boolean value) {
+            context.executionLeaseRequired = value;
             return this;
         }
 

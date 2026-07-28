@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
@@ -12,6 +13,7 @@ import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.infrastructure.mapper.CompetitorProductDetailWriteMapper;
 import java.lang.reflect.Method;
+import java.time.Clock;
 import java.util.Locale;
 import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +23,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @ExtendWith(MockitoExtension.class)
 class CompetitorProductDetailWriteAtomicityTest {
@@ -37,6 +40,7 @@ class CompetitorProductDetailWriteAtomicityTest {
     void writeBoundaryIsTransactional() throws Exception {
         Method method = CompetitorProductDetailWriteGuard.class.getMethod(
                 "writeIfCurrent",
+                Long.class,
                 CompetitorWatchProductRow.class,
                 CompetitorProductRow.class,
                 CompetitorProductDetailTarget.class,
@@ -68,6 +72,7 @@ class CompetitorProductDetailWriteAtomicityTest {
         when(mapper.updateCompetitorProductFromDetail(any())).thenReturn(1);
 
         boolean written = writeGuard.writeIfCurrent(
+                150124L,
                 expectedWatch,
                 expectedProduct,
                 target,
@@ -109,6 +114,7 @@ class CompetitorProductDetailWriteAtomicityTest {
         )).thenReturn(null);
 
         boolean written = writeGuard.writeIfCurrent(
+                150124L,
                 watch,
                 product,
                 target,
@@ -129,12 +135,61 @@ class CompetitorProductDetailWriteAtomicityTest {
     }
 
     @Test
+    void recoveredRunCannotWriteDetailOrSnapshot() {
+        CompetitorWatchProductRow watch = watch("ZSELF001");
+        CompetitorProductRow product = competitor("ZCOMP001");
+        CompetitorSearchRunRow recoveredRun = new CompetitorSearchRunRow();
+        recoveredRun.setId(220124L);
+        recoveredRun.setTaskId(150124L);
+        recoveredRun.setWatchProductId(watch.getId());
+        recoveredRun.setStatus("FAILED");
+        CompetitorProductDetailWriteGuard fencedGuard =
+                new CompetitorProductDetailWriteGuard(
+                        mapper,
+                        snapshotService,
+                        new CompetitorRefreshLeaseGuard(
+                                mapper, Clock.systemUTC(), true
+                        )
+                );
+        TransactionSynchronizationManager.setActualTransactionActive(true);
+        try {
+            assertThrows(
+                    CompetitorRefreshLeaseLostException.class,
+                    () -> fencedGuard.writeIfCurrent(
+                            recoveredRun.getTaskId(),
+                            watch,
+                            product,
+                            CompetitorProductDetailTarget.competitor(
+                                    product.getId(),
+                                    product.getNoonProductCode(),
+                                    product.getCanonicalUrl()
+                            ),
+                            detail("ZCOMP001"),
+                            recoveredRun.getId(),
+                            601L
+                    )
+            );
+        } finally {
+            TransactionSynchronizationManager.setActualTransactionActive(false);
+        }
+        verify(mapper, never()).updateCompetitorProductFromDetail(any());
+        verify(snapshotService, never()).recordProductDetailSnapshot(
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+    }
+
+    @Test
     void selfChangedBeforeAtomicCommitCannotBeSnapshotted() {
         CompetitorWatchProductRow expected = watch("ZSELF001");
         when(mapper.lockWatchProductForDetailWrite(expected.getId()))
                 .thenReturn(watch("ZSELF999"));
 
         boolean written = writeGuard.writeIfCurrent(
+                150124L,
                 expected,
                 null,
                 CompetitorProductDetailTarget.self("ZSELF001"),

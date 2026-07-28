@@ -7,6 +7,7 @@ import com.nuono.next.system.task.OperationalTaskService;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.function.Consumer;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -21,15 +22,30 @@ class CompetitorRefreshTaskFactory {
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorStaleTaskReconciler staleTaskReconciler;
+    private final CompetitorRefreshLeaseGuard leaseGuard;
+
+    @Autowired
+    CompetitorRefreshTaskFactory(
+            CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorRefreshLeaseGuard leaseGuard
+    ) {
+        this.mapper = mapper;
+        this.operationalTaskService = operationalTaskService;
+        this.leaseGuard = leaseGuard;
+        this.staleTaskReconciler =
+                new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
+    }
 
     CompetitorRefreshTaskFactory(
             CompetitorAnalysisMapper mapper,
             OperationalTaskService operationalTaskService
     ) {
-        this.mapper = mapper;
-        this.operationalTaskService = operationalTaskService;
-        this.staleTaskReconciler =
-                new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
+        this(
+                mapper,
+                operationalTaskService,
+                CompetitorRefreshLeaseGuard.disabled(mapper)
+        );
     }
 
     @Transactional
@@ -108,6 +124,11 @@ class CompetitorRefreshTaskFactory {
             String errorCode,
             String message
     ) {
+        CompetitorSearchRunRow run = mapper.selectSearchRunById(runId);
+        if (run == null || !Objects.equals(taskId, run.getTaskId())) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        leaseGuard.acquire(taskId, runId, run.getWatchProductId());
         if (!operationalTaskService.requeueRunning(
                 taskId,
                 payloadJson,
@@ -117,9 +138,17 @@ class CompetitorRefreshTaskFactory {
         )) {
             return false;
         }
-        if (mapper.requeueSearchRun(runId, errorCode, message) != 1) {
-            throw new IllegalStateException("Competitor search run retry transition conflict: " + runId);
-        }
+        leaseGuard.requireMutation(
+                mapper.requeueRunningRefreshRun(
+                        taskId,
+                        runId,
+                        run.getWatchProductId(),
+                        errorCode,
+                        message
+                ),
+                taskId,
+                runId
+        );
         return true;
     }
 

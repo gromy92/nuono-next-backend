@@ -50,6 +50,7 @@ public class CompetitorAnalysisRefreshService {
     private final CompetitorProductDetailRefreshService productDetailRefreshService;
     private final CompetitorRiskBackoffSupport riskBackoff;
     private final CompetitorDetailRetryCoordinator detailRetryCoordinator;
+    private CompetitorRefreshExecutionFinalizer executionFinalizer;
     private final Clock clock;
     @Autowired
     public CompetitorAnalysisRefreshService(
@@ -62,7 +63,8 @@ public class CompetitorAnalysisRefreshService {
             ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuardProvider,
             CompetitorRefreshTaskFactory refreshTaskFactory,
             CompetitorMonitoringRecoveryService monitoringRecoveryService,
-            CompetitorMonitoringTaskExecutor monitoringTaskExecutor
+            CompetitorMonitoringTaskExecutor monitoringTaskExecutor,
+            CompetitorRefreshExecutionFinalizer executionFinalizer
     ) {
         this(
                 mapper,
@@ -79,6 +81,7 @@ public class CompetitorAnalysisRefreshService {
                 monitoringRecoveryService,
                 monitoringTaskExecutor
         );
+        this.executionFinalizer = executionFinalizer;
     }
     CompetitorAnalysisRefreshService(
             CompetitorAnalysisMapper mapper,
@@ -235,6 +238,10 @@ public class CompetitorAnalysisRefreshService {
         this.riskBackoff = new CompetitorRiskBackoffSupport(riskBackoffGuard);
         this.clock = clock == null ? Clock.systemUTC() : clock;
         this.refreshTaskFactory = refreshTaskFactory;
+        this.executionFinalizer =
+                CompetitorRefreshExecutionFinalizer.unfenced(
+                        mapper, operationalTaskService
+                );
         this.detailRetryCoordinator = new CompetitorDetailRetryCoordinator(refreshTaskFactory, this.clock);
         this.refreshTaskDispatcher = new CompetitorRefreshTaskDispatcher(
                 mapper,
@@ -585,7 +592,9 @@ public class CompetitorAnalysisRefreshService {
         String firstErrorCode = null;
         String firstErrorMessage = null;
         try {
-            operationalTaskService.progress(taskId, 5, RUNNING_MESSAGE);
+            executionFinalizer.progress(
+                    taskId, runId, watchProductId, 5, RUNNING_MESSAGE
+            );
             OperationalTask runningTask = operationalTaskService.find(taskId).orElse(null);
             CompetitorWatchProductRow watchProduct = mapper.selectWatchProductForRefresh(watchProductId);
             if (watchProduct == null) {
@@ -603,9 +612,10 @@ public class CompetitorAnalysisRefreshService {
                     );
                     return;
                 }
-                safeMarkRunFailed(runId, COMPETITOR_RISK_BACKOFF, message);
-                safeUpdateWatchLatestRun(watchProductId, runId, "FAILED", actorUserId);
-                safeFailTask(taskId, COMPETITOR_RISK_BACKOFF, message);
+                executionFinalizer.fail(
+                        taskId, runId, watchProductId,
+                        COMPETITOR_RISK_BACKOFF, message, actorUserId
+                );
                 return;
             }
             CompetitorProductDetailRefreshResult detailResult = safeMode.runsDetail()
@@ -623,10 +633,16 @@ public class CompetitorAnalysisRefreshService {
                 firstErrorCode = detailResult.getFirstErrorCode();
                 firstErrorMessage = detailResult.getFirstErrorMessage();
                 if (detailResult.hasRiskBackoffFailure()) {
-                    firstErrorCode = detailResult.getRiskErrorCode();
-                    firstErrorMessage = detailResult.getRiskErrorMessage();
-                    riskBackoffHold = riskBackoff.record(
-                            watchProduct, taskId, firstErrorCode, firstErrorMessage
+                    String riskErrorCode = detailResult.getRiskErrorCode();
+                    String riskErrorMessage = detailResult.getRiskErrorMessage();
+                    firstErrorCode = riskErrorCode;
+                    firstErrorMessage = riskErrorMessage;
+                    riskBackoffHold = executionFinalizer.withLease(
+                            taskId, runId, watchProductId,
+                            () -> riskBackoff.record(
+                                    watchProduct, taskId,
+                                    riskErrorCode, riskErrorMessage
+                            )
                     );
                 }
             }
@@ -655,7 +671,9 @@ public class CompetitorAnalysisRefreshService {
             int keywordRetried = 0;
             int keywordRetryRecovered = 0;
             for (CompetitorKeywordRow keyword : keywords) {
-                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(runId, watchProduct, keyword, actorUserId);
+                CompetitorKeywordRefreshResult result = keywordRefreshRunner.runKeyword(
+                        taskId, runId, watchProduct, keyword, actorUserId
+                );
                 if (result.isSuccess()) {
                     success++;
                     candidateUpsertedCount += result.getCandidateUpsertedCount();
@@ -663,15 +681,20 @@ public class CompetitorAnalysisRefreshService {
                 } else {
                     failed++;
                     if (riskBackoff.isRiskFailure(result.getErrorCode())) {
-                        riskBackoffHold = riskBackoff.record(
-                                watchProduct,
-                                taskId,
-                                result.getErrorCode(),
-                                result.getErrorMessage()
+                        riskBackoffHold = executionFinalizer.withLease(
+                                taskId, runId, watchProductId,
+                                () -> riskBackoff.record(
+                                        watchProduct, taskId,
+                                        result.getErrorCode(),
+                                        result.getErrorMessage()
+                                )
                         );
                         firstErrorCode = firstNonBlank(firstErrorCode, result.getErrorCode());
                         firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
-                        updateProgress(taskId, total, success + failed);
+                        updateProgress(
+                                taskId, runId, watchProductId,
+                                total, success + failed
+                        );
                         break;
                     }
                     if (shouldRetryTransientKeywordFailure(safeMode, result)) {
@@ -681,12 +704,16 @@ public class CompetitorAnalysisRefreshService {
                         firstErrorMessage = firstNonBlank(firstErrorMessage, result.getErrorMessage());
                     }
                 }
-                updateProgress(taskId, total, success + failed);
+                updateProgress(
+                        taskId, runId, watchProductId,
+                        total, success + failed
+                );
             }
 
             for (KeywordRetryCandidate retryCandidate : retryCandidates) {
                 keywordRetried++;
                 CompetitorKeywordRefreshResult retryResult = keywordRefreshRunner.runKeyword(
+                        taskId,
                         runId,
                         watchProduct,
                         retryCandidate.keyword,
@@ -712,18 +739,6 @@ public class CompetitorAnalysisRefreshService {
 
             String status = CompetitorRefreshRunResultSupport.status(success, failed, detailResult);
             String message = resolveRunMessage(safeMode, status, success, failed, detailResult);
-            mapper.completeSearchRun(
-                    runId,
-                    status,
-                    success,
-                    failed,
-                    candidateUpsertedCount,
-                    rankFactWrittenCount,
-                    firstErrorCode,
-                    truncateMessage(firstErrorMessage),
-                    actorUserId
-            );
-            mapper.updateWatchProductLatestRun(watchProductId, runId, status, actorUserId);
             String runResultJson = CompetitorRefreshRunResultSupport.resultJson(
                     safeMode,
                     status,
@@ -733,39 +748,45 @@ public class CompetitorAnalysisRefreshService {
                     keywordRetried,
                     keywordRetryRecovered
             );
-            if (riskBackoffHold != null) {
-                operationalTaskService.fail(
-                        taskId,
-                        COMPETITOR_RISK_BACKOFF,
-                        riskBackoff.message(riskBackoffHold),
-                        runResultJson
-                );
-                return;
-            }
-            if ("FAILED".equals(status)
+            String taskErrorCode = riskBackoffHold != null
+                    ? COMPETITOR_RISK_BACKOFF
+                    : "FAILED".equals(status)
                     || (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
-                    && !"SUCCEEDED".equals(status))) {
-                operationalTaskService.fail(
-                        taskId,
-                        firstNonBlank(firstErrorCode, "REFRESH_FAILED"),
-                        message,
-                        runResultJson
-                );
-            } else {
-                if ("SUCCEEDED".equals(status)) {
-                    riskBackoff.recordSuccess(watchProduct);
-                }
-                operationalTaskService.complete(
-                        taskId,
-                        runResultJson,
-                        message
-                );
+                            && !"SUCCEEDED".equals(status))
+                            ? firstNonBlank(firstErrorCode, "REFRESH_FAILED")
+                            : null;
+            String taskMessage = riskBackoffHold == null
+                    ? message
+                    : riskBackoff.message(riskBackoffHold);
+            if ("SUCCEEDED".equals(status)) {
+                executionFinalizer.withLease(taskId, runId, watchProductId,
+                        () -> riskBackoff.recordSuccess(watchProduct));
             }
+            executionFinalizer.complete(
+                    taskId,
+                    runId,
+                    watchProductId,
+                    CompetitorRefreshCompletion.create(
+                            status, success, failed, candidateUpsertedCount,
+                            rankFactWrittenCount, firstErrorCode,
+                            truncateMessage(firstErrorMessage),
+                            actorUserId, taskErrorCode,
+                            runResultJson, taskMessage
+                    )
+            );
+        } catch (CompetitorRefreshLeaseLostException exception) {
+            log.info(
+                    "competitor refresh stopped after lease loss taskId={} runId={}",
+                    taskId,
+                    runId
+            );
         } catch (RuntimeException exception) {
             String message = truncateMessage(firstNonBlank(exception.getMessage(), FAILED_MESSAGE));
-            safeMarkRunFailed(runId, "REFRESH_FAILED", message);
-            safeUpdateWatchLatestRun(watchProductId, runId, "FAILED", actorUserId);
-            safeFailTask(taskId, "REFRESH_FAILED", message);
+            if (!safeFinalizeFailure(
+                    taskId, runId, watchProductId, actorUserId, message
+            )) {
+                return;
+            }
             log.warn(
                     "competitor analysis refresh failed watchProductId={} runId={} taskId={} error={}",
                     watchProductId,
@@ -819,12 +840,20 @@ public class CompetitorAnalysisRefreshService {
         return Duration.between(updatedAt, LocalDateTime.now(clock)).compareTo(STALE_AFTER) > 0;
     }
 
-    private void updateProgress(Long taskId, int total, int finished) {
+    private void updateProgress(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            int total,
+            int finished
+    ) {
         if (total <= 0) {
             return;
         }
         int progress = 5 + (int) Math.floor((finished * 90.0d) / total);
-        operationalTaskService.progress(taskId, progress, RUNNING_MESSAGE);
+        executionFinalizer.progress(
+                taskId, runId, watchProductId, progress, RUNNING_MESSAGE
+        );
     }
 
     private CompetitorWatchProductRow requireWatchProduct(BusinessAccessContext context, Long watchProductId) {
@@ -927,7 +956,6 @@ public class CompetitorAnalysisRefreshService {
         }
         return normalized.toUpperCase(Locale.ROOT);
     }
-
     private String json(String value) {
         if (value == null) {
             return "";
@@ -935,27 +963,38 @@ public class CompetitorAnalysisRefreshService {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private void safeMarkRunFailed(Long runId, String errorCode, String message) {
+    private boolean safeFinalizeFailure(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            Long actorUserId,
+            String message
+    ) {
         try {
-            mapper.markSearchRunFailed(runId, errorCode, truncateMessage(message));
-        } catch (RuntimeException ignored) {
-            log.debug("competitor search run {} was already terminal while recording failure", runId);
-        }
-    }
-
-    private void safeUpdateWatchLatestRun(Long watchProductId, Long runId, String runStatus, Long actorUserId) {
-        try {
-            mapper.updateWatchProductLatestRun(watchProductId, runId, runStatus, actorUserId);
-        } catch (RuntimeException ignored) {
-            log.debug("watch product {} latest run update failed for run {}", watchProductId, runId);
-        }
-    }
-
-    private void safeFailTask(Long taskId, String errorCode, String message) {
-        try {
-            operationalTaskService.fail(taskId, errorCode, truncateMessage(message));
-        } catch (RuntimeException ignored) {
-            log.debug("operational task {} was already terminal while recording refresh failure", taskId);
+            executionFinalizer.fail(
+                    taskId,
+                    runId,
+                    watchProductId,
+                    "REFRESH_FAILED",
+                    message,
+                    actorUserId
+            );
+            return true;
+        } catch (CompetitorRefreshLeaseLostException exception) {
+            log.info(
+                    "competitor failure finalization skipped after lease loss taskId={} runId={}",
+                    taskId,
+                    runId
+            );
+            return false;
+        } catch (RuntimeException finalizationFailure) {
+            log.debug(
+                    "competitor failure finalization failed taskId={} runId={}",
+                    taskId,
+                    runId,
+                    finalizationFailure
+            );
+            return true;
         }
     }
 

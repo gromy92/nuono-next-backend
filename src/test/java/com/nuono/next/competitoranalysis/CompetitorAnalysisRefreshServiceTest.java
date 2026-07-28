@@ -193,6 +193,7 @@ class CompetitorAnalysisRefreshServiceTest {
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
         when(keywordRefreshRunner.runKeyword(
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq(watchProduct),
                 org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
@@ -209,6 +210,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 601L
         );
         verify(keywordRefreshRunner, times(2)).runKeyword(
+                org.mockito.ArgumentMatchers.eq(view.getTaskId()),
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq(watchProduct),
                 org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
@@ -236,6 +238,7 @@ class CompetitorAnalysisRefreshServiceTest {
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
         when(keywordRefreshRunner.runKeyword(
+                org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq(watchProduct),
                 org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
@@ -257,6 +260,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 org.mockito.ArgumentMatchers.any()
         );
         verify(keywordRefreshRunner).runKeyword(
+                org.mockito.ArgumentMatchers.eq(view.getTaskId() + 1L),
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq(watchProduct),
                 org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
@@ -286,9 +290,15 @@ class CompetitorAnalysisRefreshServiceTest {
                 .thenReturn(List.of(stableKeyword, transientKeyword));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
-        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, stableKeyword, null))
+        when(keywordRefreshRunner.runKeyword(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct), org.mockito.ArgumentMatchers.eq(stableKeyword),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(CompetitorKeywordRefreshResult.success(1, 2));
-        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, transientKeyword, null))
+        when(keywordRefreshRunner.runKeyword(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct), org.mockito.ArgumentMatchers.eq(transientKeyword),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(
                         CompetitorKeywordRefreshResult.failure("PROVIDER_UNAVAILABLE", "Noon 前台搜索返回 HTTP 502。"),
                         CompetitorKeywordRefreshResult.success(3, 4)
@@ -301,8 +311,10 @@ class CompetitorAnalysisRefreshServiceTest {
         OperationalTask productTask = taskRepository.selectById(view.getTaskId() + 1);
         assertEquals(OperationalTaskStatus.SUCCEEDED, productTask.getStatus());
         assertEquals("竞品排名刷新完成。", productTask.getMessage());
-        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, stableKeyword, null);
-        verify(keywordRefreshRunner, times(2)).runKeyword(220123L, watchProduct, transientKeyword, null);
+        verify(keywordRefreshRunner, times(1)).runKeyword(
+                view.getTaskId() + 1L, 220123L, watchProduct, stableKeyword, null);
+        verify(keywordRefreshRunner, times(2)).runKeyword(
+                view.getTaskId() + 1L, 220123L, watchProduct, transientKeyword, null);
         verify(mapper).completeSearchRun(
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq("SUCCEEDED"),
@@ -373,7 +385,10 @@ class CompetitorAnalysisRefreshServiceTest {
                 .thenReturn(List.of(rateLimitedKeyword, skippedKeyword));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
-        when(keywordRefreshRunner.runKeyword(220123L, watchProduct, rateLimitedKeyword, null))
+        when(keywordRefreshRunner.runKeyword(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(watchProduct), org.mockito.ArgumentMatchers.eq(rateLimitedKeyword),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(CompetitorKeywordRefreshResult.failure("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。"));
 
         CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
@@ -389,8 +404,10 @@ class CompetitorAnalysisRefreshServiceTest {
         assertEquals("rate_limited", riskRepository.selectLatestHold(
                 NoonRiskBackoffScope.allPublicNoon(501L, "STR108065-NSA", "SA").getScopeKey()
         ).getRiskType());
-        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, watchProduct, rateLimitedKeyword, null);
-        verify(keywordRefreshRunner, never()).runKeyword(220123L, watchProduct, skippedKeyword, null);
+        verify(keywordRefreshRunner, times(1)).runKeyword(
+                view.getTaskId() + 1L, 220123L, watchProduct, rateLimitedKeyword, null);
+        verify(keywordRefreshRunner, never()).runKeyword(
+                view.getTaskId() + 1L, 220123L, watchProduct, skippedKeyword, null);
     }
 
     @Test
@@ -423,7 +440,10 @@ class CompetitorAnalysisRefreshServiceTest {
         when(mapper.nextSearchRunId()).thenReturn(220123L, 220124L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(first);
         when(mapper.selectWatchProductForRefresh(180124L)).thenReturn(second);
-        when(keywordRefreshRunner.runKeyword(220123L, first, rateLimitedKeyword, null))
+        when(keywordRefreshRunner.runKeyword(org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.eq(220123L),
+                org.mockito.ArgumentMatchers.eq(first), org.mockito.ArgumentMatchers.eq(rateLimitedKeyword),
+                org.mockito.ArgumentMatchers.isNull()))
                 .thenReturn(CompetitorKeywordRefreshResult.failure("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。"));
 
         CompetitorTaskView view = service.requestScheduledRankMonitoring(501L, "STR108065-NSA", "SA");
@@ -437,8 +457,10 @@ class CompetitorAnalysisRefreshServiceTest {
         assertEquals("COMPETITOR_RISK_BACKOFF", firstProductTask.getErrorCode());
         assertEquals(OperationalTaskStatus.QUEUED, secondProductTask.getStatus());
         assertNull(secondProductTask.getErrorCode());
-        verify(keywordRefreshRunner, times(1)).runKeyword(220123L, first, rateLimitedKeyword, null);
-        verify(keywordRefreshRunner, never()).runKeyword(220124L, second, blockedByBackoffKeyword, null);
+        verify(keywordRefreshRunner, times(1)).runKeyword(
+                view.getTaskId() + 1L, 220123L, first, rateLimitedKeyword, null);
+        verify(keywordRefreshRunner, never()).runKeyword(
+                view.getTaskId() + 2L, 220124L, second, blockedByBackoffKeyword, null);
         verify(mapper, never()).markSearchRunFailed(
                 org.mockito.ArgumentMatchers.eq(220124L),
                 org.mockito.ArgumentMatchers.anyString(),
@@ -531,6 +553,7 @@ class CompetitorAnalysisRefreshServiceTest {
                 null
         );
         verify(keywordRefreshRunner, never()).runKeyword(
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),

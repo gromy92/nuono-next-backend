@@ -62,8 +62,14 @@ class CompetitorMixedDetailRetryRecoveryTest {
         }).when(mapper).insertSearchRun(any());
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(anyLong()))
                 .thenAnswer(invocation -> runsByTask.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunById(anyLong()))
+                .thenAnswer(invocation -> runsByTask.values().stream()
+                        .filter(run -> run.getId().equals(invocation.getArgument(0)))
+                        .findFirst().orElse(null));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(anyLong())).thenReturn(1);
-        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(anyLong(), any(), any()))
+        org.mockito.Mockito.lenient().when(mapper.requeueRunningRefreshRun(
+                anyLong(), anyLong(), anyLong(), any(), any()
+        ))
                 .thenReturn(1);
     }
 

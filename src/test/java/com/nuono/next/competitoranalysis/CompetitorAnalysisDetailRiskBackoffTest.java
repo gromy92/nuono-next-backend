@@ -98,6 +98,9 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         });
         when(taskService.claimQueued(150000L, CompetitorMonitoringBatchRunner.RUNNING_MESSAGE)).thenReturn(true);
         when(taskService.claimQueued(150001L, "竞品刷新正在后台执行。")).thenReturn(true);
+        when(taskService.prepareQueuedPayload(
+                eq(monitorTask), anyString(), anyString()
+        )).thenReturn(Optional.of(monitorTask));
         when(taskService.find(150001L)).thenReturn(Optional.of(productTask));
         when(taskService.requeueRunning(
                 eq(150001L),
@@ -114,9 +117,12 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         when(taskService.listActiveAfter(CompetitorAnalysisRefreshService.TASK_TYPE, 150001L, 1000))
                 .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(searchRun);
+        when(mapper.selectSearchRunById(220123L)).thenReturn(searchRun);
         when(mapper.markSearchRunRunning(220123L)).thenReturn(1);
-        when(mapper.requeueSearchRun(
+        when(mapper.requeueRunningRefreshRun(
+                eq(150001L),
                 eq(220123L),
+                eq(180123L),
                 eq("RATE_LIMITED"),
                 contains("第 1/4 次退避重试")
         )).thenReturn(1);
@@ -138,8 +144,10 @@ class CompetitorAnalysisDetailRiskBackoffTest {
                 eq("RATE_LIMITED"),
                 contains("第 1/4 次退避重试")
         );
-        verify(mapper).requeueSearchRun(
+        verify(mapper).requeueRunningRefreshRun(
+                eq(150001L),
                 eq(220123L),
+                eq(180123L),
                 eq("RATE_LIMITED"),
                 contains("第 1/4 次退避重试")
         );

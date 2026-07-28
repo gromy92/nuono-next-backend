@@ -68,6 +68,7 @@ class CompetitorProductDetailWriteTransactionProxyTest {
             assertThrows(
                     IllegalStateException.class,
                     () -> writeGuard.writeIfCurrent(
+                            150124L,
                             watch,
                             competitor,
                             CompetitorProductDetailTarget.competitor(

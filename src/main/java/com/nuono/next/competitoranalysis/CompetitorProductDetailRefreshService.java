@@ -21,7 +21,6 @@ import org.springframework.util.StringUtils;
 @Service
 public class CompetitorProductDetailRefreshService {
     private static final Logger log = LoggerFactory.getLogger(CompetitorProductDetailRefreshService.class);
-
     private final CompetitorAnalysisMapper mapper;
     private final NoonProductDetailAdapter detailAdapter;
     private final CompetitorProductSnapshotService snapshotService;
@@ -43,7 +42,6 @@ public class CompetitorProductDetailRefreshService {
                 Clock.systemUTC()
         );
     }
-
     CompetitorProductDetailRefreshService(
             CompetitorAnalysisMapper mapper,
             NoonProductDetailAdapter detailAdapter,
@@ -155,6 +153,7 @@ public class CompetitorProductDetailRefreshService {
                 }
                 normalizeDetail(detail, code, product);
                 if (!writeGuard.writeIfCurrent(
+                        taskId,
                         watchProduct,
                         product,
                         target,
@@ -166,6 +165,8 @@ public class CompetitorProductDetailRefreshService {
                     continue;
                 }
                 result.recordSuccess(target);
+            } catch (CompetitorRefreshLeaseLostException exception) {
+                throw exception;
             } catch (RuntimeException exception) {
                 String errorCode = errorCode(exception);
                 String errorMessage = firstNonBlank(exception.getMessage(), "竞品详情抓取失败。");
@@ -296,5 +297,4 @@ public class CompetitorProductDetailRefreshService {
         }
         return null;
     }
-
 }

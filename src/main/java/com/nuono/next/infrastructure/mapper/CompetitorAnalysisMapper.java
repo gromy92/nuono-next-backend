@@ -39,7 +39,8 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper extends CompetitorRefreshRetryMapper,
-        CompetitorProductDetailWriteMapper, CompetitorRefreshRecoveryMapper {
+        CompetitorProductDetailWriteMapper, CompetitorRefreshRecoveryMapper,
+        CompetitorRefreshExecutionMapper {
 
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -2478,5 +2479,4 @@ public interface CompetitorAnalysisMapper extends CompetitorRefreshRetryMapper,
             @Param("runStatus") String runStatus,
             @Param("actorUserId") Long actorUserId
     );
-
 }

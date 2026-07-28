@@ -13,6 +13,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -27,14 +28,25 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
     private final CompetitorAnalysisMapper mapper;
     private final NoonFrontendSearchAdapter adapter;
     private final CompetitorRankFactWriter rankFactWriter;
+    private final CompetitorRefreshLeaseGuard leaseGuard;
+
+    @Autowired
+    public CompetitorSearchRefreshRunner(
+            CompetitorAnalysisMapper mapper,
+            NoonFrontendSearchAdapter adapter,
+            CompetitorRefreshLeaseGuard leaseGuard
+    ) {
+        this.mapper = mapper;
+        this.adapter = adapter;
+        this.rankFactWriter = new CompetitorRankFactWriter(mapper);
+        this.leaseGuard = leaseGuard;
+    }
 
     public CompetitorSearchRefreshRunner(
             CompetitorAnalysisMapper mapper,
             NoonFrontendSearchAdapter adapter
     ) {
-        this.mapper = mapper;
-        this.adapter = adapter;
-        this.rankFactWriter = new CompetitorRankFactWriter(mapper);
+        this(mapper, adapter, CompetitorRefreshLeaseGuard.disabled(mapper));
     }
 
     @Override
@@ -47,6 +59,7 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 .keyword(keyword.getKeyword())
                 .limit(RANK_SCAN_DEPTH)
                 .build());
+        acquireLease(context);
 
         CompetitorSearchResultIndex resultIndex =
                 CompetitorSearchResultIndex.from(page.getResults(), RANK_SCAN_DEPTH);
@@ -74,6 +87,16 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         outcome.setResponseHash(page.getResponseHash());
         outcome.setCapturedAt(page.getCapturedAt());
         return outcome;
+    }
+
+    private void acquireLease(CompetitorKeywordRefreshContext context) {
+        if (context.isExecutionLeaseRequired()) {
+            leaseGuard.acquire(
+                    context.getTaskId(),
+                    context.getSearchRunId(),
+                    context.getWatchProduct().getId()
+            );
+        }
     }
 
     private int upsertCandidates(
