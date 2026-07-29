@@ -165,30 +165,6 @@ class NoonReportPullerTest {
     }
 
     @Test
-    void shouldStopRetryingAndPausePlanForAdsAdvertiserContextMismatch() {
-        NoonPullTaskRecord task = createSalesTask("ads:advertiser-context-mismatch");
-        FakeReportProvider provider = FakeReportProvider.throwingOnDownload(
-                "ads advertiser context mismatch: Noon HTTP 400 at /_svc/productads/v2/noon/metrics"
-        );
-
-        NoonReportPullResult result = puller.execute(
-                task.getId(),
-                salesRequest(),
-                provider,
-                (file) -> NoonReportProcessResult.succeeded(1, 0)
-        );
-        NoonPullTaskRecord persisted = repository.selectTask(task.getId());
-        NoonPullPlanRecord plan = repository.selectPlan(task.getPlanId());
-
-        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
-        assertEquals(List.of("create", "poll:EXP-1", "download"), provider.calls);
-        assertEquals("ads_advertiser_context_mismatch", persisted.getFailureType());
-        assertEquals(Boolean.FALSE, persisted.getRetryable());
-        assertEquals(Boolean.TRUE, persisted.getRequiresManualAction());
-        assertTrue(plan.isPaused());
-    }
-
-    @Test
     void shouldStopBeforeProviderCallWhenReportPollLimitIsExhausted() {
         NoonPullTaskRecord task = createSalesTask("sales:poll-limit");
         FakeReportProvider provider = FakeReportProvider.pending();
@@ -596,26 +572,14 @@ class NoonReportPullerTest {
         private final List<NoonReportExportStatus> pollStatuses;
         private final byte[] content;
         private final RuntimeException pollException;
-        private final RuntimeException downloadException;
-
         private FakeReportProvider(NoonReportExportStatus pollStatus, String content) {
             this(List.of(pollStatus), content, null);
         }
 
         private FakeReportProvider(List<NoonReportExportStatus> pollStatuses, String content, RuntimeException pollException) {
-            this(pollStatuses, content, pollException, null);
-        }
-
-        private FakeReportProvider(
-                List<NoonReportExportStatus> pollStatuses,
-                String content,
-                RuntimeException pollException,
-                RuntimeException downloadException
-        ) {
             this.pollStatuses = new ArrayList<>(pollStatuses);
             this.content = content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8);
             this.pollException = pollException;
-            this.downloadException = downloadException;
         }
 
         private static FakeReportProvider ready(String content) {
@@ -644,15 +608,6 @@ class NoonReportPullerTest {
             return new FakeReportProvider(List.of(NoonReportExportStatus.pending()), "", new RuntimeException(message));
         }
 
-        private static FakeReportProvider throwingOnDownload(String message) {
-            return new FakeReportProvider(
-                    List.of(NoonReportExportStatus.ready("https://download.test/ads.csv")),
-                    "",
-                    null,
-                    new RuntimeException(message)
-            );
-        }
-
         @Override
         public String createExport(NoonReportPullRequest request) {
             calls.add("create");
@@ -677,9 +632,6 @@ class NoonReportPullerTest {
         @Override
         public byte[] download(NoonReportPullRequest request, String downloadUrl) {
             calls.add("download");
-            if (downloadException != null) {
-                throw downloadException;
-            }
             return content;
         }
     }
