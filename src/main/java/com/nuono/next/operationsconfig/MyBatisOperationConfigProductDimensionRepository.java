@@ -45,14 +45,11 @@ public class MyBatisOperationConfigProductDimensionRepository implements Operati
             String query,
             int limit
     ) {
-        List<ProductClassificationOptionRecord> dictionary = mapper.selectFulltypeDictionaryOptions(
+        return mapper.selectFulltypeDictionaryOptions(
                 ownerUserId,
                 storeCode,
                 query,
                 limit
         );
-        return dictionary.isEmpty()
-                ? productLiteMapper.selectFulltypeProjectionClassificationOptions(ownerUserId, storeCode, query, limit)
-                : dictionary;
     }
 }

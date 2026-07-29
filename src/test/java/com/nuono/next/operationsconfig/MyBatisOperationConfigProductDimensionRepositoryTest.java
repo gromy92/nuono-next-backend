@@ -41,21 +41,17 @@ class MyBatisOperationConfigProductDimensionRepositoryTest {
     }
 
     @Test
-    void usesProductLiteProjectionFallbackWhenFulltypeDictionaryIsEmpty() {
-        ProductClassificationOptionRecord fallback = option("home-bedding-duvet");
+    void doesNotOfferUnverifiedProductProjectionFulltypes() {
         when(productManagementMapper.selectFulltypeDictionaryOptions(501L, "STR-X-NAE", "home", 20))
                 .thenReturn(List.of());
-        when(productLiteMapper.selectFulltypeProjectionClassificationOptions(501L, "STR-X-NAE", "home", 20))
-                .thenReturn(List.of(fallback));
         MyBatisOperationConfigProductDimensionRepository repository =
                 new MyBatisOperationConfigProductDimensionRepository(productManagementMapper, productLiteMapper);
 
         List<ProductClassificationOptionRecord> options =
                 repository.listProductFulltypeOptions(501L, "STR-X-NAE", "home", 20);
 
-        assertEquals(List.of(fallback), options);
+        assertEquals(List.of(), options);
         verify(productManagementMapper).selectFulltypeDictionaryOptions(501L, "STR-X-NAE", "home", 20);
-        verify(productLiteMapper).selectFulltypeProjectionClassificationOptions(501L, "STR-X-NAE", "home", 20);
     }
 
     private static ProductClassificationOptionRecord option(String value) {

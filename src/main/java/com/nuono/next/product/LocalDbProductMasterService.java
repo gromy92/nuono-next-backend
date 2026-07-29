@@ -809,7 +809,7 @@ public class LocalDbProductMasterService {
 
         ProductClassificationOptionsView view = new ProductClassificationOptionsView();
         view.setReady(true);
-        view.setSource("dictionary");
+        view.setSource("official-noon-taxonomy");
         List<ProductClassificationOptionRecord> brands = productManagementMapper.selectBrandDictionaryOptions(
                 command.getOwnerUserId(),
                 storeCode,
@@ -832,28 +832,19 @@ public class LocalDbProductMasterService {
             );
             usedProjectionFallback = !brands.isEmpty();
         }
-        if (fulltypes.isEmpty() && !StringUtils.hasText(fulltypeQuery)) {
-            fulltypes = productLiteMapper.selectFulltypeProjectionClassificationOptions(
-                    command.getOwnerUserId(),
-                    storeCode,
-                    fulltypeQuery,
-                    limit
-            );
-            usedProjectionFallback = usedProjectionFallback || !fulltypes.isEmpty();
-        }
         view.setBrands(brands);
         view.setFulltypes(fulltypes);
         if (usedProjectionFallback) {
-            view.setSource("dictionary+product-projection-fallback");
-            view.getWarnings().add("品牌/类目字典暂无完整数据，本次临时使用已同步商品投影补齐候选。");
+            view.setSource("official-noon-taxonomy+brand-projection-fallback");
+            view.getWarnings().add("品牌字典暂无完整数据，本次临时使用已同步商品投影补齐品牌候选。");
         }
         if (view.getBrands().isEmpty()) {
             view.getWarnings().add("当前店铺还没有可用品牌字典，请先从 Noon 同步商品或维护品牌字典。");
         }
         if (view.getFulltypes().isEmpty()) {
-            view.getWarnings().add("当前店铺还没有可用类目字典，请先从 Noon 同步商品或维护类目字典。");
+            view.getWarnings().add("Noon 官方类目目录当前不可用，已停止提供未核验的投影类目候选。");
         }
-        view.setMessage("已读取系统品牌和官方类目字典候选。");
+        view.setMessage("已读取系统品牌和 Noon 官方类目候选。");
         return view;
     }
 

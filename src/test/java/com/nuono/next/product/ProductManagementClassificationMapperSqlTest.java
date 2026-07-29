@@ -20,14 +20,15 @@ class ProductManagementClassificationMapperSqlTest {
         String sql = compact(rawSql);
 
         assertThat(sql)
-                .contains("product_fulltype as value")
-                .contains("substring_index(product_fulltype, '-', 1) as family")
-                .contains("substring_index(substring_index(product_fulltype, '-', 2), '-', -1) as producttype")
-                .contains("substring_index(product_fulltype, '-', -1) as productsubtype")
-                .contains("product_fulltype regexp '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'")
-                .doesNotContain("max(family)")
-                .doesNotContain("max(product_type)")
-                .doesNotContain("max(product_subtype)");
+                .contains("from cross_border_erp.goods_category")
+                .contains("product_fulltype_code as value")
+                .contains("product_fulltype_name_en as label")
+                .contains("family_code as family")
+                .contains("product_type_code as producttype")
+                .contains("product_subtype_code as productsubtype")
+                .contains("product_fulltype_code regexp '^[a-z0-9_]+-[a-z0-9_]+-[a-z0-9_]+$'")
+                .doesNotContain("noon_product_fulltype_dictionary")
+                .doesNotContain("product-projection");
 
         new XMLLanguageDriver().createSqlSource(new Configuration(), rawSql, Object.class);
     }
