@@ -602,20 +602,20 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldNotReconcileWhenPayloadDoesNotCoverSourceExpectation() {
+    void shouldWarnButRemainCommittableWhenZdListBoxCountConflictsWithBoxRows() {
         PluginSyncCommand command = sampleCommand();
+        command.setSourceSystem("ZD");
         PluginSyncSourceBatchExpectation expectation = new PluginSyncSourceBatchExpectation();
         expectation.setBatchNo("XGGEKSA04075");
         expectation.setBoxNum(2);
-        expectation.setTotalQuantity(50);
         command.setSourceBatchExpectations(List.of(expectation));
 
         PluginSyncPreviewView preview = service.preview(command);
 
-        assertEquals(false, preview.isCommittable());
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "sourceBatchExpectations.boxNum".equals(issue.getField())
-        ));
+        assertEquals(true, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue -> "warning".equals(issue.getLevel())
+                && "sourceBatchExpectations.boxNum".equals(issue.getField())
+                && issue.getMessage().contains("按箱子接口唯一箱号数 1 继续提交")));
     }
 
     @Test
