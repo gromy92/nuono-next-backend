@@ -38,7 +38,6 @@ public class ProductListingService {
             "Partner skus? already exists:\\s*\\[\\[\\s*['\"]?([^'\"\\],\\[]+)",
             Pattern.CASE_INSENSITIVE
     );
-
     private final ProductListingMapper mapper;
     private final ObjectMapper objectMapper;
     private final ProductListingValidator validator;
@@ -50,7 +49,7 @@ public class ProductListingService {
     private final ProductListingDryRunFreshness dryRunFreshness;
     private final ProductListingWorkflowGuard workflowGuard;
     private final ProductListingIdentityLockManager identityLockManager;
-
+    private ProductListingOfficialTaxonomyGuard taxonomyGuard;
     @Autowired
     public ProductListingService(
             ProductListingMapper mapper,
@@ -65,12 +64,8 @@ public class ProductListingService {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
         this.validator = validator;
-        this.realWriteProperties = realWriteProperties == null
-                ? new ProductListingRealWriteProperties()
-                : realWriteProperties;
-        this.noonWriteAdapter = noonWriteAdapter == null
-                ? new UnavailableProductListingNoonWriteAdapter()
-                : noonWriteAdapter;
+        this.realWriteProperties = realWriteProperties == null ? new ProductListingRealWriteProperties() : realWriteProperties;
+        this.noonWriteAdapter = noonWriteAdapter == null ? new UnavailableProductListingNoonWriteAdapter() : noonWriteAdapter;
         this.eventPublisher = eventPublisher == null ? event -> {
         } : eventPublisher;
         this.projectionBackfill = projectionBackfillProvider == null
@@ -82,8 +77,12 @@ public class ProductListingService {
         this.dryRunFreshness = new ProductListingDryRunFreshness(objectMapper);
         this.workflowGuard = new ProductListingWorkflowGuard(mapper, objectMapper);
         this.identityLockManager = new ProductListingIdentityLockManager(mapper);
+        this.taxonomyGuard = new ProductListingOfficialTaxonomyGuard(null, this.realWriteProperties);
     }
-
+    @Autowired(required = false)
+    void setOfficialTaxonomyMapper(com.nuono.next.infrastructure.mapper.ProductListingOfficialTaxonomyMapper mapper) {
+        this.taxonomyGuard = new ProductListingOfficialTaxonomyGuard(mapper, realWriteProperties);
+    }
     public ProductListingService(
             ProductListingMapper mapper,
             ObjectMapper objectMapper,
@@ -392,10 +391,10 @@ public class ProductListingService {
         boolean failed = hasHardIssues(issues);
         LocalDateTime now = LocalDateTime.now();
         Long taskId = mapper.nextProductListingTaskId();
-        String inputSnapshotJson =
-                imageMetadataChanged ? writeJson(draftCommand) : draft.getDraftJson();
-
-        if (imageMetadataChanged) {
+        String canonicalDraftJson = writeJson(draftCommand);
+        boolean draftChanged = imageMetadataChanged || !Objects.equals(canonicalDraftJson, draft.getDraftJson());
+        String inputSnapshotJson = draftChanged ? canonicalDraftJson : draft.getDraftJson();
+        if (draftChanged) {
             draft.setDraftJson(inputSnapshotJson);
             draft.setValidationJson(writeJson(issues));
             draft.setStatus(failed ? "draft" : "ready_for_dry_run");
@@ -1364,6 +1363,7 @@ public class ProductListingService {
         ProductListingDraftCommand safeCommand = command == null ? new ProductListingDraftCommand() : command;
         List<ProductListingValidationIssue> issues = new ArrayList<>(validator.validateWithWarnings(safeCommand));
         issues.addAll(validateDuplicateIdentityFields(ownerUserId, storeCode, safeCommand));
+        issues.addAll(taxonomyGuard.validateAndHydrate(safeCommand));
         addRealWriteCapabilityWarnings(issues, safeCommand);
         return issues;
     }
