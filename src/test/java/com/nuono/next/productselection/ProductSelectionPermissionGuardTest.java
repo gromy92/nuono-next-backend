@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -84,6 +85,51 @@ class ProductSelectionPermissionGuardTest {
 
         assertEquals(50005L, result.getLogicalStoreId());
         assertEquals("canman", result.getProjectName());
+    }
+
+    @Test
+    void targetSiteWriteStillAllowsTheLogicalStoreOwner() {
+        ProductSelectionPermissionGuard guard = new ProductSelectionPermissionGuard(productSelectionMapper);
+        ProductSelectionUserContext boss = user(307L, "毕翠红", 1, 1);
+        ProductSelectionStoreScope ownedScope = scope(307L, 50005L, "PRJ108065", "canman", "STR108065-NAE");
+
+        when(productSelectionMapper.selectUserContext(307L)).thenReturn(boss);
+        when(productSelectionMapper.listLogicalStoreSiteCodes(50005L, "AE"))
+                .thenReturn(List.of("STR108065-NAE"));
+        when(productSelectionMapper.selectVisibleStoreScope(307L, "STR108065-NAE")).thenReturn(null);
+        when(productSelectionMapper.selectOwnedLogicalStoreScope(307L, "STR108065-NAE")).thenReturn(ownedScope);
+
+        ProductSelectionStoreScope result =
+                guard.requireWritableLogicalStoreSite(307L, 50005L, "NAE");
+
+        assertEquals(50005L, result.getLogicalStoreId());
+        assertEquals("STR108065-NAE", result.getStoreCode());
+    }
+
+    @Test
+    void targetSiteWritePreservesTheExistingSuperAdminFallback() {
+        ProductSelectionPermissionGuard guard = new ProductSelectionPermissionGuard(productSelectionMapper);
+        ProductSelectionUserContext admin = user(1L, "admin", 0, 1);
+        ProductSelectionStoreScope fallbackScope = scope(
+                307L,
+                50005L,
+                "PRJ108065",
+                "canman",
+                "STR108065-NAE"
+        );
+
+        when(productSelectionMapper.selectUserContext(1L)).thenReturn(admin);
+        when(productSelectionMapper.listLogicalStoreSiteCodes(50005L, "AE"))
+                .thenReturn(List.of("STR108065-NAE"));
+        when(productSelectionMapper.selectVisibleStoreScope(1L, "STR108065-NAE")).thenReturn(null);
+        when(productSelectionMapper.selectOwnedLogicalStoreScope(1L, "STR108065-NAE")).thenReturn(null);
+        when(productSelectionMapper.selectAnyStoreScope("STR108065-NAE")).thenReturn(fallbackScope);
+
+        ProductSelectionStoreScope result =
+                guard.requireWritableLogicalStoreSite(1L, 50005L, "AE");
+
+        assertEquals(50005L, result.getLogicalStoreId());
+        assertEquals("STR108065-NAE", result.getStoreCode());
     }
 
     private ProductSelectionUserContext user(Long userId, String accountNo, Integer level, Integer status) {

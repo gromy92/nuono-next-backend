@@ -213,11 +213,11 @@ public class ProductReadModelService {
         int pendingPriceCount = 0;
         int historyReadyCount = 0;
         for (LocalDbStoreInitializationService.StoreInitializationProductListItemView item : items) {
-            String syncStatus = normalize(item.getSyncStatus());
+            String syncStatus = ProductListStatusResolver.resolve(item);
             if ("draft".equals(syncStatus)) {
                 draftCount++;
             } else if ("conflict".equals(syncStatus)) {
-                draftCount++;
+                conflictCount++;
             } else if ("failed".equals(syncStatus)) {
                 failedCount++;
             } else {

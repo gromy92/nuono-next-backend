@@ -213,7 +213,7 @@ public class ProductSelectionController {
         try {
             return sourceCollectionService().saveGroupProfitEstimate(
                     groupId,
-                    attachOperator(command, writableOperatorUserId(request, null))
+                    attachOperator(command, requireBusinessAccess(request).getSessionUserId())
             );
         } catch (ProductSelectionAccessDeniedException exception) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);

@@ -76,6 +76,39 @@ class ProductSelectionControllerGroupAccessTest {
         verify(sourceCollectionService).getGroup("91001", 307L);
     }
 
+    @Test
+    void profitSaveUsesTheSessionOperatorWithoutResolvingAnArbitraryStore() {
+        MockHttpServletRequest request = new MockHttpServletRequest(
+                "POST",
+                "/api/product-selection/groups/91002/profit-estimate"
+        );
+        BusinessAccessContext access = multiStoreAccess();
+        ProductSelectionGroupProfitSnapshotCommand command =
+                new ProductSelectionGroupProfitSnapshotCommand();
+        command.setOperatorUserId(999L);
+        ProductSelectionGroupProfitSnapshotView expected =
+                new ProductSelectionGroupProfitSnapshotView();
+        expected.setSnapshotId("93002");
+        expected.setGroupId("91002");
+
+        when(accessResolver.requireBusinessContext(
+                request,
+                BusinessCapability.PROCUREMENT
+        )).thenReturn(access);
+        when(sourceCollectionServiceProvider.getIfAvailable())
+                .thenReturn(sourceCollectionService);
+        when(sourceCollectionService.saveGroupProfitEstimate("91002", command))
+                .thenReturn(expected);
+
+        ProductSelectionGroupProfitSnapshotView result =
+                controller.saveGroupProfitEstimate("91002", command, request);
+
+        assertEquals("93002", result.getSnapshotId());
+        assertEquals(307L, command.getOperatorUserId());
+        verify(sourceCollectionService)
+                .saveGroupProfitEstimate("91002", command);
+    }
+
     private BusinessAccessContext access() {
         return BusinessAccessContext.builder()
                 .sessionUserId(307L)
@@ -95,5 +128,18 @@ class ProductSelectionControllerGroupAccessTest {
         scope.setSite("AE");
         scope.setAuthorized(true);
         return scope;
+    }
+
+    private BusinessAccessContext multiStoreAccess() {
+        return BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.BOSS)
+                .storeCodes(Set.of("STR-STORE-A", "STR-STORE-B"))
+                .storeOwnerUserIds(Map.of(
+                        "STR-STORE-A", 307L,
+                        "STR-STORE-B", 307L
+                ))
+                .build();
     }
 }

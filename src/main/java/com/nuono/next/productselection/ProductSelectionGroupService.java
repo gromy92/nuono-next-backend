@@ -188,7 +188,7 @@ class ProductSelectionGroupService {
                 : command;
         Long groupId = parseLongId(groupIdValue, "选品组不存在或已被删除。");
         ProductSelectionGroupRow group = productSelectionMapper.selectGroupById(groupId);
-        requireGroupVisible(source.getOperatorUserId(), group);
+        permissionGuard.requireWritableLogicalStoreSite(source.getOperatorUserId(), group);
         ProductSelectionGroupProfitSnapshotRow row = new ProductSelectionGroupProfitSnapshotRow();
         row.setSnapshotId(productSelectionMapper.nextSelectionGroupProfitSnapshotId());
         row.setGroupId(groupId);

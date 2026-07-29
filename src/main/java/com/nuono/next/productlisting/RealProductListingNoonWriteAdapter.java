@@ -123,7 +123,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
     }
     @Override
     public ProductListingNoonWriteResult execute(ProductListingNoonWriteRequest request) {
-        List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
+        ProductListingNoonCheckpoint.Steps steps =
+                new ProductListingNoonCheckpoint.Steps(request, false);
         NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
@@ -151,35 +152,62 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             if (!"succeeded".equals(absenceProof.getStatus())) {
                 throw new IllegalStateException(absenceProof.getFailureMessage());
             }
-            ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
-            JsonNode createProduct = postStep(
-                    steps,
-                    "create_product",
+            ProductFullTypeLabels fullTypeLabels;
+            try {
+                fullTypeLabels = resolveProductFullTypeLabels(
+                        session, endpoints, draft, headers);
+            } catch (RuntimeException exception) {
+                if (ProductListingNoonWriteRequest
+                        .isExecutionLeaseLost(exception)) {
+                    throw exception;
+                }
+                ProductListingNoonWriteResult preWriteFailure =
+                        ProductListingNoonCheckpoint
+                                .mappedPreWriteFailure(
+                                request,
+                                binding,
+                                exception,
+                                steps,
+                                writeAuthRecovery,
+                                failureSupport
+                        );
+                request.checkpointNoonResultOrThrow(preWriteFailure);
+                return preWriteFailure;
+            }
+            ProductListingNoonCreateExecutor.Result created =
+                    new ProductListingNoonCreateExecutor(
+                            objectMapper,
+                            writeAuthRecovery,
+                            this::noonWriteFailureMessage
+                    ).execute(
+                    request,
                     session,
                     endpoints.getCreateProductUrl(),
                     createProductBody(draft),
-                    headers
+                    headers,
+                    steps
             );
-            String skuParent;
-            String pskuCode;
-            try {
-                skuParent = requiredText(createProduct, "/products/0/parent/skuParent", "skuParent");
-                pskuCode = requiredText(createProduct, "/products/0/children/0/pskuCode", "pskuCode");
-            } catch (RuntimeException exception) {
-                markLastCreateStepOutcomeUnknown(steps, exception.getMessage());
-                throw exception;
-            }
-            setLastStepExternalReference(steps, externalReference(skuParent, pskuCode));
             steps.remove(absenceProof);
-            return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
+            steps.enableCheckpointing();
+            return writeAfterCreate(
+                    request, draft, binding, session, endpoints, headers,
+                    fullTypeLabels, created.skuParent(),
+                    created.pskuCode(), steps);
         } catch (RuntimeException exception) {
-            ProductListingNoonWriteResult mappedFailure = writeAuthRecovery.mapFailure(
-                    request, binding, exception, steps, "Product listing Noon write failed.");
-            if (ProductListingWriteAuthRecovery.FAILURE_CODE.equals(
-                    mappedFailure.getFailureCode()) || !steps.isEmpty()) {
-                return mappedFailure;
-            }
-            return failureSupport.preCreateFailure(exception);
+            ProductListingNoonCheckpoint
+                    .rethrowIfLeaseLost(exception);
+            ProductListingNoonWriteResult failure =
+                    ProductListingNoonCheckpoint.mappedFailure(
+                            request,
+                            binding,
+                            exception,
+                            steps,
+                            "Product listing Noon write failed.",
+                            writeAuthRecovery,
+                            failureSupport
+                    );
+            request.checkpointNoonResultOrThrow(failure);
+            return failure;
         }
     }
     @Override
@@ -246,7 +274,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             String skuParent,
             String pskuCode
     ) {
-        List<ProductListingNoonWriteStepResult> steps = new ArrayList<>();
+        ProductListingNoonCheckpoint.Steps steps =
+                new ProductListingNoonCheckpoint.Steps(request, true);
         NoonPullStoreBinding binding = null;
         try {
             ProductListingDraftCommand draft = requireDraft(request);
@@ -264,6 +293,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             ProductFullTypeLabels fullTypeLabels = resolveProductFullTypeLabels(session, endpoints, draft, headers);
             return writeAfterCreate(request, draft, binding, session, endpoints, headers, fullTypeLabels, skuParent, pskuCode, steps);
         } catch (RuntimeException exception) {
+            ProductListingNoonCheckpoint
+                    .rethrowIfLeaseLost(exception);
             if (steps.isEmpty()) {
                 steps.add(failureSupport.continuationPreflightFailure(
                         skuParent,
@@ -272,8 +303,11 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                         exception.getMessage()
                 ));
             }
-            return writeAuthRecovery.mapFailure(
+            ProductListingNoonWriteResult failure =
+                    writeAuthRecovery.mapFailure(
                     request, binding, exception, steps, "Product listing Noon write continuation failed.");
+            request.checkpointNoonResultOrThrow(failure);
+            return failure;
         }
     }
     @Override
@@ -367,23 +401,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 binding,
                 headers
         );
-        steps.add(readBack);
-        if (!"succeeded".equals(readBack.getStatus())) {
-            boolean authorizationRecovery = ProductListingWriteAuthRecovery.FAILURE_CODE
-                    .equals(readBack.getFailureCode());
-            ProductListingNoonWriteResult failure = ProductListingNoonWriteResult.failed(
-                    authorizationRecovery ? "authorization" : "noon_readback",
-                    readBack.getFailureCode(),
-                    readBack.getFailureMessage(),
-                    steps
-            );
-            if (authorizationRecovery) {
-                failure.setRecoveryId(readBack.getRecoveryId());
-                failure.setWriteMayHaveOccurred(readBack.getWriteMayHaveOccurred());
-            }
-            return failure;
-        }
-        return ProductListingNoonWriteResult.succeeded(steps);
+        return ProductListingNoonCheckpoint.finishReadBack(
+                request, steps, readBack);
     }
     private void appendOfferStockStep(
             List<ProductListingNoonWriteStepResult> steps,
@@ -750,13 +769,13 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                         ? "noon_create_rejected"
                         : "noon_write_rejected");
                 step.setFailureMessage(failureMessage);
-                steps.add(step);
                 stepRecorded = true;
+                steps.add(step);
                 throw new IllegalStateException(failureMessage);
             }
             step.setStatus("succeeded");
-            steps.add(step);
             stepRecorded = true;
+            steps.add(step);
             return response == null ? objectMapper.createObjectNode() : response;
         } catch (RuntimeException exception) {
             if (!stepRecorded) {
@@ -819,6 +838,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             steps.add(step);
             return uploadedPaths;
         } catch (RuntimeException exception) {
+            ProductListingNoonCheckpoint.rethrowIfLeaseLost(exception);
             writeAuthRecovery.markUploadFailure(
                     step,
                     exception,
@@ -1415,38 +1435,12 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
         return expectedId.equals(actualId);
     }
 
-    private String requiredText(JsonNode node, String pointer, String label) {
-        String value = node == null ? null : node.at(pointer).asText(null);
-        if (!StringUtils.hasText(value)) {
-            throw new IllegalStateException("Noon create_product response missing " + label + ".");
-        }
-        return value;
-    }
-
     private void setLastStepExternalReference(List<ProductListingNoonWriteStepResult> steps, String externalReference) {
         if (steps == null || steps.isEmpty()) {
             return;
         }
         steps.get(steps.size() - 1).setExternalReference(externalReference);
     }
-    private void markLastCreateStepOutcomeUnknown(
-            List<ProductListingNoonWriteStepResult> steps,
-            String failureMessage
-    ) {
-        if (steps == null || steps.isEmpty()) {
-            return;
-        }
-        ProductListingNoonWriteStepResult step = steps.get(steps.size() - 1);
-        if (!"create_product".equals(step.getStepKey())) {
-            return;
-        }
-        step.setStatus("failed");
-        step.setFailureCode("noon_create_outcome_unknown");
-        step.setFailureMessage(failureMessage);
-        step.setExternalReference(null);
-        step.setWriteMayHaveOccurred(true);
-    }
-
     private String externalReference(String skuParent, String pskuCode){ return "skuParent=" + normalize(skuParent) + ";pskuCode=" + normalize(pskuCode); }
 
     private String firstNonBlank(String... values) {

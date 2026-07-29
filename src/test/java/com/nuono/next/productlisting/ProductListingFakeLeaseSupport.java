@@ -1,10 +1,14 @@
 package com.nuono.next.productlisting;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 final class ProductListingFakeLeaseSupport {
+    private static final ObjectMapper OBJECT_MAPPER =
+            new ObjectMapper();
     private final Map<Long, ProductListingTaskRecord> tasks;
     private final Map<Long, LocalDateTime> activeLeases = new LinkedHashMap<>();
 
@@ -21,10 +25,47 @@ final class ProductListingFakeLeaseSupport {
                     || !task.getGmtUpdated().isBefore(staleBefore)) {
                 continue;
             }
-            task.setStatus("written_verify_failed");
-            task.setFailureCategory("recovery");
-            task.setFailureCode("real_run_interrupted");
-            task.setFailureMessage("真实上架任务执行中断，需人工核对。");
+            Boolean success = checkpointFlag(
+                    task.getNoonResultJson(), "success");
+            Boolean writeMayHaveOccurred = checkpointFlag(
+                    task.getNoonResultJson(), "writeMayHaveOccurred");
+            boolean projectionPending = Boolean.TRUE.equals(success);
+            boolean writeNotStarted =
+                    Boolean.FALSE.equals(writeMayHaveOccurred);
+            String checkpointCategory = checkpointText(
+                    task.getNoonResultJson(), "failureCategory");
+            String checkpointCode = checkpointText(
+                    task.getNoonResultJson(), "failureCode");
+            String checkpointMessage = checkpointText(
+                    task.getNoonResultJson(), "failureMessage");
+            boolean initialCheckpoint =
+                    "real_run_write_not_started".equals(checkpointCode);
+            task.setStatus(projectionPending
+                    ? "written_verify_failed"
+                    : writeNotStarted ? "failed" : "written_verify_failed");
+            task.setFailureCategory(projectionPending
+                    ? "local_projection"
+                    : checkpointCategory != null
+                    ? checkpointCategory
+                    : "recovery");
+            task.setFailureCode(projectionPending
+                    ? "projection_backfill_failed"
+                    : initialCheckpoint
+                    ? "real_run_interrupted_before_write"
+                    : checkpointCode != null
+                    ? checkpointCode
+                    : writeNotStarted
+                    ? "real_run_interrupted_before_write"
+                    : "real_run_interrupted");
+            task.setFailureMessage(projectionPending
+                    ? "Noon 上架已完成但本地投影尚未确认，请仅重放本地投影。"
+                    : initialCheckpoint
+                    ? "真实上架任务在 Noon 写入开始前中断，可返回草稿重新检查。"
+                    : checkpointMessage != null
+                    ? checkpointMessage
+                    : writeNotStarted
+                    ? "真实上架任务在 Noon 写入开始前中断，可返回草稿重新检查。"
+                    : "真实上架任务执行中断，需人工核对。");
             task.setCompletedAt(LocalDateTime.now());
             activeLeases.remove(task.getId());
             recovered++;
@@ -32,13 +73,55 @@ final class ProductListingFakeLeaseSupport {
         return recovered;
     }
 
-    int markRunning(Long taskId, LocalDateTime startedAt) {
+    private Boolean checkpointFlag(
+            String noonResultJson,
+            String field
+    ) {
+        if (noonResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode value =
+                    OBJECT_MAPPER.readTree(noonResultJson).get(field);
+            return value != null && value.isBoolean()
+                    ? value.booleanValue()
+                    : null;
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
+    private String checkpointText(
+            String noonResultJson,
+            String field
+    ) {
+        if (noonResultJson == null) {
+            return null;
+        }
+        try {
+            JsonNode value =
+                    OBJECT_MAPPER.readTree(noonResultJson).get(field);
+            return value != null && value.isTextual()
+                    && !value.asText().isBlank()
+                    ? value.asText()
+                    : null;
+        } catch (Exception exception) {
+            return null;
+        }
+    }
+
+    int markRunning(
+            Long taskId,
+            LocalDateTime startedAt,
+            String noonResultJson
+    ) {
         ProductListingTaskRecord task = tasks.get(taskId);
         if (task == null || !"REAL_RUN".equals(task.getMode())
                 || !"submitted".equals(task.getStatus())) {
             return 0;
         }
         activate(task, startedAt);
+        task.setNoonResultJson(noonResultJson);
         return 1;
     }
 

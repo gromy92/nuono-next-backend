@@ -527,8 +527,8 @@ abstract class ProductListingServiceTest {
         }
 
         @Override
-        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            return leaseSupport.markRunning(taskId, startedAt);
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt, String noonResultJson) {
+            return leaseSupport.markRunning(taskId, startedAt, noonResultJson);
         }
 
         @Override

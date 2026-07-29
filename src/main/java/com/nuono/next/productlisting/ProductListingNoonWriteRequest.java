@@ -3,6 +3,7 @@ package com.nuono.next.productlisting;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 public class ProductListingNoonWriteRequest {
 
@@ -17,6 +18,9 @@ public class ProductListingNoonWriteRequest {
     private ProductListingRealRunCommand confirmation;
     @JsonIgnore
     private transient Runnable executionLeaseHeartbeat;
+    @JsonIgnore
+    private transient Consumer<ProductListingNoonWriteResult>
+            noonResultCheckpoint;
 
     public Long getOwnerUserId() {
         return ownerUserId;
@@ -96,6 +100,32 @@ public class ProductListingNoonWriteRequest {
     }
 
     @JsonIgnore
+    public void setNoonResultCheckpoint(
+            Consumer<ProductListingNoonWriteResult> noonResultCheckpoint
+    ) {
+        this.noonResultCheckpoint = noonResultCheckpoint;
+    }
+
+    @JsonIgnore
+    public void checkpointNoonResultOrThrow(
+            ProductListingNoonWriteResult result
+    ) {
+        if (noonResultCheckpoint == null) {
+            return;
+        }
+        try {
+            noonResultCheckpoint.accept(result);
+        } catch (ExecutionLeaseLostException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new ExecutionLeaseLostException(
+                    "Product listing Noon result checkpoint failed.",
+                    exception
+            );
+        }
+    }
+
+    @JsonIgnore
     public void heartbeatOrThrow() {
         if (executionLeaseHeartbeat == null) {
             return;
@@ -105,7 +135,10 @@ public class ProductListingNoonWriteRequest {
         } catch (ExecutionLeaseLostException exception) {
             throw exception;
         } catch (RuntimeException exception) {
-            throw new ExecutionLeaseLostException(exception);
+            throw new ExecutionLeaseLostException(
+                    "Product listing execution lease lost.",
+                    exception
+            );
         }
     }
 
@@ -123,8 +156,11 @@ public class ProductListingNoonWriteRequest {
     private static final class ExecutionLeaseLostException extends IllegalStateException {
         private static final long serialVersionUID = 1L;
 
-        private ExecutionLeaseLostException(Throwable cause) {
-            super("Product listing execution lease lost.", cause);
+        private ExecutionLeaseLostException(
+                String message,
+                Throwable cause
+        ) {
+            super(message, cause);
         }
     }
 }

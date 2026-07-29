@@ -48,7 +48,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProductAttributeTemplateMappe
 src/main/java/com/nuono/next/infrastructure/mapper/ProductGroupMapper.java	520
 src/main/java/com/nuono/next/infrastructure/mapper/ProductImageProfileMapper.java	978
 src/main/java/com/nuono/next/infrastructure/mapper/ProductKeywordMapper.java	332
-src/main/java/com/nuono/next/infrastructure/mapper/ProductListingMapper.java	453
+src/main/java/com/nuono/next/infrastructure/mapper/ProductListingMapper.java	373
 src/main/java/com/nuono/next/infrastructure/mapper/ProductLogisticsCostMapper.java	395
 src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4281
 src/main/java/com/nuono/next/infrastructure/mapper/ProductPublicDetailMapper.java	550
@@ -181,7 +181,7 @@ src/main/java/com/nuono/next/product/ProductListSummaryView.java	567
 src/main/java/com/nuono/next/product/ProductMasterController.java	734
 src/main/java/com/nuono/next/product/ProductNoonCatalogContentService.java	339
 src/main/java/com/nuono/next/product/ProductProjectSiteResolver.java	362
-src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5699
+src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5687
 src/main/java/com/nuono/next/product/ProductPublishChangedDomainComparator.java	510
 src/main/java/com/nuono/next/product/ProductPublishOfferWriter.java	408
 src/main/java/com/nuono/next/product/ProductPublishPreparationService.java	1094
@@ -197,11 +197,11 @@ src/main/java/com/nuono/next/product/ProductVariantSpecService.java	573
 src/main/java/com/nuono/next/product/publish/ProductPublishCommandService.java	843
 src/main/java/com/nuono/next/productkeyword/ProductKeywordService.java	603
 src/main/java/com/nuono/next/productkeyword/ProductKeywordViews.java	420
-src/main/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackfill.java	405
+src/main/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackfill.java	363
 src/main/java/com/nuono/next/productlisting/ProductListingDraftCommand.java	450
 src/main/java/com/nuono/next/productlisting/ProductListingDraftProjectionFields.java	329
-src/main/java/com/nuono/next/productlisting/ProductListingService.java	1708
-src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1535
+src/main/java/com/nuono/next/productlisting/ProductListingService.java	1691
+src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1529
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
 src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	706
 src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1145

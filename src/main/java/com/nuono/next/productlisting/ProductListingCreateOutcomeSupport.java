@@ -7,7 +7,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import org.springframework.util.StringUtils;
 
@@ -109,19 +108,16 @@ final class ProductListingCreateOutcomeSupport {
                 && !last.isAfter(now);
     }
 
-    References references(ProductListingNoonWriteResult result) {
-        References references = new References();
-        if (result != null && result.getSteps() != null) {
-            result.getSteps().forEach(step -> references.accept(
-                    step == null ? null : step.getExternalReference()));
-        }
-        return references;
+    ProductListingCreateReferenceEvidence.References references(
+            ProductListingNoonWriteResult result
+    ) {
+        return ProductListingCreateReferenceEvidence.latestConfirmed(result);
     }
 
-    References references(ProductListingNoonWriteStepResult step) {
-        References references = new References();
-        references.accept(step == null ? null : step.getExternalReference());
-        return references;
+    ProductListingCreateReferenceEvidence.References references(
+            ProductListingNoonWriteStepResult step
+    ) {
+        return ProductListingCreateReferenceEvidence.confirmedStep(step);
     }
 
     ProductListingDraftCommand readDraft(String json) {
@@ -191,39 +187,4 @@ final class ProductListingCreateOutcomeSupport {
         return null;
     }
 
-    static final class References {
-        private String skuParent;
-        private String pskuCode;
-
-        String skuParent() {
-            return skuParent;
-        }
-
-        String pskuCode() {
-            return pskuCode;
-        }
-
-        boolean complete() {
-            return StringUtils.hasText(skuParent) && StringUtils.hasText(pskuCode);
-        }
-
-        private void accept(String value) {
-            if (!StringUtils.hasText(value)) {
-                return;
-            }
-            for (String token : value.split(";")) {
-                int separator = token.indexOf('=');
-                if (separator <= 0) {
-                    continue;
-                }
-                String key = token.substring(0, separator).trim().toLowerCase(Locale.ROOT);
-                String item = token.substring(separator + 1).trim();
-                if ("skuparent".equals(key) && StringUtils.hasText(item)) {
-                    skuParent = item;
-                } else if ("pskucode".equals(key) && StringUtils.hasText(item)) {
-                    pskuCode = item;
-                }
-            }
-        }
-    }
 }

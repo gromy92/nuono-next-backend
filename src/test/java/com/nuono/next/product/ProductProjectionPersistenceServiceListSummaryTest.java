@@ -60,81 +60,6 @@ class ProductProjectionPersistenceServiceListSummaryTest {
     }
 
     @Test
-    void shouldLoadAuthoritativeProjectionSummaryWhenRowExists() {
-        ProductListProjectionRecord record = new ProductListProjectionRecord();
-        record.setSkuParent("ZTEST001");
-        record.setCurrentZCode("ZTEST001");
-        record.setPartnerSku("PARTNER-001");
-        record.setPskuCode("PSKU-001");
-        record.setOfferCode("OFFER-001");
-        record.setTitle("Amber Burner");
-        record.setTitleCn("星耀琥珀香薰炉");
-        record.setBrand("xingyao");
-        record.setImageUrl("https://img.example.com/a.jpg");
-        record.setReferencePrice("139.00");
-        record.setOriginalPrice("159.00");
-        record.setSalePrice("139.00");
-        record.setProductFulltype("Home > Burner");
-        record.setGroupRef("XINGYAO");
-        record.setCurrentSiteActiveFlag(1);
-        record.setCurrentSiteLiveStatus("LIVE");
-        record.setCurrentSiteStatusCode("LIVE");
-        record.setListingStartedAt("2026-05-10 00:00:00");
-        record.setListingStartedSource("pv");
-        record.setOperationStageCode("STABLE");
-        record.setOperationStageUpdatedAt("2026-07-06 11:30:00");
-        record.setOperationStageUpdatedBy(10003L);
-        record.setSyncStatus("draft");
-        record.setLastSyncedAt("2026-04-27 12:30:00");
-        record.setDetailBaselineStatus("ready");
-        record.setDetailBaselineSyncedAt("2026-04-27 12:31:00");
-        record.setVariantCount(2);
-        record.setProductVariantSpecTotalCount(2);
-        record.setProductVariantSpecReadyCount(1);
-        record.setProductVariantSpecMaintainedCount(1);
-        record.setSiteOfferCount(1);
-        record.setSiteLabelsCsv("AE");
-        record.setLiveStatusesCsv("LIVE");
-        record.setTotalFbnStock(12);
-        record.setTotalFbpStock(5);
-
-        when(productManagementMapper.selectProductListProjectionBySkuParent(10002L, "STR245027-NAE", "ZTEST001"))
-                .thenReturn(record);
-
-        ProductListSummaryView summary = service.loadProductListSummary(
-                10002L,
-                "STR245027-NAE",
-                "ZTEST001",
-                new ArrayList<>()
-        );
-
-        assertTrue(summary.isReady());
-        assertEquals("projection", summary.getSource());
-        assertEquals("ZTEST001", summary.getSkuParent());
-        assertEquals("ZTEST001", summary.getCurrentZCode());
-        assertEquals("PARTNER-001", summary.getPartnerSku());
-        assertEquals("draft", summary.getSyncStatus());
-        assertEquals("ready", summary.getDetailBaselineStatus());
-        assertEquals("详情基线已准备。", summary.getDetailBaselineMessage());
-        assertEquals("2026-04-27 12:31:00", summary.getDetailBaselineSyncedAt());
-        assertEquals("incomplete", summary.getProductVariantSpecStatus());
-        assertEquals(2, summary.getProductVariantSpecTotalCount());
-        assertEquals(1, summary.getProductVariantSpecReadyCount());
-        assertEquals(1, summary.getProductVariantSpecMaintainedCount());
-        assertEquals("139.00", summary.getReferencePrice());
-        assertEquals(Boolean.TRUE, summary.getIsActive());
-        assertEquals("LIVE", summary.getLiveStatus());
-        assertEquals("2026-05-10 00:00:00", summary.getListingStartedAt());
-        assertEquals("pv", summary.getListingStartedSource());
-        assertEquals("STABLE", summary.getOperationStageCode());
-        assertEquals("2026-07-06 11:30:00", summary.getOperationStageUpdatedAt());
-        assertEquals(10003L, summary.getOperationStageUpdatedBy());
-        assertEquals("星耀琥珀香薰炉", summary.getTitleCn());
-        assertEquals(List.of("AE"), summary.getSiteLabels());
-        assertEquals(List.of("LIVE"), summary.getLiveStatuses());
-    }
-
-    @Test
     void shouldDescribePublicDetailReadonlyBaselineAsUsableReadonlySummary() {
         ProductListProjectionRecord record = new ProductListProjectionRecord();
         record.setSkuParent("ZPUBLIC001");
@@ -486,8 +411,8 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertEquals("succeeded", listingTask.get("status"));
         assertEquals("上架成功", listingTask.get("statusLabel"));
         assertEquals("PARTNER-001", listingTask.get("partnerSku"));
-        assertEquals("ZNOON123", listingTask.get("skuParent"));
-        assertEquals("a0eb6dc54597eeecd3e4b26451e731da", listingTask.get("pskuCode"));
+        assertFalse(listingTask.containsKey("skuParent"));
+        assertFalse(listingTask.containsKey("pskuCode"));
         assertEquals("2026-07-10 15:03:00", listingTask.get("finishedAt"));
     }
 
@@ -531,6 +456,77 @@ class ProductProjectionPersistenceServiceListSummaryTest {
         assertNotNull(listingTask);
         assertEquals("ZNOON456", listingTask.get("skuParent"));
         assertEquals("b1eb6dc54597eeecd3e4b26451e731db", listingTask.get("pskuCode"));
+    }
+
+    @Test
+    void listSummariesShouldNotCombineSplitOrAcceptEmptyListingNoonReferences() {
+        ProductListProjectionRecord splitRecord = new ProductListProjectionRecord();
+        splitRecord.setSkuParent("ZTEST001");
+        splitRecord.setCurrentZCode("ZTEST001");
+        splitRecord.setPartnerSku("PARTNER-SPLIT");
+        splitRecord.setTitle("Split References");
+        splitRecord.setDetailBaselineStatus("ready");
+        splitRecord.setSyncStatus("synced");
+        ProductListProjectionRecord emptyRecord = new ProductListProjectionRecord();
+        emptyRecord.setSkuParent("ZTEST002");
+        emptyRecord.setCurrentZCode("ZTEST002");
+        emptyRecord.setPartnerSku("PARTNER-EMPTY");
+        emptyRecord.setTitle("Empty References");
+        emptyRecord.setDetailBaselineStatus("ready");
+        emptyRecord.setSyncStatus("synced");
+
+        ProductListingTaskRecord splitTask = new ProductListingTaskRecord();
+        splitTask.setId(10155L);
+        splitTask.setTaskNo("PLT-10155");
+        splitTask.setMode("REAL_RUN");
+        splitTask.setStatus("succeeded");
+        splitTask.setStoreCode("STR245027-NAE");
+        splitTask.setInputSnapshotJson("{\"psku\":\"PARTNER-SPLIT\"}");
+        splitTask.setNoonResultJson(
+                "{\"steps\":["
+                        + "{\"stepKey\":\"create_product\",\"status\":\"succeeded\","
+                        + "\"externalReference\":\"skuParent=Z-SPLIT\"},"
+                        + "{\"stepKey\":\"resolve_create_reference\",\"status\":\"succeeded\","
+                        + "\"externalReference\":\"pskuCode=PSKU-SPLIT\"}]}"
+        );
+        ProductListingTaskRecord emptyTask = new ProductListingTaskRecord();
+        emptyTask.setId(10156L);
+        emptyTask.setTaskNo("PLT-10156");
+        emptyTask.setMode("REAL_RUN");
+        emptyTask.setStatus("succeeded");
+        emptyTask.setStoreCode("STR245027-NAE");
+        emptyTask.setInputSnapshotJson("{\"psku\":\"PARTNER-EMPTY\"}");
+        emptyTask.setNoonResultJson(
+                "{\"steps\":[{\"stepKey\":\"create_product\","
+                        + "\"status\":\"succeeded\","
+                        + "\"externalReference\":\"skuParent= ;pskuCode=\"}]}"
+        );
+
+        when(productManagementMapper.selectProductListProjection(
+                10002L,
+                "STR245027-NAE"
+        )).thenReturn(List.of(splitRecord, emptyRecord));
+        when(productManagementMapper.selectLatestProductListingTasksByStorePartnerSkus(
+                eq(10002L),
+                eq("STR245027-NAE"),
+                eq(List.of("PARTNER-SPLIT", "PARTNER-EMPTY"))
+        )).thenReturn(List.of(splitTask, emptyTask));
+
+        List<ProductListSummaryView> summaries =
+                service.loadProductListSummaries(
+                        10002L,
+                        "STR245027-NAE",
+                        new ArrayList<>()
+                );
+
+        assertEquals(2, summaries.size());
+        for (ProductListSummaryView summary : summaries) {
+            Map<String, Object> listingTask =
+                    summary.getListingPublishTask();
+            assertNotNull(listingTask);
+            assertFalse(listingTask.containsKey("skuParent"));
+            assertFalse(listingTask.containsKey("pskuCode"));
+        }
     }
 
     @Test

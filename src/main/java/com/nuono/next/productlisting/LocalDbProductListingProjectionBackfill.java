@@ -11,9 +11,7 @@ import com.nuono.next.product.ProductProjectionPersistenceService;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -99,9 +97,10 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
             return false;
         }
         String partnerSku = normalize(draft.getPsku());
-        Map<String, String> references = noonReferences(result);
-        String skuParent = references.get("skuParent");
-        String pskuCode = references.get("pskuCode");
+        ProductListingCreateReferenceEvidence.References references =
+                ProductListingCreateReferenceEvidence.latestConfirmed(result);
+        String skuParent = references.skuParent();
+        String pskuCode = references.pskuCode();
         if (!StringUtils.hasText(partnerSku)
                 || !StringUtils.hasText(skuParent)
                 || !StringUtils.hasText(pskuCode)
@@ -329,47 +328,6 @@ public class LocalDbProductListingProjectionBackfill implements ProductListingPr
             return normalized;
         }
         return normalized.substring(0, LISTING_STARTED_SOURCE_MAX_LENGTH);
-    }
-
-    private Map<String, String> noonReferences(ProductListingNoonWriteResult result) {
-        Map<String, String> references = new LinkedHashMap<>();
-        if (result == null || result.getSteps() == null) {
-            return references;
-        }
-        for (ProductListingNoonWriteStepResult step : result.getSteps()) {
-            if (step == null || !"succeeded".equals(step.getStatus())) {
-                continue;
-            }
-            Map<String, String> current = parseReference(step.getExternalReference());
-            if ("verify_noon_readback".equals(step.getStepKey())) {
-                references.putAll(current);
-            } else {
-                current.forEach(references::putIfAbsent);
-            }
-        }
-        return references;
-    }
-
-    private Map<String, String> parseReference(String externalReference) {
-        Map<String, String> parsed = new LinkedHashMap<>();
-        if (!StringUtils.hasText(externalReference)) {
-            return parsed;
-        }
-        for (String part : externalReference.split(";")) {
-            if (!StringUtils.hasText(part)) {
-                continue;
-            }
-            int separator = part.indexOf('=');
-            if (separator <= 0 || separator >= part.length() - 1) {
-                continue;
-            }
-            String key = part.substring(0, separator).trim();
-            String value = part.substring(separator + 1).trim();
-            if (StringUtils.hasText(key) && StringUtils.hasText(value)) {
-                parsed.put(key, value);
-            }
-        }
-        return parsed;
     }
 
     private String currencyForSite(String site) {
