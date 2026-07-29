@@ -32,6 +32,7 @@ class NoonTransientTransportFailurePolicyTest {
         for (Throwable failure : new Throwable[] {
                 new EOFException("unexpected EOF"),
                 new IOException("connection timeout"),
+                new IllegalStateException("HTTP 407 empty response"),
                 new IllegalStateException("HTTP 408"),
                 new IllegalStateException("HTTP 500"),
                 new IllegalStateException("HTTP 502"),
@@ -43,6 +44,10 @@ class NoonTransientTransportFailurePolicyTest {
                     failure
             ));
         }
+        assertFalse(NoonTransientTransportFailurePolicy.shouldRefresh(
+                false,
+                new NoonHttpException(407, "", "/catalog")
+        ));
     }
 
     @Test
@@ -53,6 +58,9 @@ class NoonTransientTransportFailurePolicyTest {
         ));
         assertTrue(NoonTransientTransportFailurePolicy.isRetryable(
                 new NoonHttpException(500, "provider unavailable", "/catalog")
+        ));
+        assertFalse(NoonTransientTransportFailurePolicy.isRetryable(
+                new NoonHttpException(407, "", "/catalog")
         ));
     }
 

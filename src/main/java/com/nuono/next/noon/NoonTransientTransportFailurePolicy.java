@@ -17,7 +17,8 @@ public final class NoonTransientTransportFailurePolicy {
     }
 
     static boolean shouldRefresh(boolean proxyEnabled, Throwable failure) {
-        return proxyEnabled && isRetryable(failure);
+        return proxyEnabled
+                && (isRetryable(failure) || hasHttpStatus(failure, 407));
     }
 
     public static boolean isRetryable(Throwable failure) {
@@ -46,6 +47,27 @@ public final class NoonTransientTransportFailurePolicy {
         }
         return approvedHttpStatus
                 || NoonProjectTransientFailureClassifier.classify(failure).isPresent();
+    }
+
+    private static boolean hasHttpStatus(Throwable failure, int expectedStatus) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof NoonHttpException
+                    && ((NoonHttpException) current).getStatusCode() == expectedStatus) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (StringUtils.hasText(message)) {
+                Matcher statusMatcher = HTTP_STATUS_PATTERN.matcher(message);
+                while (statusMatcher.find()) {
+                    if (Integer.parseInt(statusMatcher.group(1)) == expectedStatus) {
+                        return true;
+                    }
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     static String safeDeterministicAuthMarker(String responseBody) {
