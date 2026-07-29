@@ -2197,7 +2197,6 @@ public class NoonSessionGateway {
         private final EmailOtpGeneration generation;
         private final String accessToken;
         private final List<MerchantProject> projects;
-
         private EmailIdentityGrant(
                 EmailOtpGeneration generation,
                 String accessToken,
@@ -2207,6 +2206,7 @@ public class NoonSessionGateway {
             this.accessToken = accessToken;
             this.projects = List.copyOf(projects);
         }
+        String getUserCode() { return generation.user.getUserCode(); }
     }
 
     static final class ProjectSessionCookie {

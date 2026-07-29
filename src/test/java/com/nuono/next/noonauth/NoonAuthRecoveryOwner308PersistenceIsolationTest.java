@@ -79,7 +79,7 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
         verifyPersisted("PRJ102858", 8L, "sid=PRJ102858; projectCode=PRJ102858");
         verify(repository, never()).persistRecoveredProjectCookieCas(
                 eq(308L), eq("PRJ101128"), eq(RECOVERY_ID), anyLong(), any(), anyLong(),
-                anyString(), anyString(), eq(308L), any()
+                anyString(), anyString(), anyString(), eq(308L), any()
         );
         verify(repository).markProjectRecoveryFailed(
                 eq(308L), eq("PRJ101128"), eq(RECOVERY_ID), eq(5L),
@@ -111,7 +111,8 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
                 List.of(
                         NoonAuthRecoveryProjectResult.recovered(
                                 command.getProjectTargets().get(0),
-                                "sid=PRJ100085; projectCode=PRJ100085"
+                                "sid=PRJ100085; projectCode=PRJ100085",
+                                "user-PRJ100085"
                         ),
                         NoonAuthRecoveryProjectResult.failed(
                                 command.getProjectTargets().get(1),
@@ -120,7 +121,8 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
                         ),
                         NoonAuthRecoveryProjectResult.recovered(
                                 command.getProjectTargets().get(2),
-                                "sid=PRJ102858; projectCode=PRJ102858"
+                                "sid=PRJ102858; projectCode=PRJ102858",
+                                "user-PRJ102858"
                         )
                 )
         );
@@ -130,7 +132,7 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
         verify(repository).persistRecoveredProjectCookieCas(
                 eq(308L), eq(projectCode), eq(RECOVERY_ID), eq(authVersion),
                 eq(NoonAuthRecoveryStatus.APPLYING_PROJECTS), anyLong(), anyString(),
-                eq(cookie), eq(308L), any()
+                eq(cookie), eq("user-" + projectCode), eq(308L), any()
         );
     }
 
@@ -185,7 +187,7 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
         )).thenReturn(true);
         when(repository.persistRecoveredProjectCookieCas(
                 anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),
-                anyString(), anyLong(), any()
+                anyString(), anyString(), anyLong(), any()
         )).thenReturn(true);
         when(repository.markProjectRecoveryFailed(
                 anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),

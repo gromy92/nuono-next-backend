@@ -90,7 +90,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
             command.beforeOtpSendOrThrow();
             List<NoonAuthRecoveryProjectResult> results = new ArrayList<>();
             command.getProjectTargets().forEach(target -> results.add(
-                    NoonAuthRecoveryProjectResult.recovered(target, "sid=" + target.getProjectCode())
+                    NoonAuthRecoveryProjectResult.recovered(target, "sid=" + target.getProjectCode(), "user-" + target.getProjectCode())
             ));
             return NoonAuthRecoveryAttemptResult.authenticated("message-hash-1", results);
         });
@@ -103,7 +103,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
         );
         verify(repository, times(2)).persistRecoveredProjectCookieCas(
                 anyLong(), anyString(), eq(10L), anyLong(), eq(NoonAuthRecoveryStatus.APPLYING_PROJECTS),
-                anyLong(), anyString(), anyString(), anyLong(), any()
+                anyLong(), anyString(), anyString(), anyString(), anyLong(), any()
         );
         verify(repository).requeueBlockedTaskAfterRecoveryCas(
                 eq(1001L), eq(10L), eq(NoonAuthRecoveryStatus.RECOVERING_PULLS),
@@ -148,7 +148,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "binding-message-hash",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=binding-recovered"
+                            "sid=binding-recovered", "user-binding"
                     ))
             );
         });
@@ -158,7 +158,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
         verify(repository).persistRecoveredProjectCookieCas(
                 eq(307L), eq("PRJ307"), eq(11L), eq(3L),
                 eq(NoonAuthRecoveryStatus.APPLYING_PROJECTS), anyLong(), anyString(),
-                eq("sid=binding-recovered"), eq(307L), any()
+                eq("sid=binding-recovered"), eq("user-binding"), eq(307L), any()
         );
         verify(repository, never()).requeueBlockedTaskAfterRecoveryCas(
                 anyLong(), anyLong(), any(), anyLong(), anyString(), any()
@@ -392,7 +392,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                             "new-message",
                             List.of(NoonAuthRecoveryProjectResult.recovered(
                                     command.getProjectTargets().get(0),
-                                    "sid=recovered"
+                                    "sid=recovered", "user-recovered"
                             ))
                     );
                 });
@@ -618,7 +618,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "message-hash-201",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=recovered"
+                            "sid=recovered", "user-recovered"
                     ))
             );
         });
@@ -653,7 +653,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "successor-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=successor"
+                            "sid=successor", "user-successor"
                     ))
             );
         });
@@ -709,7 +709,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "single-generation-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=single-generation"
+                            "sid=single-generation", "user-single-generation"
                     ))
             );
         });
@@ -907,7 +907,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "remaining-generation-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=remaining-generation"
+                            "sid=remaining-generation", "user-remaining-generation"
                     ))
             );
         });
@@ -983,7 +983,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                 .thenReturn(true, true, false);
         when(repository.persistRecoveredProjectCookieCas(
                 anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),
-                anyString(), anyLong(), any()
+                anyString(), anyString(), anyLong(), any()
         )).thenReturn(false);
         when(gateway.attempt(any())).thenAnswer(invocation -> {
             NoonAuthRecoveryAttemptCommand command = reserveOtpSend(invocation);
@@ -991,7 +991,7 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                     "message-before-lease-loss",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=must-not-persist"
+                            "sid=must-not-persist", "user-must-not-persist"
                     ))
             );
         });

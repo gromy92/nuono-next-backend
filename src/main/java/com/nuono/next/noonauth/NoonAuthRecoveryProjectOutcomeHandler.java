@@ -84,6 +84,7 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
                     fence.version,
                     fence.leaseToken,
                     result.getCookie(),
+                    result.getUserCode(),
                     target.getOwnerUserId(),
                     now
             );
