@@ -38,6 +38,40 @@ class NoonSearchPaginationSupportTest {
     }
 
     @Test
+    void acceptsVerifiedCoverageWhenLiveTotalsDriftBetweenPages() {
+        NoonSearchPage first = page(1, 300, 3, 1);
+        NoonSearchPage second = page(101, 297, 4, 2);
+
+        NoonSearchPage merged = NoonSearchPaginationSupport.merge(
+                first,
+                second,
+                200
+        );
+
+        assertTrue(merged.isCoverageComplete());
+        assertEquals(200, merged.getResults().size());
+        assertEquals(300, merged.getTotalHits());
+        assertEquals(3, merged.getTotalPages());
+    }
+
+    @Test
+    void acceptsVerifiedCoverageWhenSecondPageOmitsLiveTotals() {
+        NoonSearchPage first = page(1, 300, 3, 1);
+        NoonSearchPage second = page(101, 300, 3, 2);
+        second.setTotalHits(null);
+        second.setTotalPages(null);
+
+        NoonSearchPage merged = NoonSearchPaginationSupport.merge(
+                first,
+                second,
+                200
+        );
+
+        assertTrue(merged.isCoverageComplete());
+        assertEquals(200, merged.getResults().size());
+    }
+
+    @Test
     void refusesToClaimTop200WithoutProviderCoverageMetadata() {
         NoonSearchPage first = page(1, 300, 3, 1);
         first.setTotalHits(null);
