@@ -12,9 +12,16 @@ import java.nio.file.Path;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class ProcurementPurchaseOrderMapperSqlTest {
+    @Test
+    void mapperDynamicSqlRegistersSuccessfully() {
+        Configuration configuration = new Configuration();
+        configuration.addMapper(ProcurementPurchaseOrderMapper.class);
+    }
+
     @Test void shippingOrderSegmentsCountDistinctSourcePurchaseOrders() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrderSegments", Long.class);
         String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
@@ -215,6 +222,9 @@ class ProcurementPurchaseOrderMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(basePriceSql).contains("FROM forwarder_quote_base_price");
+        assertThat(basePriceSql).contains("base_price.unit_price AS unitPrice");
+        assertThat(basePriceSql).contains("base_price.unit_price > 0");
+        assertThat(basePriceSql).doesNotContain("forwarder_quote_numeric_adjustment");
         assertThat(warehouseSql).contains("FROM forwarder_warehouse_processing_fee");
         assertThat(transportSql).contains("FROM forwarder_quote_transport_fee");
     }

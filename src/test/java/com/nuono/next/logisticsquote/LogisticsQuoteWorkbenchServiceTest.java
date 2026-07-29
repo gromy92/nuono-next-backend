@@ -1086,8 +1086,6 @@ class LogisticsQuoteWorkbenchServiceTest {
         private long nextRuleId = 76001L;
         private long nextRestrictionId = 77001L;
         private long nextEvidenceId = 78001L;
-        private long nextNumericAdjustmentId = 930001L;
-        private long nextNumericAdjustmentLogId = 940001L;
         private long tick = 1L;
 
         @Override
@@ -1148,16 +1146,6 @@ class LogisticsQuoteWorkbenchServiceTest {
         @Override
         public Long nextEvidenceId() {
             return nextEvidenceId++;
-        }
-
-        @Override
-        public Long nextNumericAdjustmentId() {
-            return nextNumericAdjustmentId++;
-        }
-
-        @Override
-        public Long nextNumericAdjustmentLogId() {
-            return nextNumericAdjustmentLogId++;
         }
 
         @Override
@@ -1413,44 +1401,6 @@ class LogisticsQuoteWorkbenchServiceTest {
         @Override
         public Integer countQuoteRules() {
             return rules.size();
-        }
-
-        @Override
-        public int upsertNumericAdjustment(
-                Long id,
-                Long quoteVersionId,
-                String targetType,
-                Long targetId,
-                String fieldName,
-                Double originalValue,
-                Double adjustedValue,
-                String currency,
-                String reason,
-                Long updatedBy
-        ) {
-            return 1;
-        }
-
-        @Override
-        public Long selectActiveNumericAdjustmentId(String targetType, Long targetId, String fieldName) {
-            return 930001L;
-        }
-
-        @Override
-        public int insertNumericAdjustmentLog(
-                Long id,
-                Long adjustmentId,
-                Long quoteVersionId,
-                String targetType,
-                Long targetId,
-                String fieldName,
-                Double beforeValue,
-                Double afterValue,
-                String actionType,
-                String reason,
-                Long operatedBy
-        ) {
-            return 1;
         }
 
         @Override

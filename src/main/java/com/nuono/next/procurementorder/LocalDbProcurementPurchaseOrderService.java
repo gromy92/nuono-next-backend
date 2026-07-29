@@ -2278,6 +2278,8 @@ public class LocalDbProcurementPurchaseOrderService {
         view.serviceCode = candidate.serviceCode;
         view.serviceName = candidate.serviceName;
         view.quoteVersionCode = candidate.quoteVersionCode;
+        view.quoteEffectiveFrom = candidate.quoteEffectiveFrom;
+        view.quoteRecordedAt = candidate.quoteRecordedAt;
         view.siteCode = candidate.siteCode;
         view.transportMode = normalizeTransportMode(candidate.transportMode);
         view.transportModeLabel = transportModeLabel(candidate.transportMode);

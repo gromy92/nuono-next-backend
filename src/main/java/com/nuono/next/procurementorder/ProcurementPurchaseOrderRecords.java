@@ -1,6 +1,8 @@
 package com.nuono.next.procurementorder;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public final class ProcurementPurchaseOrderRecords {
 
@@ -90,6 +92,8 @@ public final class ProcurementPurchaseOrderRecords {
         public String serviceCode;
         public String serviceName;
         public String quoteVersionCode;
+        public LocalDate quoteEffectiveFrom;
+        public LocalDateTime quoteRecordedAt;
         public String country;
         public String siteCode;
         public String targetPlatform;

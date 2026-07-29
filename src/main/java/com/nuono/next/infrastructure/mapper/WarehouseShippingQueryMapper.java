@@ -267,6 +267,9 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "JOIN forwarder_quote_version version",
             "  ON version.id = line.quote_version_id",
             " AND version.status = 'PUBLISHED'",
+            " AND version.effective_from IS NOT NULL",
+            " AND version.effective_from &lt;= CURRENT_DATE",
+            " AND (version.effective_to IS NULL OR version.effective_to >= CURRENT_DATE)",
             "JOIN forwarder",
             "  ON forwarder.id = version.forwarder_id",
             " AND forwarder.status = 'ACTIVE'",
@@ -274,11 +277,12 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "  ON price.service_code = line.service_code",
             " AND price.quote_version_id = line.quote_version_id",
             " AND price.price_status IN ('NORMAL', 'STARTING_PRICE', 'ESTIMATE')",
-            " AND price.unit_price IS NOT NULL",
+            " AND price.unit_price > 0",
             "WHERE route.active_for_purchase_order = b'1'",
             "  AND route.route_code IN",
             "  <foreach collection='routeCodes' item='routeCode' open='(' separator=',' close=')'>#{routeCode}</foreach>",
-            "ORDER BY route.route_code ASC, price.cargo_category_code ASC, price.billing_unit ASC, price.unit_price ASC",
+            "ORDER BY route.route_code ASC, price.cargo_category_code ASC, price.billing_unit ASC,",
+            "         price.unit_price ASC",
             "</script>"
     })
     List<ForwarderRouteQuoteRecord> listForwarderRouteQuotes(@Param("routeCodes") Collection<String> routeCodes);

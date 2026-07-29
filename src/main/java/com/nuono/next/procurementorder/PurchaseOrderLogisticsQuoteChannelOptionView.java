@@ -1,6 +1,8 @@
 package com.nuono.next.procurementorder;
 
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +12,8 @@ public class PurchaseOrderLogisticsQuoteChannelOptionView {
     public String serviceCode;
     public String serviceName;
     public String quoteVersionCode;
+    public LocalDate quoteEffectiveFrom;
+    public LocalDateTime quoteRecordedAt;
     public String siteCode;
     public String transportMode;
     public String transportModeLabel;

@@ -53,9 +53,7 @@ public interface LogisticsQuoteMapper {
             "    'forwarder_quote_transport_fee',",
             "    'forwarder_quote_billing_rule',",
             "    'forwarder_warehouse_processing_fee',",
-            "    'forwarder_quote_prohibited_item',",
-            "    'forwarder_quote_numeric_adjustment',",
-            "    'forwarder_quote_numeric_adjustment_log'",
+            "    'forwarder_quote_prohibited_item'",
             "  )"
     })
     Integer countExistingOperationQuoteTables(@Param("schema") String schema);
@@ -104,16 +102,6 @@ public interface LogisticsQuoteMapper {
             "SELECT COALESCE(MAX(id), 78000) + 1 FROM quote_evidence_ref"
     })
     Long nextEvidenceId();
-
-    @Select({
-            "SELECT COALESCE(MAX(id), 930000) + 1 FROM forwarder_quote_numeric_adjustment"
-    })
-    Long nextNumericAdjustmentId();
-
-    @Select({
-            "SELECT COALESCE(MAX(id), 940000) + 1 FROM forwarder_quote_numeric_adjustment_log"
-    })
-    Long nextNumericAdjustmentLogId();
 
     @Select({
             "SELECT id",
@@ -462,69 +450,6 @@ public interface LogisticsQuoteMapper {
     })
     Integer countQuoteRules();
 
-    @Insert({
-            "INSERT INTO forwarder_quote_numeric_adjustment (",
-            "  id, quote_version_id, target_type, target_id, field_name, original_value, adjusted_value, currency, reason, adjustment_status, created_by, updated_by, gmt_create, gmt_updated",
-            ") VALUES (",
-            "  #{id}, #{quoteVersionId}, #{targetType}, #{targetId}, #{fieldName}, #{originalValue}, #{adjustedValue}, #{currency}, #{reason}, 'ACTIVE', #{updatedBy}, #{updatedBy}, NOW(), NOW()",
-            ")",
-            "ON DUPLICATE KEY UPDATE",
-            "  original_value = VALUES(original_value),",
-            "  adjusted_value = VALUES(adjusted_value),",
-            "  currency = VALUES(currency),",
-            "  reason = VALUES(reason),",
-            "  updated_by = VALUES(updated_by),",
-            "  gmt_updated = NOW()"
-    })
-    int upsertNumericAdjustment(
-            @Param("id") Long id,
-            @Param("quoteVersionId") Long quoteVersionId,
-            @Param("targetType") String targetType,
-            @Param("targetId") Long targetId,
-            @Param("fieldName") String fieldName,
-            @Param("originalValue") Double originalValue,
-            @Param("adjustedValue") Double adjustedValue,
-            @Param("currency") String currency,
-            @Param("reason") String reason,
-            @Param("updatedBy") Long updatedBy
-    );
-
-    @Select({
-            "SELECT id",
-            "FROM forwarder_quote_numeric_adjustment",
-            "WHERE target_type = #{targetType}",
-            "  AND target_id = #{targetId}",
-            "  AND field_name = #{fieldName}",
-            "  AND adjustment_status = 'ACTIVE'",
-            "LIMIT 1"
-    })
-    Long selectActiveNumericAdjustmentId(
-            @Param("targetType") String targetType,
-            @Param("targetId") Long targetId,
-            @Param("fieldName") String fieldName
-    );
-
-    @Insert({
-            "INSERT INTO forwarder_quote_numeric_adjustment_log (",
-            "  id, adjustment_id, quote_version_id, target_type, target_id, field_name, before_value, after_value, action_type, reason, operated_by, gmt_create",
-            ") VALUES (",
-            "  #{id}, #{adjustmentId}, #{quoteVersionId}, #{targetType}, #{targetId}, #{fieldName}, #{beforeValue}, #{afterValue}, #{actionType}, #{reason}, #{operatedBy}, NOW()",
-            ")"
-    })
-    int insertNumericAdjustmentLog(
-            @Param("id") Long id,
-            @Param("adjustmentId") Long adjustmentId,
-            @Param("quoteVersionId") Long quoteVersionId,
-            @Param("targetType") String targetType,
-            @Param("targetId") Long targetId,
-            @Param("fieldName") String fieldName,
-            @Param("beforeValue") Double beforeValue,
-            @Param("afterValue") Double afterValue,
-            @Param("actionType") String actionType,
-            @Param("reason") String reason,
-            @Param("operatedBy") Long operatedBy
-    );
-
     @Select({
             "<script>",
             "SELECT *",
@@ -549,8 +474,7 @@ public interface LogisticsQuoteMapper {
             "    base_price.pricing_model AS pricingModel,",
             "    base_price.currency AS currency,",
             "    base_price.unit_price AS standardValue,",
-            "    adjustment.adjusted_value AS adjustedValue,",
-            "    COALESCE(adjustment.adjusted_value, base_price.unit_price) AS effectiveValue,",
+            "    base_price.unit_price AS effectiveValue,",
             "    base_price.billing_unit AS billingUnit,",
             "    base_price.billing_basis AS billingBasis,",
             "    base_price.min_charge AS minCharge,",
@@ -559,19 +483,17 @@ public interface LogisticsQuoteMapper {
             "    base_price.source_file_name AS sourceFileName,",
             "    TRIM(CONCAT(COALESCE(base_price.source_sheet_or_page, ''), ' ', COALESCE(base_price.source_row_or_locator, ''))) AS sourceLocator,",
             "    base_price.remark AS remark,",
-            "    CASE WHEN adjustment.id IS NULL THEN 0 ELSE 1 END AS hasAdjustment,",
-            "    adjustment.reason AS adjustmentReason,",
-            "    DATE_FORMAT(COALESCE(adjustment.gmt_updated, base_price.gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "    DATE_FORMAT(base_price.gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "  FROM forwarder_quote_base_price base_price",
             "  JOIN forwarder_quote_service_line service_line ON service_line.service_code = base_price.service_code",
-            "  JOIN forwarder_quote_version quote_version ON quote_version.id = base_price.quote_version_id",
+            "  JOIN forwarder_quote_version quote_version",
+            "    ON quote_version.id = base_price.quote_version_id",
+            "   AND quote_version.status = 'PUBLISHED'",
+            "   AND quote_version.effective_from IS NOT NULL",
+            "   AND quote_version.effective_from &lt;= CURRENT_DATE",
+            "   AND (quote_version.effective_to IS NULL OR quote_version.effective_to >= CURRENT_DATE)",
             "  JOIN forwarder ON forwarder.id = quote_version.forwarder_id",
             "  LEFT JOIN forwarder_quote_cargo_category cargo_category ON cargo_category.cargo_category_code = base_price.cargo_category_code",
-            "  LEFT JOIN forwarder_quote_numeric_adjustment adjustment",
-            "    ON adjustment.target_type = 'BASE_PRICE'",
-            "   AND adjustment.target_id = base_price.id",
-            "   AND adjustment.field_name = 'unit_price'",
-            "   AND adjustment.adjustment_status = 'ACTIVE'",
             "  UNION ALL",
             "  SELECT",
             "    transport_fee.id AS targetId,",
@@ -593,8 +515,7 @@ public interface LogisticsQuoteMapper {
             "    transport_fee.pricing_model AS pricingModel,",
             "    transport_fee.currency AS currency,",
             "    COALESCE(transport_fee.amount, transport_fee.rate) AS standardValue,",
-            "    adjustment.adjusted_value AS adjustedValue,",
-            "    COALESCE(adjustment.adjusted_value, COALESCE(transport_fee.amount, transport_fee.rate)) AS effectiveValue,",
+            "    COALESCE(transport_fee.amount, transport_fee.rate) AS effectiveValue,",
             "    transport_fee.billing_unit AS billingUnit,",
             "    transport_fee.billing_basis AS billingBasis,",
             "    transport_fee.min_charge AS minCharge,",
@@ -603,18 +524,16 @@ public interface LogisticsQuoteMapper {
             "    transport_fee.source_file_name AS sourceFileName,",
             "    TRIM(CONCAT(COALESCE(transport_fee.source_sheet_or_page, ''), ' ', COALESCE(transport_fee.source_row_or_locator, ''))) AS sourceLocator,",
             "    transport_fee.remark AS remark,",
-            "    CASE WHEN adjustment.id IS NULL THEN 0 ELSE 1 END AS hasAdjustment,",
-            "    adjustment.reason AS adjustmentReason,",
-            "    DATE_FORMAT(COALESCE(adjustment.gmt_updated, transport_fee.gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "    DATE_FORMAT(transport_fee.gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "  FROM forwarder_quote_transport_fee transport_fee",
             "  JOIN forwarder_quote_service_line service_line ON service_line.service_code = transport_fee.service_code",
-            "  JOIN forwarder_quote_version quote_version ON quote_version.id = transport_fee.quote_version_id",
+            "  JOIN forwarder_quote_version quote_version",
+            "    ON quote_version.id = transport_fee.quote_version_id",
+            "   AND quote_version.status = 'PUBLISHED'",
+            "   AND quote_version.effective_from IS NOT NULL",
+            "   AND quote_version.effective_from &lt;= CURRENT_DATE",
+            "   AND (quote_version.effective_to IS NULL OR quote_version.effective_to >= CURRENT_DATE)",
             "  JOIN forwarder ON forwarder.id = quote_version.forwarder_id",
-            "  LEFT JOIN forwarder_quote_numeric_adjustment adjustment",
-            "    ON adjustment.target_type = 'TRANSPORT_FEE'",
-            "   AND adjustment.target_id = transport_fee.id",
-            "   AND adjustment.field_name = CASE WHEN transport_fee.amount IS NOT NULL THEN 'amount' ELSE 'rate' END",
-            "   AND adjustment.adjustment_status = 'ACTIVE'",
             "  UNION ALL",
             "  SELECT",
             "    processing_fee.id AS targetId,",
@@ -636,8 +555,7 @@ public interface LogisticsQuoteMapper {
             "    processing_fee.pricing_model AS pricingModel,",
             "    processing_fee.currency AS currency,",
             "    processing_fee.amount AS standardValue,",
-            "    adjustment.adjusted_value AS adjustedValue,",
-            "    COALESCE(adjustment.adjusted_value, processing_fee.amount) AS effectiveValue,",
+            "    processing_fee.amount AS effectiveValue,",
             "    processing_fee.billing_unit AS billingUnit,",
             "    processing_fee.condition_text AS billingBasis,",
             "    processing_fee.min_charge AS minCharge,",
@@ -646,18 +564,16 @@ public interface LogisticsQuoteMapper {
             "    processing_fee.source_file_name AS sourceFileName,",
             "    TRIM(CONCAT(COALESCE(processing_fee.source_sheet_or_page, ''), ' ', COALESCE(processing_fee.source_row_or_locator, ''))) AS sourceLocator,",
             "    processing_fee.remark AS remark,",
-            "    CASE WHEN adjustment.id IS NULL THEN 0 ELSE 1 END AS hasAdjustment,",
-            "    adjustment.reason AS adjustmentReason,",
-            "    DATE_FORMAT(COALESCE(adjustment.gmt_updated, processing_fee.gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
+            "    DATE_FORMAT(processing_fee.gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "  FROM forwarder_warehouse_processing_fee processing_fee",
             "  JOIN forwarder_quote_service_line service_line ON service_line.service_code = processing_fee.service_code",
-            "  JOIN forwarder_quote_version quote_version ON quote_version.id = processing_fee.quote_version_id",
+            "  JOIN forwarder_quote_version quote_version",
+            "    ON quote_version.id = processing_fee.quote_version_id",
+            "   AND quote_version.status = 'PUBLISHED'",
+            "   AND quote_version.effective_from IS NOT NULL",
+            "   AND quote_version.effective_from &lt;= CURRENT_DATE",
+            "   AND (quote_version.effective_to IS NULL OR quote_version.effective_to >= CURRENT_DATE)",
             "  JOIN forwarder ON forwarder.id = quote_version.forwarder_id",
-            "  LEFT JOIN forwarder_quote_numeric_adjustment adjustment",
-            "    ON adjustment.target_type = 'WAREHOUSE_PROCESSING_FEE'",
-            "   AND adjustment.target_id = processing_fee.id",
-            "   AND adjustment.field_name = 'amount'",
-            "   AND adjustment.adjustment_status = 'ACTIVE'",
             ") operation_item",
             "WHERE 1 = 1",
             "<if test='transportMode != null and transportMode != \"\"'>",
