@@ -63,7 +63,7 @@ public class ProductListingRealWriteProperties {
 
     public static class Endpoints {
         public static final String DEFAULT_CREATE_PRODUCT_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/create";
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/create";
         public static final String DEFAULT_SKU_CACHE_URL =
                 "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
         public static final String DEFAULT_UPSERT_ZSKU_URL =

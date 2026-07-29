@@ -26,6 +26,14 @@ import org.junit.jupiter.api.Test;
 
 class RealProductListingNoonWriteRequestTest extends RealProductListingNoonWriteAdapterTest {
     @Test
+    void defaultCreateEndpointUsesCatalogHostAcceptedByCreateServiceAuthentication() {
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/create",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_CREATE_PRODUCT_URL
+        );
+    }
+
+    @Test
     void realAdapterBuildsExpectedNoonWriteRequests() {
         FakeBindingResolver bindingResolver = new FakeBindingResolver();
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
