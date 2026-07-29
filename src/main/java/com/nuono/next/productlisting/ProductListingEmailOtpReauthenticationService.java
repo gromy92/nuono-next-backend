@@ -2,6 +2,7 @@ package com.nuono.next.productlisting;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -9,15 +10,21 @@ public class ProductListingEmailOtpReauthenticationService {
     private final ProductListingEmailOtpRecoveryEnqueuer enqueuer;
     private final ProductListingEmailOtpRecoveryFinalizer finalizer;
     private final ProductListingReauthenticationAttemptProjector projector;
+    private final ProductListingPersistedSessionReauthenticationService
+            persistedSessionReauthenticationService;
 
     public ProductListingEmailOtpReauthenticationService(
             ProductListingEmailOtpRecoveryEnqueuer enqueuer,
             ProductListingEmailOtpRecoveryFinalizer finalizer,
-            ProductListingReauthenticationAttemptProjector projector
+            ProductListingReauthenticationAttemptProjector projector,
+            ProductListingPersistedSessionReauthenticationService
+                    persistedSessionReauthenticationService
     ) {
         this.enqueuer = enqueuer;
         this.finalizer = finalizer;
         this.projector = projector;
+        this.persistedSessionReauthenticationService =
+                persistedSessionReauthenticationService;
     }
 
     public boolean applies(StoreSyncStoreRecord project) {
@@ -32,6 +39,18 @@ public class ProductListingEmailOtpReauthenticationService {
             StoreSyncStoreRecord site,
             ProductListingReauthenticationCommitter.ResumeAction resumeAction
     ) {
+        Optional<ProductListingWorkflowView> resumed =
+                persistedSessionReauthenticationService
+                        .reauthenticateIfVerified(
+                                context,
+                                task,
+                                project,
+                                site,
+                                resumeAction
+                        );
+        if (resumed.isPresent()) {
+            return resumed.get();
+        }
         enqueuer.enqueue(task, project, site, resumeAction);
         return projector.pending(workflow, null);
     }

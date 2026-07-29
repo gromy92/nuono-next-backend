@@ -15,6 +15,7 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noonauth.NoonAuthRecoveryProperties;
 import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.store.NoonCatalogConnectionProbe;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +27,8 @@ class ProductListingEmailOtpReauthenticationServiceTest {
     private NoonProjectAuthRecoveryQueue recoveryQueue;
     private NoonAuthRecoveryProperties properties;
     private NoonSessionGateway sessionGateway;
+    private NoonCatalogConnectionProbe catalogProbe;
+    private ProductListingReauthenticationCommitter committer;
     private ProductListingEmailOtpReauthenticationService service;
     private BusinessAccessContext context;
 
@@ -37,6 +40,8 @@ class ProductListingEmailOtpReauthenticationServiceTest {
         properties.setEnabled(true);
         properties.setTrustedSenderDomains("noon.partners");
         sessionGateway = mock(NoonSessionGateway.class);
+        catalogProbe = mock(NoonCatalogConnectionProbe.class);
+        committer = mock(ProductListingReauthenticationCommitter.class);
         ProductListingReauthenticationAttemptProjector projector =
                 new ProductListingReauthenticationAttemptProjector();
         service = new ProductListingEmailOtpReauthenticationService(
@@ -47,7 +52,11 @@ class ProductListingEmailOtpReauthenticationServiceTest {
                         sessionGateway
                 ),
                 mock(ProductListingEmailOtpRecoveryFinalizer.class),
-                projector
+                projector,
+                new ProductListingPersistedSessionReauthenticationService(
+                        catalogProbe,
+                        committer
+                )
         );
         context = ProductListingTestFixtures.businessContext(
                 10002L,
