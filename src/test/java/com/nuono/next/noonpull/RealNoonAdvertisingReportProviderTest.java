@@ -71,10 +71,13 @@ class RealNoonAdvertisingReportProviderTest {
 
         assertEquals(NoonReportProcessResult.Code.SUCCEEDED, result.getCode());
         assertEquals(2, result.getImportedCount());
+        assertEquals(1, session.advertiserContextCalls);
         assertEquals(1, session.campaignMetricsCalls);
         assertEquals(1, session.queryReportCalls);
         assertEquals("PRJ69486", session.lastHeaders.get("X-Project"));
         assertEquals("69486", session.lastHeaders.get("x-id-advertiser"));
+        assertEquals("ADV_69486", session.lastHeaders.get("x-advertiser-codes"));
+        assertEquals("true", session.lastHeaders.get("x-seller-view"));
         assertTrue(session.lastCampaignMetricsUrl.endsWith("/_svc/productads/v2/noon/metrics"));
         assertTrue(session.lastCampaignMetricsBody.path("campaignFilters").isObject());
         assertTrue(session.lastCampaignMetricsBody.path("marketplace").isMissingNode());
@@ -178,12 +181,14 @@ class RealNoonAdvertisingReportProviderTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
-            throw new UnsupportedOperationException();
+            assertTrue(url.endsWith("/_svc/productads/onboarding/advertiser/accounts"));
+            return advertiserAccounts(objectMapper, "108065", "ADV_108065");
         }
     }
 
     private static class RecordingGatewaySession implements NoonPullGatewaySession {
         private final ObjectMapper objectMapper = new ObjectMapper();
+        private int advertiserContextCalls;
         private int campaignMetricsCalls;
         private int queryReportCalls;
         private String lastCampaignMetricsUrl;
@@ -230,7 +235,9 @@ class RealNoonAdvertisingReportProviderTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
-            throw new UnsupportedOperationException();
+            assertTrue(url.endsWith("/_svc/productads/onboarding/advertiser/accounts"));
+            advertiserContextCalls++;
+            return advertiserAccounts(objectMapper, "69486", "ADV_69486");
         }
 
         private ObjectNode campaign() {
@@ -299,6 +306,23 @@ class RealNoonAdvertisingReportProviderTest {
             } catch (Exception exception) {
                 throw new IllegalStateException(exception);
             }
+        }
+    }
+
+    private static byte[] advertiserAccounts(
+            ObjectMapper objectMapper,
+            String partnerId,
+            String advertiserCode
+    ) {
+        ObjectNode account = objectMapper.createObjectNode();
+        account.put("idPartner", partnerId);
+        account.put("advertiserCode", advertiserCode);
+        account.put("isActive", 1);
+        account.put("isEnabled", 1);
+        try {
+            return objectMapper.writeValueAsBytes(objectMapper.createArrayNode().add(account));
+        } catch (Exception exception) {
+            throw new IllegalStateException(exception);
         }
     }
 

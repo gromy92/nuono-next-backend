@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.noon.NoonHttpException;
 import java.util.Locale;
 import org.springframework.util.StringUtils;
 
@@ -14,7 +15,7 @@ final class NoonPullProviderFailureMapper {
         String message = StringUtils.hasText(exception.getMessage())
                 ? exception.getMessage()
                 : exception.getClass().getSimpleName();
-        String normalized = message.toLowerCase(Locale.ROOT);
+        String normalized = classificationText(exception);
         String prefix = classifyPrefix(normalized);
         return new NoonInterfacePullException(prefix + ": " + stage + " failed: " + safe(message), exception);
     }
@@ -26,6 +27,10 @@ final class NoonPullProviderFailureMapper {
     }
 
     private static String classifyPrefix(String normalized) {
+        if (normalized.contains("ads advertiser context mismatch")
+                || normalized.contains("access to run ads in this country")) {
+            return "ads advertiser context mismatch";
+        }
         if (normalized.contains("not configured")
                 || normalized.contains("provider_not_configured")
                 || normalized.contains("export is not configured")
@@ -60,6 +65,24 @@ final class NoonPullProviderFailureMapper {
             return "provider unavailable";
         }
         return "provider unavailable";
+    }
+
+    private static String classificationText(RuntimeException exception) {
+        StringBuilder text = new StringBuilder();
+        Throwable current = exception;
+        while (current != null) {
+            if (StringUtils.hasText(current.getMessage())) {
+                text.append(' ').append(current.getMessage());
+            }
+            if (current instanceof NoonHttpException) {
+                String responseBody = ((NoonHttpException) current).getResponseBody();
+                if (StringUtils.hasText(responseBody)) {
+                    text.append(' ').append(responseBody);
+                }
+            }
+            current = current.getCause();
+        }
+        return text.toString().toLowerCase(Locale.ROOT);
     }
 
     private static String safe(String message) {

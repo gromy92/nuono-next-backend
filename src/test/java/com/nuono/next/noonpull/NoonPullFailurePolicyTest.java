@@ -2,6 +2,7 @@ package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
@@ -42,6 +43,12 @@ class NoonPullFailurePolicyTest {
         ));
         assertEquals(NoonPullFailureType.AUTH_REQUIRED, policy.classify(
                 "provider unavailable: Noon 账号不包含当前项目：PRJ67811"
+        ));
+        assertEquals(NoonPullFailureType.ADS_ADVERTISER_CONTEXT_MISMATCH, policy.classify(
+                "ads advertiser context mismatch: Noon HTTP 400 at /_svc/productads/v2/noon/metrics"
+        ));
+        assertEquals(NoonPullFailureType.ADS_ADVERTISER_CONTEXT_MISMATCH, policy.classify(
+                "You don't have access to run ads in this country"
         ));
         assertEquals(NoonPullFailureType.EMPTY_REPORT, policy.classify("empty report"));
         assertEquals(NoonPullFailureType.EMPTY_REPORT_PENDING_CONFIRMATION, policy.classify("empty report pending confirmation"));
@@ -115,6 +122,21 @@ class NoonPullFailurePolicyTest {
     @Test
     void shouldRequireManualActionWhenReportLifecycleLimitIsExceeded() {
         assertManualNonRetry(policy.decide(NoonPullFailureType.REPORT_LIFECYCLE_EXCEEDED, 19));
+    }
+
+    @Test
+    void shouldPauseAdsPlanWithoutOpeningProjectAuthRecovery() {
+        NoonPullFailureDecision decision = policy.decide(
+                NoonPullFailureType.ADS_ADVERTISER_CONTEXT_MISMATCH,
+                1
+        );
+
+        assertEquals(NoonPullRetryAction.MANUAL_ACTION, decision.getAction());
+        assertFalse(decision.isRetryable());
+        assertTrue(decision.requiresManualAction());
+        assertTrue(decision.shouldPausePlan());
+        assertNull(decision.getNextRetryAt());
+        assertTrue(decision.getSummary().contains("do not open Project auth recovery"));
     }
 
     @Test
