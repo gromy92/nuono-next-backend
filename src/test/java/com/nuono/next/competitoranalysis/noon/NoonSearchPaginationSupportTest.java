@@ -134,6 +134,30 @@ class NoonSearchPaginationSupportTest {
     }
 
     @Test
+    void acceptsDuplicateInsidePageWhenProviderReturnedHundredSlots() {
+        NoonSearchPage first = page(1, 300, 3, 1);
+        first.getResults().remove(1);
+        NoonSearchPage second = page(101, 300, 3, 2);
+
+        NoonSearchPage merged = NoonSearchPaginationSupport.merge(
+                first,
+                second,
+                200
+        );
+
+        assertTrue(merged.isCoverageComplete());
+        assertEquals(199, merged.getResults().size());
+        assertEquals(
+                3,
+                find(merged, "N00000003").getRankPosition()
+        );
+        assertEquals(
+                200,
+                find(merged, "N00000200").getRankPosition()
+        );
+    }
+
+    @Test
     void refusesExcessiveCrossPageOverlap() {
         NoonSearchPage first = page(1, 300, 3, 1);
         NoonSearchPage second = page(51, 300, 3, 2);
@@ -155,6 +179,8 @@ class NoonSearchPaginationSupportTest {
                         second.getResults().subList(0, 99)
                 )
         );
+        second.setProviderResultSlotCount(99);
+        second.setProviderOrganicSlotCount(99);
 
         NoonSearchProviderException error = assertThrows(
                 NoonSearchProviderException.class,
@@ -189,6 +215,9 @@ class NoonSearchPaginationSupportTest {
         page.setProviderHttpStatus(200);
         page.setProviderPage(providerPage);
         page.setProviderLimit(100);
+        page.setProviderResultSlotCount(100);
+        page.setProviderOrganicSlotCount(100);
+        page.setProviderSponsoredSlotCount(0);
         page.setTotalHits(totalHits);
         page.setTotalPages(totalPages);
         page.setResponseHash("hash-" + providerPage);

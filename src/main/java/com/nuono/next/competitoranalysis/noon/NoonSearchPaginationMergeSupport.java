@@ -3,11 +3,10 @@ package com.nuono.next.competitoranalysis.noon;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Locale;
 
 final class NoonSearchPaginationMergeSupport {
-    private static final int MAX_CROSS_PAGE_OVERLAP = 5;
+    private static final int MAX_DUPLICATE_RANK_SLOTS = 5;
 
     private NoonSearchPaginationMergeSupport() {
     }
@@ -37,24 +36,39 @@ final class NoonSearchPaginationMergeSupport {
 
         NoonSearchResultAccumulator accumulator =
                 new NoonSearchResultAccumulator();
-        addScannedSlots(
+        int firstOrganicSlots = channelSlotCount(
+                first,
+                false
+        );
+        int firstSponsoredSlots = channelSlotCount(
+                first,
+                true
+        );
+        addPageSlots(
                 accumulator,
-                first.getResults(),
+                first,
+                0,
+                0,
+                0,
                 expectedFirstPageSlots
         );
-        addScannedSlots(
+        addPageSlots(
                 accumulator,
-                second.getResults(),
+                second,
+                expectedFirstPageSlots,
+                firstOrganicSlots,
+                firstSponsoredSlots,
                 expectedSecondPageSlots
         );
-        int overlapCount = expectedResultCount - accumulator.size();
-        if (overlapCount > MAX_CROSS_PAGE_OVERLAP) {
+        int duplicateSlotCount =
+                expectedResultCount - accumulator.size();
+        if (duplicateSlotCount > MAX_DUPLICATE_RANK_SLOTS) {
             throw coverageFailure(
-                    "Noon 前台搜索两页重叠商品过多：前 "
+                    "Noon 前台搜索重复排名槽位过多：前 "
                             + expectedResultCount
                             + " 个排名位置中有 "
-                            + overlapCount
-                            + " 个跨页重复，不能确认稳定排名。",
+                            + duplicateSlotCount
+                            + " 个重复，不能确认稳定排名。",
                     second.getSourceUrl()
             );
         }
@@ -66,6 +80,13 @@ final class NoonSearchPaginationMergeSupport {
         merged.setProviderPage(second.getProviderPage());
         merged.setProviderLimit(
                 NoonSearchPaginationSupport.PROVIDER_PAGE_LIMIT
+        );
+        merged.setProviderResultSlotCount(expectedResultCount);
+        merged.setProviderOrganicSlotCount(
+                firstOrganicSlots + channelSlotCount(second, false)
+        );
+        merged.setProviderSponsoredSlotCount(
+                firstSponsoredSlots + channelSlotCount(second, true)
         );
         merged.setTotalHits(first.getTotalHits());
         merged.setTotalPages(first.getTotalPages());
@@ -124,17 +145,30 @@ final class NoonSearchPaginationMergeSupport {
         }
     }
 
-    private static void addScannedSlots(
+    private static void addPageSlots(
             NoonSearchResultAccumulator accumulator,
-            List<NoonSearchResult> results,
+            NoonSearchPage page,
+            int positionOffset,
+            int organicRankOffset,
+            int sponsoredRankOffset,
             int slotCount
     ) {
-        if (results == null || slotCount <= 0) {
+        if (page == null || slotCount <= 0) {
             return;
         }
-        int limit = Math.min(slotCount, results.size());
-        for (int index = 0; index < limit; index++) {
-            accumulator.addScannedSlot(results.get(index));
+        for (NoonSearchResult result : page.getResults()) {
+            Integer position = result == null
+                    ? null
+                    : result.getPosition();
+            if (position != null && position > slotCount) {
+                continue;
+            }
+            accumulator.addPreservingRankSlot(
+                    result,
+                    positionOffset,
+                    organicRankOffset,
+                    sponsoredRankOffset
+            );
         }
     }
 
@@ -143,9 +177,7 @@ final class NoonSearchPaginationMergeSupport {
             int expected,
             String pageLabel
     ) {
-        int actual = page == null || page.getResults() == null
-                ? 0
-                : page.getResults().size();
+        int actual = pageSlotCount(page);
         if (actual < expected) {
             throw coverageFailure(
                     "Noon 前台搜索"
@@ -158,6 +190,36 @@ final class NoonSearchPaginationMergeSupport {
                     page == null ? null : page.getSourceUrl()
             );
         }
+    }
+
+    private static int pageSlotCount(NoonSearchPage page) {
+        if (page == null) {
+            return 0;
+        }
+        Integer count = page.getProviderResultSlotCount();
+        return count == null ? page.getResults().size() : count;
+    }
+
+    private static int channelSlotCount(
+            NoonSearchPage page,
+            boolean sponsored
+    ) {
+        if (page == null) {
+            return 0;
+        }
+        Integer count = sponsored
+                ? page.getProviderSponsoredSlotCount()
+                : page.getProviderOrganicSlotCount();
+        if (count != null) {
+            return count;
+        }
+        return page.getResults().stream()
+                .filter(result -> result != null
+                        && result.isSponsored() == sponsored)
+                .map(NoonSearchResult::getRankPosition)
+                .filter(value -> value != null && value > 0)
+                .max(Integer::compareTo)
+                .orElse(0);
     }
 
     private static String joinSourceUrls(

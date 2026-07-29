@@ -26,22 +26,18 @@ public class NoonFrontendSearchPageParser {
     public static final String CATALOG_PARSER_VERSION = "noon-search-catalog-v2";
     public static final String CUSTOMER_CATALOG_V3_PARSER_VERSION = "noon-search-customer-catalog-v3-rank-channel-v2";
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
-
     private final ObjectMapper objectMapper;
     private final NoonVisibleTagSupport visibleTagSupport;
     private final Clock clock;
-
     @Autowired
     public NoonFrontendSearchPageParser(ObjectMapper objectMapper) {
         this(objectMapper, Clock.system(BUSINESS_ZONE));
     }
-
     NoonFrontendSearchPageParser(ObjectMapper objectMapper, Clock clock) {
         this.objectMapper = objectMapper;
         this.visibleTagSupport = new NoonVisibleTagSupport(objectMapper);
         this.clock = (clock == null ? Clock.system(BUSINESS_ZONE) : clock).withZone(BUSINESS_ZONE);
     }
-
     public NoonSearchPage parse(String html, String sourceUrl, int providerHttpStatus) {
         String body = html == null ? "" : html;
         String hash = sha256(body);
@@ -67,7 +63,6 @@ public class NoonFrontendSearchPageParser {
                     hash
             );
         }
-
         NoonSearchPage page = new NoonSearchPage();
         page.setSourceUrl(sourceUrl);
         page.setParserVersion(PARSER_VERSION);
@@ -77,7 +72,6 @@ public class NoonFrontendSearchPageParser {
         page.setResults(results.results());
         return page;
     }
-
     public NoonSearchPage parseCatalogJson(String json, String sourceUrl, int providerHttpStatus) {
         String body = json == null ? "" : json;
         String hash = sha256(body);
@@ -93,13 +87,17 @@ public class NoonFrontendSearchPageParser {
                     hash
             );
         }
-
         NoonSearchResultAccumulator results = new NoonSearchResultAccumulator();
+        int providerResultSlotCount = 0, providerOrganicSlotCount = 0, providerSponsoredSlotCount = 0;
         JsonNode hits = firstArray(root, "hits", "products", "items", "results");
         if (hits != null) {
             for (JsonNode hit : hits) {
                 NoonSearchResult result = toCatalogResult(hit, sourceUrl);
-                results.add(result);
+                if (result == null) continue;
+                providerResultSlotCount++;
+                providerSponsoredSlotCount += result.isSponsored() ? 1 : 0;
+                providerOrganicSlotCount += result.isSponsored() ? 0 : 1;
+                results.addScannedSlot(result);
             }
         }
         collectCatalogSponsoredResults(root, sourceUrl, results, 0, false);
@@ -131,13 +129,15 @@ public class NoonFrontendSearchPageParser {
                     hash
             );
         }
-
         NoonSearchPage page = new NoonSearchPage();
         page.setSourceUrl(sourceUrl);
         page.setParserVersion(catalogParserVersion(sourceUrl));
         page.setProviderHttpStatus(providerHttpStatus);
         page.setProviderPage(providerPage);
         page.setProviderLimit(providerLimit);
+        page.setProviderResultSlotCount(providerResultSlotCount);
+        page.setProviderOrganicSlotCount(providerOrganicSlotCount);
+        page.setProviderSponsoredSlotCount(providerSponsoredSlotCount);
         page.setTotalHits(totalHits);
         page.setTotalPages(totalPages);
         page.setResponseHash(hash);
