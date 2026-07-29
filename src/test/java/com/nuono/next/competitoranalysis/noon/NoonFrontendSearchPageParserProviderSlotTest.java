@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 class NoonFrontendSearchPageParserProviderSlotTest {
 
     @Test
-    void countsProviderSlotsBeforeDeduplicationAndPreservesRankGap() {
+    void countsRawProviderSlotsAndPreservesUnparseableAndDuplicateGaps() {
         NoonFrontendSearchPageParser parser =
                 new NoonFrontendSearchPageParser(new ObjectMapper());
         String json = String.join(
@@ -21,6 +21,7 @@ class NoonFrontendSearchPageParserProviderSlotTest {
                 "  \"hits\": [",
                 "    {\"sku\": \"N11111111A\", \"name\": \"First\"},",
                 "    {\"sku\": \"N11111111A\", \"name\": \"Duplicate\"},",
+                "    {\"name\": \"Missing product code\"},",
                 "    {\"sku\": \"N22222222A\", \"name\": \"Third\"}",
                 "  ]",
                 "}"
@@ -32,8 +33,8 @@ class NoonFrontendSearchPageParserProviderSlotTest {
                 200
         );
 
-        assertEquals(3, page.getProviderResultSlotCount());
-        assertEquals(3, page.getProviderOrganicSlotCount());
+        assertEquals(4, page.getProviderResultSlotCount());
+        assertEquals(4, page.getProviderOrganicSlotCount());
         assertEquals(0, page.getProviderSponsoredSlotCount());
         assertEquals(2, page.getResults().size());
         assertEquals(
@@ -41,7 +42,7 @@ class NoonFrontendSearchPageParserProviderSlotTest {
                 page.getResults().get(0).getRankPosition()
         );
         assertEquals(
-                3,
+                4,
                 page.getResults().get(1).getRankPosition()
         );
     }
