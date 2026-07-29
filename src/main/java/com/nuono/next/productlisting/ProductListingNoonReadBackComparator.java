@@ -88,9 +88,7 @@ final class ProductListingNoonReadBackComparator {
                     fields, "sale_end", values.expectedSaleEnd(draft),
                     values.text(pricing, "sale_end"));
         }
-        if (draft.getIdWarranty() != null
-                && draft.getIdWarranty().intValue()
-                != pricing.path("id_warranty").asInt(Integer.MIN_VALUE)) {
+        if (!warrantyMatches(draft.getIdWarranty(), pricing)) {
             fields.add("id_warranty");
         }
         if (properties.isOfferUpsertEnabled()
@@ -106,5 +104,16 @@ final class ProductListingNoonReadBackComparator {
             }
         }
         return fields;
+    }
+
+    private boolean warrantyMatches(Integer expected, JsonNode pricing) {
+        if (expected == null) {
+            return true;
+        }
+        JsonNode actual = pricing.path("id_warranty");
+        if (expected == 0 && (actual.isMissingNode() || actual.isNull())) {
+            return true;
+        }
+        return expected == actual.asInt(Integer.MIN_VALUE);
     }
 }
