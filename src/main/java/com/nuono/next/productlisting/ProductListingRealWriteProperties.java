@@ -65,13 +65,13 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_CREATE_PRODUCT_URL =
                 "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/create";
         public static final String DEFAULT_SKU_CACHE_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
+                "https://catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
         public static final String DEFAULT_UPSERT_ZSKU_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
+                "https://catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
         public static final String DEFAULT_RETRIEVE_ZSKU_URL =
                 NoonCatalogApiRoutes.ZSKU_RETRIEVE;
         public static final String DEFAULT_UPLOAD_IMAGE_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
         public static final String DEFAULT_PRODUCT_FULLTYPE_SUGGEST_URL =
                 "https://noon-catalog.noon.partners/_svc/partners-catalogmd-v2/api/product-fulltypes/suggest-taxonomy/";
         public static final String DEFAULT_PRODUCT_FULLTYPE_TAXONOMY_URL =
@@ -87,7 +87,7 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_UPSERT_IS_ACTIVE_URL =
                 "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-offermgmt/offer/upsert/is_active";
         public static final String DEFAULT_UPSERT_BARCODE_URL =
-                "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert";
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert";
         public static final String DEFAULT_OFFER_LIST_URL =
                 NoonCatalogApiRoutes.OFFER_LIST_NOON;
         public static final String DEFAULT_PRICING_INFORMATION_URL =

@@ -34,6 +34,26 @@ class RealProductListingNoonWriteRequestTest extends RealProductListingNoonWrite
     }
 
     @Test
+    void continuationServiceWriteEndpointsUseAuthenticatedCatalogHost() {
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_SKU_CACHE_URL
+        );
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_ZSKU_URL
+        );
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_UPLOAD_IMAGE_URL
+        );
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/pbarcode/upsert",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_UPSERT_BARCODE_URL
+        );
+    }
+
+    @Test
     void realAdapterBuildsExpectedNoonWriteRequests() {
         FakeBindingResolver bindingResolver = new FakeBindingResolver();
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
