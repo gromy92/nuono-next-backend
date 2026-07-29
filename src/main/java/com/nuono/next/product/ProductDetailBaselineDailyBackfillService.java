@@ -25,6 +25,7 @@ public class ProductDetailBaselineDailyBackfillService {
     private static final Logger log = LoggerFactory.getLogger(ProductDetailBaselineDailyBackfillService.class);
     private static final String REASON = "daily-maintenance-audit";
     private static final String STALE_RECOVERY_MESSAGE = "每日详情基线巡检回收超时任务，允许后续重试。";
+    private static final int DEFAULT_MAX_ITEMS_PER_STORE_SITE = 10;
 
     private final ProductDetailBaselineCandidateMapper candidateMapper;
     private final ProductDetailBaselineBackfillService backfillService;
@@ -33,6 +34,7 @@ public class ProductDetailBaselineDailyBackfillService {
     private final BatchSubmitter batchSubmitter;
     private final boolean enabled;
     private final int staleAfterMinutes;
+    private final int maxItemsPerStoreSite;
     private final Clock clock;
 
     @Autowired
@@ -44,7 +46,9 @@ public class ProductDetailBaselineDailyBackfillService {
             NoonAccountTaskQueue noonAccountTaskQueue,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.enabled:false}") boolean enabled,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.stale-after-minutes:360}")
-            int staleAfterMinutes
+            int staleAfterMinutes,
+            @Value("${nuono.product-management.detail-baseline-daily-backfill.max-items-per-store-site:10}")
+            int maxItemsPerStoreSite
     ) {
         this(
                 candidateMapper,
@@ -54,6 +58,7 @@ public class ProductDetailBaselineDailyBackfillService {
                 noonAccountTaskQueue == null ? null : noonAccountTaskQueue::submit,
                 enabled,
                 staleAfterMinutes,
+                maxItemsPerStoreSite,
                 Clock.systemUTC()
         );
     }
@@ -75,6 +80,7 @@ public class ProductDetailBaselineDailyBackfillService {
                 (accountKey, task) -> task.run(),
                 enabled,
                 staleAfterMinutes,
+                DEFAULT_MAX_ITEMS_PER_STORE_SITE,
                 clock
         );
     }
@@ -87,6 +93,7 @@ public class ProductDetailBaselineDailyBackfillService {
             BatchSubmitter batchSubmitter,
             boolean enabled,
             int staleAfterMinutes,
+            int maxItemsPerStoreSite,
             Clock clock
     ) {
         this.candidateMapper = candidateMapper;
@@ -96,6 +103,7 @@ public class ProductDetailBaselineDailyBackfillService {
         this.batchSubmitter = batchSubmitter == null ? (accountKey, task) -> task.run() : batchSubmitter;
         this.enabled = enabled;
         this.staleAfterMinutes = Math.max(1, staleAfterMinutes);
+        this.maxItemsPerStoreSite = Math.max(1, maxItemsPerStoreSite);
         this.clock = clock == null ? Clock.systemUTC() : clock;
     }
 
@@ -121,6 +129,9 @@ public class ProductDetailBaselineDailyBackfillService {
                 continue;
             }
             commands.add(toFetchCommand(ownerUserId, storeCode, candidate));
+            if (commands.size() >= maxItemsPerStoreSite) {
+                break;
+            }
         }
         if (!commands.isEmpty()) {
             batchSubmitter.submit(
