@@ -32,7 +32,6 @@ public class OperationalTaskService {
     public OperationalTask start(String taskType, String naturalKey, OperationalTaskPayload payload) {
         return create(taskType, naturalKey, payload, OperationalTaskStatus.RUNNING);
     }
-
     public OperationalTask queue(String taskType, String naturalKey, OperationalTaskPayload payload) {
         return create(taskType, naturalKey, payload, OperationalTaskStatus.QUEUED);
     }
@@ -77,7 +76,6 @@ public class OperationalTaskService {
         }
         return task.copy();
     }
-
     public boolean claimQueued(Long taskId, String message) {
         if (taskId == null) {
             throw new IllegalArgumentException("taskId is required");
@@ -126,6 +124,16 @@ public class OperationalTaskService {
         );
     }
 
+    public boolean requeueRunning(Long taskId, String payloadJson, Integer progressPercent,
+                                  String errorCode, String message) {
+        if (taskId == null) {
+            throw new IllegalArgumentException("taskId is required");
+        }
+        return repository.requeueRunning(
+                taskId, normalize(payloadJson), clampProgress(progressPercent),
+                normalize(errorCode), normalize(message), now()
+        );
+    }
     public boolean failStaleRunning(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
         if (taskId == null || staleBefore == null) {
             throw new IllegalArgumentException("taskId and staleBefore are required");
@@ -138,7 +146,6 @@ public class OperationalTaskService {
                 now()
         );
     }
-
     public boolean failStaleQueued(Long taskId, LocalDateTime staleBefore, String errorCode, String message) {
         if (taskId == null || staleBefore == null) {
             throw new IllegalArgumentException("taskId and staleBefore are required");
@@ -151,7 +158,6 @@ public class OperationalTaskService {
                 now()
         );
     }
-
     public Optional<OperationalTask> findActive(String taskType, String naturalKey) {
         OperationalTask task = repository.selectActiveByNaturalKey(
                 requireText(taskType, "taskType"),
@@ -159,7 +165,6 @@ public class OperationalTaskService {
         );
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
-
     public Optional<OperationalTask> findLatest(String taskType, String naturalKey) {
         OperationalTask task = repository.selectLatestByNaturalKey(
                 requireText(taskType, "taskType"),
@@ -167,7 +172,6 @@ public class OperationalTaskService {
         );
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
-
     public Optional<OperationalTask> findLatestByBatchKey(
             String taskType,
             String naturalKey,
@@ -180,13 +184,11 @@ public class OperationalTaskService {
         );
         return task == null ? Optional.empty() : Optional.of(task.copy());
     }
-
     public List<OperationalTask> listRecent(String taskType, int limit) {
         return repository.listRecent(normalize(taskType), Math.max(1, Math.min(limit, 200))).stream()
                 .map(OperationalTask::copy)
                 .collect(Collectors.toList());
     }
-
     public List<OperationalTask> listActive(String taskType, int limit) {
         return repository.listActiveByTaskType(
                         requireText(taskType, "taskType"),
@@ -195,7 +197,6 @@ public class OperationalTaskService {
                 .map(OperationalTask::copy)
                 .collect(Collectors.toList());
     }
-
     public List<OperationalTask> listActiveAfter(String taskType, Long afterTaskId, int limit) {
         return repository.listActiveByTaskTypeAfterId(
                         requireText(taskType, "taskType"),
@@ -205,7 +206,6 @@ public class OperationalTaskService {
                 .map(OperationalTask::copy)
                 .collect(Collectors.toList());
     }
-
     public OperationalTask progress(Long taskId, Integer progressPercent, String message) {
         OperationalTask task = requireMutableTask(taskId);
         task.setStatus(OperationalTaskStatus.RUNNING);

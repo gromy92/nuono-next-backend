@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.noonpull.NoonRiskBackoffHold;
 import com.nuono.next.system.task.OperationalTaskService;
 import java.util.function.Supplier;
 import org.springframework.stereotype.Service;
@@ -8,6 +9,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class CompetitorRefreshExecutionFinalizer {
+    private static final String CLAIM_CONFLICT =
+            "COMPETITOR_SEARCH_RUN_CLAIM_CONFLICT";
+    private static final String CLAIM_CONFLICT_MESSAGE =
+            "刷新执行记录状态冲突，任务未执行。";
+
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorRefreshLeaseGuard leaseGuard;
@@ -34,6 +40,26 @@ class CompetitorRefreshExecutionFinalizer {
     }
 
     @Transactional
+    public boolean claimQueued(
+            Long taskId,
+            Long runId,
+            String runningMessage
+    ) {
+        if (!operationalTaskService.claimQueued(taskId, runningMessage)) {
+            return false;
+        }
+        if (mapper.markSearchRunRunning(runId) == 1) {
+            return true;
+        }
+        operationalTaskService.fail(
+                taskId,
+                CLAIM_CONFLICT,
+                CLAIM_CONFLICT_MESSAGE
+        );
+        return false;
+    }
+
+    @Transactional
     public void progress(
             Long taskId,
             Long runId,
@@ -54,6 +80,75 @@ class CompetitorRefreshExecutionFinalizer {
     ) {
         leaseGuard.acquire(taskId, runId, watchProductId);
         return action.get();
+    }
+
+    @Transactional
+    public void checkpointDetailRetry(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            String payloadJson
+    ) {
+        leaseGuard.acquire(taskId, runId, watchProductId);
+        if (!operationalTaskService.checkpointRunning(
+                taskId, payloadJson, 5, "竞品详情重试状态已保存。"
+        )) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+    }
+
+    @Transactional
+    public NoonRiskBackoffHold checkpointDetailRiskFailure(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            String payloadJson,
+            Supplier<NoonRiskBackoffHold> persistRiskHold
+    ) {
+        leaseGuard.acquire(taskId, runId, watchProductId);
+        NoonRiskBackoffHold hold = persistRiskHold.get();
+        if (hold == null) {
+            throw new IllegalStateException(
+                    "Competitor detail risk hold was not persisted."
+            );
+        }
+        if (!operationalTaskService.checkpointRunning(
+                taskId, payloadJson, 5, "竞品详情风控与重试状态已保存。"
+        )) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        return hold;
+    }
+
+    @Transactional
+    public void requeueDetailRetry(
+            Long taskId,
+            Long runId,
+            Long watchProductId,
+            String payloadJson,
+            String errorCode,
+            String errorMessage
+    ) {
+        leaseGuard.acquire(taskId, runId, watchProductId);
+        if (!operationalTaskService.requeueRunning(
+                taskId,
+                payloadJson,
+                5,
+                errorCode,
+                errorMessage
+        )) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        int affectedRows = mapper.requeueSearchRun(
+                taskId,
+                runId,
+                watchProductId,
+                errorCode,
+                errorMessage
+        );
+        if (affectedRows != 1) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
     }
 
     @Transactional

@@ -105,18 +105,20 @@ class CompetitorAnalysisMonitoringSchedulerTest {
     }
 
     @Test
-    void disabledAutomaticCyclesStillRecoverDurableManualTasks() {
+    void disabledStartupAndPeriodicRecoveryDoNotResumeQueuedOrStaleTasks() {
         ReflectionTestUtils.setField(scheduler, "enabled", false);
-        when(refreshService.resumeQueuedRefreshTasks()).thenReturn(2);
 
-        assertEquals(2, scheduler.runStartupRecoveryOnce());
+        assertDoesNotThrow(scheduler::resumeQueuedRefreshTasksAfterStartup);
+        scheduler.runScheduledTaskRecovery();
+        assertEquals(0, scheduler.runStartupRecoveryOnce());
+        assertEquals(0, scheduler.runTaskRecoveryOnce());
 
-        verify(refreshService).resumeQueuedRefreshTasks();
-        verify(refreshService).recoverStaleRefreshTasks();
+        verifyNoInteractions(refreshService);
     }
 
     @Test
     void startupRecoveryFailureDoesNotAbortApplicationReadiness() {
+        ReflectionTestUtils.setField(scheduler, "enabled", true);
         when(refreshService.resumeQueuedRefreshTasks())
                 .thenThrow(new IllegalStateException("database unavailable"));
 

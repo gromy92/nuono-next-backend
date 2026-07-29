@@ -25,7 +25,6 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
                 "\"failedDetailTargets\":[]",
                 "\"retryAttempt\":0",
                 "\"maxRetryAttempts\":4",
-                "\"rootRunId\":220001",
                 "\"retryOfRunId\":220000",
                 "\"lastErrorCode\":null",
                 "\"message\":\"retry\""
@@ -38,6 +37,37 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
             assertFalse(
                     CompetitorRefreshRecoveryPayload.isReady(task, NOW),
                     field
+            );
+        }
+    }
+
+    @Test
+    void validRootOnlyIsReadyOwnershipMetadata() {
+        OperationalTask task = task("{\"rootRunId\":220001}");
+
+        assertTrue(CompetitorRefreshRecoveryPayload.isReady(task, NOW));
+        assertFalse(CompetitorDetailRetryPayload.fromJson(
+                task.getPayloadJson()
+        ).isInitialized());
+        assertThrows(
+                CompetitorDetailRetryPayloadException.class,
+                () -> CompetitorDetailRetryPayload.fromJson(
+                        "{\"rootRunId\":220001,\"retryAttempt\":1}"
+                )
+        );
+        for (String invalidRoot : List.of("null", "0", "\"corrupt\"")) {
+            String invalidPayload = "{\"rootRunId\":" + invalidRoot + "}";
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorDetailRetryPayload.fromJson(invalidPayload),
+                    invalidRoot
+            );
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorRefreshRecoveryPayload.isReady(
+                            task(invalidPayload), NOW
+                    ),
+                    invalidRoot
             );
         }
     }
@@ -64,9 +94,12 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
                 "{}",
                 "[]"
         )) {
-            assertFalse(CompetitorRefreshRecoveryPayload.isReady(
-                    task("{\"retryNotBefore\":" + invalid + "}"), NOW
-            ));
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorRefreshRecoveryPayload.isReady(
+                            task("{\"retryNotBefore\":" + invalid + "}"), NOW
+                    )
+            );
         }
     }
 
@@ -74,7 +107,10 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
     void malformedOrNonObjectPayloadNeverBecomesAnEmptyFullRefresh() {
         for (String invalid : List.of("{", "[]", "\"text\"", "1", "null", "{} []")) {
             OperationalTask staleTask = task(invalid);
-            assertFalse(CompetitorRefreshRecoveryPayload.isReady(staleTask, NOW));
+            assertThrows(
+                    CompetitorDetailRetryPayloadException.class,
+                    () -> CompetitorRefreshRecoveryPayload.isReady(staleTask, NOW)
+            );
             assertThrows(
                     CompetitorRefreshRecoveryPayloadException.class,
                     () -> CompetitorRefreshRecoveryPayload.replacement(
@@ -82,6 +118,7 @@ class CompetitorRefreshRecoveryPayloadFailClosedTest {
                             180001L,
                             3,
                             CompetitorRefreshExecutionMode.SCHEDULED_RANK,
+                            null,
                             null
                     )
             );

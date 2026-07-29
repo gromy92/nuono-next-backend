@@ -17,36 +17,37 @@ import org.springframework.util.StringUtils;
 @Service
 class CompetitorRefreshTaskFactory {
     private static final String TASK_MESSAGE = "竞品刷新正在后台执行。";
+    private static final String INVALID_RETRY_PAYLOAD = "INVALID_DETAIL_RETRY_PAYLOAD";
 
     private final CompetitorAnalysisMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final CompetitorStaleTaskReconciler staleTaskReconciler;
     private final CompetitorRefreshExecutionFinalizer executionFinalizer;
-
-    CompetitorRefreshTaskFactory(
-            CompetitorAnalysisMapper mapper,
-            OperationalTaskService operationalTaskService
-    ) {
-        this(
-                mapper,
-                operationalTaskService,
-                CompetitorRefreshExecutionFinalizer.unfenced(
-                        mapper, operationalTaskService
-                )
-        );
+    private final CompetitorDetailBatchTakeover detailBatchTakeover;
+    CompetitorRefreshTaskFactory(CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService) {
+        this(mapper, operationalTaskService,
+                CompetitorRefreshExecutionFinalizer.unfenced(mapper, operationalTaskService));
     }
-
+    CompetitorRefreshTaskFactory(CompetitorAnalysisMapper mapper,
+            OperationalTaskService operationalTaskService,
+            CompetitorRefreshExecutionFinalizer executionFinalizer) {
+        this(mapper, operationalTaskService, executionFinalizer,
+                new CompetitorDetailBatchTakeover(mapper, operationalTaskService, executionFinalizer));
+    }
     @Autowired
     CompetitorRefreshTaskFactory(
             CompetitorAnalysisMapper mapper,
             OperationalTaskService operationalTaskService,
-            CompetitorRefreshExecutionFinalizer executionFinalizer
+            CompetitorRefreshExecutionFinalizer executionFinalizer,
+            CompetitorDetailBatchTakeover detailBatchTakeover
     ) {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
-        this.staleTaskReconciler =
-                new CompetitorStaleTaskReconciler(mapper, operationalTaskService);
+        this.staleTaskReconciler = new CompetitorStaleTaskReconciler(
+                mapper, operationalTaskService);
         this.executionFinalizer = executionFinalizer;
+        this.detailBatchTakeover = detailBatchTakeover;
     }
 
     @Transactional
@@ -132,8 +133,14 @@ class CompetitorRefreshTaskFactory {
         CompetitorRefreshRecoveryIdentity.validate(
                 staleTask, staleRun, watchProduct, mode
         );
+        if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
+                && detailBatchTakeover.supersedeStaleIfNewerBatchExists(
+                        staleTask, staleRun, watchProduct.getId()
+                )) {
+            return reconciledTerminal(staleTask);
+        }
         String replacementPayload = CompetitorRefreshRecoveryPayload.replacement(
-                staleTask, watchProduct.getId(), keywordTotal, mode, batchKey
+                staleTask, watchProduct.getId(), keywordTotal, mode, batchKey, staleRun.getId()
         );
         CompetitorStaleTaskReconciler.Outcome claim = staleTaskReconciler.claim(
                 staleTask,
@@ -212,6 +219,45 @@ class CompetitorRefreshTaskFactory {
         });
     }
 
+    public boolean requeueDetailRetry(
+            Long taskId,
+            Long runId,
+            String payloadJson,
+            String errorCode,
+            String message
+    ) {
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
+        if (run == null
+                || !Objects.equals(runId, run.getId())
+                || run.getWatchProductId() == null) {
+            throw new CompetitorRefreshLeaseLostException(taskId, runId);
+        }
+        executionFinalizer.requeueDetailRetry(
+                taskId,
+                runId,
+                run.getWatchProductId(),
+                payloadJson,
+                errorCode,
+                message
+        );
+        return true;
+    }
+
+    public boolean failInvalidDetailRetryPayload(Long taskId) {
+        String message = "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。";
+        CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
+        if (run == null) {
+            return false;
+        }
+        return executionFinalizer.failQueued(
+                taskId,
+                run.getId(),
+                run.getWatchProductId(),
+                INVALID_RETRY_PAYLOAD,
+                message
+        );
+    }
+
     private CompetitorQueuedRefresh existing(
             OperationalTask task,
             CompetitorSearchRunRow run,
@@ -248,5 +294,7 @@ class CompetitorRefreshTaskFactory {
     CompetitorRefreshExecutionFinalizer executionFinalizer() {
         return executionFinalizer;
     }
+
+    CompetitorDetailBatchTakeover detailBatchTakeover() { return detailBatchTakeover; }
 
 }

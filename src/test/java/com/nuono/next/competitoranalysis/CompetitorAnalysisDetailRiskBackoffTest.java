@@ -54,8 +54,21 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         org.mockito.Mockito.lenient().when(mapper.selectSearchRunByTaskId(
                 org.mockito.ArgumentMatchers.anyLong()
         )).thenAnswer(invocation -> persistedRuns.get(invocation.getArgument(0)));
+        org.mockito.Mockito.lenient().when(mapper.selectSearchRunById(
+                org.mockito.ArgumentMatchers.anyLong()
+        )).thenAnswer(invocation -> persistedRuns.values().stream()
+                .filter(run -> invocation.getArgument(0).equals(run.getId()))
+                .findFirst()
+                .orElse(null));
         org.mockito.Mockito.lenient().when(mapper.markSearchRunRunning(
                 org.mockito.ArgumentMatchers.anyLong()
+        )).thenReturn(1);
+        org.mockito.Mockito.lenient().when(mapper.requeueSearchRun(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                any(),
+                any()
         )).thenReturn(1);
         CompetitorAnalysisRefreshService service = new CompetitorAnalysisRefreshService(
                 mapper,
@@ -69,6 +82,7 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         );
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductDetailRefreshResult detailResult = detailFailureWithLaterRisk();
+        List<CompetitorProductDetailTarget> targets = detailResult.getFailedTargets();
         CompetitorMonitoringBoundaryRow boundary = new CompetitorMonitoringBoundaryRow();
         boundary.setEligibleTotal(1L);
         boundary.setUpperWatchProductId(180123L);
@@ -85,12 +99,21 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         )).thenReturn(List.of(watchProduct), List.of());
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L)).thenReturn(watchProduct);
-        when(detailService.refreshConfirmedCompetitors(
+        when(detailService.currentTargets(watchProduct)).thenReturn(targets);
+        when(detailService.refreshTargets(
                 eq(watchProduct),
+                eq(targets),
                 eq(220123L),
                 eq(150001L),
-                isNull()
-        )).thenReturn(detailResult);
+                isNull(),
+                any(CompetitorDetailRetrySession.class),
+                any(Runnable.class)
+        )).thenAnswer(invocation -> {
+            invocation.<Runnable>getArgument(6).run();
+            return CompetitorDetailRetryMockSupport
+                    .checkpointing(taskRepository, detailResult)
+                    .answer(invocation);
+        });
 
         CompetitorTaskView batch =
                 service.requestScheduledDetailMonitoring(501L, "STR108065-NSA", "SA");
@@ -98,21 +121,16 @@ class CompetitorAnalysisDetailRiskBackoffTest {
         submittedTasks.get(1).run();
 
         OperationalTask productTask = taskRepository.selectById(batch.getTaskId() + 1);
-        assertTrue(productTask.getStatus() == OperationalTaskStatus.FAILED);
-        assertTrue("COMPETITOR_RISK_BACKOFF".equals(productTask.getErrorCode()));
-        assertTrue(productTask.getMessage().contains("rate_limited"));
-        verify(mapper).completeRunningRefreshRun(
+        assertTrue(productTask.getStatus() == OperationalTaskStatus.QUEUED);
+        assertTrue("RATE_LIMITED".equals(productTask.getErrorCode()));
+        assertTrue(productTask.getMessage().contains("共享风控冷却"));
+        assertTrue(productTask.getPayloadJson().contains("\"retryAttempt\":1"));
+        verify(mapper).requeueSearchRun(
                 eq(productTask.getId()),
                 eq(220123L),
                 eq(180123L),
-                eq("FAILED"),
-                eq(0),
-                eq(0),
-                eq(0),
-                eq(0),
                 eq("RATE_LIMITED"),
-                contains("429"),
-                isNull()
+                contains("共享风控冷却")
         );
         ArgumentCaptor<NoonRiskBackoffHold> holds = ArgumentCaptor.forClass(NoonRiskBackoffHold.class);
         verify(riskRepository, times(2)).upsert(holds.capture());
@@ -124,10 +142,22 @@ class CompetitorAnalysisDetailRiskBackoffTest {
 
     private static CompetitorProductDetailRefreshResult detailFailureWithLaterRisk() {
         CompetitorProductDetailRefreshResult result = CompetitorProductDetailRefreshResult.empty();
-        result.recordAttempt();
-        result.recordFailure("DETAIL_REFRESH_FAILED", "Noon detail parse failed");
-        result.recordAttempt();
-        result.recordFailure("RATE_LIMITED", "Noon 前台商品详情返回 HTTP 429。");
+        CompetitorProductDetailTarget ordinary =
+                CompetitorProductDetailTarget.self("ZSELF001");
+        CompetitorProductDetailTarget risk =
+                CompetitorProductDetailTarget.competitor(88002L, "ZRISK001", null);
+        result.recordAttempt(ordinary);
+        result.recordFailure(
+                ordinary,
+                "DETAIL_REFRESH_FAILED",
+                "Noon detail parse failed"
+        );
+        result.recordAttempt(risk);
+        result.recordFailure(
+                risk,
+                "RATE_LIMITED",
+                "Noon 前台商品详情返回 HTTP 429。"
+        );
         return result;
     }
 
