@@ -793,7 +793,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest
 
             assertTrue(result.isIdentityAuthenticated());
             assertEquals(targets.size(), result.getProjectResults().size());
-            assertTrue(result.getProjectResults().stream().allMatch(NoonAuthRecoveryProjectResult::isRecovered));
+            assertTrue(result.getProjectResults().stream().allMatch(project -> project.isRecovered() && "merchant@example.com".equals(project.getUserCode())));
             assertEquals(1, server.generateCount());
             assertEquals(1, server.validateCount());
             assertEquals(targets.size(), server.sessionCreateCount());

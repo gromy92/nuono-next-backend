@@ -91,4 +91,34 @@ class ProductListingReauthenticationAttemptMapperSqlTest {
                         + "attempt.requested_auth_version + 1"
         ));
     }
+
+    @Test
+    void terminalAttemptRebindCasAllowsOnlyFailedOrCompletedBindings()
+            throws Exception {
+        Method method = ProductListingReauthenticationAttemptMapper.class
+                .getMethod(
+                        "rebindTerminalAttemptCas",
+                        ProductListingReauthenticationAttemptRecord.class,
+                        Long.class,
+                        Long.class,
+                        Long.class
+                );
+        String sql = String.join(
+                " ",
+                method.getAnnotation(Update.class).value()
+        );
+
+        assertTrue(sql.contains(
+                "status IN ('FAILED', 'COMPLETED')"
+        ));
+        assertTrue(sql.contains(
+                "recovery_id = #{expectedRecoveryId}"
+        ));
+        assertTrue(sql.contains(
+                "recovery_item_id = #{expectedRecoveryItemId}"
+        ));
+        assertTrue(sql.contains(
+                "version_no = #{expectedVersionNo}"
+        ));
+    }
 }

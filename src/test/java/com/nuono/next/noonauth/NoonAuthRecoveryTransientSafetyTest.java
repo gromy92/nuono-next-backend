@@ -53,7 +53,8 @@ class NoonAuthRecoveryTransientSafetyTest
                     "mapped-project-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=recovered-308"
+                            "sid=recovered-308",
+                            "user-PRJ308"
                     ))
             );
         });
@@ -108,7 +109,8 @@ class NoonAuthRecoveryTransientSafetyTest
                             ),
                             NoonAuthRecoveryProjectResult.recovered(
                                     command.getProjectTargets().get(1),
-                                    "sid=recovered-308"
+                                    "sid=recovered-308",
+                                    "user-PRJ308"
                             )
                     )
             );
@@ -119,7 +121,7 @@ class NoonAuthRecoveryTransientSafetyTest
         InOrder order = inOrder(repository, transientBackoffRepository);
         order.verify(repository).persistRecoveredProjectCookieCas(
                 eq(308L), eq("PRJ308"), eq(18L), eq(4L), any(), anyLong(), anyString(),
-                eq("sid=recovered-308"), eq(308L), any()
+                eq("sid=recovered-308"), eq("user-PRJ308"), eq(308L), any()
         );
         order.verify(transientBackoffRepository).resetForRecovery(
                 eq(7002L), eq(18L), any(NoonAuthTransientBackoffWriteFence.class), any()

@@ -138,7 +138,8 @@ class NoonAuthRecoveryBackoffSchedulingTest
                     "unblocked-store-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=recovered-308"
+                            "sid=recovered-308",
+                            "user-PRJ308"
                     ))
             );
         });

@@ -106,7 +106,8 @@ class NoonAuthRecoveryBackoffLifecycleTest
                     "second-success-message",
                     List.of(NoonAuthRecoveryProjectResult.recovered(
                             command.getProjectTargets().get(0),
-                            "sid=recovered"
+                            "sid=recovered",
+                            "user-recovered"
                     ))
             );
         });

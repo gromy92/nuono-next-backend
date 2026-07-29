@@ -402,7 +402,7 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
                     target.getStoreCode()
             );
             command.heartbeatOrThrow();
-            return NoonAuthRecoveryProjectResult.recovered(target, projectSession.getCookie());
+            return NoonAuthRecoveryProjectResult.recovered(target, projectSession.getCookie(), grant.getUserCode());
         } catch (LeaseLostException exception) {
             throw exception;
         } catch (RuntimeException exception) {

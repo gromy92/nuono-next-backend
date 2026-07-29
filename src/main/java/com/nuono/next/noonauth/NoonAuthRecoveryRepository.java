@@ -182,6 +182,7 @@ public interface NoonAuthRecoveryRepository {
             Long expectedRecoveryVersion,
             String expectedLeaseToken,
             String cookie,
+            String userCode,
             Long updatedBy,
             LocalDateTime now
     );

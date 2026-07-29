@@ -77,7 +77,7 @@ abstract class AbstractNoonAuthRecoveryWorkerTestSupport {
         )).thenReturn(true);
         when(repository.persistRecoveredProjectCookieCas(
                 anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(),
-                anyString(), anyLong(), any()
+                anyString(), anyString(), anyLong(), any()
         )).thenReturn(true);
         when(repository.markProjectRecovering(
                 anyLong(), anyString(), anyLong(), anyLong(), any(), anyLong(), anyString(), any()

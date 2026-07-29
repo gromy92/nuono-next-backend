@@ -71,9 +71,9 @@ public interface ProductListingReauthenticationAttemptMapper {
             "  AND recovery_id = #{expectedRecoveryId}",
             "  AND recovery_item_id = #{expectedRecoveryItemId}",
             "  AND version_no = #{expectedVersionNo}",
-            "  AND status = 'FAILED'"
+            "  AND status IN ('FAILED', 'COMPLETED')"
     })
-    int rebindFailedAttemptCas(
+    int rebindTerminalAttemptCas(
             @Param("replacement")
             ProductListingReauthenticationAttemptRecord replacement,
             @Param("expectedRecoveryId") Long expectedRecoveryId,

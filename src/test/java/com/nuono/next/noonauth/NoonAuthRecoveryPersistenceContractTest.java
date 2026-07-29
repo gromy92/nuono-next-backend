@@ -158,7 +158,7 @@ class NoonAuthRecoveryPersistenceContractTest {
                 .contains("recovery.version_no = #{expectedRecoveryVersion}")
                 .contains("recovery.lease_token = #{expectedLeaseToken}")
                 .contains("recovery.lease_until > #{now}")
-                .contains("up.noon_partner_cookie = #{cookie}")
+                .contains("up.noon_partner_cookie = #{cookie}", "up.noon_partner_user_code = #{userCode}")
                 .contains("AND up.is_deleted = 0")
                 .contains("AND up.bind_status = 1")
                 .contains("AND up.is_authorized = 1");
