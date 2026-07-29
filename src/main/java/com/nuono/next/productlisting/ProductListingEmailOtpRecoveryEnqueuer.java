@@ -76,9 +76,6 @@ public class ProductListingEmailOtpRecoveryEnqueuer {
         if (locked != null && oneOf(locked.getStatus(), "PENDING", "VERIFYING")) {
             return;
         }
-        if (locked != null && "COMPLETED".equals(locked.getStatus())) {
-            throw conflict("该上架任务的授权恢复已经完成，请刷新流程。");
-        }
         requireQueueConfiguration(project.getProjectCode());
         try {
             Long recoveryId = recoveryQueue.enqueueProject(
@@ -118,8 +115,10 @@ public class ProductListingEmailOtpRecoveryEnqueuer {
                 }
                 return;
             }
-            if (!"FAILED".equals(locked.getStatus())
-                    || attemptMapper.rebindFailedAttemptCas(
+            if (!oneOf(locked.getStatus(), "FAILED", "COMPLETED")
+                    || ("COMPLETED".equals(locked.getStatus())
+                    && !strictlyNewerBinding(locked, replacement))
+                    || attemptMapper.rebindTerminalAttemptCas(
                             replacement,
                             locked.getRecoveryId(),
                             locked.getRecoveryItemId(),
@@ -136,6 +135,19 @@ public class ProductListingEmailOtpRecoveryEnqueuer {
                     exception
             );
         }
+    }
+
+    private boolean strictlyNewerBinding(
+            ProductListingReauthenticationAttemptRecord previous,
+            ProductListingReauthenticationAttemptRecord replacement
+    ) {
+        return previous.getRecoveryId() != null
+                && replacement.getRecoveryId() != null
+                && !previous.getRecoveryId().equals(replacement.getRecoveryId())
+                && previous.getRequestedAuthVersion() != null
+                && replacement.getRequestedAuthVersion() != null
+                && replacement.getRequestedAuthVersion()
+                > previous.getRequestedAuthVersion();
     }
 
     private void requireQueueConfiguration(String projectCode) {
