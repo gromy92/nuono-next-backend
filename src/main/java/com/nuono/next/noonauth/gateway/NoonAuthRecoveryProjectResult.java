@@ -14,6 +14,7 @@ public final class NoonAuthRecoveryProjectResult {
     private final NoonAuthRecoveryProjectTarget target;
     private final Code code;
     private final String cookie;
+    private final String userCode;
     private final String safeDiagnostic;
     private final NoonAuthRecoveryFailureStage failureStage;
     private final NoonTransientErrorType transientErrorType;
@@ -22,6 +23,7 @@ public final class NoonAuthRecoveryProjectResult {
             NoonAuthRecoveryProjectTarget target,
             Code code,
             String cookie,
+            String userCode,
             String safeDiagnostic,
             NoonAuthRecoveryFailureStage failureStage,
             NoonTransientErrorType transientErrorType
@@ -29,6 +31,7 @@ public final class NoonAuthRecoveryProjectResult {
         this.target = Objects.requireNonNull(target, "target must not be null");
         this.code = Objects.requireNonNull(code, "code must not be null");
         this.cookie = cookie;
+        this.userCode = userCode;
         this.safeDiagnostic = safeDiagnostic;
         this.failureStage = failureStage;
         this.transientErrorType = transientErrorType;
@@ -36,12 +39,14 @@ public final class NoonAuthRecoveryProjectResult {
 
     public static NoonAuthRecoveryProjectResult recovered(
             NoonAuthRecoveryProjectTarget target,
-            String cookie
+            String cookie,
+            String userCode
     ) {
         return new NoonAuthRecoveryProjectResult(
                 target,
                 Code.RECOVERED,
                 cookie,
+                requireText(userCode, "userCode"),
                 "project session verified",
                 null,
                 null
@@ -58,7 +63,8 @@ public final class NoonAuthRecoveryProjectResult {
                     "Recovered and transient project results require their dedicated factory."
             );
         }
-        return new NoonAuthRecoveryProjectResult(target, code, null, safeDiagnostic, null, null);
+        return new NoonAuthRecoveryProjectResult(
+                target, code, null, null, safeDiagnostic, null, null);
     }
 
     public static NoonAuthRecoveryProjectResult transientFailure(
@@ -70,6 +76,7 @@ public final class NoonAuthRecoveryProjectResult {
         return new NoonAuthRecoveryProjectResult(
                 target,
                 Code.TRANSIENT_PROVIDER_FAILURE,
+                null,
                 null,
                 safeDiagnostic,
                 Objects.requireNonNull(failureStage, "failureStage must not be null"),
@@ -99,6 +106,10 @@ public final class NoonAuthRecoveryProjectResult {
         return cookie;
     }
 
+    public String getUserCode() {
+        return userCode;
+    }
+
     public String getSafeDiagnostic() {
         return safeDiagnostic;
     }
@@ -109,5 +120,12 @@ public final class NoonAuthRecoveryProjectResult {
 
     public NoonTransientErrorType getTransientErrorType() {
         return transientErrorType;
+    }
+
+    private static String requireText(String value, String field) {
+        if (value == null || value.trim().isEmpty()) {
+            throw new IllegalArgumentException(field + " must not be blank");
+        }
+        return value.trim();
     }
 }

@@ -600,7 +600,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
             NoonAuthRecoveryStatus expectedRecoveryStatus,
             Long expectedRecoveryVersion,
             String expectedLeaseToken,
-            String cookie,
+            String cookie, String userCode,
             Long updatedBy,
             LocalDateTime now
     ) {
@@ -612,7 +612,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
                 expectedRecoveryStatus,
                 expectedRecoveryVersion,
                 expectedLeaseToken,
-                cookie,
+                cookie, userCode,
                 updatedBy,
                 now
         ) > 0;

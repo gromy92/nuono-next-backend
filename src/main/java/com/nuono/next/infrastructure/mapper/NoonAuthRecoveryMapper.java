@@ -1084,7 +1084,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             " AND BINARY state.project_code = BINARY up.project_code",
             "JOIN noon_auth_identity_recovery recovery",
             "  ON recovery.id = state.active_recovery_id",
-            "SET up.noon_partner_cookie = #{cookie},",
+            "SET up.noon_partner_cookie = #{cookie}, up.noon_partner_user_code = #{userCode},",
             "    up.cookie_generate_time = #{now},",
             "    up.bind_status = 1,",
             "    up.is_authorized = 1,",
@@ -1122,7 +1122,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             @Param("expectedRecoveryStatus") NoonAuthRecoveryStatus expectedRecoveryStatus,
             @Param("expectedRecoveryVersion") Long expectedRecoveryVersion,
             @Param("expectedLeaseToken") String expectedLeaseToken,
-            @Param("cookie") String cookie,
+            @Param("cookie") String cookie, @Param("userCode") String userCode,
             @Param("updatedBy") Long updatedBy,
             @Param("now") LocalDateTime now
     );
