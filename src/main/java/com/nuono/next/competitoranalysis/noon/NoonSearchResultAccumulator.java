@@ -14,19 +14,30 @@ final class NoonSearchResultAccumulator {
     private int sponsoredRankPosition;
 
     void add(NoonSearchResult result) {
+        add(result, false);
+    }
+
+    void addScannedSlot(NoonSearchResult result) {
+        add(result, true);
+    }
+
+    private void add(NoonSearchResult result, boolean consumeDuplicateSlot) {
         if (result == null || !StringUtils.hasText(result.getNoonProductCode())) {
             return;
         }
         String code = result.getNoonProductCode().trim().toUpperCase(Locale.ROOT);
         String channel = result.isSponsored() ? "SPONSORED" : "ORGANIC";
         String rankKey = code + "|" + channel;
-        if (resultsByRankKey.containsKey(rankKey)) {
+        boolean duplicate = resultsByRankKey.containsKey(rankKey);
+        if (duplicate && !consumeDuplicateSlot) {
             return;
         }
         result.setNoonProductCode(code);
         result.setPosition(++resultPosition);
         result.setRankPosition(result.isSponsored() ? ++sponsoredRankPosition : ++organicRankPosition);
-        resultsByRankKey.put(rankKey, result);
+        if (!duplicate) {
+            resultsByRankKey.put(rankKey, result);
+        }
     }
 
     boolean isEmpty() {
