@@ -111,7 +111,30 @@ class NoonSearchPaginationSupportTest {
     }
 
     @Test
-    void refusesTwoPagesWhenDeduplicatedResultsDoNotReachCoverage() {
+    void acceptsSmallCrossPageOverlapAndPreservesScannedRankSlots() {
+        NoonSearchPage first = page(1, 300, 3, 1);
+        NoonSearchPage second = page(99, 300, 3, 2);
+
+        NoonSearchPage merged = NoonSearchPaginationSupport.merge(
+                first,
+                second,
+                200
+        );
+
+        assertTrue(merged.isCoverageComplete());
+        assertEquals(198, merged.getResults().size());
+        assertEquals(
+                103,
+                find(merged, "N00000101").getRankPosition()
+        );
+        assertEquals(
+                200,
+                find(merged, "N00000198").getRankPosition()
+        );
+    }
+
+    @Test
+    void refusesExcessiveCrossPageOverlap() {
         NoonSearchPage first = page(1, 300, 3, 1);
         NoonSearchPage second = page(51, 300, 3, 2);
 
@@ -124,12 +147,14 @@ class NoonSearchPaginationSupportTest {
     }
 
     @Test
-    void sponsoredDuplicateCannotMaskMissingUniqueProducts() {
+    void refusesASecondPageWithFewerThanOneHundredRankSlots() {
         NoonSearchPage first = page(1, 300, 3, 1);
-        NoonSearchPage second = page(81, 300, 3, 2);
-        for (int index = 0; index < 20; index++) {
-            second.getResults().get(index).setSponsored(true);
-        }
+        NoonSearchPage second = page(101, 300, 3, 2);
+        second.setResults(
+                new ArrayList<>(
+                        second.getResults().subList(0, 99)
+                )
+        );
 
         NoonSearchProviderException error = assertThrows(
                 NoonSearchProviderException.class,
@@ -178,5 +203,17 @@ class NoonSearchPaginationSupportTest {
         }
         page.setResults(results);
         return page;
+    }
+
+    private static NoonSearchResult find(
+            NoonSearchPage page,
+            String productCode
+    ) {
+        return page.getResults().stream()
+                .filter(result -> productCode.equals(
+                        result.getNoonProductCode()
+                ))
+                .findFirst()
+                .orElseThrow();
     }
 }
