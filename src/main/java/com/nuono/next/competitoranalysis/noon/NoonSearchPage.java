@@ -10,6 +10,9 @@ public class NoonSearchPage {
     private Integer providerHttpStatus;
     private Integer providerPage;
     private Integer providerLimit;
+    private Integer providerResultSlotCount;
+    private Integer providerOrganicSlotCount;
+    private Integer providerSponsoredSlotCount;
     private Integer totalHits;
     private Integer totalPages;
     private boolean coverageComplete;
@@ -27,6 +30,12 @@ public class NoonSearchPage {
     public void setProviderPage(Integer providerPage) { this.providerPage = providerPage; }
     public Integer getProviderLimit() { return providerLimit; }
     public void setProviderLimit(Integer providerLimit) { this.providerLimit = providerLimit; }
+    public Integer getProviderResultSlotCount() { return providerResultSlotCount; }
+    public void setProviderResultSlotCount(Integer providerResultSlotCount) { this.providerResultSlotCount = providerResultSlotCount; }
+    public Integer getProviderOrganicSlotCount() { return providerOrganicSlotCount; }
+    public void setProviderOrganicSlotCount(Integer providerOrganicSlotCount) { this.providerOrganicSlotCount = providerOrganicSlotCount; }
+    public Integer getProviderSponsoredSlotCount() { return providerSponsoredSlotCount; }
+    public void setProviderSponsoredSlotCount(Integer providerSponsoredSlotCount) { this.providerSponsoredSlotCount = providerSponsoredSlotCount; }
     public Integer getTotalHits() { return totalHits; }
     public void setTotalHits(Integer totalHits) { this.totalHits = totalHits; }
     public Integer getTotalPages() { return totalPages; }
