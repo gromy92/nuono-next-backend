@@ -67,6 +67,12 @@ class ProductListingEmailOtpReauthenticationServiceTest {
     }
 
     @Test
+    void projectMailAuthCodeRemainsACompatibleRecoveryRoute() {
+        assertTrue(service.applies(project()));
+        verify(sessionGateway, never()).configuredMerchantEmail();
+    }
+
+    @Test
     void missingProjectAndUnifiedEmailCredentialsDoesNotRouteRecovery() {
         StoreSyncStoreRecord project = project();
         project.setNoonPartnerMailAuthCode(null);
