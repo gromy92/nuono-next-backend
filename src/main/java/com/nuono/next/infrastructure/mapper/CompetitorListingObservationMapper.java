@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorListingObservationMapper {
@@ -22,6 +23,12 @@ public interface CompetitorListingObservationMapper {
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
             "ON DUPLICATE KEY UPDATE next_id = LAST_INSERT_ID(next_id + 1), gmt_updated = NOW()"
     })
+    @SelectKey(
+            statement = "SELECT LAST_INSERT_ID()",
+            keyProperty = "allocatedId",
+            before = false,
+            resultType = Long.class
+    )
     int allocateCompetitorAnalysisId(IdSequenceCommand command);
 
     default Long nextCompetitorAnalysisId(String sequenceName, long initialValue) {
@@ -30,7 +37,13 @@ public interface CompetitorListingObservationMapper {
                 initialValue
         );
         allocateCompetitorAnalysisId(command);
-        return command.getAllocatedId();
+        Long id = command.getAllocatedId();
+        if (id == null || id <= 0) {
+            throw new IllegalStateException(
+                    "竞品列表观察 ID 序列分配失败：" + sequenceName
+            );
+        }
+        return id;
     }
 
     @Insert({
