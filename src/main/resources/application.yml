@@ -76,6 +76,7 @@ nuono:
     detail-baseline-daily-backfill:
       enabled: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_ENABLED:false}
       stale-after-minutes: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_STALE_AFTER_MINUTES:360}
+      max-items-per-store-site: ${NUONO_PRODUCT_DETAIL_BASELINE_DAILY_BACKFILL_MAX_ITEMS_PER_STORE_SITE:10}
     publish-task:
       scheduler:
         enabled: ${NUONO_PRODUCT_PUBLISH_TASK_SCHEDULER_ENABLED:true}
