@@ -91,7 +91,7 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_OFFER_LIST_URL =
                 NoonCatalogApiRoutes.OFFER_LIST_NOON;
         public static final String DEFAULT_PRICING_INFORMATION_URL =
-                NoonCatalogApiRoutes.PRICING_INFORMATION;
+                "https://catalog.noon.partners/_svc/mp-pricing-api/pricing/info";
 
         private String createProductUrl = DEFAULT_CREATE_PRODUCT_URL;
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
