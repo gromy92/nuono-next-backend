@@ -13,6 +13,7 @@ final class CompetitorDetailRetryPolicy {
     static final int MAX_RETRY_ATTEMPTS = 4;
     private static final String INVALID_NOON_PRODUCT_CODE = "INVALID_NOON_PRODUCT_CODE";
     private static final String DETAIL_TARGET_STALE = "DETAIL_TARGET_STALE";
+    private static final String LIST_PRODUCT_NOT_FOUND = "LIST_PRODUCT_NOT_FOUND";
     private static final String PUBLIC_DETAIL_NOT_FOUND = "PUBLIC_DETAIL_NOT_FOUND";
 
     private static final Set<String> RISK_ERROR_CODES = Set.of(
@@ -158,7 +159,8 @@ final class CompetitorDetailRetryPolicy {
 
     boolean isRetryable(String errorCode) {
         return !hasErrorCode(errorCode, INVALID_NOON_PRODUCT_CODE)
-                && !hasErrorCode(errorCode, DETAIL_TARGET_STALE);
+                && !hasErrorCode(errorCode, DETAIL_TARGET_STALE)
+                && !hasErrorCode(errorCode, LIST_PRODUCT_NOT_FOUND);
     }
 
     private boolean hasErrorCode(String actual, String expected) {

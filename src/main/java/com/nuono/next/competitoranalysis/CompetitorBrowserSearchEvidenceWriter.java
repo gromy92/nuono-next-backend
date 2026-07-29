@@ -76,12 +76,9 @@ final class CompetitorBrowserSearchEvidenceWriter {
         insert.setCodeType(noonCode.startsWith("Z") ? "Z_CODE" : "N_CODE");
         insert.setCanonicalUrl(normalizeText(item.getCanonicalUrl()));
         insert.setTitleSnapshot(normalizeText(item.getTitle()));
-        insert.setBrandSnapshot(normalizeText(item.getBrand()));
         insert.setImageUrlSnapshot(normalizeText(item.getImageUrl()));
         insert.setPriceAmount(item.getPriceAmount());
         insert.setCurrencyCode(normalizeText(item.getCurrencyCode()));
-        insert.setRating(item.getRating());
-        insert.setReviewCount(item.getReviewCount());
         insert.setSponsored(true);
         insert.setRawResultJson("{\"source\":\"browser-observation\",\"observedPosition\":"
                 + normalizeSourcePosition(item.getPosition())

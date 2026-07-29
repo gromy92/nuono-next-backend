@@ -52,7 +52,7 @@ class CompetitorInvalidDetailRetryPayloadTest {
                 220123L,
                 180123L,
                 "INVALID_DETAIL_RETRY_PAYLOAD",
-                "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。"
+                "竞品列表补拉重试载荷损坏，任务已终止以避免阻塞恢复队列。"
         )).thenReturn(1);
         CompetitorDetailRetryCoordinator coordinator = new CompetitorDetailRetryCoordinator(
                 new CompetitorRefreshTaskFactory(mapper, taskService),

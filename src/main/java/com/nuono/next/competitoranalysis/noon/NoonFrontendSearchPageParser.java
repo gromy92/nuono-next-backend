@@ -28,6 +28,7 @@ public class NoonFrontendSearchPageParser {
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final ObjectMapper objectMapper;
+    private final NoonVisibleTagSupport visibleTagSupport;
     private final Clock clock;
 
     @Autowired
@@ -37,6 +38,7 @@ public class NoonFrontendSearchPageParser {
 
     NoonFrontendSearchPageParser(ObjectMapper objectMapper, Clock clock) {
         this.objectMapper = objectMapper;
+        this.visibleTagSupport = new NoonVisibleTagSupport(objectMapper);
         this.clock = (clock == null ? Clock.system(BUSINESS_ZONE) : clock).withZone(BUSINESS_ZONE);
     }
 
@@ -101,7 +103,26 @@ public class NoonFrontendSearchPageParser {
             }
         }
         collectCatalogSponsoredResults(root, sourceUrl, results, 0, false);
-        if (results.isEmpty()) {
+        Integer providerPage = firstInteger(
+                intAny(root.path("search"), "page"),
+                intAny(root.path("data").path("search"), "page"),
+                intAny(root, "page")
+        );
+        Integer providerLimit = firstInteger(
+                intAny(root.path("search"), "limit"),
+                intAny(root.path("data").path("search"), "limit"),
+                intAny(root, "limit")
+        );
+        Integer totalHits = firstInteger(
+                intAny(root, "nbHits", "totalHits", "total"),
+                intAny(root.path("data"), "nbHits", "totalHits", "total")
+        );
+        Integer totalPages = firstInteger(
+                intAny(root, "nbPages", "totalPages"),
+                intAny(root.path("data"), "nbPages", "totalPages")
+        );
+        if (results.isEmpty()
+                && (totalHits == null || totalHits != 0)) {
             throw new NoonSearchProviderException(
                     "PARSE_FAILED",
                     "Noon catalog 搜索响应无法解析出商品结果。",
@@ -115,6 +136,10 @@ public class NoonFrontendSearchPageParser {
         page.setSourceUrl(sourceUrl);
         page.setParserVersion(catalogParserVersion(sourceUrl));
         page.setProviderHttpStatus(providerHttpStatus);
+        page.setProviderPage(providerPage);
+        page.setProviderLimit(providerLimit);
+        page.setTotalHits(totalHits);
+        page.setTotalPages(totalPages);
         page.setResponseHash(hash);
         page.setCapturedAt(LocalDateTime.now(clock));
         page.setResults(results.results());
@@ -282,7 +307,6 @@ public class NoonFrontendSearchPageParser {
         result.setTitle(title);
         result.setTitleEn(titleEn);
         result.setTitleAr(titleAr);
-        result.setBrand(resolveBrand(payload.path("brand")));
         result.setImageUrl(resolveImage(payload));
         result.setPriceAmount(resolvePrice(payload));
         result.setCurrencyCode(firstNonBlank(
@@ -290,11 +314,8 @@ public class NoonFrontendSearchPageParser {
                 textAny(payload.path("price"), "currency", "currencyCode"),
                 inferCurrencyCode(sourceUrl)
         ));
-        result.setRating(resolveRating(payload));
-        result.setReviewCount(resolveReviewCount(payload));
         result.setTagsJson(resolveTagsJson(payload));
         result.setSponsored(resolveSponsored(node) || resolveSponsored(payload));
-        result.setRawResultJson(node == payload ? payload.toString() : node.toString());
         return result;
     }
 
@@ -421,12 +442,11 @@ public class NoonFrontendSearchPageParser {
     }
 
     private String resolveTitleEn(JsonNode node) {
-        String explicit = firstNonBlank(
+        return firstNonBlank(
                 textAny(node, "name_en", "title_en", "nameEnglish", "titleEnglish", "english_title"),
                 textAny(node.path("name"), "en", "english"),
                 textAny(node.path("title"), "en", "english")
         );
-        return firstNonBlank(explicit, textAny(node, "name", "title", "product_title", "productTitle"));
     }
 
     private String resolveTitleAr(JsonNode node) {
@@ -438,49 +458,7 @@ public class NoonFrontendSearchPageParser {
     }
 
     private String resolveTagsJson(JsonNode node) {
-        if (node == null || !node.isObject()) {
-            return null;
-        }
-        Map<String, JsonNode> tags = new LinkedHashMap<>();
-        for (String field : List.of(
-                "badges",
-                "labels",
-                "flags",
-                "tags",
-                "tag",
-                "promo_tags",
-                "promotion_tags",
-                "logistics_tags"
-        )) {
-            JsonNode value = node.path(field);
-            if (hasTagContent(value)) {
-                tags.put(field, value);
-            }
-        }
-        if (tags.isEmpty()) {
-            return null;
-        }
-        try {
-            return objectMapper.writeValueAsString(tags);
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
-
-    private boolean hasTagContent(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return false;
-        }
-        if (node.isArray()) {
-            return node.size() > 0;
-        }
-        if (node.isObject()) {
-            return node.size() > 0;
-        }
-        if (node.isTextual()) {
-            return StringUtils.hasText(compact(node.asText()));
-        }
-        return node.isNumber() || node.isBoolean();
+        return visibleTagSupport.resolve(node);
     }
 
     private String resolveImage(JsonNode node) {
@@ -565,6 +543,18 @@ public class NoonFrontendSearchPageParser {
         } catch (NumberFormatException ignored) {
             return null;
         }
+    }
+
+    private Integer firstInteger(Integer... values) {
+        if (values == null) {
+            return null;
+        }
+        for (Integer value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private boolean booleanAny(JsonNode node, String... fields) {

@@ -80,7 +80,7 @@ class CompetitorSearchRefreshRunnerTest {
         verify(adapter).search(argThat((request) ->
                 "SA".equals(request.getSiteCode())
                         && "laundry basket".equals(request.getKeyword())
-                        && Integer.valueOf(100).equals(request.getLimit())
+                        && Integer.valueOf(200).equals(request.getLimit())
         ));
         verify(mapper).insertCompetitorProduct(argThat((command) ->
                 Long.valueOf(200012L).equals(command.getId())
@@ -116,11 +116,11 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("COMPETITOR", facts.get(3).getTrackedProductType());
         assertEquals("NOT_IN_SCAN_DEPTH", facts.get(3).getRankStatus());
         assertNull(facts.get(3).getRankNo());
-        assertEquals(100, facts.get(3).getScanDepth());
+        assertEquals(200, facts.get(3).getScanDepth());
     }
 
     @Test
-    void scansTop100ForRankFactsButKeepsCandidateDiscoveryToTop20() {
+    void scansTop200ForRankFactsButKeepsCandidateDiscoveryToTop20() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorKeywordRow keyword = keyword();
         CompetitorProductRow confirmedAt21 = confirmedProduct(200021L, "NCONFIRM21");
@@ -157,7 +157,7 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals(21, outcome.getResultCount());
         assertEquals(19, outcome.getCandidateUpsertedCount());
         verify(adapter).search(argThat((request) ->
-                Integer.valueOf(100).equals(request.getLimit())
+                Integer.valueOf(200).equals(request.getLimit())
         ));
         verify(mapper, times(21)).insertSearchResult(any());
         verify(mapper, times(19)).upsertKeywordProductRelationFromSearch(any());
@@ -176,11 +176,11 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("NCONFIRM21", rankedCompetitor.getNoonProductCode());
         assertEquals("RANKED", rankedCompetitor.getRankStatus());
         assertEquals(21, rankedCompetitor.getRankNo());
-        assertEquals(100, rankedCompetitor.getScanDepth());
+        assertEquals(200, rankedCompetitor.getScanDepth());
         CompetitorRankFactInsertCommand missingCompetitor = facts.get(2);
         assertEquals("NOT_IN_SCAN_DEPTH", missingCompetitor.getRankStatus());
         assertNull(missingCompetitor.getRankNo());
-        assertEquals(100, missingCompetitor.getScanDepth());
+        assertEquals(200, missingCompetitor.getScanDepth());
     }
 
     @Test

@@ -165,7 +165,7 @@ public class CompetitorAnalysisService {
                 ),
                 summary(
                         CompetitorDashboardIssueType.COMPETITOR_CHANGE,
-                        "竞品详情变化",
+                        "竞品列表变化",
                         mapper.countCompetitorChangeProducts(ownerUserId, normalizedStoreCode, normalizedSiteCode, fromDate)
                 )
         );
@@ -790,12 +790,9 @@ public class CompetitorAnalysisService {
         insert.setCodeType(resolveNoonCodeType(noonCode));
         insert.setCanonicalUrl(normalizeText(item.getCanonicalUrl()));
         insert.setTitleSnapshot(normalizeText(item.getTitle()));
-        insert.setBrandSnapshot(normalizeText(item.getBrand()));
         insert.setImageUrlSnapshot(normalizeText(item.getImageUrl()));
         insert.setPriceAmountSnapshot(item.getPriceAmount());
         insert.setCurrencyCodeSnapshot(normalizeText(item.getCurrencyCode()));
-        insert.setRatingSnapshot(item.getRating());
-        insert.setReviewCountSnapshot(item.getReviewCount());
         insert.setSourceType("SEARCH_DISCOVERY");
         insert.setReviewStatus("PENDING");
         insert.setActorUserId(actorUserId);

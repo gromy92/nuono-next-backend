@@ -5,6 +5,7 @@ public class NoonSearchRequest {
     private String locale;
     private String keyword;
     private Integer limit;
+    private Integer page;
 
     public static Builder builder() {
         return new Builder();
@@ -18,6 +19,8 @@ public class NoonSearchRequest {
     public void setKeyword(String keyword) { this.keyword = keyword; }
     public Integer getLimit() { return limit; }
     public void setLimit(Integer limit) { this.limit = limit; }
+    public Integer getPage() { return page; }
+    public void setPage(Integer page) { this.page = page; }
 
     public static final class Builder {
         private final NoonSearchRequest request = new NoonSearchRequest();
@@ -39,6 +42,11 @@ public class NoonSearchRequest {
 
         public Builder limit(Integer limit) {
             request.limit = limit;
+            return this;
+        }
+
+        public Builder page(Integer page) {
+            request.page = page;
             return this;
         }
 

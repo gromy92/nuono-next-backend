@@ -3,10 +3,10 @@
 src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	971
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1177
-src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	355
-src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	670
-src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	816
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1174
+src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	354
+src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	669
+src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	806
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	456
 src/main/java/com/nuono/next/filemanagement/parse/FileParseCommissionPayloadNormalizer.java	1511
 src/main/java/com/nuono/next/filemanagement/parse/FileParseItemReviewService.java	459

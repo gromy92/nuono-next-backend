@@ -91,7 +91,7 @@ class CompetitorRefreshExecutionFinalizer {
     ) {
         leaseGuard.acquire(taskId, runId, watchProductId);
         if (!operationalTaskService.checkpointRunning(
-                taskId, payloadJson, 5, "竞品详情重试状态已保存。"
+                taskId, payloadJson, 5, "竞品列表补拉重试状态已保存。"
         )) {
             throw new CompetitorRefreshLeaseLostException(taskId, runId);
         }
@@ -113,7 +113,7 @@ class CompetitorRefreshExecutionFinalizer {
             );
         }
         if (!operationalTaskService.checkpointRunning(
-                taskId, payloadJson, 5, "竞品详情风控与重试状态已保存。"
+                taskId, payloadJson, 5, "竞品列表补拉风控与重试状态已保存。"
         )) {
             throw new CompetitorRefreshLeaseLostException(taskId, runId);
         }

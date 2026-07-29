@@ -7,7 +7,7 @@ import java.util.Locale;
 import org.springframework.util.StringUtils;
 
 final class CompetitorBrowserRankFactWriter {
-    private static final int RANK_SCAN_DEPTH = 100;
+    private static final int LEGACY_SCAN_DEPTH = 100;
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
     private final CompetitorAnalysisMapper mapper;
@@ -87,12 +87,15 @@ final class CompetitorBrowserRankFactWriter {
         command.setNoonProductCode(code);
         command.setRankStatus("RANKED");
         command.setRankNo(sponsoredRankPosition);
-        command.setScanDepth(RANK_SCAN_DEPTH);
+        command.setScanDepth(
+                latestRun.getRequestedResultLimit() == null
+                        || latestRun.getRequestedResultLimit() < 1
+                        ? LEGACY_SCAN_DEPTH
+                        : latestRun.getRequestedResultLimit()
+        );
         command.setSponsored(true);
         command.setPriceAmount(item.getPriceAmount());
         command.setCurrencyCode(normalizeText(item.getCurrencyCode()));
-        command.setRating(item.getRating());
-        command.setReviewCount(item.getReviewCount());
         command.setSourceResultId(sourceResultId);
         command.setActorUserId(actorUserId);
         return command;

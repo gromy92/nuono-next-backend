@@ -179,6 +179,7 @@ class CompetitorBrowserObservationRankChannelTest {
         row.setId(230017L);
         row.setSearchRunId(220013L);
         row.setKeywordId(190001L);
+        row.setRequestedResultLimit(200);
         row.setCapturedAt(LocalDateTime.now(ZoneId.of("Asia/Shanghai")).minusMinutes(1).withNano(0));
         return row;
     }

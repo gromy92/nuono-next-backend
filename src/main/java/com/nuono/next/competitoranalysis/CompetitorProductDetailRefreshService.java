@@ -14,20 +14,24 @@ import org.springframework.stereotype.Service;
 public class CompetitorProductDetailRefreshService {
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorProductDetailBatchRunner batchRunner;
+    private final boolean onlyMissingFromCompleteTop200Scan;
 
     @Autowired
     public CompetitorProductDetailRefreshService(
             CompetitorAnalysisMapper mapper,
             ObjectProvider<NoonProductDetailAdapter> detailAdapterProvider,
             ObjectProvider<CompetitorProductSnapshotService> snapshotServiceProvider,
+            ObjectProvider<CompetitorListingObservationService> observationProvider,
             CompetitorProductDetailWriteGuard writeGuard
     ) {
         this(
                 mapper,
                 detailAdapterProvider == null ? null : detailAdapterProvider.getIfAvailable(),
                 snapshotServiceProvider == null ? null : snapshotServiceProvider.getIfAvailable(),
+                observationProvider == null ? null : observationProvider.getIfAvailable(),
                 writeGuard,
-                Clock.systemUTC()
+                Clock.systemUTC(),
+                true
         );
     }
 
@@ -41,12 +45,14 @@ public class CompetitorProductDetailRefreshService {
                 mapper,
                 detailAdapter,
                 snapshotService,
+                null,
                 new CompetitorProductDetailWriteGuard(
                         mapper,
                         snapshotService,
                         CompetitorRefreshLeaseGuard.disabled(mapper)
                 ),
-                clock
+                clock,
+                false
         );
     }
 
@@ -57,12 +63,35 @@ public class CompetitorProductDetailRefreshService {
             CompetitorProductDetailWriteGuard writeGuard,
             Clock clock
     ) {
+        this(
+                mapper,
+                detailAdapter,
+                snapshotService,
+                null,
+                writeGuard,
+                clock,
+                false
+        );
+    }
+
+    private CompetitorProductDetailRefreshService(
+            CompetitorAnalysisMapper mapper,
+            NoonProductDetailAdapter detailAdapter,
+            CompetitorProductSnapshotService snapshotService,
+            CompetitorListingObservationService observationService,
+            CompetitorProductDetailWriteGuard writeGuard,
+            Clock clock,
+            boolean onlyMissingFromCompleteTop200Scan
+    ) {
         this.mapper = mapper;
+        this.onlyMissingFromCompleteTop200Scan =
+                onlyMissingFromCompleteTop200Scan;
         Clock sourceClock = clock == null ? Clock.systemUTC() : clock;
         this.batchRunner = new CompetitorProductDetailBatchRunner(
                 detailAdapter,
                 snapshotService,
                 writeGuard,
+                observationService,
                 new CompetitorProductDetailSupport(
                         sourceClock.withZone(NoonShanghaiBusinessTime.ZONE)
                 )
@@ -90,8 +119,12 @@ public class CompetitorProductDetailRefreshService {
         if (watchProduct == null || watchProduct.getId() == null) {
             return unavailable();
         }
-        List<CompetitorProductDetailTargetPlan.Entry> targets =
-                CompetitorProductDetailTargetPlan.initial(mapper, watchProduct);
+        List<CompetitorProductDetailPlanEntry> targets =
+                CompetitorProductDetailTargetPlan.initial(
+                        mapper,
+                        watchProduct,
+                        onlyMissingFromCompleteTop200Scan
+                );
         return batchRunner.refresh(
                 watchProduct,
                 targets,
@@ -142,9 +175,12 @@ public class CompetitorProductDetailRefreshService {
         if (watchProduct == null || watchProduct.getId() == null) {
             return unavailable();
         }
-        List<CompetitorProductDetailTargetPlan.Entry> retryTargets =
+        List<CompetitorProductDetailPlanEntry> retryTargets =
                 CompetitorProductDetailTargetPlan.retry(
-                        mapper, watchProduct, targets
+                        mapper,
+                        watchProduct,
+                        targets,
+                        onlyMissingFromCompleteTop200Scan
                 );
         return batchRunner.refresh(
                 watchProduct,
@@ -164,8 +200,12 @@ public class CompetitorProductDetailRefreshService {
             return List.of();
         }
         List<CompetitorProductDetailTarget> targets = new ArrayList<>();
-        for (CompetitorProductDetailTargetPlan.Entry entry :
-                CompetitorProductDetailTargetPlan.initial(mapper, watchProduct)) {
+        for (CompetitorProductDetailPlanEntry entry :
+                CompetitorProductDetailTargetPlan.initial(
+                        mapper,
+                        watchProduct,
+                        onlyMissingFromCompleteTop200Scan
+                )) {
             targets.add(entry.target);
         }
         return targets;
@@ -174,7 +214,7 @@ public class CompetitorProductDetailRefreshService {
     private CompetitorProductDetailRefreshResult unavailable() {
         return CompetitorProductDetailRefreshResult.unavailable(
                 "DETAIL_ADAPTER_UNAVAILABLE",
-                "竞品详情适配器或快照服务不可用。"
+                "竞品列表补拉适配器或快照服务不可用。"
         );
     }
 }

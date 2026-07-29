@@ -574,51 +574,8 @@ public class CompetitorAnalysisRefreshService {
                     return;
                 }
             }
-            CompetitorProductDetailRefreshResult detailResult =
-                    refreshConfirmedCompetitorDetails(
-                            taskId,
-                            runId,
-                            watchProduct,
-                            actorUserId,
-                            safeMode,
-                            detailRetrySession
-                    );
+            CompetitorProductDetailRefreshResult detailResult = CompetitorProductDetailRefreshResult.empty();
             NoonRiskBackoffHold riskBackoffHold = null;
-            if (detailResult.getFailedCount() > 0) {
-                firstErrorCode = detailResult.getFirstErrorCode();
-                firstErrorMessage = detailResult.getFirstErrorMessage();
-                if (detailResult.hasRiskBackoffFailure()) {
-                    firstErrorCode = detailResult.getRiskErrorCode();
-                    firstErrorMessage = detailResult.getRiskErrorMessage();
-                    String riskErrorCode = firstErrorCode;
-                    String riskErrorMessage = firstErrorMessage;
-                    riskBackoffHold = detailRetrySession == null
-                            ? refreshTaskFactory.executionFinalizer().withLease(
-                                    taskId, runId, watchProductId,
-                                    () -> riskBackoff.record(
-                                            watchProduct, taskId,
-                                            riskErrorCode, riskErrorMessage
-                                    )
-                            )
-                            : detailRetrySession.ensureRiskHold(
-                                    riskErrorCode, riskErrorMessage
-                            );
-                }
-            }
-            if (detailRetrySession != null) {
-                if (detailRetrySession.requeue(
-                        riskBackoffHold, firstErrorCode, firstErrorMessage
-                )) {
-                    return;
-                }
-                detailRetrySession.applyCumulative(detailResult);
-                firstErrorCode = firstNonBlank(
-                        firstErrorCode, detailResult.getFirstErrorCode()
-                );
-                firstErrorMessage = firstNonBlank(
-                        firstErrorMessage, detailResult.getFirstErrorMessage()
-                );
-            }
             List<CompetitorKeywordRow> keywords = safeMode.runsRank() && riskBackoffHold == null
                     ? mapper.listActiveKeywordsByWatchProductId(watchProductId)
                     : List.of();
@@ -689,6 +646,49 @@ public class CompetitorAnalysisRefreshService {
                 firstErrorMessage = firstNonBlank(
                         firstErrorMessage,
                         firstNonBlank(retryResult.getErrorMessage(), retryCandidate.firstFailure.getErrorMessage())
+                );
+            }
+
+            if (riskBackoffHold == null) {
+                detailResult = refreshConfirmedCompetitorDetails(
+                        taskId, runId, watchProduct, actorUserId,
+                        safeMode, detailRetrySession
+                );
+                if (detailResult.getFailedCount() > 0) {
+                    firstErrorCode = firstNonBlank(
+                            firstErrorCode, detailResult.getFirstErrorCode()
+                    );
+                    firstErrorMessage = firstNonBlank(
+                            firstErrorMessage, detailResult.getFirstErrorMessage()
+                    );
+                    if (detailResult.hasRiskBackoffFailure()) {
+                        firstErrorCode = detailResult.getRiskErrorCode();
+                        firstErrorMessage = detailResult.getRiskErrorMessage();
+                        String riskErrorCode = firstErrorCode, riskErrorMessage = firstErrorMessage;
+                        riskBackoffHold = detailRetrySession == null
+                                ? refreshTaskFactory.executionFinalizer().withLease(
+                                        taskId, runId, watchProductId,
+                                        () -> riskBackoff.record(
+                                                watchProduct, taskId,
+                                                riskErrorCode, riskErrorMessage
+                                        )
+                                )
+                                : detailRetrySession.ensureRiskHold(
+                                        riskErrorCode, riskErrorMessage
+                                );
+                    }
+                }
+            }
+            if (detailRetrySession != null) {
+                if (detailRetrySession.requeue(riskBackoffHold, firstErrorCode, firstErrorMessage)) {
+                    return;
+                }
+                detailRetrySession.applyCumulative(detailResult);
+                firstErrorCode = firstNonBlank(
+                        firstErrorCode, detailResult.getFirstErrorCode()
+                );
+                firstErrorMessage = firstNonBlank(
+                        firstErrorMessage, detailResult.getFirstErrorMessage()
                 );
             }
 
@@ -877,9 +877,9 @@ public class CompetitorAnalysisRefreshService {
         CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
         if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL) {
             if ("SUCCEEDED".equals(status)) {
-                return "竞品详情快照刷新完成。";
+                return "竞品列表缺口补拉完成。";
             }
-            return "竞品详情快照刷新失败。";
+            return "竞品列表缺口补拉失败。";
         }
         if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_RANK) {
             if ("SUCCEEDED".equals(status)) {
@@ -891,7 +891,7 @@ public class CompetitorAnalysisRefreshService {
             return failed > 0 && success <= 0 ? "竞品排名刷新失败。" : FAILED_MESSAGE;
         }
         if ("PARTIAL_FAILED".equals(status) && detailResult != null && detailResult.getFailedCount() > 0) {
-            return "竞品刷新部分详情失败。";
+            return "竞品刷新部分列表补拉失败。";
         }
         if ("SUCCEEDED".equals(status)) {
             return "竞品刷新完成。";

@@ -33,6 +33,10 @@ final class NoonSearchResultAccumulator {
         return resultsByRankKey.isEmpty();
     }
 
+    int size() {
+        return resultsByRankKey.size();
+    }
+
     List<NoonSearchResult> results() {
         return new ArrayList<>(resultsByRankKey.values());
     }

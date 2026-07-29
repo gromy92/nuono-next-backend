@@ -38,10 +38,9 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface CompetitorAnalysisMapper
-        extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
-        CompetitorRefreshRetryMapper, CompetitorDetailTakeoverMapper,
-        CompetitorProductDetailWriteMapper {
+public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
+        CompetitorRefreshRetryMapper, CompetitorDetailTakeoverMapper, CompetitorProductDetailWriteMapper,
+        CompetitorListCoverageMapper {
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -2164,7 +2163,8 @@ public interface CompetitorAnalysisMapper
     @Select({
             "SELECT",
             "  id, search_run_id AS searchRunId, keyword_id AS keywordId,",
-            "  keyword_snapshot AS keywordSnapshot, captured_at AS capturedAt",
+            "  keyword_snapshot AS keywordSnapshot,",
+            "  requested_result_limit AS requestedResultLimit, captured_at AS capturedAt",
             "FROM operations_competitor_keyword_run",
             "WHERE keyword_id = #{keywordId}",
             "  AND provider_status = 'SUCCESS'",

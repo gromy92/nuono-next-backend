@@ -504,7 +504,7 @@ class CompetitorAnalysisServiceTest {
         assertEquals(4, view.getIssueSummary().size());
         assertEquals(4L, view.getIssueSummary().get(0).getValue());
         assertEquals(CompetitorDashboardIssueType.PENDING_CANDIDATE, view.getIssueSummary().get(0).getIssueType());
-        assertEquals("竞品详情变化", view.getIssueSummary().get(3).getLabel());
+        assertEquals("竞品列表变化", view.getIssueSummary().get(3).getLabel());
         assertEquals(1, view.getSelfRankChanges().size());
         assertEquals(7, view.getCompetitorRankChanges().get(0).getRankNo());
         assertEquals("PRICE", view.getCompetitorAttributeChanges().get(0).getChangeType());

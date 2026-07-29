@@ -127,6 +127,22 @@ class CompetitorDetailRetryPolicyTest {
     }
 
     @Test
+    void exactListNotFoundIsTerminalForTheBusinessDay() {
+        Optional<CompetitorDetailRetryPayload> planned = policy.planNextRetry(
+                legacyPayload(),
+                220100L,
+                targets(),
+                "LIST_PRODUCT_NOT_FOUND",
+                "exact code was not present in the list response",
+                LocalDateTime.parse("2026-07-29T02:00:00"),
+                null
+        );
+
+        assertFalse(policy.isRetryable("LIST_PRODUCT_NOT_FOUND"));
+        assertFalse(planned.isPresent());
+    }
+
+    @Test
     void publicDetailNotFoundUsesLowFrequencyBackoffThenStops() {
         LocalDateTime failedAt = LocalDateTime.parse("2026-07-28T02:00:00");
         List<Duration> expectedBackoffs = List.of(

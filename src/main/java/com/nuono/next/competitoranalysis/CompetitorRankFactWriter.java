@@ -97,8 +97,6 @@ final class CompetitorRankFactWriter {
             command.setSponsored(result.isSponsored());
             command.setPriceAmount(result.getPriceAmount());
             command.setCurrencyCode(normalizeText(result.getCurrencyCode()));
-            command.setRating(result.getRating());
-            command.setReviewCount(result.getReviewCount());
             command.setSourceResultId(searchResultIdsByRankKey.get(CompetitorSearchResultIndex.rankKey(result)));
         }
         mapper.insertRankFact(command);
