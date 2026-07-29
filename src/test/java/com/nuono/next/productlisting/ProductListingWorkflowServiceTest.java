@@ -177,7 +177,7 @@ class ProductListingWorkflowServiceTest {
     }
 
     @Test
-    void validationFailedDryRunRequiresDraftEditAndKeepsFieldIssues() {
+    void correctedValidationFailedDryRunCanBeReviewedAndKeepsPriorFieldIssuesAsHistory() {
         ProductListingMapper mapper = mock(ProductListingMapper.class);
         ProductListingService listingService = mock(ProductListingService.class);
         ProductListingWorkflowService workflowService = new ProductListingWorkflowService(
@@ -204,8 +204,8 @@ class ProductListingWorkflowServiceTest {
         ProductListingWorkflowView view = workflowService.loadWorkflow(context, 10001L);
 
         assertEquals(ProductListingWorkflowView.Phase.EDITING, view.getPhase());
-        assertEquals(ProductListingWorkflowView.NextAction.EDIT_DRAFT, view.getNextAction());
-        assertEquals("DRY_RUN_VALIDATION_FAILED", view.getReasonCode());
+        assertEquals(ProductListingWorkflowView.NextAction.REVIEW_DRAFT, view.getNextAction());
+        assertEquals("DRAFT_READY_AFTER_VALIDATION_FIX", view.getReasonCode());
         assertEquals(1, view.getDryRunTask().getValidationIssues().size());
     }
 

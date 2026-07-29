@@ -170,6 +170,24 @@ class ProductListingWorkflowProjectorTest {
         );
     }
 
+    @Test
+    void correctedValidationFailedDraftCanRunAReplacementDryRun() {
+        ProductListingWorkflowView view = projector.project(
+                draft("ready_for_dry_run"),
+                task(20001L, "DRY_RUN", "validation_failed", "validation_failed", null),
+                null
+        );
+
+        assertEquals(ProductListingWorkflowView.Phase.EDITING, view.getPhase());
+        assertEquals(
+                ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
+                view.getWriteCertainty()
+        );
+        assertEquals(ProductListingWorkflowView.NextAction.REVIEW_DRAFT, view.getNextAction());
+        assertEquals("DRAFT_READY_AFTER_VALIDATION_FIX", view.getReasonCode());
+        assertEquals("草稿已修正，请重新执行上架检查。", view.getMessage());
+    }
+
     @ParameterizedTest
     @MethodSource("editableDraftPolicies")
     void draftWithoutCurrentValidatedDryRunStaysInEditing(
@@ -202,6 +220,11 @@ class ProductListingWorkflowProjectorTest {
                 ),
                 Arguments.of(
                         "ready_for_dry_run",
+                        "validation_failed",
+                        ProductListingWorkflowView.NextAction.REVIEW_DRAFT
+                ),
+                Arguments.of(
+                        "draft",
                         "validation_failed",
                         ProductListingWorkflowView.NextAction.EDIT_DRAFT
                 ),
