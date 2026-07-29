@@ -39,7 +39,7 @@ class ZdLogisticsProviderAdapterTest {
         assertThat(command.getForwarderName()).isEqualTo("众鸫");
         assertThat(command.getBatches()).hasSize(1);
         assertThat(command.getSourceBatchExpectations()).hasSize(1);
-        assertThat(command.getSourceBatchExpectations().get(0).getBoxNum()).isEqualTo(2);
+        assertThat(command.getSourceBatchExpectations().get(0).getBoxNum()).isEqualTo(1);
         assertThat(command.getSourceBatchExpectations().get(0).getTotalQuantity()).isNull();
 
         var batch = command.getBatches().get(0);
@@ -238,7 +238,7 @@ class ZdLogisticsProviderAdapterTest {
                 + "\"transportation\":\"沙特空运\","
                 + "\"deliveryType\":\"沙特FBN\","
                 + "\"entryNumber\":\"GOKSA0037\","
-                + "\"quantity\":2,"
+                + "\"quantity\":1,"
                 + "\"expressNumber\":\"ZD-TRACK-0037\","
                 + "\"expressStatus\":\"未签收\","
                 + "\"gmtCreate\":\"2026-07-14 09:30:00\","

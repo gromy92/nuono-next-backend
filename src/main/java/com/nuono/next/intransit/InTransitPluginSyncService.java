@@ -409,7 +409,7 @@ public class InTransitPluginSyncService {
                     }
                 }
             }
-            validateSourceExpectation(batchNo, batch.getPackages().size(), batchShippedQuantity, sourceExpectationMap, issues);
+            validateSourceExpectation(resolved.getSourceSystem(), batchNo, batch.getPackages().size(), batchShippedQuantity, sourceExpectationMap, issues);
 
             for (PluginSyncNode node : batch.getNodes()) {
                 nodeCount += 1;
@@ -531,7 +531,7 @@ public class InTransitPluginSyncService {
     }
 
     private void validateSourceExpectation(
-            String batchNo,
+            String sourceSystem, String batchNo,
             int packageCount,
             int shippedQuantity,
             Map<String, PluginSyncSourceBatchExpectation> expectationMap,
@@ -542,13 +542,13 @@ public class InTransitPluginSyncService {
             return;
         }
         if (expectation.getBoxNum() != null && expectation.getBoxNum() != packageCount) {
-            issues.add(PluginSyncIssueView.error(
-                    batchNo,
-                    null,
-                    null,
-                    "sourceBatchExpectations.boxNum",
-                    "批次箱数 " + packageCount + " 与来源列表箱数 " + expectation.getBoxNum() + " 不一致。"
-            ));
+            boolean zd = "ZD".equals(sourceSystem);
+            String message = zd
+                    ? "众鸫来源列表箱数 " + expectation.getBoxNum() + " 与箱子接口唯一箱号数 " + packageCount
+                            + " 不一致；按箱子接口唯一箱号数 " + packageCount + " 继续提交。"
+                    : "批次箱数 " + packageCount + " 与来源列表箱数 " + expectation.getBoxNum() + " 不一致。";
+            issues.add(zd ? PluginSyncIssueView.warning(batchNo, null, null, "sourceBatchExpectations.boxNum", message)
+                    : PluginSyncIssueView.error(batchNo, null, null, "sourceBatchExpectations.boxNum", message));
         }
         if (expectation.getTotalQuantity() != null && expectation.getTotalQuantity() != shippedQuantity) {
             issues.add(PluginSyncIssueView.error(
