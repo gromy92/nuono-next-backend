@@ -264,35 +264,30 @@ class ProductReadModelServiceListDatasetTest {
     }
 
     @Test
-    void groupCandidatesReadFromProjectionSummaries() {
-        StoreSyncStoreRecord store = ownerStore();
-        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
-
-        ProductListSummaryView candidate = new ProductListSummaryView();
-        candidate.setStoreCode("STR245027-NAE");
-        candidate.setSkuParent("PAPERSAYSB133");
-        candidate.setBrand("Paper");
-        when(productProjectionPersistenceService.loadProductGroupCandidateSummaries(
+    void listDatasetCountsConflictsSeparatelyFromDrafts() {
+        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE"))
+                .thenReturn(ownerStore());
+        ProductListSummaryView conflict = productSummary(
+                "STR245027-NAE",
+                "ZCONFLICT001",
+                "PARTNER-CONFLICT-001",
+                "NOON-CONFLICT-001"
+        );
+        conflict.setSyncStatus("conflict");
+        conflict.setDetailBaselineStatus("ready");
+        when(productProjectionPersistenceService.loadProductListSummaries(
                 eq(10002L),
                 eq("STR245027-NAE"),
-                eq("PAPERSAYSB132"),
-                eq(null),
                 anyList()
-        )).thenReturn(List.of(candidate));
-
+        )).thenReturn(List.of(conflict));
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
         command.setOwnerUserId(10002L);
         command.setStoreCode("STR245027-NAE");
-        command.setSkuParent("PAPERSAYSB132");
 
-        ProductGroupCandidatesView view = service.loadGroupCandidates(command);
+        ProductListDatasetView view = service.loadListDataset(command);
 
-        assertTrue(view.isReady());
-        assertEquals("projection-primary", view.getSource());
-        assertEquals("STR245027-NAE", view.getStoreCode());
-        assertEquals("PAPERSAYSB132", view.getSkuParent());
-        assertEquals(1, view.getItems().size());
-        assertEquals("PAPERSAYSB133", view.getItems().get(0).getSkuParent());
+        assertEquals(0, view.getDraftCount());
+        assertEquals(1, view.getConflictCount());
     }
 
     private StoreSyncStoreRecord ownerStore() {

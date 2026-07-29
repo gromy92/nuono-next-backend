@@ -1,12 +1,15 @@
 package com.nuono.next.productselection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
+import java.math.BigDecimal;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -91,6 +94,95 @@ class ProductSelectionGroupServiceTest {
         assertEquals(2, view.getMaterialCount());
     }
 
+    @Test
+    void savingProfitRejectsAnUnauthorizedTargetSiteWithinAWritableLogicalStore() {
+        ProductSelectionPermissionGuard realPermissionGuard =
+                new ProductSelectionPermissionGuard(productSelectionMapper);
+        ProductSelectionGroupService scopedService = new ProductSelectionGroupService(
+                productSelectionMapper,
+                realPermissionGuard,
+                sourceCollectionCollector,
+                sourceCollectionLocalizer,
+                new ObjectMapper(),
+                this::sourceCollectionView,
+                this::sourceCollectionSnapshotView
+        );
+        ProductSelectionGroupRow saGroup = groupRow(91002L, "SA 店选品组");
+        saGroup.setLogicalStoreId(302L);
+        saGroup.setSiteCode("SA");
+        ProductSelectionGroupProfitSnapshotCommand command =
+                new ProductSelectionGroupProfitSnapshotCommand();
+        command.setOperatorUserId(90001L);
+
+        when(productSelectionMapper.selectGroupById(91002L)).thenReturn(saGroup);
+        when(productSelectionMapper.selectUserContext(90001L)).thenReturn(activeOperator());
+        when(productSelectionMapper.selectVisibleStoreScope(90001L, "STR-STORE-AE"))
+                .thenReturn(storeScope(302L, "STR-STORE-AE", true));
+        when(productSelectionMapper.listLogicalStoreSiteCodes(302L, "SA"))
+                .thenReturn(List.of("STR-STORE-SA"));
+        when(productSelectionMapper.selectVisibleStoreScope(90001L, "STR-STORE-SA"))
+                .thenReturn(storeScope(302L, "STR-STORE-SA", false));
+
+        assertEquals(
+                "STR-STORE-AE",
+                realPermissionGuard
+                        .requireWritableStore(90001L, "STR-STORE-AE")
+                        .getStoreCode()
+        );
+        ProductSelectionAccessDeniedException error = assertThrows(
+                ProductSelectionAccessDeniedException.class,
+                () -> scopedService.saveGroupProfitEstimate("91002", command)
+        );
+
+        assertEquals("当前选品组所属店铺未授权，不能保存利润估算。", error.getMessage());
+        verify(productSelectionMapper, never()).insertSelectionGroupProfitSnapshot(
+                org.mockito.ArgumentMatchers.any(ProductSelectionGroupProfitSnapshotRow.class)
+        );
+    }
+
+    @Test
+    void savingProfitSucceedsWhenTheTargetSiteWithinTheLogicalStoreIsWritable() {
+        ProductSelectionGroupService scopedService = new ProductSelectionGroupService(
+                productSelectionMapper,
+                new ProductSelectionPermissionGuard(productSelectionMapper),
+                sourceCollectionCollector,
+                sourceCollectionLocalizer,
+                new ObjectMapper(),
+                this::sourceCollectionView,
+                this::sourceCollectionSnapshotView
+        );
+        ProductSelectionGroupRow saGroup = groupRow(91002L, "SA 店选品组");
+        saGroup.setLogicalStoreId(302L);
+        saGroup.setSiteCode("SA");
+        ProductSelectionGroupProfitSnapshotCommand command =
+                new ProductSelectionGroupProfitSnapshotCommand();
+        command.setOperatorUserId(90001L);
+        command.setCurrencyCode("SAR");
+        command.setProfitAmount(new BigDecimal("25.50"));
+
+        when(productSelectionMapper.selectGroupById(91002L)).thenReturn(saGroup);
+        when(productSelectionMapper.selectUserContext(90001L)).thenReturn(activeOperator());
+        when(productSelectionMapper.listLogicalStoreSiteCodes(302L, "SA"))
+                .thenReturn(List.of("STR-STORE-SA"));
+        when(productSelectionMapper.selectVisibleStoreScope(90001L, "STR-STORE-SA"))
+                .thenReturn(storeScope(302L, "STR-STORE-SA", true));
+        when(productSelectionMapper.nextSelectionGroupProfitSnapshotId())
+                .thenReturn(93002L);
+
+        ProductSelectionGroupProfitSnapshotView saved =
+                scopedService.saveGroupProfitEstimate("91002", command);
+
+        assertEquals("93002", saved.getSnapshotId());
+        assertEquals("91002", saved.getGroupId());
+        assertEquals("SAR", saved.getCurrencyCode());
+        assertEquals(new BigDecimal("25.50"), saved.getProfitAmount());
+        verify(productSelectionMapper).insertSelectionGroupProfitSnapshot(
+                org.mockito.ArgumentMatchers.argThat(row ->
+                        Long.valueOf(91002L).equals(row.getGroupId())
+                                && Long.valueOf(90001L).equals(row.getCreatedBy()))
+        );
+    }
+
     private ProductSelectionSourceCollectionView sourceCollectionView(ProductSelectionSourceCollectionRow row) {
         ProductSelectionSourceCollectionView view = new ProductSelectionSourceCollectionView();
         view.setId(row.getId() == null ? null : String.valueOf(row.getId()));
@@ -167,5 +259,28 @@ class ProductSelectionGroupServiceTest {
         user.setLevel(1);
         user.setStatus(1);
         return user;
+    }
+
+    private ProductSelectionUserContext activeOperator() {
+        ProductSelectionUserContext user = new ProductSelectionUserContext();
+        user.setUserId(90001L);
+        user.setAccountNo("multi-store-operator");
+        user.setLevel(2);
+        user.setStatus(1);
+        return user;
+    }
+
+    private ProductSelectionStoreScope storeScope(
+            Long logicalStoreId,
+            String storeCode,
+            boolean authorized
+    ) {
+        ProductSelectionStoreScope scope = new ProductSelectionStoreScope();
+        scope.setOperatorUserId(90001L);
+        scope.setOwnerUserId(307L);
+        scope.setLogicalStoreId(logicalStoreId);
+        scope.setStoreCode(storeCode);
+        scope.setAuthorized(authorized);
+        return scope;
     }
 }

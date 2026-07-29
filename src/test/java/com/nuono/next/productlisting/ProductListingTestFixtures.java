@@ -480,8 +480,8 @@ final class ProductListingTestFixtures {
             return 1;
         }
         @Override
-        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt) {
-            return leaseSupport.markRunning(taskId, startedAt);
+        public int markTaskRunning(Long taskId, java.time.LocalDateTime startedAt, String noonResultJson) {
+            return leaseSupport.markRunning(taskId, startedAt, noonResultJson);
         }
         @Override
         public int markTaskRecoveryRunning(

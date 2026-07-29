@@ -67,9 +67,9 @@ final class ProductListingCreateContinuationPolicy {
 
     private static boolean hasSucceededCreateReference(ProductListingNoonWriteResult result) {
         ProductListingNoonWriteStepResult create = latest(result, "create_product");
-        return create != null
-                && "succeeded".equals(create.getStatus())
-                && StringUtils.hasText(create.getExternalReference());
+        return ProductListingCreateReferenceEvidence
+                .confirmedStep(create)
+                .complete();
     }
 
     private static boolean hasResolvedUncertainCreateReference(
@@ -84,9 +84,9 @@ final class ProductListingCreateContinuationPolicy {
         ProductListingNoonWriteStepResult resolved = stepAt(result, resolvedIndex);
         return createIndex >= 0
                 && resolvedIndex > createIndex
-                && resolved != null
-                && "succeeded".equals(resolved.getStatus())
-                && StringUtils.hasText(resolved.getExternalReference());
+                && ProductListingCreateReferenceEvidence
+                .confirmedStep(resolved)
+                .complete();
     }
 
     private static boolean hasUnresolvedUncertainCreate(
@@ -101,9 +101,9 @@ final class ProductListingCreateContinuationPolicy {
         ProductListingNoonWriteStepResult resolved = stepAt(result, resolvedIndex);
         return createIndex >= 0
                 && (resolvedIndex <= createIndex
-                || resolved == null
-                || !"succeeded".equals(resolved.getStatus())
-                || !StringUtils.hasText(resolved.getExternalReference()));
+                || !ProductListingCreateReferenceEvidence
+                .confirmedStep(resolved)
+                .complete());
     }
 
     private static int uncertainCreateIndex(

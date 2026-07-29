@@ -42,7 +42,7 @@ final class ProductListingCreateOutcomeVerifier {
         String partnerSku = support.readDraft(task.getInputSnapshotJson()).getPsku();
         ProductListingNoonWriteResult previous =
                 support.readNoonResult(task.getNoonResultJson());
-        ProductListingCreateOutcomeSupport.References existing =
+        ProductListingCreateReferenceEvidence.References existing =
                 support.references(previous);
         if (existing.complete()) {
             return found(task.getId(), partnerSku, existing);
@@ -68,7 +68,7 @@ final class ProductListingCreateOutcomeVerifier {
                 && "noon_auth_required".equalsIgnoreCase(lookup.getFailureCode())) {
             return markAuthenticationRequired(task, partnerSku, previous, lookup);
         }
-        ProductListingCreateOutcomeSupport.References references =
+        ProductListingCreateReferenceEvidence.References references =
                 support.references(lookup);
         if (lookup != null && "succeeded".equalsIgnoreCase(lookup.getStatus())
                 && references.complete()) {
@@ -90,7 +90,7 @@ final class ProductListingCreateOutcomeVerifier {
                     task, support.append(previous, lookup));
             ProductListingNoonWriteResult persistedResult =
                     support.readNoonResult(persisted.getNoonResultJson());
-            ProductListingCreateOutcomeSupport.References concurrent =
+            ProductListingCreateReferenceEvidence.References concurrent =
                     support.references(persistedResult);
             if (concurrent.complete()) {
                 return found(persisted.getId(), partnerSku, concurrent);
@@ -120,7 +120,7 @@ final class ProductListingCreateOutcomeVerifier {
         }
         ProductListingTaskRecord latest =
                 mapper.selectTaskById(task.getId(), task.getOwnerUserId());
-        ProductListingCreateOutcomeSupport.References references =
+        ProductListingCreateReferenceEvidence.References references =
                 support.references(latest == null
                         ? null : support.readNoonResult(latest.getNoonResultJson()));
         if (references.complete()) {
@@ -151,7 +151,7 @@ final class ProductListingCreateOutcomeVerifier {
     ) {
         ProductListingTaskRecord latest =
                 mapper.selectTaskById(original.getId(), original.getOwnerUserId());
-        ProductListingCreateOutcomeSupport.References references =
+        ProductListingCreateReferenceEvidence.References references =
                 support.references(latest == null
                         ? null : support.readNoonResult(latest.getNoonResultJson()));
         if (!references.complete()) {
@@ -182,7 +182,7 @@ final class ProductListingCreateOutcomeVerifier {
     private ProductListingCreateOutcomeVerificationView found(
             Long taskId,
             String partnerSku,
-            ProductListingCreateOutcomeSupport.References references
+            ProductListingCreateReferenceEvidence.References references
     ) {
         return ProductListingCreateOutcomeVerificationView.found(
                 taskId, partnerSku, references.skuParent(), references.pskuCode());

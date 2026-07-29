@@ -31,9 +31,9 @@ final class ProductListingWorkflowEvidence {
                 continue;
             }
             if (CREATE_REFERENCE_STEP.equals(stepKey)) {
-                if ("succeeded".equalsIgnoreCase(step.getStatus())
-                        && hasCompleteCreateReference(
-                        step.getExternalReference())) {
+                if (ProductListingCreateReferenceEvidence
+                        .confirmedStep(step)
+                        .complete()) {
                     latestFailures.put("create_product", false);
                 }
                 continue;
@@ -57,11 +57,13 @@ final class ProductListingWorkflowEvidence {
         for (ProductListingNoonWriteStepResult step : result.getSteps()) {
             String stepKey = normalize(step == null ? null : step.getStepKey());
             if ("create_product".equals(stepKey) && isDecisive(step.getStatus())) {
-                confirmed = "succeeded".equalsIgnoreCase(step.getStatus())
-                        && hasCompleteCreateReference(step.getExternalReference());
+                confirmed = ProductListingCreateReferenceEvidence
+                        .confirmedStep(step)
+                        .complete();
             } else if ("resolve_create_reference".equals(stepKey)
-                    && "succeeded".equalsIgnoreCase(step.getStatus())
-                    && hasCompleteCreateReference(step.getExternalReference())) {
+                    && ProductListingCreateReferenceEvidence
+                    .confirmedStep(step)
+                    .complete()) {
                 confirmed = true;
             }
         }
@@ -80,26 +82,13 @@ final class ProductListingWorkflowEvidence {
                         && "noon_create_outcome_unknown".equalsIgnoreCase(
                                 step.getFailureCode());
             } else if ("resolve_create_reference".equals(stepKey)
-                    && "succeeded".equalsIgnoreCase(step.getStatus())
-                    && hasCompleteCreateReference(step.getExternalReference())) {
+                    && ProductListingCreateReferenceEvidence
+                    .confirmedStep(step)
+                    .complete()) {
                 unknown = false;
             }
         }
         return unknown;
-    }
-
-    private static boolean hasCompleteCreateReference(String reference) {
-        if (!StringUtils.hasText(reference)) {
-            return false;
-        }
-        boolean skuParent = false;
-        boolean pskuCode = false;
-        for (String token : reference.split(";")) {
-            String normalized = normalize(token);
-            skuParent = skuParent || normalized.matches("skuparent=.+");
-            pskuCode = pskuCode || normalized.matches("pskucode=.+");
-        }
-        return skuParent && pskuCode;
     }
 
     private static boolean isDecisive(String status) {

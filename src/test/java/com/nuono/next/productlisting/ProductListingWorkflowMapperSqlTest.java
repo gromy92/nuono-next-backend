@@ -72,8 +72,24 @@ class ProductListingWorkflowMapperSqlTest {
         assertTrue(sql.contains("real_run.status = 'succeeded'"));
         assertTrue(sql.contains("noon_write_exception"));
         assertTrue(sql.contains("noon_create_outcome_unknown"));
-        assertTrue(sql.contains("skuparent=%"));
-        assertTrue(sql.contains("pskucode=%"));
+        assertTrue(sql.contains("JSON_TABLE("));
+        assertTrue(sql.contains("step_key VARCHAR(64) PATH '$.stepKey'"));
+        assertTrue(sql.contains("step_status VARCHAR(32) PATH '$.status'"));
+        assertTrue(sql.contains(
+                "LOWER(write_evidence.step_key) IN ('create_product', 'resolve_create_reference')"));
+        assertTrue(sql.contains("LOWER(write_evidence.step_status) = 'succeeded'"));
+        assertTrue(sql.contains(
+                "REGEXP_LIKE(write_evidence.external_reference, "
+                        + "'(^|;)[[:space:]]*skuparent[[:space:]]*="
+                        + "[[:space:]]*[^;[:space:]]', 'i')"));
+        assertTrue(sql.contains(
+                "REGEXP_LIKE(write_evidence.external_reference, "
+                        + "'(^|;)[[:space:]]*pskucode[[:space:]]*="
+                        + "[[:space:]]*[^;[:space:]]', 'i')"));
+        assertFalse(sql.contains(
+                "LOWER(write_evidence.external_reference) LIKE"));
+        assertFalse(sql.contains(
+                "LOWER(COALESCE(real_run.noon_result_json, '')) LIKE '%skuparent=%'"));
         assertTrue(sql.contains("'noon_auth_required'"));
         assertTrue(sql.contains("'noon_pre_create_failed'"));
         assertTrue(sql.contains("'noon_create_rejected'"));

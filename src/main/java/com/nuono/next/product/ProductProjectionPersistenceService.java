@@ -7,6 +7,7 @@ import com.nuono.next.infrastructure.mapper.CoreTableStatusMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import com.nuono.next.product.ProductKeyContentHistoryAssembler.KeyContentHistoryCandidate;
 import com.nuono.next.productkeyword.ProductKeywordTitleIndexer;
+import com.nuono.next.productlisting.ProductListingCreateReferenceEvidence;
 import com.nuono.next.productlisting.ProductListingTaskRecord;
 import com.nuono.next.system.BootstrapProperties;
 import java.math.BigDecimal;
@@ -2191,6 +2192,8 @@ public class ProductProjectionPersistenceService {
             return null;
         }
         Map<String, Object> noonResult = readJsonMap(task.getNoonResultJson());
+        ProductListingCreateReferenceEvidence.References references =
+                listingNoonReferences(noonResult);
         Map<String, Object> summary = new LinkedHashMap<>();
         putIfNotNull(summary, "taskId", task.getId());
         putIfNotBlank(summary, "taskNo", task.getTaskNo());
@@ -2199,14 +2202,8 @@ public class ProductProjectionPersistenceService {
         putIfNotBlank(summary, "statusLabel", statusLabel);
         putIfNotBlank(summary, "partnerSku", listingTaskPartnerSku(task));
         putIfNotBlank(summary, "storeCode", task.getStoreCode());
-        putIfNotBlank(summary, "skuParent", firstNonBlank(
-                text(noonResult.get("skuParent")),
-                listingNoonReference(noonResult, "skuParent")
-        ));
-        putIfNotBlank(summary, "pskuCode", firstNonBlank(
-                text(noonResult.get("pskuCode")),
-                listingNoonReference(noonResult, "pskuCode")
-        ));
+        putIfNotBlank(summary, "skuParent", references.skuParent());
+        putIfNotBlank(summary, "pskuCode", references.pskuCode());
         putIfNotBlank(summary, "failureCode", firstNonBlank(task.getFailureCode(), text(noonResult.get("failureCode"))));
         putIfNotBlank(summary, "failureMessage", firstNonBlank(task.getFailureMessage(), text(noonResult.get("failureMessage"))));
         putIfNotBlank(summary, "submittedAt", formatDateTime(task.getSubmittedAt()));
@@ -2239,40 +2236,31 @@ public class ProductProjectionPersistenceService {
         );
     }
 
-    private String listingNoonReference(Map<String, Object> noonResult, String key) {
-        if (noonResult == null || !StringUtils.hasText(key)) {
-            return null;
+    private ProductListingCreateReferenceEvidence.References listingNoonReferences(
+            Map<String, Object> noonResult
+    ) {
+        ProductListingCreateReferenceEvidence.References latest =
+                ProductListingCreateReferenceEvidence.References.empty();
+        if (noonResult == null) {
+            return latest;
         }
         Object stepsValue = noonResult.get("steps");
         if (!(stepsValue instanceof List<?>)) {
-            return null;
+            return latest;
         }
         for (Object stepValue : (List<?>) stepsValue) {
             Map<String, Object> step = objectMap(stepValue);
-            String value = externalReferenceValue(text(step.get("externalReference")), key);
-            if (StringUtils.hasText(value)) {
-                return value;
+            ProductListingCreateReferenceEvidence.References candidate =
+                    ProductListingCreateReferenceEvidence.confirmedStep(
+                            text(step.get("stepKey")),
+                            text(step.get("status")),
+                            text(step.get("externalReference"))
+                    );
+            if (candidate.complete()) {
+                latest = candidate;
             }
         }
-        return null;
-    }
-
-    private String externalReferenceValue(String externalReference, String key) {
-        if (!StringUtils.hasText(externalReference) || !StringUtils.hasText(key)) {
-            return null;
-        }
-        String[] tokens = externalReference.split(";");
-        for (String token : tokens) {
-            int index = token == null ? -1 : token.indexOf('=');
-            if (index <= 0) {
-                continue;
-            }
-            String candidateKey = token.substring(0, index).trim();
-            if (key.equalsIgnoreCase(candidateKey)) {
-                return normalize(token.substring(index + 1));
-            }
-        }
-        return null;
+        return latest;
     }
 
     private String listingPublishStatusLabel(String status) {

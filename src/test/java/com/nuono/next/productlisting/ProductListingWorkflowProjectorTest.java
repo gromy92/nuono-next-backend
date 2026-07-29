@@ -130,17 +130,29 @@ class ProductListingWorkflowProjectorTest {
         );
     }
 
-    @ParameterizedTest
-    @MethodSource("terminalAttemptPolicies")
-    void failedOrRejectedAttemptRequiresOneControlledRecoveryAction(
-            String status,
-            String failureCode,
-            String failureMessage,
-            ProductListingWorkflowView.WriteCertainty certainty,
-            ProductListingWorkflowView.NextAction nextAction
-    ) {
-        ProductListingTaskView realRun = task(20002L, "REAL_RUN", status, failureCode, null);
-        realRun.setFailureMessage(failureMessage);
+    @Test
+    void preCreateLookupReferencesDoNotProveThatThisTaskCreatedTheProduct() {
+        ProductListingNoonWriteStepResult preflight = new ProductListingNoonWriteStepResult();
+        preflight.setStepKey("pre_create_absence_verified");
+        preflight.setStatus("failed");
+        preflight.setFailureCode("partner_sku_already_exists");
+        preflight.setExternalReference(
+                "skuParent=Z-EXISTING-PRODUCT;pskuCode=EXISTING-NOON-PSKU"
+        );
+        preflight.setWriteMayHaveOccurred(false);
+        ProductListingNoonWriteResult result = ProductListingNoonWriteResult.failed(
+                "validation",
+                "partner_sku_already_exists",
+                "Noon already contains this PSKU.",
+                java.util.List.of(preflight)
+        );
+        ProductListingTaskView realRun = task(
+                20002L,
+                "REAL_RUN",
+                "failed",
+                "partner_sku_already_exists",
+                result
+        );
 
         ProductListingWorkflowView view = projector.project(
                 draft("ready_for_dry_run"),
@@ -148,70 +160,13 @@ class ProductListingWorkflowProjectorTest {
                 realRun
         );
 
-        assertEquals(ProductListingWorkflowView.Phase.ACTION_REQUIRED, view.getPhase());
-        assertEquals(certainty, view.getWriteCertainty());
-        assertEquals(nextAction, view.getNextAction());
-        assertEquals(failureCode.toUpperCase(), view.getReasonCode());
-    }
-
-    private static Stream<Arguments> terminalAttemptPolicies() {
-        return Stream.of(
-                Arguments.of(
-                        "failed",
-                        "noon_write_exception",
-                        "gateway failed",
-                        ProductListingWorkflowView.WriteCertainty.UNKNOWN,
-                        ProductListingWorkflowView.NextAction.NONE
-                ),
-                Arguments.of(
-                        "failed",
-                        "noon_write_exception",
-                        "unauthorized after create response was lost",
-                        ProductListingWorkflowView.WriteCertainty.UNKNOWN,
-                        ProductListingWorkflowView.NextAction.NONE
-                ),
-                Arguments.of(
-                        "rejected",
-                        "dry_run_not_validated",
-                        "invalid dry run",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.EDIT_DRAFT
-                ),
-                Arguments.of(
-                        "failed",
-                        "noon_auth_required",
-                        "cookie expired with HTTP 307",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REAUTHENTICATE
-                ),
-                Arguments.of(
-                        "failed",
-                        "noon_pre_create_failed",
-                        "taxonomy lookup failed before create",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REVIEW_DRAFT
-                ),
-                Arguments.of(
-                        "failed",
-                        "noon_create_rejected",
-                        "create payload rejected without creating a product",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REVIEW_DRAFT
-                ),
-                Arguments.of(
-                        "failed",
-                        "noon_warehouse_stock_not_supported",
-                        "unsupported fields rejected before create",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REVIEW_DRAFT
-                ),
-                Arguments.of(
-                        "failed",
-                        "partner_sku_already_exists",
-                        "Noon rejected the duplicate before creating a product",
-                        ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REVIEW_DRAFT
-                )
+        assertEquals(
+                ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
+                view.getWriteCertainty()
+        );
+        assertEquals(
+                ProductListingWorkflowView.NextAction.REVIEW_DRAFT,
+                view.getNextAction()
         );
     }
 

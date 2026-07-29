@@ -130,7 +130,7 @@ public class ProductListingKeywordSuggestionService {
             throw new IllegalArgumentException("Store scope is not accessible.");
         }
         ProductListingDraftRecord draft = suggestionMapper.selectLatestDraftByProductScope(
-                context.getBusinessOwnerUserId(),
+                ProductListingOwnerScope.resolve(context, normalizedStoreCode),
                 normalizedStoreCode,
                 requireText(partnerSku, "PSKU is required.")
         );
@@ -241,8 +241,12 @@ public class ProductListingKeywordSuggestionService {
         if (view == null || view.getDraftId() == null || view.getDraft() == null) {
             throw new IllegalArgumentException("Product listing draft is required.");
         }
-        if (!Objects.equals(context.getBusinessOwnerUserId(), view.getOwnerUserId())
-                || !context.canAccessStore(view.getStoreCode())) {
+        if (!context.canAccessStore(view.getStoreCode())
+                || !context.canAccessOwner(view.getOwnerUserId())
+                || !Objects.equals(
+                        ProductListingOwnerScope.resolve(
+                                context, view.getStoreCode()),
+                        view.getOwnerUserId())) {
             throw new IllegalArgumentException("Product listing draft scope is not accessible.");
         }
         return view.getDraft();

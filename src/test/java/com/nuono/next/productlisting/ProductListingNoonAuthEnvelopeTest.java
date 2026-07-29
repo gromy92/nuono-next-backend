@@ -118,10 +118,10 @@ class ProductListingNoonAuthEnvelopeTest {
             }
         });
 
-        ProductListingNoonWriteResult result = fixture.adapter.execute(request);
+        RuntimeException failure = assertThrows(RuntimeException.class,
+                () -> fixture.adapter.execute(request));
 
-        assertFalse(result.isSuccess());
-        assertEquals("listing_execution_lease_lost", result.getFailureCode());
+        assertTrue(ProductListingNoonWriteRequest.isExecutionLeaseLost(failure));
         assertEquals(4, heartbeats.get());
         assertEquals(1, session.writeCalls.get());
     }

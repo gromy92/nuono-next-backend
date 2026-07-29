@@ -192,6 +192,7 @@ class ProductListingMapperSqlTest {
 
         assertTrue(sql.contains("status = 'running'"));
         assertTrue(sql.contains("started_at = #{startedAt}"));
+        assertTrue(sql.contains("noon_result_json = #{noonResultJson}"));
         assertTrue(sql.contains("id = #{taskId}"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status = 'submitted'"));
@@ -217,8 +218,14 @@ class ProductListingMapperSqlTest {
         String sql = compact(update.value());
 
         assertTrue(sql.contains("UPDATE product_listing_task"));
-        assertTrue(sql.contains("status = 'written_verify_failed'"));
-        assertTrue(sql.contains("failure_code = 'real_run_interrupted'"));
+        assertTrue(sql.contains("THEN 'written_verify_failed'"));
+        assertTrue(sql.contains("THEN 'failed'"));
+        assertTrue(sql.contains("$.success"));
+        assertTrue(sql.contains("$.writeMayHaveOccurred"));
+        assertTrue(sql.contains("THEN 'projection_backfill_failed'"));
+        assertTrue(sql.contains("THEN 'real_run_interrupted_before_write'"));
+        assertTrue(sql.contains("$.failureCode"));
+        assertTrue(sql.contains("ELSE 'real_run_interrupted'"));
         assertTrue(sql.contains("completed_at = NOW()"));
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status = 'running'"));

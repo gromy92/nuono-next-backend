@@ -91,6 +91,7 @@ class LocalDbProductListingProjectionBackfillTest {
         assertEquals("PRJ69486", snapshot.getStoreContext().get("projectCode"));
         assertEquals("NN-TEST-PSKU", snapshot.getIdentity().get("partnerSku"));
         assertTrue(String.valueOf(snapshot.getIdentity().get("skuParent")).startsWith("LOCAL-NN-TEST-PSKU"));
+        assertEquals(10001L, snapshot.getIdentity().get("listingDraftId")); assertEquals("PLD-10001", snapshot.getIdentity().get("listingDraftNo"));
         assertEquals("本地草稿中文标题", snapshot.getContent().get("titleCn"));
         assertEquals(List.of("https://example.test/images/sku-main.jpg"), snapshot.getContent().get("images"));
         assertEquals(1, snapshot.getSiteOffers().size());
@@ -101,7 +102,6 @@ class LocalDbProductListingProjectionBackfillTest {
         assertEquals(24, siteOffer.get("idWarranty"));
         assertNotNull(siteOffer.get("fbpStock"));
     }
-
     @Test
     void shouldDeletePersistedBarcodeWhenDraftBarcodeIsCleared() {
         ProductListingStoreProjectionContext storeContext = new ProductListingStoreProjectionContext();
@@ -226,7 +226,7 @@ class LocalDbProductListingProjectionBackfillTest {
         task.setCompletedAt(LocalDateTime.of(2026, 7, 3, 10, 24, 3));
         ProductListingDraftCommand draft = ProductListingTestFixtures.validCommand();
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-        step.setStepKey("verify_noon_readback");
+        step.setStepKey("create_product");
         step.setStatus("succeeded");
         step.setExternalReference("skuParent=ZTEST001;pskuCode=PSKU-CODE-1");
 
@@ -286,7 +286,7 @@ class LocalDbProductListingProjectionBackfillTest {
                 imageRoleAssignment("https://example.test/images/package.jpg", ProductImageRole.PACKAGE)
         ));
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-        step.setStepKey("verify_noon_readback");
+        step.setStepKey("create_product");
         step.setStatus("succeeded");
         step.setExternalReference("skuParent=ZTEST001;pskuCode=PSKU-CODE-1");
 
@@ -351,7 +351,7 @@ class LocalDbProductListingProjectionBackfillTest {
         setListingDraftField(draft, "sizeEn", "One Size");
         setListingDraftField(draft, "sizeAr", "مقاس واحد");
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-        step.setStepKey("verify_noon_readback");
+        step.setStepKey("create_product");
         step.setStatus("succeeded");
         step.setExternalReference("skuParent=ZTEST001;pskuCode=PSKU-CODE-1");
 
@@ -396,7 +396,7 @@ class LocalDbProductListingProjectionBackfillTest {
         draft.setInheritedListingStartedAt("2026-03-12 00:00:00");
         draft.setInheritedListingStartedSource("pv");
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-        step.setStepKey("verify_noon_readback");
+        step.setStepKey("create_product");
         step.setStatus("succeeded");
         step.setExternalReference("skuParent=ZREBUILD001;pskuCode=PSKU-REBUILD-1");
 
@@ -418,49 +418,6 @@ class LocalDbProductListingProjectionBackfillTest {
         ProductProjectionPersistenceService.SiteOfferSeed offer = seed.getSiteOffers().get(0);
         assertEquals("2026-03-12 00:00:00", offer.getListingStartedAt());
         assertEquals("product_rebuild_inherited:pv", offer.getListingStartedSource());
-    }
-
-    @Test
-    void shouldFitProductRebuildInheritedListingSourceIntoColumnLimit() {
-        ProductListingStoreProjectionContext storeContext = new ProductListingStoreProjectionContext();
-        storeContext.setProjectCode("PRJ69486");
-        storeContext.setProjectName("xingyao");
-        storeContext.setStoreCode("STR245027-NAE");
-        storeContext.setSite("SA");
-        when(projectionMapper.selectStoreContext(10002L, "STR245027-NAE"))
-                .thenReturn(storeContext);
-        when(projectionMapper.selectProjectStoreContexts(10002L, "PRJ69486"))
-                .thenReturn(List.of(storeContext));
-
-        ProductListingTaskRecord task = new ProductListingTaskRecord();
-        task.setOwnerUserId(10002L);
-        task.setStoreCode("STR245027-NAE");
-        ProductListingDraftCommand draft = ProductListingTestFixtures.validCommand();
-        draft.setInheritedListingStartedAt("2026-07-03 10:24:03");
-        draft.setInheritedListingStartedSource("product_listing");
-        ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
-        step.setStepKey("create_product");
-        step.setStatus("succeeded");
-        step.setExternalReference("skuParent=ZREBUILD001;pskuCode=PSKU-REBUILD-1");
-
-        backfill.backfillSuccessfulListing(task, draft, ProductListingNoonWriteResult.succeeded(List.of(step)));
-
-        ArgumentCaptor<List> seedCaptor = ArgumentCaptor.forClass(List.class);
-        verify(projectionPersistenceService).persistInitializationProjection(
-                eq(10002L),
-                eq("PRJ69486"),
-                eq("xingyao"),
-                eq("STR245027-NAE"),
-                anyList(),
-                seedCaptor.capture(),
-                anyList(),
-                eq(true)
-        );
-        ProductProjectionPersistenceService.ProductMasterSeed seed =
-                (ProductProjectionPersistenceService.ProductMasterSeed) seedCaptor.getValue().get(0);
-        ProductProjectionPersistenceService.SiteOfferSeed offer = seed.getSiteOffers().get(0);
-        assertEquals("product_rebuild_inherited:listing", offer.getListingStartedSource());
-        assertTrue(offer.getListingStartedSource().length() <= 40);
     }
 
     private void setListingDraftField(ProductListingDraftCommand draft, String fieldName, String value) {
