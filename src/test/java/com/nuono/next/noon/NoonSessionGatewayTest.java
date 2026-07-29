@@ -167,7 +167,6 @@ class NoonSessionGatewayTest {
         assertFalse((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 435")));
         assertFalse((Boolean) method.invoke(gateway, new IllegalStateException("请求 Noon 失败：Tunnel failed, got: 436")));
     }
-
     @Test
     void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {
         NoonSessionGateway gateway = gatewayWithSignin("");
