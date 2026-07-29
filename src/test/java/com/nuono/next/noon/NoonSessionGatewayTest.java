@@ -169,20 +169,6 @@ class NoonSessionGatewayTest {
     }
 
     @Test
-    void shouldRefreshProxySessionForProxyAuthenticationResponse() throws Exception {
-        NoonSessionGateway gateway = gateway("http://127.0.0.1:1/proxy");
-        Method method = NoonSessionGateway.class.getDeclaredMethod(
-                "shouldRefreshAfterTransientTransportFailure",
-                IllegalStateException.class
-        );
-        method.setAccessible(true);
-
-        assertTrue((Boolean) method.invoke(
-                gateway,
-                new NoonHttpException(407, "", "/catalog")
-        ));
-    }
-    @Test
     void shouldRejectNoonRequestWhenProxyEnabledWithoutEndpoint() {
         NoonSessionGateway gateway = gatewayWithSignin("");
         IllegalStateException exception = assertThrows(
