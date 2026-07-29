@@ -39,6 +39,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
+    private final NoonAdsAdvertiserContextResolver advertiserContextResolver;
     private final String dashboardMetricsUrl;
     private final String queryReportUrl;
     private final int maxQueryCampaigns;
@@ -61,6 +62,10 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         this.sessionFactory = sessionFactory;
         String normalizedBaseUrl = trimTrailingSlash(
                 StringUtils.hasText(baseUrl) ? baseUrl : DEFAULT_ADMANAGER_BASE_URL
+        );
+        this.advertiserContextResolver = new NoonAdsAdvertiserContextResolver(
+                objectMapper,
+                normalizedBaseUrl + "/_svc/productads/onboarding/advertiser/accounts"
         );
         this.dashboardMetricsUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/metrics";
         this.queryReportUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/product/reports/queries";
@@ -97,7 +102,8 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
             }
             NoonPullStoreBinding binding = bindingResolver.resolve(request);
             NoonPullGatewaySession session = sessionFactory.login(binding);
-            List<CampaignRow> campaigns = fetchCampaignRows(session, binding, request);
+            NoonAdsAdvertiserContext advertiserContext = advertiserContextResolver.resolve(session, binding);
+            List<CampaignRow> campaigns = fetchCampaignRows(session, binding, advertiserContext, request);
             if (campaigns.isEmpty()) {
                 throw new NoonInterfacePullException(
                         "provider unavailable: Noon Ads campaign metrics returned no campaigns for "
@@ -105,7 +111,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
                                 + "; verify Ad Manager Overview coverage before treating as zero business data"
                 );
             }
-            List<QueryRow> queries = fetchQueryRows(session, binding, request, campaigns);
+            List<QueryRow> queries = fetchQueryRows(session, binding, advertiserContext, request, campaigns);
             return toCsv(binding, campaigns, queries);
         } catch (RuntimeException exception) {
             throw NoonPullProviderFailureMapper.map("noon ads report download " + safeRequestContext(request), exception);
@@ -115,6 +121,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
     private List<CampaignRow> fetchCampaignRows(
             NoonPullGatewaySession session,
             NoonPullStoreBinding binding,
+            NoonAdsAdvertiserContext advertiserContext,
             NoonReportPullRequest request
     ) {
         Map<String, CampaignRow> campaignsByCode = new LinkedHashMap<>();
@@ -122,7 +129,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
                 dashboardMetricsUrl,
                 dashboardMetricsBody(request),
                 false,
-                admanagerHeaders(binding, "application/json, text/plain, */*")
+                advertiserContextResolver.headers(binding, advertiserContext, "application/json, text/plain, */*")
         );
         String providerError = providerError(response);
         if (StringUtils.hasText(providerError)) {
@@ -144,6 +151,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
     private List<QueryRow> fetchQueryRows(
             NoonPullGatewaySession session,
             NoonPullStoreBinding binding,
+            NoonAdsAdvertiserContext advertiserContext,
             NoonReportPullRequest request,
             List<CampaignRow> campaigns
     ) {
@@ -161,7 +169,11 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
                     queryReportUrl,
                     queryReportBody(request, campaign.campaignCode()),
                     false,
-                    admanagerHeaders(binding, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*")
+                    advertiserContextResolver.headers(
+                            binding,
+                            advertiserContext,
+                            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*"
+                    )
             );
             if (!looksLikeXlsx(workbook)) {
                 throw new NoonInterfacePullException("mapping failed: Noon Ads query report did not return xlsx");
@@ -187,22 +199,6 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         body.put("startDate", request.getDateFrom().toString());
         body.put("endDate", request.getDateTo().toString());
         return body;
-    }
-
-    private Map<String, String> admanagerHeaders(NoonPullStoreBinding binding, String accept) {
-        String site = binding.getSiteCode() == null ? "ae" : binding.getSiteCode().toLowerCase(Locale.ROOT);
-        Map<String, String> headers = new LinkedHashMap<>();
-        headers.put("Accept", accept);
-        headers.put("X-Project", binding.getProjectCode());
-        headers.put("x-content", "desktop");
-        headers.put("x-locale", "en-" + site);
-        headers.put("x-cms", "v3");
-        headers.put("x-platform", "web");
-        headers.put("x-mp", "noon");
-        headers.put("x-border-enabled", "true");
-        headers.put("x-seller-view", "owner");
-        headers.put("x-id-advertiser", binding.getPartnerId());
-        return headers;
     }
 
     private CampaignRow campaignRow(JsonNode campaign, JsonNode metrics) {

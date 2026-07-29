@@ -40,7 +40,7 @@ src/test/java/com/nuono/next/noonpull/NoonPullScheduledExecutionServiceTest.java
 src/test/java/com/nuono/next/noonpull/NoonPullSchedulerTest.java	758
 src/test/java/com/nuono/next/noonpull/NoonPullSmokeRunnerTest.java	966
 src/test/java/com/nuono/next/noonpull/NoonRealProviderBehaviorTest.java	537
-src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	692
+src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	691
 src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	345
 src/test/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsServiceTest.java	1004
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	589

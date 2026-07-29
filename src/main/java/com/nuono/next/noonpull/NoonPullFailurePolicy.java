@@ -23,6 +23,10 @@ public class NoonPullFailurePolicy {
         if (!StringUtils.hasText(value)) {
             return NoonPullFailureType.UNKNOWN_FAILURE;
         }
+        if (value.contains("ads advertiser context mismatch")
+                || value.contains("access to run ads in this country")) {
+            return NoonPullFailureType.ADS_ADVERTISER_CONTEXT_MISMATCH;
+        }
         if (value.contains("not configured") || value.contains("provider_not_configured")) {
             return NoonPullFailureType.PROVIDER_NOT_CONFIGURED;
         }
@@ -150,6 +154,18 @@ public class NoonPullFailurePolicy {
                         false,
                         null,
                         type.code() + ": non-retryable until configuration, authorization, schema or data-window issue is fixed"
+                );
+            case ADS_ADVERTISER_CONTEXT_MISMATCH:
+                return new NoonPullFailureDecision(
+                        type,
+                        NoonPullRetryAction.MANUAL_ACTION,
+                        false,
+                        true,
+                        true,
+                        null,
+                        type.code()
+                                + ": pause Ads plan and repair advertiser account context; "
+                                + "do not open Project auth recovery"
                 );
             case INVALID_PROJECT_CODE:
                 return new NoonPullFailureDecision(

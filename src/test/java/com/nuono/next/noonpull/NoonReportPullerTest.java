@@ -572,7 +572,6 @@ class NoonReportPullerTest {
         private final List<NoonReportExportStatus> pollStatuses;
         private final byte[] content;
         private final RuntimeException pollException;
-
         private FakeReportProvider(NoonReportExportStatus pollStatus, String content) {
             this(List.of(pollStatus), content, null);
         }

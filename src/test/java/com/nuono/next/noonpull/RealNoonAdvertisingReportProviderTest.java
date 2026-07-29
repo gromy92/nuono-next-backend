@@ -74,7 +74,7 @@ class RealNoonAdvertisingReportProviderTest {
         assertEquals(1, session.campaignMetricsCalls);
         assertEquals(1, session.queryReportCalls);
         assertEquals("PRJ69486", session.lastHeaders.get("X-Project"));
-        assertEquals("69486", session.lastHeaders.get("x-id-advertiser"));
+        assertEquals(List.of("69486", "ADV_69486", "true"), List.of(session.lastHeaders.get("x-id-advertiser"), session.lastHeaders.get("x-advertiser-codes"), session.lastHeaders.get("x-seller-view")));
         assertTrue(session.lastCampaignMetricsUrl.endsWith("/_svc/productads/v2/noon/metrics"));
         assertTrue(session.lastCampaignMetricsBody.path("campaignFilters").isObject());
         assertTrue(session.lastCampaignMetricsBody.path("marketplace").isMissingNode());
@@ -178,7 +178,7 @@ class RealNoonAdvertisingReportProviderTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
-            throw new UnsupportedOperationException();
+            return "[{\"idPartner\":108065,\"advertiserCode\":\"ADV_108065\"}]".getBytes();
         }
     }
 
@@ -230,7 +230,7 @@ class RealNoonAdvertisingReportProviderTest {
 
         @Override
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
-            throw new UnsupportedOperationException();
+            return "[{\"idPartner\":69486,\"advertiserCode\":\"ADV_69486\"}]".getBytes();
         }
 
         private ObjectNode campaign() {
