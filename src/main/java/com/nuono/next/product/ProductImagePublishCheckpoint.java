@@ -41,6 +41,7 @@ final class ProductImagePublishCheckpoint {
                     || !StringUtils.hasText(sha256)) {
                 throw new IllegalArgumentException("套图图片缺少资产编号、地址或 SHA-256，暂时不能发布。");
             }
+            ProductImagePublishAssetResolver.validateDefaultAddress(imageUrl);
             checkpoint.approvedImages.add(new ApprovedImage(
                     asset.getId(),
                     imageUrl,

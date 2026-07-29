@@ -10,13 +10,6 @@ import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
-import java.io.IOException;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -33,11 +26,13 @@ class ProductImageNoonPublisher {
     private final StoreSyncMapper storeSyncMapper;
     private final ProductNoonAdapter noonAdapter;
     private final ObjectMapper objectMapper;
+    private final ProductImagePublishAssetResolver assetResolver;
 
     ProductImageNoonPublisher(StoreSyncMapper storeSyncMapper, ProductNoonAdapter noonAdapter, ObjectMapper objectMapper) {
         this.storeSyncMapper = storeSyncMapper;
         this.noonAdapter = noonAdapter;
         this.objectMapper = objectMapper;
+        this.assetResolver = new ProductImagePublishAssetResolver();
     }
 
     List<String> publish(Long ownerUserId, String storeCode, String skuParent, List<String> localImageUrls) {
@@ -57,6 +52,16 @@ class ProductImageNoonPublisher {
         if (localImageUrls != null && localImageUrls.size() > MAX_NOON_IMAGES) {
             throw new IllegalArgumentException("Noon 最多支持发布 20 张商品图片，请先精简套图。");
         }
+        List<ProductImagePublishAsset> localImages = new ArrayList<>();
+        for (String localUrl : localImageUrls) {
+            localImages.add(assetResolver.resolve(localUrl));
+        }
+        ProductImagePublishCheckpoint checkpoint =
+                ProductImagePublishCheckpoint.parse(objectMapper, checkpointJson);
+        for (ProductImagePublishAsset localImage : localImages) {
+            checkpoint.requireApprovedContent(localImage.sourceUrl, localImage.sha256);
+        }
+        List<String> checkpointUrls = checkpointUrls(checkpoint, localImages);
         StoreSyncStoreRecord store = storeSyncMapper.selectOwnerProject(ownerUserId, storeCode);
         StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(ownerUserId);
         if (store == null || owner == null) throw new IllegalArgumentException("当前店铺缺少 Noon 账号上下文，暂时不能发布。");
@@ -68,16 +73,6 @@ class ProductImageNoonPublisher {
         NoonSession session = noonAdapter.loginWithPersistedCookie(
                 ownerUserId, noonUser, store.getNoonPartnerCookie(), projectCode, storeCode
         );
-        List<LocalImage> localImages = new ArrayList<>();
-        for (String localUrl : localImageUrls) {
-            localImages.add(readLocal(localUrl));
-        }
-        ProductImagePublishCheckpoint checkpoint =
-                ProductImagePublishCheckpoint.parse(objectMapper, checkpointJson);
-        for (LocalImage localImage : localImages) {
-            checkpoint.requireApprovedContent(localImage.localImageUrl, localImage.sha256);
-        }
-        List<String> checkpointUrls = checkpointUrls(checkpoint, localImages);
         if (checkpoint.isWriteAttempted() && checkpointUrls != null) {
             try {
                 if (readbackMatches(session, skuParent, checkpointUrls)) {
@@ -89,11 +84,11 @@ class ProductImageNoonPublisher {
         }
 
         List<String> noonUrls = new ArrayList<>();
-        for (LocalImage localImage : localImages) {
-            String noonUrl = checkpoint.noonUrl(localImage.localImageUrl, localImage.sha256);
+        for (ProductImagePublishAsset localImage : localImages) {
+            String noonUrl = checkpoint.noonUrl(localImage.sourceUrl, localImage.sha256);
             if (!StringUtils.hasText(noonUrl)) {
                 noonUrl = upload(session, localImage);
-                checkpoint.record(localImage.localImageUrl, localImage.sha256, noonUrl);
+                checkpoint.record(localImage.sourceUrl, localImage.sha256, noonUrl);
                 saveCheckpoint(checkpoint, checkpointSaver);
             }
             noonUrls.add(noonUrl);
@@ -141,9 +136,19 @@ class ProductImageNoonPublisher {
         return actual.equals(expectedUrls);
     }
 
-    private String upload(NoonSession session, LocalImage image) {
+    private String upload(
+            NoonSession session,
+            ProductImagePublishAsset image
+    ) {
         JsonNode response = noonAdapter.postMultipartFile(
-                session, ASSET_UPLOAD_URL, "file", image.fileName, "image/png", image.content, true, null
+                session,
+                ASSET_UPLOAD_URL,
+                "file",
+                image.fileName,
+                image.contentType,
+                image.content,
+                true,
+                null
         );
         for (String key : List.of("upload_path", "uploadPath", "path", "url")) {
             String value = response.path(key).asText("").trim();
@@ -152,35 +157,13 @@ class ProductImageNoonPublisher {
         throw new IllegalStateException("Noon 图片上传响应缺少 upload_path。");
     }
 
-    private LocalImage readLocal(String imageUrl) {
-        String prefix = "/api/product-images/assets/";
-        if (!StringUtils.hasText(imageUrl) || !imageUrl.startsWith(prefix)) {
-            throw new IllegalArgumentException("套图包含无法发布的图片地址。");
-        }
-        String relative = URLDecoder.decode(imageUrl.substring(prefix.length()), StandardCharsets.UTF_8);
-        String[] parts = relative.split("/", 2);
-        if (parts.length != 2 || parts[0].contains("..") || parts[1].contains("..") || parts[1].contains("/")) {
-            throw new IllegalArgumentException("套图图片地址不合法。");
-        }
-        Path root = ProductImageAssetFileSupport.productImageUploadDir().resolve("profiles").normalize();
-        Path file = root.resolve(parts[0]).resolve(parts[1]).normalize();
-        if (!file.startsWith(root) || !Files.isRegularFile(file)) throw new IllegalStateException("套图图片文件不存在。");
-        try {
-            byte[] bytes = Files.readAllBytes(file);
-            if (bytes.length == 0 || bytes.length > 10 * 1024 * 1024) throw new IllegalStateException("套图图片为空或超过 10MB。");
-            return new LocalImage(imageUrl, parts[1], bytes, sha256(bytes));
-        } catch (IOException exception) {
-            throw new IllegalStateException("读取套图图片失败：" + exception.getMessage(), exception);
-        }
-    }
-
     private List<String> checkpointUrls(
             ProductImagePublishCheckpoint checkpoint,
-            List<LocalImage> localImages
+            List<ProductImagePublishAsset> localImages
     ) {
         List<String> urls = new ArrayList<>();
-        for (LocalImage localImage : localImages) {
-            String noonUrl = checkpoint.noonUrl(localImage.localImageUrl, localImage.sha256);
+        for (ProductImagePublishAsset localImage : localImages) {
+            String noonUrl = checkpoint.noonUrl(localImage.sourceUrl, localImage.sha256);
             if (!StringUtils.hasText(noonUrl)) {
                 return null;
             }
@@ -213,36 +196,9 @@ class ProductImageNoonPublisher {
         );
     }
 
-    private String sha256(byte[] content) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(content);
-            StringBuilder builder = new StringBuilder();
-            for (byte value : digest) {
-                builder.append(String.format("%02x", value));
-            }
-            return builder.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("当前运行环境不支持 SHA-256。", exception);
-        }
-    }
-
     private String first(String... values) {
         for (String value : values) if (StringUtils.hasText(value)) return value.trim();
         return null;
-    }
-
-    private static final class LocalImage {
-        private final String localImageUrl;
-        private final String fileName;
-        private final byte[] content;
-        private final String sha256;
-
-        private LocalImage(String localImageUrl, String fileName, byte[] content, String sha256) {
-            this.localImageUrl = localImageUrl;
-            this.fileName = fileName;
-            this.content = content;
-            this.sha256 = sha256;
-        }
     }
 
 }
