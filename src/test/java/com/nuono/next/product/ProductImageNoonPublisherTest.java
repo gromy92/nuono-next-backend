@@ -227,7 +227,6 @@ class ProductImageNoonPublisherTest {
 
     @Test
     void shouldRejectChangedApprovedContentBeforeAnyNoonWrite() throws Exception {
-        stubStoreSession();
         String imageUrl =
                 "/api/product-images/assets/STR108065-NAE/approval-publish-test.png";
         ProductImageSuiteAssetRecord approved = new ProductImageSuiteAssetRecord();
@@ -249,13 +248,7 @@ class ProductImageNoonPublisherTest {
         );
 
         assertTrue(failure.getMessage().contains("审核通过后的套图文件已发生变化"));
-        verify(noonAdapter, never()).postMultipartFile(
-                any(), any(String.class), any(String.class), any(String.class), any(String.class),
-                any(byte[].class), eq(true), eq(null)
-        );
-        verify(noonAdapter, never()).postWriteJson(
-                any(), any(String.class), any(JsonNode.class), eq(true)
-        );
+        verifyNoInteractions(storeSyncMapper, noonAdapter);
     }
 
     private void stubStoreSession() {
