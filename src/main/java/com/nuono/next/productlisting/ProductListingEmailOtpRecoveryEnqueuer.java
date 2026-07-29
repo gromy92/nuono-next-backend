@@ -10,6 +10,7 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 public class ProductListingEmailOtpRecoveryEnqueuer {
@@ -43,6 +44,21 @@ public class ProductListingEmailOtpRecoveryEnqueuer {
         this.recoveryQueue = recoveryQueue;
         this.properties = properties;
         this.sessionGateway = sessionGateway;
+    }
+
+    boolean applies(StoreSyncStoreRecord project) {
+        if (project == null) {
+            return false;
+        }
+        if (StringUtils.hasText(project.getNoonPartnerMailAuthCode())) {
+            return true;
+        }
+        try {
+            sessionGateway.configuredMerchantEmail();
+            return true;
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 
     @Transactional

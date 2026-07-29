@@ -3,7 +3,6 @@ package com.nuono.next.productlisting;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
 
 @Service
 public class ProductListingEmailOtpReauthenticationService {
@@ -22,8 +21,7 @@ public class ProductListingEmailOtpReauthenticationService {
     }
 
     public boolean applies(StoreSyncStoreRecord project) {
-        return project != null
-                && StringUtils.hasText(project.getNoonPartnerMailAuthCode());
+        return enqueuer.applies(project);
     }
 
     public ProductListingWorkflowView enqueue(

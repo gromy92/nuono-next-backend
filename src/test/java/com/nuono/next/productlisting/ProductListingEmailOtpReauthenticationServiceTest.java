@@ -1,6 +1,8 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -52,6 +54,32 @@ class ProductListingEmailOtpReauthenticationServiceTest {
                 90001L,
                 "STR245027-NAE"
         );
+    }
+
+    @Test
+    void unifiedSharedEmailRoutesRecoveryWithoutProjectMailAuthCode() {
+        StoreSyncStoreRecord project = project();
+        project.setNoonPartnerMailAuthCode(null);
+        when(sessionGateway.configuredMerchantEmail())
+                .thenReturn("shared@example.com");
+
+        assertTrue(service.applies(project));
+    }
+
+    @Test
+    void projectMailAuthCodeRemainsACompatibleRecoveryRoute() {
+        assertTrue(service.applies(project()));
+        verify(sessionGateway, never()).configuredMerchantEmail();
+    }
+
+    @Test
+    void missingProjectAndUnifiedEmailCredentialsDoesNotRouteRecovery() {
+        StoreSyncStoreRecord project = project();
+        project.setNoonPartnerMailAuthCode(null);
+        when(sessionGateway.configuredMerchantEmail())
+                .thenThrow(new IllegalStateException("not configured"));
+
+        assertFalse(service.applies(project));
     }
 
     @Test
