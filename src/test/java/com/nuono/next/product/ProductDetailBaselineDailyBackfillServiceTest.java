@@ -41,7 +41,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
     }
 
     @Test
-    void shouldEnqueueEveryEligibleCandidateWithoutTheFormerTenItemCap() {
+    void shouldEnqueueAtMostTenEligibleCandidatesPerStoreSiteRun() {
         ProductDetailBaselineCandidateMapper mapper = mock(ProductDetailBaselineCandidateMapper.class);
         ProductDetailBaselineBackfillService backfill = mock(ProductDetailBaselineBackfillService.class);
         List<ProductDetailBaselineCandidate> candidates = IntStream.rangeClosed(1, 12)
@@ -66,6 +66,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 batchSubmitter,
                 true,
                 360,
+                10,
                 CLOCK
         );
 
@@ -73,13 +74,13 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         assertEquals(12, result.getCandidateCount());
-        assertEquals(12, result.getEnqueuedCount());
+        assertEquals(10, result.getEnqueuedCount());
         verify(mapper).listMissingMaintainedCandidates(307L, "STR108065-NSA", "SA");
         ArgumentCaptor<Runnable> batchCaptor = ArgumentCaptor.forClass(Runnable.class);
         verify(batchSubmitter).submit(eq("307::str108065-nsa"), batchCaptor.capture());
         verify(backfill, never()).enqueueInline(any(), any(), any());
         batchCaptor.getValue().run();
-        verify(backfill, times(12)).enqueueInline(any(), eq("daily-maintenance-audit"), any());
+        verify(backfill, times(10)).enqueueInline(any(), eq("daily-maintenance-audit"), any());
     }
 
     @Test
