@@ -64,7 +64,7 @@ class HttpNoonFrontendSearchAdapterTest {
     }
 
     @Test
-    void capsSearchLimitAtTop100() {
+    void capsEachProviderPageAtTop100() {
         HttpNoonFrontendSearchAdapter adapter = adapter();
 
         String url = adapter.buildCustomerCatalogV3SearchUrl(NoonSearchRequest.builder()
@@ -75,6 +75,26 @@ class HttpNoonFrontendSearchAdapterTest {
                 .build());
 
         assertEquals("https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=name+tag&limit=100", url);
+    }
+
+    @Test
+    void appendsOneIndexedPageForTheSecondTop200Request() {
+        HttpNoonFrontendSearchAdapter adapter = adapter();
+
+        String url = adapter.buildCustomerCatalogV3SearchUrl(
+                NoonSearchRequest.builder()
+                        .siteCode("SA")
+                        .locale("en-SA")
+                        .keyword("name tag")
+                        .limit(100)
+                        .page(2)
+                        .build()
+        );
+
+        assertEquals(
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=name+tag&limit=100&page=2",
+                url
+        );
     }
 
     @Test

@@ -26,6 +26,10 @@ public class NoonProductDetail {
     private String snapshotHash;
     private String rawDetailJson;
     private Integer providerHttpStatus;
+    private String providerSourceUrl;
+    private String parserVersion;
+    private String acquisitionMode;
+    private boolean reusedObservation;
     private LocalDateTime capturedAt;
 
     public String getNoonProductCode() { return noonProductCode; }
@@ -72,6 +76,14 @@ public class NoonProductDetail {
     public void setRawDetailJson(String rawDetailJson) { this.rawDetailJson = rawDetailJson; }
     public Integer getProviderHttpStatus() { return providerHttpStatus; }
     public void setProviderHttpStatus(Integer providerHttpStatus) { this.providerHttpStatus = providerHttpStatus; }
+    public String getProviderSourceUrl() { return providerSourceUrl; }
+    public void setProviderSourceUrl(String providerSourceUrl) { this.providerSourceUrl = providerSourceUrl; }
+    public String getParserVersion() { return parserVersion; }
+    public void setParserVersion(String parserVersion) { this.parserVersion = parserVersion; }
+    public String getAcquisitionMode() { return acquisitionMode; }
+    public void setAcquisitionMode(String acquisitionMode) { this.acquisitionMode = acquisitionMode; }
+    public boolean isReusedObservation() { return reusedObservation; }
+    public void setReusedObservation(boolean reusedObservation) { this.reusedObservation = reusedObservation; }
     public LocalDateTime getCapturedAt() { return capturedAt; }
     public void setCapturedAt(LocalDateTime capturedAt) { this.capturedAt = capturedAt; }
 }

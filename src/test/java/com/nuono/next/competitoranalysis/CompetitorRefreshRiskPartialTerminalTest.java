@@ -5,8 +5,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -86,6 +84,9 @@ class CompetitorRefreshRiskPartialTerminalTest {
                 .thenReturn(watchProduct);
         when(mapper.listActiveKeywordsByWatchProductId(180123L))
                 .thenReturn(List.of(keyword()));
+        when(keywordRunner.runKeyword(
+                anyLong(), anyLong(), eq(watchProduct), any(), eq(601L)
+        )).thenReturn(CompetitorKeywordRefreshResult.success(0, 0));
         when(mapper.nextSearchRunId()).thenReturn(220123L);
         when(mapper.selectWatchProductForRefresh(180123L))
                 .thenReturn(watchProduct);
@@ -107,7 +108,7 @@ class CompetitorRefreshRiskPartialTerminalTest {
                 eq(220123L),
                 eq(180123L),
                 eq("PARTIAL_FAILED"),
-                eq(0),
+                eq(1),
                 eq(0),
                 anyInt(),
                 anyInt(),
@@ -118,8 +119,8 @@ class CompetitorRefreshRiskPartialTerminalTest {
         verify(mapper).updateLatestRefreshRunIfNotOlder(
                 180123L, 220123L, "PARTIAL_FAILED", 601L
         );
-        verify(keywordRunner, never()).runKeyword(
-                anyLong(), anyLong(), any(), any(), isNull()
+        verify(keywordRunner).runKeyword(
+                anyLong(), anyLong(), eq(watchProduct), any(), eq(601L)
         );
     }
 

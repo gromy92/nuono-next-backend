@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -21,19 +22,30 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRunner {
     private static final int CANDIDATE_DISCOVERY_LIMIT = 20;
-    private static final int RANK_SCAN_DEPTH = 100;
+    private static final int RANK_SCAN_DEPTH = 200;
     private static final int MAX_TITLE_SNAPSHOT_LENGTH = 500;
     private final CompetitorAnalysisMapper mapper;
     private final NoonFrontendSearchAdapter adapter;
     private final CompetitorRankFactWriter rankFactWriter;
+    private final CompetitorProductSnapshotService snapshotService;
 
+    @Autowired
     public CompetitorSearchRefreshRunner(
             CompetitorAnalysisMapper mapper,
-            NoonFrontendSearchAdapter adapter
+            NoonFrontendSearchAdapter adapter,
+            CompetitorProductSnapshotService snapshotService
     ) {
         this.mapper = mapper;
         this.adapter = adapter;
+        this.snapshotService = snapshotService;
         this.rankFactWriter = new CompetitorRankFactWriter(mapper);
+    }
+
+    CompetitorSearchRefreshRunner(
+            CompetitorAnalysisMapper mapper,
+            NoonFrontendSearchAdapter adapter
+    ) {
+        this(mapper, adapter, null);
     }
 
     @Override
@@ -52,6 +64,8 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 CompetitorSearchResultIndex.from(page.getResults(), RANK_SCAN_DEPTH);
         Map<String, NoonSearchResult> candidateResultsByCode =
                 resultIndex.firstResultsByCode(CANDIDATE_DISCOVERY_LIMIT);
+        Map<String, NoonSearchResult> scanResultsByCode =
+                resultIndex.firstResultsByCode(RANK_SCAN_DEPTH);
         Map<String, Long> searchResultIdsByRankKey = new LinkedHashMap<>();
         int resultCount = 0;
         for (NoonSearchResult result : resultIndex.orderedResults()) {
@@ -62,6 +76,12 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         }
 
         int candidateCount = upsertCandidates(context, candidateResultsByCode);
+        recordTrackedListSnapshots(
+                context,
+                page,
+                scanResultsByCode,
+                candidateResultsByCode
+        );
         int rankFactCount =
                 rankFactWriter.write(context, resultIndex, searchResultIdsByRankKey, page, RANK_SCAN_DEPTH);
         CompetitorKeywordRefreshOutcome outcome = CompetitorKeywordRefreshOutcome.success(resultCount);
@@ -74,6 +94,57 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         outcome.setResponseHash(page.getResponseHash());
         outcome.setCapturedAt(page.getCapturedAt());
         return outcome;
+    }
+
+    private void recordTrackedListSnapshots(
+            CompetitorKeywordRefreshContext context,
+            NoonSearchPage page,
+            Map<String, NoonSearchResult> scanResultsByCode,
+            Map<String, NoonSearchResult> candidateResultsByCode
+    ) {
+        if (snapshotService == null) {
+            return;
+        }
+        Map<String, NoonSearchResult> trackedResultsByCode = new LinkedHashMap<>();
+        Map<String, Long> productIdsByCode = new LinkedHashMap<>();
+        String selfCode = normalizeCode(
+                context.getWatchProduct().getSelfNoonProductCode()
+        );
+        NoonSearchResult selfResult = scanResultsByCode.get(selfCode);
+        if (selfResult != null) {
+            trackedResultsByCode.put(selfCode, selfResult);
+        }
+        List<CompetitorProductRow> confirmed =
+                mapper.listConfirmedCompetitorProductsByKeywordId(
+                        context.getKeyword().getId()
+                );
+        if (confirmed != null) {
+            for (CompetitorProductRow product : confirmed) {
+                String code = normalizeCode(
+                        product == null ? null : product.getNoonProductCode()
+                );
+                NoonSearchResult result = scanResultsByCode.get(code);
+                if (product == null
+                        || !StringUtils.hasText(code)
+                        || result == null
+                        || code.equals(selfCode)) {
+                    continue;
+                }
+                if (!candidateResultsByCode.containsKey(code)) {
+                    mapper.updateCompetitorProductFromSearch(
+                            buildProductInsert(context, result, product.getId())
+                    );
+                }
+                trackedResultsByCode.put(code, result);
+                productIdsByCode.put(code, product.getId());
+            }
+        }
+        snapshotService.recordSearchSnapshots(
+                context,
+                page,
+                trackedResultsByCode,
+                productIdsByCode
+        );
     }
 
     private int upsertCandidates(
@@ -125,12 +196,9 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setTitleSnapshot(normalizeTitleSnapshot(displayTitle(result)));
         command.setTitleEnSnapshot(normalizeTitleSnapshot(result.getTitleEn()));
         command.setTitleArSnapshot(normalizeTitleSnapshot(result.getTitleAr()));
-        command.setBrandSnapshot(normalizeText(result.getBrand()));
         command.setImageUrlSnapshot(normalizeText(result.getImageUrl()));
         command.setPriceAmountSnapshot(result.getPriceAmount());
         command.setCurrencyCodeSnapshot(normalizeText(result.getCurrencyCode()));
-        command.setRatingSnapshot(result.getRating());
-        command.setReviewCountSnapshot(result.getReviewCount());
         command.setTagsSnapshotJson(normalizeText(result.getTagsJson()));
         command.setSourceType("SEARCH_DISCOVERY");
         command.setReviewStatus("PENDING");
@@ -176,15 +244,11 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
         command.setTitleSnapshot(normalizeTitleSnapshot(displayTitle(result)));
         command.setTitleEnSnapshot(normalizeTitleSnapshot(result.getTitleEn()));
         command.setTitleArSnapshot(normalizeTitleSnapshot(result.getTitleAr()));
-        command.setBrandSnapshot(normalizeText(result.getBrand()));
         command.setImageUrlSnapshot(normalizeText(result.getImageUrl()));
         command.setPriceAmount(result.getPriceAmount());
         command.setCurrencyCode(normalizeText(result.getCurrencyCode()));
-        command.setRating(result.getRating());
-        command.setReviewCount(result.getReviewCount());
         command.setSponsored(result.isSponsored());
         command.setTagsJson(normalizeText(result.getTagsJson()));
-        command.setRawResultJson(normalizeText(result.getRawResultJson()));
         command.setCapturedAt(page.getCapturedAt());
         command.setActorUserId(context.getActorUserId());
         return command;

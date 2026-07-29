@@ -162,7 +162,7 @@ final class CompetitorDetailRetryCoordinator {
         waiting.setRetryOfRunId(runId);
         waiting.setLastErrorCode("COMPETITOR_RISK_BACKOFF");
         waiting.setMessage(message);
-        String waitingMessage = "竞品详情抓取等待共享风控冷却，计划于 "
+        String waitingMessage = "竞品列表补拉等待共享风控冷却，计划于 "
                 + notBefore
                 + " 后继续。";
         if (!taskFactory.requeueDetailRetry(
@@ -213,7 +213,7 @@ final class CompetitorDetailRetryCoordinator {
     }
 
     private String retryMessage(CompetitorDetailRetryPayload payload) {
-        return "竞品详情抓取失败，已进入第 "
+        return "竞品列表补拉失败，已进入第 "
                 + payload.getRetryAttempt()
                 + "/"
                 + payload.getMaxRetryAttempts()

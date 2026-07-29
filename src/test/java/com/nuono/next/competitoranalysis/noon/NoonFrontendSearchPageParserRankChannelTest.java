@@ -17,6 +17,24 @@ import org.junit.jupiter.api.Test;
 class NoonFrontendSearchPageParserRankChannelTest {
 
     @Test
+    void acceptsAnExplicitZeroHitListResponse() {
+        NoonFrontendSearchPageParser parser =
+                new NoonFrontendSearchPageParser(new ObjectMapper());
+
+        NoonSearchPage page = parser.parseCatalogJson(
+                "{\"nbHits\":0,\"nbPages\":0,"
+                        + "\"search\":{\"page\":1,\"limit\":100},"
+                        + "\"hits\":[]}",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=missing&limit=100",
+                200
+        );
+
+        assertTrue(page.getResults().isEmpty());
+        assertEquals(0, page.getTotalHits());
+        assertEquals(0, page.getTotalPages());
+    }
+
+    @Test
     void preservesSponsoredAndOrganicAppearancesOfTheSameProduct() {
         NoonFrontendSearchPageParser parser = parserAt("2026-07-26T18:00:00Z");
         NoonSearchPage page = parser.parseCatalogJson(
@@ -71,6 +89,23 @@ class NoonFrontendSearchPageParserRankChannelTest {
         assertEquals("N00000021", page.getResults().get(20).getNoonProductCode());
         assertEquals(21, page.getResults().get(20).getPosition());
         assertTrue(page.getResults().get(20).isSponsored());
+    }
+
+    @Test
+    void parsesTop200CoverageMetadataFromCustomerCatalogResponse() {
+        NoonSearchPage page = new NoonFrontendSearchPageParser(
+                new ObjectMapper()
+        ).parseCatalogJson(
+                "{\"nbHits\":415,\"nbPages\":5,\"search\":{\"page\":2,\"limit\":100},"
+                        + "\"hits\":[{\"sku\":\"N22222222NAT\",\"name\":\"Pencil\"}]}",
+                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=pencil&limit=100&page=2",
+                200
+        );
+
+        assertEquals(415, page.getTotalHits());
+        assertEquals(5, page.getTotalPages());
+        assertEquals(2, page.getProviderPage());
+        assertEquals(100, page.getProviderLimit());
     }
 
     private static NoonFrontendSearchPageParser parserAt(String instant) {

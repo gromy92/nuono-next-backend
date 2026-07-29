@@ -163,7 +163,7 @@ class CompetitorDailyDetailRetryIsolationTest {
         }
         currentDayTask = taskRepository.selectById(currentDayTask.getId());
         assertEquals(OperationalTaskStatus.SUCCEEDED, currentDayTask.getStatus());
-        assertEquals("竞品详情快照刷新完成。", currentDayTask.getMessage());
+        assertEquals("竞品列表缺口补拉完成。", currentDayTask.getMessage());
         assertTrue(currentDayTask.getNaturalKey().contains(":detail:"));
         verify(detailService).refreshTargets(
                 eq(product),

@@ -5,6 +5,8 @@ import java.math.BigDecimal;
 public class CompetitorProductSnapshotRow {
     private Long id;
     private String titleEn;
+    private String titleAr;
+    private String badgesJson;
     private String brand;
     private BigDecimal priceAmount;
     private String currencyCode;
@@ -17,6 +19,10 @@ public class CompetitorProductSnapshotRow {
     public void setId(Long id) { this.id = id; }
     public String getTitleEn() { return titleEn; }
     public void setTitleEn(String titleEn) { this.titleEn = titleEn; }
+    public String getTitleAr() { return titleAr; }
+    public void setTitleAr(String titleAr) { this.titleAr = titleAr; }
+    public String getBadgesJson() { return badgesJson; }
+    public void setBadgesJson(String badgesJson) { this.badgesJson = badgesJson; }
     public String getBrand() { return brand; }
     public void setBrand(String brand) { this.brand = brand; }
     public BigDecimal getPriceAmount() { return priceAmount; }

@@ -9,7 +9,7 @@ import org.springframework.util.StringUtils;
 final class CompetitorDetailRetryRequestLedger {
     static final String UNKNOWN_OUTCOME = "DETAIL_REQUEST_OUTCOME_UNKNOWN";
     private static final String UNKNOWN_MESSAGE =
-            "上次竞品详情请求已发出，但结果未确认，已按失败消耗本次尝试。";
+            "上次竞品列表补拉请求已发出，但结果未确认，已按失败消耗本次尝试。";
 
     private CompetitorDetailRetryRequestLedger() {
     }
@@ -36,6 +36,31 @@ final class CompetitorDetailRetryRequestLedger {
         next.setDetailRequestAttemptCount(count + 1);
         next.setRootRunId(firstNonNull(next.getRootRunId(), runId));
         next.setRetryOfRunId(runId);
+        return next;
+    }
+
+    static CompetitorDetailRetryPayload complete(
+            CompetitorDetailRetryPayload payload,
+            CompetitorProductDetailTarget target,
+            boolean requested
+    ) {
+        boolean requestInFlight = requirePending(payload, target)
+                .isRequestInFlight();
+        if (requested && !requestInFlight) {
+            throw invalid(
+                    "Detail request success has no durable reservation."
+            );
+        }
+        if (!requested && requestInFlight) {
+            throw invalid(
+                    "Cached detail success cannot own a provider reservation."
+            );
+        }
+        CompetitorDetailRetryPayload next = payload.copy();
+        next.removeRetryState(target);
+        next.setDetailSucceededCount(
+                next.getDetailSucceededCount() + 1
+        );
         return next;
     }
 
@@ -114,6 +139,46 @@ final class CompetitorDetailRetryRequestLedger {
         next.setRetryStates(states);
         next.setLastErrorCode(UNKNOWN_OUTCOME);
         next.setMessage(UNKNOWN_MESSAGE);
+        return next;
+    }
+
+    static CompetitorDetailRetryPayload defer(
+            CompetitorDetailRetryPayload payload,
+            CompetitorProductDetailTarget target,
+            String errorCode,
+            String errorMessage,
+            Long runId,
+            LocalDateTime deferredAt,
+            CompetitorDetailRetryPolicy policy
+    ) {
+        CompetitorDetailRetryState current = requirePending(payload, target);
+        if (current.isRequestInFlight()) {
+            throw invalid("Deferred detail target still has an in-flight request.");
+        }
+        CompetitorDetailRetryPayload next = payload.copy();
+        List<CompetitorDetailRetryState> states = without(
+                payload.getRetryStates(),
+                target
+        );
+        Optional<CompetitorDetailRetryState> planned = policy.planTargetRetry(
+                current,
+                target,
+                errorCode,
+                errorMessage,
+                true,
+                deferredAt,
+                null,
+                next.getMaxRetryAttempts()
+        );
+        if (planned.isEmpty()) {
+            throw invalid("Deferred detail target is not retryable.");
+        }
+        states.add(planned.get());
+        next.setRetryStates(states);
+        next.setLastErrorCode(errorCode);
+        next.setMessage(errorMessage);
+        next.setRootRunId(firstNonNull(next.getRootRunId(), runId));
+        next.setRetryOfRunId(runId);
         return next;
     }
 

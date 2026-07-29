@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,7 +89,10 @@ class NoonFrontendSearchPageParserTest {
         assertEquals(1, first.getPosition());
         assertEquals("Z668B504C093C5F296F18Z", first.getNoonProductCode());
         assertEquals("Z_CODE", first.getCodeType());
-        assertEquals("Sadaf", first.getBrand());
+        assertNull(first.getBrand());
+        assertNull(first.getRating());
+        assertNull(first.getReviewCount());
+        assertNull(first.getRawResultJson());
         assertEquals("AED", first.getCurrencyCode());
         assertTrue(first.isSponsored());
         assertEquals("https://www.noon.com/uae-en/250-sheet-star-shaped-sticky-notes-multicolour/Z668B504C093C5F296F18Z/p/?o=z668b504c093c5f296f18z-1", first.getCanonicalUrl());
@@ -97,7 +101,7 @@ class NoonFrontendSearchPageParserTest {
         assertEquals(2, second.getPosition());
         assertEquals("N53335547A", second.getNoonProductCode());
         assertEquals("N_CODE", second.getCodeType());
-        assertEquals(6257, second.getReviewCount());
+        assertNull(second.getReviewCount());
     }
 
     @Test
@@ -212,9 +216,10 @@ class NoonFrontendSearchPageParserTest {
         assertEquals("ZF47007A9D75977AB9A83Z", first.getNoonProductCode());
         assertEquals(1, first.getPosition());
         assertTrue(first.isSponsored());
-        assertEquals("QiLi", first.getBrand());
+        assertNull(first.getBrand());
         assertEquals("SAR", first.getCurrencyCode());
-        assertEquals(47, first.getReviewCount());
+        assertNull(first.getReviewCount());
+        assertNull(first.getRawResultJson());
 
         NoonSearchResult second = page.getResults().get(1);
         assertEquals("Z9C3822DFD5742951E961Z", second.getNoonProductCode());
@@ -259,9 +264,10 @@ class NoonFrontendSearchPageParserTest {
         assertEquals("English competitor title", readString(result, "getTitleEn"));
         assertEquals("عنوان المنافس", readString(result, "getTitleAr"));
         String tagsJson = readString(result, "getTagsJson");
-        assertTrue(tagsJson.contains("Best Seller"));
-        assertTrue(tagsJson.contains("Free Delivery"));
-        assertTrue(tagsJson.contains("supermall"));
+        assertEquals(
+                "[\"Best Seller\",\"Free Delivery\",\"supermall\"]",
+                tagsJson
+        );
     }
 
     private static String readString(Object target, String methodName) {

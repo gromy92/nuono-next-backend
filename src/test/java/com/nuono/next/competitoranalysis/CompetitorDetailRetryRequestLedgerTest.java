@@ -100,6 +100,31 @@ class CompetitorDetailRetryRequestLedgerTest {
         );
     }
 
+    @Test
+    void rankCoverageDeferralDoesNotConsumeAProviderAttempt() {
+        CompetitorProductDetailTarget target =
+                CompetitorProductDetailTarget.self("ZSELF001");
+
+        CompetitorDetailRetryPayload deferred =
+                CompetitorDetailRetryRequestLedger.defer(
+                        payload(target, 4),
+                        target,
+                        "RANK_COVERAGE_INCOMPLETE",
+                        "waiting for rank",
+                        220127L,
+                        NOW,
+                        POLICY
+                );
+
+        assertEquals(0, deferred.getDetailRequestAttemptCount());
+        assertEquals(4, deferred.state(target).getRetryAttempt());
+        assertEquals(
+                NOW.plusMinutes(16),
+                deferred.state(target).getRetryNotBefore()
+        );
+        assertFalse(deferred.state(target).isRequestInFlight());
+    }
+
     private static CompetitorDetailRetryPayload payload(
             CompetitorProductDetailTarget target,
             int retryAttempt

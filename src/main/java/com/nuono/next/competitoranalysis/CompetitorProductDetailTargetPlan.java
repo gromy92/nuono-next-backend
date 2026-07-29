@@ -2,6 +2,8 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import com.nuono.next.noon.NoonShanghaiBusinessTime;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -13,24 +15,52 @@ final class CompetitorProductDetailTargetPlan {
     private CompetitorProductDetailTargetPlan() {
     }
 
-    static List<Entry> initial(
+    static List<CompetitorProductDetailPlanEntry> initial(
             CompetitorAnalysisMapper mapper,
             CompetitorWatchProductRow watchProduct
     ) {
-        List<Entry> targets = new ArrayList<>();
+        return initial(mapper, watchProduct, false);
+    }
+
+    static List<CompetitorProductDetailPlanEntry> initial(
+            CompetitorAnalysisMapper mapper,
+            CompetitorWatchProductRow watchProduct,
+            boolean onlyMissingFromCompleteTop200Scan
+    ) {
+        List<CompetitorProductDetailPlanEntry> targets = new ArrayList<>();
+        LocalDate factDate = NoonShanghaiBusinessTime.now().toLocalDate();
+        if (onlyMissingFromCompleteTop200Scan
+                && !hasCompleteCoverage(mapper, watchProduct, factDate)) {
+            return deferUntilRankCoverage(
+                    initial(mapper, watchProduct, false)
+            );
+        }
         String selfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
-        if (isRefreshableCode(selfCode)) {
-            targets.add(new Entry(CompetitorProductDetailTarget.self(selfCode), null));
+        if (isRefreshableCode(selfCode)
+                && (!onlyMissingFromCompleteTop200Scan
+                || needsExactSearch(
+                        mapper, watchProduct.getId(), selfCode, factDate
+                ))) {
+            targets.add(new CompetitorProductDetailPlanEntry(
+                    CompetitorProductDetailTarget.self(selfCode),
+                    null
+            ));
         }
         List<CompetitorProductRow> confirmedProducts =
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId());
-        Map<String, Entry> competitorsByCode = new LinkedHashMap<>();
+        Map<String, CompetitorProductDetailPlanEntry> competitorsByCode =
+                new LinkedHashMap<>();
         if (confirmedProducts == null) {
             confirmedProducts = Collections.emptyList();
         }
         for (CompetitorProductRow product : confirmedProducts) {
             String code = normalizeCode(product == null ? null : product.getNoonProductCode());
-            if (!isRefreshableCode(code) || code.equals(selfCode)) {
+            if (!isRefreshableCode(code)
+                    || code.equals(selfCode)
+                    || (onlyMissingFromCompleteTop200Scan
+                    && !needsExactSearch(
+                            mapper, watchProduct.getId(), code, factDate
+                    ))) {
                 continue;
             }
             CompetitorProductDetailTarget target = CompetitorProductDetailTarget.competitor(
@@ -38,22 +68,43 @@ final class CompetitorProductDetailTargetPlan {
                     code,
                     product.getCanonicalUrl()
             );
-            competitorsByCode.putIfAbsent(target.identityKey(), new Entry(target, product));
+            competitorsByCode.putIfAbsent(
+                    target.identityKey(),
+                    new CompetitorProductDetailPlanEntry(target, product)
+            );
         }
         targets.addAll(competitorsByCode.values());
         return targets;
     }
 
-    static List<Entry> retry(
+    static List<CompetitorProductDetailPlanEntry> retry(
             CompetitorAnalysisMapper mapper,
             CompetitorWatchProductRow watchProduct,
             List<CompetitorProductDetailTarget> requestedTargets
     ) {
+        return retry(mapper, watchProduct, requestedTargets, false);
+    }
+
+    static List<CompetitorProductDetailPlanEntry> retry(
+            CompetitorAnalysisMapper mapper,
+            CompetitorWatchProductRow watchProduct,
+            List<CompetitorProductDetailTarget> requestedTargets,
+            boolean onlyMissingFromCompleteTop200Scan
+    ) {
         if (requestedTargets == null) {
             return Collections.emptyList();
         }
-        Map<String, Entry> selfTargets = new LinkedHashMap<>();
-        Map<String, Entry> competitorTargets = new LinkedHashMap<>();
+        LocalDate factDate = NoonShanghaiBusinessTime.now().toLocalDate();
+        if (onlyMissingFromCompleteTop200Scan
+                && !hasCompleteCoverage(mapper, watchProduct, factDate)) {
+            return deferUntilRankCoverage(
+                    retry(mapper, watchProduct, requestedTargets, false)
+            );
+        }
+        Map<String, CompetitorProductDetailPlanEntry> selfTargets =
+                new LinkedHashMap<>();
+        Map<String, CompetitorProductDetailPlanEntry> competitorTargets =
+                new LinkedHashMap<>();
         String currentSelfCode = normalizeCode(watchProduct.getSelfNoonProductCode());
         Map<Long, CompetitorProductRow> currentCompetitors = confirmedProductsById(
                 mapper.listConfirmedCompetitorProductsByWatchProductId(watchProduct.getId())
@@ -62,9 +113,32 @@ final class CompetitorProductDetailTargetPlan {
             String code = normalizeCode(requested == null ? null : requested.getNoonProductCode());
             String subjectType = trim(requested == null ? null : requested.getSubjectType());
             if (CompetitorProductDetailTarget.SELF.equalsIgnoreCase(subjectType)) {
-                if (isRefreshableCode(code) && code.equals(currentSelfCode)) {
-                    CompetitorProductDetailTarget target = CompetitorProductDetailTarget.self(code);
-                    selfTargets.putIfAbsent(target.identityKey(), new Entry(target, null));
+                if (isRefreshableCode(code)
+                        && code.equals(currentSelfCode)) {
+                    if (!onlyMissingFromCompleteTop200Scan
+                            || needsExactSearch(
+                            mapper, watchProduct.getId(), code, factDate
+                    )) {
+                        CompetitorProductDetailTarget target =
+                                CompetitorProductDetailTarget.self(code);
+                        selfTargets.putIfAbsent(
+                                target.identityKey(),
+                                new CompetitorProductDetailPlanEntry(
+                                        target,
+                                        null
+                                )
+                        );
+                    } else {
+                        CompetitorProductDetailTarget target =
+                                CompetitorProductDetailTarget.self(code);
+                        selfTargets.putIfAbsent(
+                                target.identityKey(),
+                                CompetitorProductDetailPlanEntry.covered(
+                                        target,
+                                        null
+                                )
+                        );
+                    }
                 } else {
                     putStale(selfTargets, requested);
                 }
@@ -82,13 +156,28 @@ final class CompetitorProductDetailTargetPlan {
                 putStale(competitorTargets, requested);
                 continue;
             }
+            if (onlyMissingFromCompleteTop200Scan
+                    && !needsExactSearch(
+                    mapper, watchProduct.getId(), code, factDate
+            )) {
+                CompetitorProductDetailTarget target = target(current);
+                competitorTargets.putIfAbsent(
+                        target.identityKey(),
+                        CompetitorProductDetailPlanEntry.covered(
+                                target,
+                                current
+                        )
+                );
+                continue;
+            }
             CompetitorProductDetailTarget target = target(current);
             competitorTargets.putIfAbsent(
                     target.identityKey(),
-                    new Entry(target, current)
+                    new CompetitorProductDetailPlanEntry(target, current)
             );
         }
-        List<Entry> targets = new ArrayList<>(selfTargets.values());
+        List<CompetitorProductDetailPlanEntry> targets =
+                new ArrayList<>(selfTargets.values());
         targets.addAll(competitorTargets.values());
         return targets;
     }
@@ -116,7 +205,7 @@ final class CompetitorProductDetailTargetPlan {
     }
 
     private static void putStale(
-            Map<String, Entry> targets,
+            Map<String, CompetitorProductDetailPlanEntry> targets,
             CompetitorProductDetailTarget requested
     ) {
         CompetitorProductDetailTarget target = requested == null
@@ -124,12 +213,62 @@ final class CompetitorProductDetailTargetPlan {
                 : requested;
         targets.putIfAbsent(
                 target.identityKey(),
-                Entry.stale(target, "重试目标已不属于当前监控范围。")
+                CompetitorProductDetailPlanEntry.stale(
+                        target,
+                        "重试目标已不属于当前监控范围。"
+                )
         );
     }
 
     private static boolean isRefreshableCode(String code) {
         return StringUtils.hasText(code) && NoonProductCodeSupport.codeType(code).isPresent();
+    }
+
+    static boolean hasCompleteCoverage(
+            CompetitorAnalysisMapper mapper,
+            CompetitorWatchProductRow watchProduct,
+            LocalDate factDate
+    ) {
+        return mapper != null
+                && watchProduct != null
+                && watchProduct.getId() != null
+                && mapper.hasCompleteRankScanCoverage(
+                        watchProduct.getId(), factDate
+                );
+    }
+
+    private static List<CompetitorProductDetailPlanEntry>
+            deferUntilRankCoverage(
+            List<CompetitorProductDetailPlanEntry> targets
+    ) {
+        List<CompetitorProductDetailPlanEntry> deferred =
+                new ArrayList<>();
+        for (CompetitorProductDetailPlanEntry entry : targets) {
+            if (entry == null || entry.isTerminalFailure()) {
+                deferred.add(entry);
+            } else {
+                deferred.add(CompetitorProductDetailPlanEntry.deferred(
+                        entry.target,
+                        entry.product,
+                        "RANK_COVERAGE_INCOMPLETE",
+                        "当天前 200 排名覆盖尚未完整，列表补拉等待排名补偿。"
+                ));
+            }
+        }
+        return deferred;
+    }
+
+    private static boolean needsExactSearch(
+            CompetitorAnalysisMapper mapper,
+            Long watchProductId,
+            String code,
+            LocalDate factDate
+    ) {
+        return !mapper.hasRankedFactInTop200(
+                watchProductId, code, factDate
+        ) || !mapper.hasCompleteListTitlesToday(
+                watchProductId, code, factDate
+        );
     }
 
     private static String normalizeCode(String value) {
@@ -140,48 +279,4 @@ final class CompetitorProductDetailTargetPlan {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    static final class Entry {
-        final CompetitorProductDetailTarget target;
-        final CompetitorProductRow product;
-        final String terminalErrorCode;
-        final String terminalErrorMessage;
-
-        private Entry(
-                CompetitorProductDetailTarget target,
-                CompetitorProductRow product
-        ) {
-            this(target, product, null, null);
-        }
-
-        private Entry(
-                CompetitorProductDetailTarget target,
-                CompetitorProductRow product,
-                String terminalErrorCode,
-                String terminalErrorMessage
-        ) {
-            this.target = target;
-            this.product = product;
-            this.terminalErrorCode = terminalErrorCode;
-            this.terminalErrorMessage = terminalErrorMessage;
-        }
-
-        private static Entry stale(
-                CompetitorProductDetailTarget target,
-                String message
-        ) {
-            return new Entry(target, null, "DETAIL_TARGET_STALE", message);
-        }
-
-        boolean isTerminalFailure() {
-            return StringUtils.hasText(terminalErrorCode);
-        }
-
-        boolean recordTerminalFailure(CompetitorProductDetailRefreshResult result) {
-            if (!isTerminalFailure()) {
-                return false;
-            }
-            result.recordFailure(target, terminalErrorCode, terminalErrorMessage);
-            return true;
-        }
-    }
 }

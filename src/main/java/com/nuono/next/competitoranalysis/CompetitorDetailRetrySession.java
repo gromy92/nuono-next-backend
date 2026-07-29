@@ -63,15 +63,26 @@ final class CompetitorDetailRetrySession {
     }
 
     String payloadAfterSuccess(CompetitorProductDetailTarget target) {
-        if (!requirePending(target).isRequestInFlight()) {
-            throw new CompetitorDetailRetryPayloadException(
-                    "Detail request success has no durable reservation."
-            );
-        }
-        CompetitorDetailRetryPayload next = payload.copy();
-        next.removeRetryState(target);
-        next.setDetailSucceededCount(next.getDetailSucceededCount() + 1);
-        return next.toJson();
+        return payloadAfterSuccess(target, true);
+    }
+
+    String payloadAfterSuccess(
+            CompetitorProductDetailTarget target,
+            boolean requested
+    ) {
+        return CompetitorDetailRetryRequestLedger.complete(
+                payload,
+                target,
+                requested
+        ).toJson();
+    }
+
+    void completeWithoutRequest(CompetitorProductDetailTarget target) {
+        checkpoint(CompetitorDetailRetryRequestLedger.complete(
+                payload,
+                target,
+                false
+        ));
     }
 
     void successCommitted(String payloadJson) {
@@ -99,6 +110,20 @@ final class CompetitorDetailRetrySession {
         } else {
             checkpoint(next);
         }
+    }
+
+    void recordDeferred(CompetitorProductDetailTarget target,
+                        String errorCode,
+                        String errorMessage) {
+        checkpoint(CompetitorDetailRetryRequestLedger.defer(
+                payload,
+                target,
+                errorCode,
+                errorMessage,
+                runId,
+                LocalDateTime.now(clock),
+                policy
+        ));
     }
 
     NoonRiskBackoffHold ensureRiskHold(
@@ -230,18 +255,6 @@ final class CompetitorDetailRetrySession {
         task.setPayloadJson(payloadJson);
     }
 
-    private CompetitorDetailRetryState requirePending(
-            CompetitorProductDetailTarget target
-    ) {
-        CompetitorDetailRetryState state = payload.state(target);
-        if (state == null) {
-            throw new CompetitorDetailRetryPayloadException(
-                    "Detail retry target is not pending."
-            );
-        }
-        return state;
-    }
-
     private void requireIdentity() {
         if (task == null || task.getId() == null || runId == null
                 || watchProductId == null
@@ -261,10 +274,10 @@ final class CompetitorDetailRetrySession {
             NoonRiskBackoffHold riskHold
     ) {
         if (riskHold != null) {
-            return "竞品详情抓取等待共享风控冷却，计划于 "
+            return "竞品列表补拉等待共享风控冷却，计划于 "
                     + waiting.getRetryNotBefore() + " 后继续。";
         }
-        return "竞品详情抓取失败，已进入退避重试，计划于 "
+        return "竞品列表补拉失败，已进入退避重试，计划于 "
                 + waiting.getRetryNotBefore() + " 后重试。";
     }
 
@@ -276,7 +289,6 @@ final class CompetitorDetailRetrySession {
         }
         return null;
     }
-
     private static Long firstNonNull(Long... values) {
         for (Long value : values) {
             if (value != null) {

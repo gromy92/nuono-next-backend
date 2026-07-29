@@ -15,7 +15,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisMonitoringScheduler.class);
     private final CompetitorAnalysisRefreshService refreshService;
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
-    private final AtomicBoolean detailRunning = new AtomicBoolean(false);
+    private final AtomicBoolean listingCoverageRunning = new AtomicBoolean(false);
     private final AtomicBoolean compensationRunning = new AtomicBoolean(false);
     private final AtomicBoolean taskRecoveryRunning = new AtomicBoolean(false);
 
@@ -50,17 +50,17 @@ public class CompetitorAnalysisMonitoringScheduler {
     }
 
     @Scheduled(
-            cron = "${nuono.competitor-analysis.monitor.scheduler.detail-cron:0 0 2 * * *}",
+            cron = "${nuono.competitor-analysis.monitor.scheduler.listing-coverage-cron:0 0 2 * * *}",
             zone = "${nuono.competitor-analysis.monitor.scheduler.zone:Asia/Shanghai}"
     )
     public void runScheduledDetailMonitoring() {
-        if (!enabled || !detailRunning.compareAndSet(false, true)) {
+        if (!enabled || !listingCoverageRunning.compareAndSet(false, true)) {
             return;
         }
         try {
             runDetailOnce();
         } finally {
-            detailRunning.set(false);
+            listingCoverageRunning.set(false);
         }
     }
 

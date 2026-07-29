@@ -122,7 +122,7 @@ final class CompetitorDetailRetryAttemptPlan {
         return new CompetitorDetailRetryAttemptPlan(
                 pendingStates,
                 firstNonBlank(fallbackCode, "DETAIL_REFRESH_FAILED"),
-                firstNonBlank(fallbackMessage, preferredErrorMessage, "竞品详情抓取失败。"),
+                firstNonBlank(fallbackMessage, preferredErrorMessage, "竞品列表补拉失败。"),
                 terminalCount,
                 terminalCode,
                 terminalMessage

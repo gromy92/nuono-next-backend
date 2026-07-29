@@ -244,7 +244,7 @@ class CompetitorRefreshTaskFactory {
     }
 
     public boolean failInvalidDetailRetryPayload(Long taskId) {
-        String message = "竞品详情重试载荷损坏，任务已终止以避免阻塞恢复队列。";
+        String message = "竞品列表补拉重试载荷损坏，任务已终止以避免阻塞恢复队列。";
         CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(taskId);
         if (run == null) {
             return false;

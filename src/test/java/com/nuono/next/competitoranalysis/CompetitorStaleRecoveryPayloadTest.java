@@ -152,13 +152,13 @@ class CompetitorStaleRecoveryPayloadTest {
                 150001L,
                 STALE_BEFORE,
                 "INVALID_DETAIL_RETRY_PAYLOAD",
-                "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。"
+                "陈旧竞品列表补拉任务缺少可信的目标重试状态，已终止以避免全量重抓。"
         )).thenReturn(true);
         when(mapper.markActiveSearchRunFailedForTask(
                 220001L,
                 150001L,
                 "INVALID_DETAIL_RETRY_PAYLOAD",
-                "陈旧竞品详情任务缺少可信的目标重试状态，已终止以避免全量重抓。"
+                "陈旧竞品列表补拉任务缺少可信的目标重试状态，已终止以避免全量重抓。"
         )).thenReturn(1);
         CompetitorRefreshTaskFactory factory =
                 new CompetitorRefreshTaskFactory(

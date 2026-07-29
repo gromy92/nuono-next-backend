@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -205,19 +206,16 @@ class CompetitorAnalysisRefreshServiceTest {
         CompetitorRefreshRunView view = service.requestRefresh(operatorContext(), 180123L);
         submittedTasks.get(0).run();
 
-        verify(productDetailRefreshService, times(1)).refreshConfirmedCompetitors(
-                watchProduct,
-                220123L,
-                view.getTaskId(),
-                601L
-        );
-        verify(keywordRefreshRunner, times(2)).runKeyword(
+        var order = inOrder(keywordRefreshRunner, productDetailRefreshService);
+        order.verify(keywordRefreshRunner, times(2)).runKeyword(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.eq(220123L),
                 org.mockito.ArgumentMatchers.eq(watchProduct),
                 org.mockito.ArgumentMatchers.any(CompetitorKeywordRow.class),
                 org.mockito.ArgumentMatchers.eq(601L)
         );
+        order.verify(productDetailRefreshService, times(1))
+                .refreshConfirmedCompetitors(watchProduct, 220123L, view.getTaskId(), 601L);
     }
 
     @Test

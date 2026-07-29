@@ -180,7 +180,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
 
     @Override
     public NoonSearchPage search(NoonSearchRequest request) {
-        return searchCustomerCatalogV3(request);
+        return NoonSearchPagedFetcher.search(request, this::searchCustomerCatalogV3);
     }
 
     private NoonSearchPage searchCustomerCatalogV3(NoonSearchRequest request) {
@@ -196,7 +196,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             if (statusCode < 200 || statusCode >= 300) {
                 throw mapUnsuccessfulStatus(statusCode, url);
             }
-            return parser.parseCatalogJson(response.body(), url, statusCode);
+            return NoonSearchMarketContract.apply(parser.parseCatalogJson(response.body(), url, statusCode), request);
         } catch (NoonSearchProviderException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -226,7 +226,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             if (statusCode < 200 || statusCode >= 300) {
                 throw mapUnsuccessfulStatus(statusCode, url);
             }
-            return parser.parseCatalogJson(response.body, url, statusCode);
+            return NoonSearchMarketContract.apply(parser.parseCatalogJson(response.body, url, statusCode), request);
         } catch (NoonSearchProviderException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -504,11 +504,10 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         int limit = request == null || request.getLimit() == null
                 ? DEFAULT_SEARCH_LIMIT
                 : Math.max(1, Math.min(request.getLimit(), MAX_SEARCH_LIMIT));
-        return customerCatalogV3BaseUrl
-                + "/search?q="
-                + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8)
-                + "&limit="
-                + limit;
+        String url = customerCatalogV3BaseUrl + "/search?q="
+                + URLEncoder.encode(keyword == null ? "" : keyword, StandardCharsets.UTF_8) + "&limit=" + limit;
+        Integer page = request == null ? null : request.getPage();
+        return page == null || page <= 1 ? url : url + "&page=" + page;
     }
 
     NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {

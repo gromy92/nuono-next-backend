@@ -35,8 +35,9 @@ public interface CompetitorProductSnapshotMapper {
     }
 
     @Select({
-            "SELECT id, title_en AS titleEn, brand, price_amount AS priceAmount, currency_code AS currencyCode,",
-            "  rating, review_count AS reviewCount, main_image_url_normalized AS mainImageUrlNormalized,",
+            "SELECT id, title_en AS titleEn, title_ar AS titleAr, badges_json AS badgesJson,",
+            "  price_amount AS priceAmount, currency_code AS currencyCode,",
+            "  main_image_url_normalized AS mainImageUrlNormalized,",
             "  main_image_asset_key AS mainImageAssetKey",
             "FROM operations_competitor_product_snapshot",
             "WHERE watch_product_id = #{watchProductId}",
@@ -54,8 +55,9 @@ public interface CompetitorProductSnapshotMapper {
     );
 
     @Select({
-            "SELECT id, title_en AS titleEn, brand, price_amount AS priceAmount, currency_code AS currencyCode,",
-            "  rating, review_count AS reviewCount, main_image_url_normalized AS mainImageUrlNormalized,",
+            "SELECT id, title_en AS titleEn, title_ar AS titleAr, badges_json AS badgesJson,",
+            "  price_amount AS priceAmount, currency_code AS currencyCode,",
+            "  main_image_url_normalized AS mainImageUrlNormalized,",
             "  main_image_asset_key AS mainImageAssetKey",
             "FROM operations_competitor_product_snapshot",
             "WHERE watch_product_id = #{watchProductId}",
@@ -77,14 +79,14 @@ public interface CompetitorProductSnapshotMapper {
             "INSERT INTO operations_competitor_product_snapshot (",
             "  id, owner_user_id, watch_product_id, competitor_product_id, subject_type, site_code,",
             "  noon_product_code, code_type, fact_date, captured_at, source_run_id, detail_url,",
-            "  title_en, brand, price_amount, currency_code, rating, review_count, main_image_url_raw,",
-            "  main_image_url_normalized, main_image_asset_key, snapshot_hash, raw_detail_json,",
+            "  title_en, title_ar, badges_json, price_amount, currency_code, main_image_url_raw,",
+            "  main_image_url_normalized, main_image_asset_key, snapshot_hash,",
             "  is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{id}, #{ownerUserId}, #{watchProductId}, #{competitorProductId}, #{subjectType}, #{siteCode},",
             "  #{noonProductCode}, #{codeType}, #{factDate}, #{capturedAt}, #{sourceRunId}, #{detailUrl},",
-            "  #{titleEn}, #{brand}, #{priceAmount}, #{currencyCode}, #{rating}, #{reviewCount}, #{mainImageUrlRaw},",
-            "  #{mainImageUrlNormalized}, #{mainImageAssetKey}, #{snapshotHash}, #{rawDetailJson},",
+            "  #{titleEn}, #{titleAr}, #{badgesJson}, #{priceAmount}, #{currencyCode}, #{mainImageUrlRaw},",
+            "  #{mainImageUrlNormalized}, #{mainImageAssetKey}, #{snapshotHash},",
             "  b'0', #{actorUserId}, #{actorUserId}, NOW(), NOW()",
             ")"
     })
@@ -94,10 +96,11 @@ public interface CompetitorProductSnapshotMapper {
             "UPDATE operations_competitor_product_snapshot",
             "SET competitor_product_id = #{competitorProductId},",
             "    captured_at = #{capturedAt}, source_run_id = #{sourceRunId}, detail_url = #{detailUrl},",
-            "    title_en = #{titleEn}, brand = #{brand}, price_amount = #{priceAmount}, currency_code = #{currencyCode},",
-            "    rating = #{rating}, review_count = #{reviewCount}, main_image_url_raw = #{mainImageUrlRaw},",
+            "    title_en = #{titleEn}, title_ar = #{titleAr}, badges_json = #{badgesJson},",
+            "    price_amount = #{priceAmount}, currency_code = #{currencyCode},",
+            "    main_image_url_raw = #{mainImageUrlRaw},",
             "    main_image_url_normalized = #{mainImageUrlNormalized}, main_image_asset_key = #{mainImageAssetKey},",
-            "    snapshot_hash = #{snapshotHash}, raw_detail_json = #{rawDetailJson},",
+            "    snapshot_hash = #{snapshotHash},",
             "    updated_by = #{actorUserId}, gmt_updated = NOW()",
             "WHERE id = #{id}"
     })

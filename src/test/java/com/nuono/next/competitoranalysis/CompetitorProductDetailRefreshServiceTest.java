@@ -55,7 +55,7 @@ class CompetitorProductDetailRefreshServiceTest {
     }
 
     @Test
-    void refreshesSelfAndConfirmedCompetitorDetailsOncePerCode() {
+    void refreshesSelfAndConfirmedCompetitorListingsOncePerCode() {
         CompetitorWatchProductRow watchProduct = watchProduct();
         CompetitorProductRow confirmed = confirmedProduct(200010L, "zcomp001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/");
         when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
@@ -92,7 +92,7 @@ class CompetitorProductDetailRefreshServiceTest {
         verify(mapper).updateCompetitorProductFromDetail(argThat((command) ->
                 Long.valueOf(200010L).equals(command.getId())
                         && "ZCOMP001".equals(command.getNoonProductCode())
-                        && "PRODUCT_DETAIL".equals(command.getSourceType())
+                        && "LIST_EXACT_SEARCH".equals(command.getSourceType())
                         && "Detail title".equals(command.getTitleSnapshot())
                         && new BigDecimal("12.34").compareTo(command.getPriceAmountSnapshot()) == 0
         ));

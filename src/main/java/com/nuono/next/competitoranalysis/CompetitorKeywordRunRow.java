@@ -7,6 +7,7 @@ public class CompetitorKeywordRunRow {
     private Long searchRunId;
     private Long keywordId;
     private String keywordSnapshot;
+    private Integer requestedResultLimit;
     private LocalDateTime capturedAt;
 
     public Long getId() { return id; }
@@ -17,6 +18,8 @@ public class CompetitorKeywordRunRow {
     public void setKeywordId(Long keywordId) { this.keywordId = keywordId; }
     public String getKeywordSnapshot() { return keywordSnapshot; }
     public void setKeywordSnapshot(String keywordSnapshot) { this.keywordSnapshot = keywordSnapshot; }
+    public Integer getRequestedResultLimit() { return requestedResultLimit; }
+    public void setRequestedResultLimit(Integer requestedResultLimit) { this.requestedResultLimit = requestedResultLimit; }
     public LocalDateTime getCapturedAt() { return capturedAt; }
     public void setCapturedAt(LocalDateTime capturedAt) { this.capturedAt = capturedAt; }
 }

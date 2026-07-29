@@ -8,6 +8,11 @@ public class NoonSearchPage {
     private String sourceUrl;
     private String parserVersion;
     private Integer providerHttpStatus;
+    private Integer providerPage;
+    private Integer providerLimit;
+    private Integer totalHits;
+    private Integer totalPages;
+    private boolean coverageComplete;
     private String responseHash;
     private LocalDateTime capturedAt;
     private List<NoonSearchResult> results = new ArrayList<>();
@@ -18,6 +23,16 @@ public class NoonSearchPage {
     public void setParserVersion(String parserVersion) { this.parserVersion = parserVersion; }
     public Integer getProviderHttpStatus() { return providerHttpStatus; }
     public void setProviderHttpStatus(Integer providerHttpStatus) { this.providerHttpStatus = providerHttpStatus; }
+    public Integer getProviderPage() { return providerPage; }
+    public void setProviderPage(Integer providerPage) { this.providerPage = providerPage; }
+    public Integer getProviderLimit() { return providerLimit; }
+    public void setProviderLimit(Integer providerLimit) { this.providerLimit = providerLimit; }
+    public Integer getTotalHits() { return totalHits; }
+    public void setTotalHits(Integer totalHits) { this.totalHits = totalHits; }
+    public Integer getTotalPages() { return totalPages; }
+    public void setTotalPages(Integer totalPages) { this.totalPages = totalPages; }
+    public boolean isCoverageComplete() { return coverageComplete; }
+    public void setCoverageComplete(boolean coverageComplete) { this.coverageComplete = coverageComplete; }
     public String getResponseHash() { return responseHash; }
     public void setResponseHash(String responseHash) { this.responseHash = responseHash; }
     public LocalDateTime getCapturedAt() { return capturedAt; }

@@ -56,6 +56,10 @@ class CompetitorProductSnapshotServiceTest {
         assertEquals("COMPETITOR", snapshotCaptor.getValue().getSubjectType());
         assertEquals("N51360862A", snapshotCaptor.getValue().getNoonProductCode());
         assertEquals(new BigDecimal("89.90"), snapshotCaptor.getValue().getPriceAmount());
+        assertNull(snapshotCaptor.getValue().getBrand());
+        assertNull(snapshotCaptor.getValue().getRating());
+        assertNull(snapshotCaptor.getValue().getReviewCount());
+        assertNull(snapshotCaptor.getValue().getRawDetailJson());
 
         ArgumentCaptor<CompetitorProductChangeEventCommand> eventCaptor =
                 ArgumentCaptor.forClass(CompetitorProductChangeEventCommand.class);
@@ -68,6 +72,89 @@ class CompetitorProductSnapshotServiceTest {
         assertEquals("89.90", eventCaptor.getValue().getNewValueJson());
         assertEquals("WARNING", eventCaptor.getValue().getSeverity());
         verify(mapper).softDeleteChangeEventsBySnapshotId(260123L, 601L);
+    }
+
+    @Test
+    void preservesAlternateLocaleTitleAcrossLaterSameDayRankWrites() {
+        CompetitorProductSnapshotService service = new CompetitorProductSnapshotService(mapper);
+        CompetitorProductSnapshotRow daily = new CompetitorProductSnapshotRow();
+        daily.setId(260123L);
+        daily.setTitleEn("Storage Box");
+        daily.setTitleAr("صندوق تخزين");
+        when(mapper.selectDailySnapshot(
+                180123L,
+                "COMPETITOR",
+                "N51360862A",
+                LocalDate.parse("2026-06-08")
+        )).thenReturn(daily);
+        Map<String, NoonSearchResult> resultsByCode = new LinkedHashMap<>();
+        NoonSearchResult result = result(
+                "N51360862A",
+                "Storage Box",
+                "89.90"
+        );
+        result.setTitleAr(null);
+        resultsByCode.put("N51360862A", result);
+
+        service.recordSearchSnapshots(
+                context(),
+                page(),
+                resultsByCode,
+                Map.of("N51360862A", 200020L)
+        );
+
+        ArgumentCaptor<CompetitorProductSnapshotCommand> snapshotCaptor =
+                ArgumentCaptor.forClass(
+                        CompetitorProductSnapshotCommand.class
+                );
+        verify(mapper).updateProductSnapshot(snapshotCaptor.capture());
+        assertEquals(
+                "صندوق تخزين",
+                snapshotCaptor.getValue().getTitleAr()
+        );
+    }
+
+    @Test
+    void comparesNormalizedImageUrlWhenAssetKeyIsUnavailable() {
+        CompetitorProductSnapshotService service = new CompetitorProductSnapshotService(mapper);
+        when(mapper.nextProductSnapshotId()).thenReturn(260127L);
+        when(mapper.nextProductChangeEventId()).thenReturn(270127L);
+        CompetitorProductSnapshotRow previous = new CompetitorProductSnapshotRow();
+        previous.setId(260001L);
+        previous.setTitleEn("Storage Box");
+        previous.setPriceAmount(new BigDecimal("89.90"));
+        previous.setCurrencyCode("SAR");
+        previous.setMainImageUrlNormalized("https://f.nooncdn.com/previous/");
+        when(mapper.selectPreviousSnapshot(
+                180123L,
+                "COMPETITOR",
+                "N51360862A",
+                LocalDate.parse("2026-06-08")
+        )).thenReturn(previous);
+        NoonSearchResult result = result(
+                "N51360862A",
+                "Storage Box",
+                "89.90"
+        );
+        result.setImageUrl("https://f.nooncdn.com/current/");
+
+        int changed = service.recordSearchSnapshots(
+                context(),
+                page(),
+                Map.of("N51360862A", result),
+                Map.of("N51360862A", 200020L)
+        );
+
+        assertEquals(1, changed);
+        ArgumentCaptor<CompetitorProductChangeEventCommand> eventCaptor =
+                ArgumentCaptor.forClass(
+                        CompetitorProductChangeEventCommand.class
+                );
+        verify(mapper).insertProductChangeEvent(eventCaptor.capture());
+        assertEquals(
+                "mainImage",
+                eventCaptor.getValue().getFieldKey()
+        );
     }
 
     @Test
