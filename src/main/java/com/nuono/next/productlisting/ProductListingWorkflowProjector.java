@@ -197,11 +197,17 @@ public final class ProductListingWorkflowProjector {
                 && dryRunTask != null
                 && "DRY_RUN".equalsIgnoreCase(dryRunTask.getMode())
                 && "validation_failed".equalsIgnoreCase(dryRunTask.getStatus())) {
+            boolean correctedDraft = draft != null && "ready_for_dry_run".equalsIgnoreCase(draft.getStatus());
             view.setPhase(ProductListingWorkflowView.Phase.EDITING);
             view.setWriteCertainty(ProductListingWorkflowView.WriteCertainty.NOT_STARTED);
-            view.setNextAction(ProductListingWorkflowView.NextAction.EDIT_DRAFT);
-            view.setReasonCode("DRY_RUN_VALIDATION_FAILED");
-            view.setMessage("上架检查未通过，请按字段问题修改商品资料。");
+            view.setNextAction(correctedDraft
+                    ? ProductListingWorkflowView.NextAction.REVIEW_DRAFT
+                    : ProductListingWorkflowView.NextAction.EDIT_DRAFT);
+            view.setReasonCode(correctedDraft ? "DRAFT_READY_AFTER_VALIDATION_FIX"
+                    : "DRY_RUN_VALIDATION_FAILED");
+            view.setMessage(correctedDraft
+                    ? "草稿已修正，请重新执行上架检查。"
+                    : "上架检查未通过，请按字段问题修改商品资料。");
             return view;
         }
         view.setPhase(ProductListingWorkflowView.Phase.EDITING);
