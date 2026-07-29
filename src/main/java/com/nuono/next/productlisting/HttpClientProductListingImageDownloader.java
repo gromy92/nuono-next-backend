@@ -1,5 +1,6 @@
 package com.nuono.next.productlisting;
 
+import com.nuono.next.productselection.NoonImageUrlNormalizer;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -45,7 +46,7 @@ final class HttpClientProductListingImageDownloader implements ProductListingIma
         if (source.startsWith(LOCAL_PRODUCT_IMAGE_ASSET_PREFIX)) {
             return downloadLocalProductImageAsset(source);
         }
-        URI uri = URI.create(StringUtils.hasText(imageUrl) ? imageUrl.trim() : "");
+        URI uri = URI.create(normalizeExternalImageUrl(source));
         validateImageUri(uri);
         HttpRequest request = HttpRequest.newBuilder(uri)
                 .GET()
@@ -78,6 +79,11 @@ final class HttpClientProductListingImageDownloader implements ProductListingIma
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Download product listing image interrupted: " + exception.getMessage(), exception);
         }
+    }
+
+    static String normalizeExternalImageUrl(String imageUrl) {
+        String normalized = NoonImageUrlNormalizer.normalize(imageUrl);
+        return StringUtils.hasText(normalized) ? normalized : "";
     }
 
     private ProductListingImageDownload downloadLocalProductImageAsset(String imageUrl) {
