@@ -6,6 +6,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.infrastructure.mapper.CompetitorMonitoringMapper;
 import com.nuono.next.infrastructure.mapper.OperationalTaskMapper;
@@ -92,13 +94,13 @@ class CompetitorBatchReplayTest {
     }
 
     @Test
-    void staleBatchChildReplacementRetainsOriginalBatchPayload() {
+    void staleBatchChildReplacementRetainsOriginalBatchPayload() throws Exception {
         OperationalTask stale = task(
                 150000L,
                 CompetitorAnalysisRefreshService.TASK_TYPE,
                 CHILD_KEY
         );
-        stale.setPayloadJson(childPayload(BATCH_KEY));
+        stale.setPayloadJson(retryChildPayload(BATCH_KEY));
         stale.setStartedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         stale.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         repository.insert(stale);
@@ -112,7 +114,12 @@ class CompetitorBatchReplayTest {
         OperationalTask replacement = repository.selectById(150001L);
         assertEquals(OperationalTaskStatus.FAILED, repository.selectById(150000L).getStatus());
         assertEquals(OperationalTaskStatus.QUEUED, replacement.getStatus());
-        assertEquals(stale.getPayloadJson(), replacement.getPayloadJson());
+        ObjectMapper objectMapper = new ObjectMapper();
+        ObjectNode replacementPayload =
+                (ObjectNode) objectMapper.readTree(replacement.getPayloadJson());
+        assertEquals(interruptedRun.getId(), replacementPayload.path("rootRunId").asLong());
+        replacementPayload.remove("rootRunId");
+        assertEquals(objectMapper.readTree(stale.getPayloadJson()), replacementPayload);
         verify(mapper).insertSearchRun(org.mockito.ArgumentMatchers.any());
     }
 
@@ -202,6 +209,19 @@ class CompetitorBatchReplayTest {
                 + "\"detailRefresh\":true"
                 + (batchKey == null ? "" : ",\"batchKey\":\"" + batchKey + "\"")
                 + "}";
+    }
+
+    private static String retryChildPayload(String batchKey) {
+        CompetitorDetailRetryPayload payload =
+                CompetitorDetailRetryPayload.fromJson(childPayload(batchKey));
+        payload.setRetryStates(List.of(new CompetitorDetailRetryState(
+                CompetitorProductDetailTarget.self("ZSELF001"),
+                1,
+                LocalDateTime.parse("2026-06-06T09:00:00"),
+                "DETAIL_REFRESH_FAILED",
+                "retry later"
+        )));
+        return payload.toJson();
     }
 
     private static CompetitorWatchProductRow watchProduct() {

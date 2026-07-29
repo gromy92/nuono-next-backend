@@ -124,6 +124,13 @@ class CompetitorRefreshExecutionFenceContractTest {
                         CompetitorProductInsertCommand.class
                 )
         );
+        String checkpointSql = updateSql(
+                CompetitorProductDetailWriteMapper.class.getMethod(
+                        "checkpointRunningDetailTask",
+                        Long.class,
+                        String.class
+                )
+        );
 
         assertTrue(watchSql.contains("STATUS = 'ACTIVE'"));
         assertTrue(watchSql.contains("FOR UPDATE"));
@@ -132,6 +139,8 @@ class CompetitorRefreshExecutionFenceContractTest {
         assertTrue(productSql.contains("FOR UPDATE"));
         assertTrue(productUpdateSql.contains("UPPER(NOON_PRODUCT_CODE)"));
         assertTrue(productUpdateSql.contains("REVIEW_STATUS = 'CONFIRMED'"));
+        assertTrue(checkpointSql.contains("ID = #{TASKID}"));
+        assertTrue(checkpointSql.contains("STATUS = 'RUNNING'"));
     }
 
     @Test
@@ -159,6 +168,20 @@ class CompetitorRefreshExecutionFenceContractTest {
                         Long.class
                 )
                 .getAnnotation(Transactional.class);
+        Transactional detailWithCheckpoint =
+                CompetitorProductDetailWriteGuard.class
+                        .getMethod(
+                                "write",
+                                Long.class,
+                                Long.class,
+                                CompetitorWatchProductRow.class,
+                                CompetitorProductRow.class,
+                                CompetitorProductInsertCommand.class,
+                                NoonProductDetail.class,
+                                Long.class,
+                                String.class
+                        )
+                        .getAnnotation(Transactional.class);
         Transactional terminal = CompetitorRefreshExecutionFinalizer.class
                 .getMethod(
                         "fail",
@@ -173,6 +196,10 @@ class CompetitorRefreshExecutionFenceContractTest {
 
         assertEquals(Propagation.REQUIRES_NEW, keyword.propagation());
         assertEquals(Propagation.REQUIRES_NEW, detail.propagation());
+        assertEquals(
+                Propagation.REQUIRES_NEW,
+                detailWithCheckpoint.propagation()
+        );
         assertTrue(terminal != null);
     }
 

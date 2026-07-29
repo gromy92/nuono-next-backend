@@ -39,10 +39,9 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper
-        extends CompetitorRefreshRecoveryMapper,
-        CompetitorRefreshExecutionMapper,
+        extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
+        CompetitorRefreshRetryMapper, CompetitorDetailTakeoverMapper,
         CompetitorProductDetailWriteMapper {
-
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -67,7 +66,6 @@ public interface CompetitorAnalysisMapper
         }
         return id;
     }
-
     default Long nextWatchProductId() {
         return nextCompetitorAnalysisId("operations_competitor_watch_product", 180000L);
     }

@@ -48,6 +48,10 @@ class CompetitorProductDetailRefreshServiceTest {
                 snapshotService,
                 Clock.fixed(Instant.parse("2026-06-06T08:00:00Z"), ZoneOffset.UTC)
         );
+        org.mockito.Mockito.lenient().when(mapper.selectWatchProductForRefresh(180123L))
+                .thenReturn(watchProduct());
+        org.mockito.Mockito.lenient().when(mapper.updateCompetitorProductFromDetail(any()))
+                .thenReturn(1);
     }
 
     @Test
@@ -73,6 +77,7 @@ class CompetitorProductDetailRefreshServiceTest {
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
         assertEquals(2, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(2, result.getSucceededCount());
         assertEquals(0, result.getFailedCount());
         ArgumentCaptor<NoonProductDetailRequest> requestCaptor =
@@ -159,6 +164,7 @@ class CompetitorProductDetailRefreshServiceTest {
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
         assertEquals(2, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(0, result.getSucceededCount());
         assertEquals(2, result.getFailedCount());
         assertEquals("DETAIL_REFRESH_FAILED", result.getFirstErrorCode());
@@ -193,15 +199,28 @@ class CompetitorProductDetailRefreshServiceTest {
         CompetitorProductDetailRefreshResult result =
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(2, result.getAttemptedCount());
+        assertEquals(3, result.getAttemptedCount());
+        assertEquals(2, result.getRequestAttemptCount());
         assertEquals(0, result.getSucceededCount());
         assertEquals(2, result.getFailedCount());
+        assertEquals(1, result.getDeferredCount());
+        assertEquals(2, result.getFailedTargets().size());
+        assertEquals("ZSELF001", result.getFailedTargets().get(0).getNoonProductCode());
+        assertEquals("ZCOMP001", result.getFailedTargets().get(1).getNoonProductCode());
+        assertEquals(1, result.getDeferredTargets().size());
+        assertEquals("ZCOMP002", result.getDeferredTargets().get(0).getNoonProductCode());
+        assertEquals(3, result.getRetryTargets().size());
         verify(detailAdapter, times(2)).fetch(any(NoonProductDetailRequest.class));
     }
 
     @Test
-    void stopsBeforeLoadingCompetitorsWhenSelfDetailHitsRiskFailure() {
+    void defersAllCompetitorsWithoutRequestingThemWhenSelfDetailHitsRiskFailure() {
         CompetitorWatchProductRow watchProduct = watchProduct();
+        when(mapper.listConfirmedCompetitorProductsByWatchProductId(180123L))
+                .thenReturn(List.of(
+                        confirmedProduct(200010L, "ZCOMP001", "https://www.noon.com/saudi-en/sample/ZCOMP001/p/"),
+                        confirmedProduct(200011L, "ZCOMP002", "https://www.noon.com/saudi-en/sample/ZCOMP002/p/")
+                ));
         when(detailAdapter.fetch(any(NoonProductDetailRequest.class)))
                 .thenThrow(new NoonSearchProviderException(
                         "BLOCKED_BY_RISK_CONTROL",
@@ -214,10 +233,15 @@ class CompetitorProductDetailRefreshServiceTest {
         CompetitorProductDetailRefreshResult result =
                 service.refreshConfirmedCompetitors(watchProduct, 220123L, 150123L, 601L);
 
-        assertEquals(1, result.getAttemptedCount());
+        assertEquals(3, result.getAttemptedCount());
+        assertEquals(1, result.getRequestAttemptCount());
         assertEquals(1, result.getFailedCount());
+        assertEquals(2, result.getDeferredCount());
+        assertEquals("ZCOMP001", result.getDeferredTargets().get(0).getNoonProductCode());
+        assertEquals("ZCOMP002", result.getDeferredTargets().get(1).getNoonProductCode());
+        assertEquals(3, result.getRetryTargets().size());
         verify(detailAdapter, times(1)).fetch(any(NoonProductDetailRequest.class));
-        verify(mapper, never()).listConfirmedCompetitorProductsByWatchProductId(any());
+        verify(mapper).listConfirmedCompetitorProductsByWatchProductId(180123L);
     }
 
     private static CompetitorWatchProductRow watchProduct() {

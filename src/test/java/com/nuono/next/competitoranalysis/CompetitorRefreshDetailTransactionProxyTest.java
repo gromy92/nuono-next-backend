@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
@@ -75,11 +76,64 @@ class CompetitorRefreshDetailTransactionProxyTest {
                             watch,
                             product,
                             productUpdate(),
-                            detail(),
+                            detail("ZCOMP001"),
                             501L
                     )
             );
 
+            assertEquals(1, transactionManager.rollbackCount);
+            assertEquals(0, transactionManager.commitCount);
+        }
+    }
+
+    @Test
+    void successCheckpointCasMissRollsBackTheSnapshotTransaction() {
+        try (AnnotationConfigApplicationContext context =
+                     new AnnotationConfigApplicationContext(TestConfiguration.class)) {
+            CompetitorProductDetailWriteGuard writeGuard =
+                    context.getBean(CompetitorProductDetailWriteGuard.class);
+            CompetitorAnalysisMapper mapper =
+                    context.getBean(CompetitorAnalysisMapper.class);
+            CompetitorProductSnapshotService snapshotService =
+                    context.getBean(CompetitorProductSnapshotService.class);
+            CountingTransactionManager transactionManager =
+                    context.getBean(CountingTransactionManager.class);
+            CompetitorWatchProductRow watch = watchProduct();
+            when(mapper.lockRunningRefreshTask(150001L)).thenReturn(150001L);
+            when(mapper.heartbeatRunningRefreshTask(
+                    org.mockito.ArgumentMatchers.eq(150001L),
+                    any(LocalDateTime.class)
+            )).thenReturn(1);
+            when(mapper.lockRunningRefreshRun(
+                    150001L, 220001L, 180001L
+            )).thenReturn(220001L);
+            when(mapper.lockWatchProductForDetailWrite(180001L))
+                    .thenReturn(watch);
+            when(mapper.checkpointRunningDetailTask(
+                    150001L, "{\"detailRetryPhase\":\"COMPLETE\"}"
+            )).thenReturn(0);
+
+            assertThrows(
+                    CompetitorRefreshLeaseLostException.class,
+                    () -> writeGuard.write(
+                            150001L,
+                            220001L,
+                            watch,
+                            null,
+                            null,
+                            detail("ZSELF001"),
+                            501L,
+                            "{\"detailRetryPhase\":\"COMPLETE\"}"
+                    )
+            );
+
+            verify(snapshotService).recordProductDetailSnapshot(
+                    any(),
+                    org.mockito.ArgumentMatchers.isNull(),
+                    any(),
+                    any(),
+                    any()
+            );
             assertEquals(1, transactionManager.rollbackCount);
             assertEquals(0, transactionManager.commitCount);
         }
@@ -154,9 +208,9 @@ class CompetitorRefreshDetailTransactionProxyTest {
         return command;
     }
 
-    private static NoonProductDetail detail() {
+    private static NoonProductDetail detail(String noonProductCode) {
         NoonProductDetail detail = new NoonProductDetail();
-        detail.setNoonProductCode("ZCOMP001");
+        detail.setNoonProductCode(noonProductCode);
         return detail;
     }
 

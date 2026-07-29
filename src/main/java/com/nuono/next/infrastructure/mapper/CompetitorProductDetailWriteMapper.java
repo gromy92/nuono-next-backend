@@ -8,6 +8,19 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorProductDetailWriteMapper {
+    @Update({
+            "UPDATE operational_task",
+            "SET payload_json = #{payloadJson},",
+            "    gmt_updated = NOW()",
+            "WHERE id = #{taskId}",
+            "  AND status = 'RUNNING'",
+            "  AND is_deleted = b'0'"
+    })
+    int checkpointRunningDetailTask(
+            @Param("taskId") Long taskId,
+            @Param("payloadJson") String payloadJson
+    );
+
     @Select({
             "SELECT",
             "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",

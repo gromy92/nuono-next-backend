@@ -67,6 +67,29 @@ public interface OperationalTaskRepository {
         return true;
     }
 
+    default boolean requeueRunning(
+            Long taskId,
+            String payloadJson,
+            int progressPercent,
+            String errorCode,
+            String message,
+            LocalDateTime updatedAt
+    ) {
+        OperationalTask task = selectById(taskId);
+        if (task == null || task.getStatus() != OperationalTaskStatus.RUNNING) {
+            return false;
+        }
+        task.setStatus(OperationalTaskStatus.QUEUED);
+        task.setPayloadJson(payloadJson);
+        task.setProgressPercent(progressPercent);
+        task.setErrorCode(errorCode);
+        task.setMessage(message);
+        task.setFinishedAt(null);
+        task.setUpdatedAt(updatedAt);
+        update(task);
+        return true;
+    }
+
     default boolean failStaleRunning(
             Long taskId,
             LocalDateTime staleBefore,
