@@ -152,10 +152,16 @@ final class NoonSearchPaginationSupport {
             NoonSearchPage first,
             NoonSearchPage second
     ) {
+        if (first == null) {
+            throw coverageFailure(
+                    "Noon 前台搜索第一页未返回，前 200 扫描失败。",
+                    null
+            );
+        }
         if (second == null) {
             throw coverageFailure(
                     "Noon 前台搜索第二页未返回，前 200 扫描失败。",
-                    first == null ? null : first.getSourceUrl()
+                    first.getSourceUrl()
             );
         }
         if (second.getProviderPage() == null || second.getProviderPage() != 2) {
@@ -171,18 +177,15 @@ final class NoonSearchPaginationSupport {
                     second.getSourceUrl()
             );
         }
-        if (first == null
-                || !first.getTotalHits().equals(second.getTotalHits())
-                || !first.getTotalPages().equals(second.getTotalPages())) {
-            throw coverageFailure(
-                    "Noon 前台搜索两页的总结果元数据不一致，不能写入前 200 排名。",
-                    second.getSourceUrl()
-            );
-        }
-        if (first != null
-                && first.getTotalHits() != null
+        /*
+         * Noon 的列表总量会在两次独立请求之间变化，第二页也可能省略
+         * nbHits/nbPages。总量逐字相等并不能证明排名连续，完整性应由
+         * 已验证的第一页总量、页码/页容量和合并后的商品编码去重数保证。
+         */
+        if (first.getTotalHits() != null
                 && first.getTotalHits() > PROVIDER_PAGE_LIMIT
-                && second.getResults().isEmpty()) {
+                && (second.getResults() == null
+                || second.getResults().isEmpty())) {
             throw coverageFailure(
                     "Noon 前台搜索声明存在第二页，但第二页没有商品结果。",
                     second.getSourceUrl()
