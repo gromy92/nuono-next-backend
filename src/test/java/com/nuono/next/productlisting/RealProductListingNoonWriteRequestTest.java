@@ -54,6 +54,22 @@ class RealProductListingNoonWriteRequestTest extends RealProductListingNoonWrite
     }
 
     @Test
+    void strictReadbackEndpointsUseProviderVerifiedRoutes() {
+        assertEquals(
+                "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-content/catplat/zsku/retrieve",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_RETRIEVE_ZSKU_URL
+        );
+        assertEquals(
+                "https://noon-catalog.noon.partners/_vs/mp/mp-noon-catalog-api-rocket/offer/list/noon",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_OFFER_LIST_URL
+        );
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-pricing-api/pricing/info",
+                ProductListingRealWriteProperties.Endpoints.DEFAULT_PRICING_INFORMATION_URL
+        );
+    }
+
+    @Test
     void realAdapterBuildsExpectedNoonWriteRequests() {
         FakeBindingResolver bindingResolver = new FakeBindingResolver();
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
