@@ -21,6 +21,15 @@ final class NoonSearchResultAccumulator {
         add(result, true);
     }
 
+    void skipScannedSlot(boolean sponsored) {
+        resultPosition++;
+        if (sponsored) {
+            sponsoredRankPosition++;
+        } else {
+            organicRankPosition++;
+        }
+    }
+
     void addPreservingRankSlot(
             NoonSearchResult result,
             int positionOffset,

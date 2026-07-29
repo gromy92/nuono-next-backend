@@ -92,11 +92,15 @@ public class NoonFrontendSearchPageParser {
         JsonNode hits = firstArray(root, "hits", "products", "items", "results");
         if (hits != null) {
             for (JsonNode hit : hits) {
-                NoonSearchResult result = toCatalogResult(hit, sourceUrl);
-                if (result == null) continue;
                 providerResultSlotCount++;
-                providerSponsoredSlotCount += result.isSponsored() ? 1 : 0;
-                providerOrganicSlotCount += result.isSponsored() ? 0 : 1;
+                NoonSearchResult result = toCatalogResult(hit, sourceUrl);
+                boolean sponsored = result == null ? resolveSponsored(hit) : result.isSponsored();
+                providerSponsoredSlotCount += sponsored ? 1 : 0;
+                providerOrganicSlotCount += sponsored ? 0 : 1;
+                if (result == null) {
+                    results.skipScannedSlot(sponsored);
+                    continue;
+                }
                 results.addScannedSlot(result);
             }
         }
@@ -145,7 +149,6 @@ public class NoonFrontendSearchPageParser {
         page.setResults(results.results());
         return page;
     }
-
     private void collectCatalogSponsoredResults(
             JsonNode node,
             String sourceUrl,
@@ -165,7 +168,6 @@ public class NoonFrontendSearchPageParser {
         if (!node.isObject()) {
             return;
         }
-
         boolean currentSponsoredContext = sponsoredContext || resolveSponsored(node);
         if (currentSponsoredContext) {
             NoonSearchResult result = toCatalogResult(node, sourceUrl);
@@ -174,7 +176,6 @@ public class NoonFrontendSearchPageParser {
                 results.add(result);
             }
         }
-
         var fields = node.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> entry = fields.next();
@@ -188,7 +189,6 @@ public class NoonFrontendSearchPageParser {
             );
         }
     }
-
     private boolean isSponsoredCatalogContainer(String fieldName) {
         String value = fieldName == null ? "" : fieldName.toLowerCase(Locale.ROOT);
         return value.contains("sponsor")
