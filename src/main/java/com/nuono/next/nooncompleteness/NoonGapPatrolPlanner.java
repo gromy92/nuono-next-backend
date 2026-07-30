@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -35,9 +36,10 @@ public class NoonGapPatrolPlanner {
     @Autowired
     public NoonGapPatrolPlanner(
             NoonDataCompletenessRepository completenessRepository,
-            NoonPullFoundationService foundationService
+            NoonPullFoundationService foundationService,
+            ObjectProvider<NoonProviderAvailability> providerAvailability
     ) {
-        this(completenessRepository, foundationService, Clock.systemUTC(), (plan) -> true);
+        this(completenessRepository, foundationService, Clock.systemUTC(), providerAvailability.getIfAvailable(() -> (plan) -> true));
     }
 
     public NoonGapPatrolPlanner(
@@ -55,7 +57,6 @@ public class NoonGapPatrolPlanner {
     public Result planDueGaps(NoonDataGapQuery query, int limit) {
         return planGaps(query, limit, false);
     }
-
     public Result planManualSyncGaps(NoonDataGapQuery query, int limit) {
         return planGaps(query, limit, true);
     }
@@ -140,7 +141,6 @@ public class NoonGapPatrolPlanner {
                 .thenComparing(NoonDataGapWindowRecord::getDateFrom, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(NoonDataGapWindowRecord::getId, Comparator.nullsLast(Long::compareTo));
     }
-
     private int priority(NoonDataGapWindowRecord gap) {
         if (gap.getWindowType() == NoonDataGapWindowType.PRODUCT_BASELINE
                 || gap.getWindowType() == NoonDataGapWindowType.PRODUCT_DETAIL_BASELINE) {

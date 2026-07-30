@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -49,7 +50,8 @@ public class NoonPullScheduler {
             @Value("${nuono.noon.pull.scheduler.stale-running-task-max-age-minutes:120}")
             long staleRunningTaskMaxAgeMinutes,
             @Value("${nuono.noon.pull.scheduler.stale-queued-task-max-age-minutes:30}")
-            long staleQueuedTaskMaxAgeMinutes
+            long staleQueuedTaskMaxAgeMinutes,
+            ObjectProvider<NoonProviderAvailability> providerAvailability
     ) {
         this(
                 foundationService,
@@ -57,7 +59,7 @@ public class NoonPullScheduler {
                 new NoonOrderReportSchedulePolicy(),
                 new NoonOrderBackfillPlanner(),
                 new NoonSalesRetentionPolicy(Clock.system(SHANGHAI)),
-                (plan) -> true,
+                providerAvailability.getIfAvailable(() -> (plan) -> true),
                 Duration.ofMinutes(staleRunningTaskMaxAgeMinutes),
                 Duration.ofMinutes(staleQueuedTaskMaxAgeMinutes)
         );
@@ -334,11 +336,9 @@ public class NoonPullScheduler {
     private LocalDate latestAvailableDate() {
         return LocalDate.now(clock).minusDays(1);
     }
-
     private boolean isSalesReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_READY_AFTER);
     }
-
     private boolean isSalesLatestDayReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_LATEST_DAY_READY_AFTER);
     }
