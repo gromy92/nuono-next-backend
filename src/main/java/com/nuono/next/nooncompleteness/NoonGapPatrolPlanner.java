@@ -30,7 +30,7 @@ public class NoonGapPatrolPlanner {
     private final NoonDataCompletenessRepository completenessRepository;
     private final NoonPullFoundationService foundationService;
     private final Clock clock;
-    private final NoonProviderAvailability providerAvailability;
+    private NoonProviderAvailability providerAvailability;
 
     @Autowired
     public NoonGapPatrolPlanner(
@@ -49,6 +49,11 @@ public class NoonGapPatrolPlanner {
         this.completenessRepository = completenessRepository;
         this.foundationService = foundationService;
         this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.providerAvailability = providerAvailability == null ? (plan) -> true : providerAvailability;
+    }
+
+    @Autowired(required = false)
+    void setProviderAvailability(NoonProviderAvailability providerAvailability) {
         this.providerAvailability = providerAvailability == null ? (plan) -> true : providerAvailability;
     }
 

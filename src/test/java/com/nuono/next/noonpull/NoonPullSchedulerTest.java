@@ -64,6 +64,19 @@ class NoonPullSchedulerTest {
     }
 
     @Test
+    void shouldSkipPlanWhenInjectedProviderAvailabilityBlocksItsProject() {
+        createPlan(NoonPullType.INTERFACE, NoonPullDataDomain.PRODUCT, NoonPullTriggerMode.SCHEDULED_DAILY, "daily");
+        NoonPullScheduler scheduler = scheduler();
+        scheduler.setProviderAvailability((plan) -> false);
+
+        NoonPullSchedulerResult result = scheduler.runDuePlans();
+
+        assertEquals(0, result.getCreatedTaskCount());
+        assertEquals(1, result.getSkippedPlanCount());
+        assertEquals(0, repository.listTasks().size());
+    }
+
+    @Test
     void shouldSuppressScheduledTaskDuringProviderUnavailableCircuitCooldown() {
         NoonPullPlanRecord plan = createPlan(
                 NoonPullType.INTERFACE,

@@ -38,7 +38,7 @@ public class NoonPullScheduler {
     private final NoonOrderReportSchedulePolicy orderSchedulePolicy;
     private final NoonOrderBackfillPlanner orderBackfillPlanner;
     private final NoonSalesRetentionPolicy salesRetentionPolicy;
-    private final NoonProviderAvailability providerAvailability;
+    private NoonProviderAvailability providerAvailability;
     private final Duration staleRunningTaskMaxAge;
     private final Duration staleQueuedTaskMaxAge;
     private StoreSiteMaintenanceGate maintenanceGate = StoreSiteMaintenanceGate.allowAll();
@@ -127,6 +127,11 @@ public class NoonPullScheduler {
     @Autowired(required = false)
     void setMaintenanceGate(StoreSiteMaintenanceGate maintenanceGate) {
         this.maintenanceGate = maintenanceGate == null ? StoreSiteMaintenanceGate.allowAll() : maintenanceGate;
+    }
+
+    @Autowired(required = false)
+    void setProviderAvailability(NoonProviderAvailability providerAvailability) {
+        this.providerAvailability = providerAvailability == null ? (plan) -> true : providerAvailability;
     }
 
     public NoonPullSchedulerResult runDuePlans() {
