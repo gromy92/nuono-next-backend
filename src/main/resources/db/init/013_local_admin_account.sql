@@ -64,22 +64,22 @@ SET @local_admin_user_id = (
   LIMIT 1
 );
 
-UPDATE `user`
-SET
-  password = @local_admin_password_hash,
-  role = 'ADMIN',
-  role_id = 1,
-  account_type = 'internal',
-  real_name = 'adminBI',
-  company_name = 'Nuono',
-  level = 0,
-  status = 1,
-  effective_time = NULL,
-  expired_time = NULL,
-  is_deleted = 0,
-  updated_by = 1,
-  gmt_updated = NOW()
-WHERE id = @local_admin_user_id;
+SET @local_admin_update_sql = (
+  SELECT IF(
+    EXISTS(
+      SELECT 1
+      FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'user'
+        AND COLUMN_NAME = 'credential_version'
+    ),
+    'UPDATE `user` SET credential_version = credential_version + IF(BINARY password <=> BINARY @local_admin_password_hash, 0, 1), password = @local_admin_password_hash, role = ''ADMIN'', role_id = 1, account_type = ''internal'', real_name = ''adminBI'', company_name = ''Nuono'', level = 0, status = 1, effective_time = NULL, expired_time = NULL, is_deleted = 0, updated_by = 1, gmt_updated = NOW() WHERE id = @local_admin_user_id',
+    'UPDATE `user` SET password = @local_admin_password_hash, role = ''ADMIN'', role_id = 1, account_type = ''internal'', real_name = ''adminBI'', company_name = ''Nuono'', level = 0, status = 1, effective_time = NULL, expired_time = NULL, is_deleted = 0, updated_by = 1, gmt_updated = NOW() WHERE id = @local_admin_user_id'
+  )
+);
+PREPARE local_admin_update_stmt FROM @local_admin_update_sql;
+EXECUTE local_admin_update_stmt;
+DEALLOCATE PREPARE local_admin_update_stmt;
 
 UPDATE user_menu
 SET

@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonOrderFactMapper;
@@ -28,7 +29,7 @@ class NoonPullSpringWiringContractTest {
                 .withBean(NoonOrderFactWriter.class, () -> (fact) -> {
                 })
                 .withBean(com.nuono.next.auth.AuthSessionTokenService.class,
-                        () -> new com.nuono.next.auth.AuthSessionTokenService("test-secret", 3600))
+                        () -> mock(com.nuono.next.auth.AuthSessionTokenService.class))
                 .withUserConfiguration(NoonPullWiringConfig.class)
                 .run((context) -> {
                     assertThat(context).hasSingleBean(NoonPullFoundationService.class);

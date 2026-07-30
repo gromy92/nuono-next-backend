@@ -10,6 +10,14 @@
 CREATE DATABASE IF NOT EXISTS nuono_new_dev DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE nuono_new_dev;
 
+SELECT `id` FROM cross_border_erp_snapshot_20260428.`role` LIMIT 0;
+SELECT `id` FROM cross_border_erp_snapshot_20260428.`menu` LIMIT 0;
+SELECT `id` FROM cross_border_erp_snapshot_20260428.`role_menu` LIMIT 0;
+SELECT `id`, `phone`, `email`, `password`, `account_type`, `real_name`
+FROM cross_border_erp_snapshot_20260428.`user` LIMIT 0;
+SELECT `id` FROM cross_border_erp_snapshot_20260428.`user_menu` LIMIT 0;
+SELECT `id` FROM cross_border_erp_snapshot_20260428.`user_store` LIMIT 0;
+
 DROP TABLE IF EXISTS `user_store`;
 DROP TABLE IF EXISTS `user_menu`;
 DROP TABLE IF EXISTS `role_menu`;
@@ -41,6 +49,10 @@ SELECT * FROM cross_border_erp_snapshot_20260428.`role_menu`;
 
 INSERT INTO `user`
 SELECT * FROM cross_border_erp_snapshot_20260428.`user`;
+
+ALTER TABLE `user`
+    MODIFY COLUMN `password` VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '登录密码凭据',
+    ADD COLUMN `credential_version` BIGINT NOT NULL DEFAULT 0 COMMENT '登录凭据版本' AFTER `password`;
 
 INSERT INTO `user_menu`
 SELECT * FROM cross_border_erp_snapshot_20260428.`user_menu`;

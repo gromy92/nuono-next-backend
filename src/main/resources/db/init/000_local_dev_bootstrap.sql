@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS `user` (
     `phone` VARCHAR(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `email` VARCHAR(125) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `account_no` VARCHAR(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '登录账号',
-    `password` VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '登录密码',
+    `password` VARCHAR(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '登录密码',
+    `credential_version` BIGINT NOT NULL DEFAULT 0 COMMENT '登录凭据版本',
     `token` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
     `role` VARCHAR(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '角色 admin:管理员  user:普通用户',
     `role_id` BIGINT DEFAULT NULL COMMENT 'è§’è‰²ID',
@@ -84,7 +85,6 @@ CREATE TABLE IF NOT EXISTS `user` (
     `gmt_updated` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
     PRIMARY KEY (`id`) USING BTREE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC;
-
 SET @user_expand_role := (
     SELECT IF(
         EXISTS(
@@ -102,7 +102,6 @@ SET @user_expand_role := (
 PREPARE stmt FROM @user_expand_role;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
-
 CREATE TABLE IF NOT EXISTS `user_menu` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `user_id` BIGINT DEFAULT NULL,

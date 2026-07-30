@@ -2,6 +2,8 @@ package com.nuono.next.auth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -20,47 +22,72 @@ class LocalDbAuthServiceTest {
     @Mock
     private AuthMapper authMapper;
 
+    private UserPasswordService passwordService;
+
     private LocalDbAuthService service;
 
     @BeforeEach
     void setUp() {
-        service = new LocalDbAuthService(authMapper);
+        passwordService = new UserPasswordService(4, new java.security.SecureRandom());
+        service = new LocalDbAuthService(authMapper, passwordService);
     }
 
     @Test
     void shouldLoginWithCurrentPlainPassword() {
         AuthLoginCommand command = command("admin", "admin123");
-        when(authMapper.selectLoginAccount("admin")).thenReturn(
-                account("admin", "admin123", 1, "系统管理员", null, null)
-        );
+        AuthLoginAccount account = account("admin", "admin123", 1, "系统管理员", null, null);
+        account.setCredentialVersion(7L);
+        when(authMapper.selectLoginAccount("admin")).thenReturn(account);
+        when(authMapper.upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.eq(10004L),
+                org.mockito.ArgumentMatchers.eq("admin123"),
+                org.mockito.ArgumentMatchers.anyString()
+        ))
+                .thenReturn(1);
         when(authMapper.selectGrantedMenus(10004L)).thenReturn(List.of(grantedMenu(10L, "用户管理", "/api/user/manage")));
 
         AuthLoginResult result = service.login(command);
 
         assertEquals("admin", result.getAccountNo());
         assertEquals("系统管理员", result.getRoleName());
+        assertEquals(7L, result.getCredentialVersion());
         assertEquals(1, result.getGrantedMenus().size());
+        verify(authMapper).upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.eq(10004L),
+                org.mockito.ArgumentMatchers.eq("admin123"),
+                anyString()
+        );
     }
 
     @Test
     void shouldLoginWithLegacySaltedPassword() {
-        AuthLoginCommand command = command("ops001", "Ahoney$123");
+        AuthLoginCommand command = command("ops001", "Legacy123!");
         when(authMapper.selectLoginAccount("ops001")).thenReturn(
                 account(
                         "ops001",
-                        LegacyPasswordCodec.encryptWithSalt("Ahoney$123", LegacyPasswordCodec.LEGACY_SALT),
+                        LegacyPasswordCodec.encryptWithSalt("Legacy123!", LegacyPasswordCodec.LEGACY_SALT),
                         1,
                         "运营",
                         null,
                         null
                 )
         );
+        when(authMapper.upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.eq(10004L),
+                anyString(),
+                anyString()
+        )).thenReturn(1);
         when(authMapper.selectGrantedMenus(10004L)).thenReturn(List.of(grantedMenu(25L, "角色分配", "/api/user/role")));
 
         AuthLoginResult result = service.login(command);
 
         assertEquals("ops001", result.getAccountNo());
         assertEquals("运营", result.getRoleName());
+        verify(authMapper).upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.eq(10004L),
+                anyString(),
+                anyString()
+        );
     }
 
     @Test
@@ -82,6 +109,11 @@ class LocalDbAuthServiceTest {
 
         assertEquals("boss001", result.getAccountNo());
         assertEquals(10001L, result.getDefaultOwnerUserId());
+        verify(authMapper, never()).upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.anyLong(),
+                anyString(),
+                anyString()
+        );
     }
 
     @Test
@@ -108,6 +140,11 @@ class LocalDbAuthServiceTest {
                 "当前账号已停用，暂时不能登录。",
                 assertThrows(IllegalArgumentException.class, () -> service.login(command)).getMessage()
         );
+        verify(authMapper, never()).upgradePasswordIfUnchanged(
+                org.mockito.ArgumentMatchers.anyLong(),
+                anyString(),
+                anyString()
+        );
     }
 
     @Test
@@ -131,52 +168,10 @@ class LocalDbAuthServiceTest {
         );
     }
 
-    @Test
-    void shouldReturnSampleAccountsFromMapper() {
-        AuthSampleAccount sample = new AuthSampleAccount();
-        sample.setAccountNo("admin");
-        sample.setPassword("admin123");
-        when(authMapper.listSampleAccounts()).thenReturn(List.of(sample));
-
-        List<AuthSampleAccount> accounts = service.listSampleAccounts();
-
-        assertEquals(1, accounts.size());
-        verify(authMapper).listSampleAccounts();
-    }
-
-    @Test
-    void shouldChangeCurrentUserPassword() {
-        AuthChangePasswordCommand command = changePasswordCommand(10004L, "Next123!");
-        when(authMapper.updateCurrentUserPassword(10004L, "Next123!")).thenReturn(1);
-
-        String message = service.changePassword(command);
-
-        assertEquals("密码修改成功", message);
-        verify(authMapper).updateCurrentUserPassword(10004L, "Next123!");
-    }
-
-    @Test
-    void shouldRejectInvalidChangePasswordPayload() {
-        assertEquals(
-                "密码需为 6-14 位，不能包含空格或中文。",
-                assertThrows(
-                        IllegalArgumentException.class,
-                        () -> service.changePassword(changePasswordCommand(10004L, "短密码"))
-                ).getMessage()
-        );
-    }
-
     private AuthLoginCommand command(String accountNo, String password) {
         AuthLoginCommand command = new AuthLoginCommand();
         command.setAccountNo(accountNo);
         command.setPassword(password);
-        return command;
-    }
-
-    private AuthChangePasswordCommand changePasswordCommand(Long userId, String newPassword) {
-        AuthChangePasswordCommand command = new AuthChangePasswordCommand();
-        command.setUserId(userId);
-        command.setNewPassword(newPassword);
         return command;
     }
 

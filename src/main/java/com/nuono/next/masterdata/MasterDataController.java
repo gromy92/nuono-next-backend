@@ -7,8 +7,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,18 +28,11 @@ import static com.nuono.next.auth.RoleAccessSupport.isOperatorRoleView;
 
 @RestController
 @RequestMapping("/api/master-data")
+@RequiredArgsConstructor
 public class MasterDataController {
 
     private final ObjectProvider<LocalDbMasterDataService> masterDataServiceProvider;
     private final AuthSessionTokenService sessionTokenService;
-
-    public MasterDataController(
-            ObjectProvider<LocalDbMasterDataService> masterDataServiceProvider,
-            AuthSessionTokenService sessionTokenService
-    ) {
-        this.masterDataServiceProvider = masterDataServiceProvider;
-        this.sessionTokenService = sessionTokenService;
-    }
 
     @GetMapping("/users")
     public List<MasterDataUserView> users(
@@ -170,7 +166,8 @@ public class MasterDataController {
     public Map<String, Object> resetUserPassword(
             @PathVariable("userId") Long userId,
             @RequestBody(required = false) MasterDataResetPasswordCommand command,
-            HttpServletRequest request
+            HttpServletRequest request,
+            HttpServletResponse response
     ) {
         LocalDbMasterDataService service = requireService();
         try {
@@ -178,6 +175,7 @@ public class MasterDataController {
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("success", true);
             payload.put("message", service.resetUserPassword(userId, command));
+            response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
             return payload;
         } catch (IllegalArgumentException error) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error);

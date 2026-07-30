@@ -37,10 +37,9 @@ class LocalDbMasterDataServiceTest {
     private LocalDbFoundationOverviewService foundationOverviewService;
 
     private LocalDbMasterDataService service;
-
     @BeforeEach
     void setUp() {
-        service = new LocalDbMasterDataService(masterDataMapper, foundationOverviewService);
+        service = new LocalDbMasterDataService(masterDataMapper, foundationOverviewService, org.mockito.Mockito.mock(com.nuono.next.auth.UserPasswordService.class));
     }
 
     @Test

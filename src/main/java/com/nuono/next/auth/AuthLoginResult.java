@@ -1,11 +1,15 @@
 package com.nuono.next.auth;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.ArrayList;
 import java.util.List;
 
 public class AuthLoginResult {
 
     private Long userId;
+
+    @JsonIgnore
+    private Long credentialVersion = 0L;
 
     private String accountNo;
 
@@ -41,6 +45,14 @@ public class AuthLoginResult {
 
     public void setUserId(Long userId) {
         this.userId = userId;
+    }
+
+    public Long getCredentialVersion() {
+        return credentialVersion;
+    }
+
+    public void setCredentialVersion(Long credentialVersion) {
+        this.credentialVersion = credentialVersion;
     }
 
     public String getAccountNo() {
