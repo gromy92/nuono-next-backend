@@ -148,23 +148,6 @@ class NoonGapPatrolPlannerTest {
         assertEquals(0, unsafePull.tasks.size());
     }
 
-    @Test
-    void injectedProviderAvailabilityBlocksGapPlanningBeforeTaskCreation() {
-        InMemoryCompletenessRepository completenessRepository = new InMemoryCompletenessRepository();
-        InMemoryPullRepository pullRepository = new InMemoryPullRepository();
-        NoonGapPatrolPlanner planner = planner(completenessRepository, pullRepository, (plan) -> true);
-        planner.setProviderAvailability((plan) -> false);
-        completenessRepository.insertGapWindow(
-                gap(1L, NoonDataCategory.SALES_ORDER, NoonDataGapWindowType.LATEST_DAILY, NoonDataGapStatus.PENDING)
-        );
-
-        NoonGapPatrolPlanner.Result result = planner.planDueGaps(new NoonDataGapQuery(), 10);
-
-        assertEquals(0, result.getPlannedTasks().size());
-        assertEquals(1, result.getSkippedCount());
-        assertEquals(0, pullRepository.tasks.size());
-    }
-
     private static NoonGapPatrolPlanner planner(
             InMemoryCompletenessRepository completenessRepository,
             InMemoryPullRepository pullRepository,

@@ -16,6 +16,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -38,7 +39,7 @@ public class NoonPullScheduler {
     private final NoonOrderReportSchedulePolicy orderSchedulePolicy;
     private final NoonOrderBackfillPlanner orderBackfillPlanner;
     private final NoonSalesRetentionPolicy salesRetentionPolicy;
-    private NoonProviderAvailability providerAvailability;
+    private final NoonProviderAvailability providerAvailability;
     private final Duration staleRunningTaskMaxAge;
     private final Duration staleQueuedTaskMaxAge;
     private StoreSiteMaintenanceGate maintenanceGate = StoreSiteMaintenanceGate.allowAll();
@@ -49,7 +50,8 @@ public class NoonPullScheduler {
             @Value("${nuono.noon.pull.scheduler.stale-running-task-max-age-minutes:120}")
             long staleRunningTaskMaxAgeMinutes,
             @Value("${nuono.noon.pull.scheduler.stale-queued-task-max-age-minutes:30}")
-            long staleQueuedTaskMaxAgeMinutes
+            long staleQueuedTaskMaxAgeMinutes,
+            ObjectProvider<NoonProviderAvailability> providerAvailability
     ) {
         this(
                 foundationService,
@@ -57,7 +59,7 @@ public class NoonPullScheduler {
                 new NoonOrderReportSchedulePolicy(),
                 new NoonOrderBackfillPlanner(),
                 new NoonSalesRetentionPolicy(Clock.system(SHANGHAI)),
-                (plan) -> true,
+                providerAvailability.getIfAvailable(() -> (plan) -> true),
                 Duration.ofMinutes(staleRunningTaskMaxAgeMinutes),
                 Duration.ofMinutes(staleQueuedTaskMaxAgeMinutes)
         );
@@ -127,11 +129,6 @@ public class NoonPullScheduler {
     @Autowired(required = false)
     void setMaintenanceGate(StoreSiteMaintenanceGate maintenanceGate) {
         this.maintenanceGate = maintenanceGate == null ? StoreSiteMaintenanceGate.allowAll() : maintenanceGate;
-    }
-
-    @Autowired(required = false)
-    void setProviderAvailability(NoonProviderAvailability providerAvailability) {
-        this.providerAvailability = providerAvailability == null ? (plan) -> true : providerAvailability;
     }
 
     public NoonPullSchedulerResult runDuePlans() {
@@ -339,11 +336,9 @@ public class NoonPullScheduler {
     private LocalDate latestAvailableDate() {
         return LocalDate.now(clock).minusDays(1);
     }
-
     private boolean isSalesReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_READY_AFTER);
     }
-
     private boolean isSalesLatestDayReportReadyWindow() {
         return !LocalTime.now(clock).isBefore(SALES_LATEST_DAY_READY_AFTER);
     }
