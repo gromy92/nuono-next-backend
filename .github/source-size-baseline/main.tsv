@@ -86,7 +86,7 @@ src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
 src/main/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepository.java	752
-src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	526
+src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	485
 src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryWorker.java	1023
 src/main/java/com/nuono/next/nooncompleteness/NoonDataAuditService.java	569
 src/main/java/com/nuono/next/nooncompleteness/NoonGapPatrolActionService.java	370
