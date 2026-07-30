@@ -10,7 +10,6 @@ import com.nuono.next.store.StoreSyncStoreRecord;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.util.Locale;
-import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,6 +27,7 @@ public class NoonAuthRecoveryCoordinator implements
     private final NoonAuthRecoveryRepository recoveryRepository;
     private final NoonPullRepository pullRepository;
     private final StoreSyncMapper storeSyncMapper;
+    private final NoonAuthRecoveryProjectBatchCatalog projectBatchCatalog;
     private final NoonAuthRecoveryProperties properties;
     private final String configuredEmail;
     private final String configuredMailboxAuthCode;
@@ -38,6 +38,7 @@ public class NoonAuthRecoveryCoordinator implements
             NoonAuthRecoveryRepository recoveryRepository,
             NoonPullRepository pullRepository,
             StoreSyncMapper storeSyncMapper,
+            NoonAuthRecoveryProjectBatchCatalog projectBatchCatalog,
             NoonAuthRecoveryProperties properties,
             @Value("${nuono.noon.auth.email-otp.email:}") String configuredEmail,
             @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMailboxAuthCode
@@ -46,6 +47,7 @@ public class NoonAuthRecoveryCoordinator implements
                 recoveryRepository,
                 pullRepository,
                 storeSyncMapper,
+                projectBatchCatalog,
                 properties,
                 configuredEmail,
                 configuredMailboxAuthCode,
@@ -62,9 +64,32 @@ public class NoonAuthRecoveryCoordinator implements
             String configuredMailboxAuthCode,
             Clock clock
     ) {
+        this(
+                recoveryRepository,
+                pullRepository,
+                storeSyncMapper,
+                NoonAuthRecoveryProjectBatchCatalog.empty(),
+                properties,
+                configuredEmail,
+                configuredMailboxAuthCode,
+                clock
+        );
+    }
+
+    NoonAuthRecoveryCoordinator(
+            NoonAuthRecoveryRepository recoveryRepository,
+            NoonPullRepository pullRepository,
+            StoreSyncMapper storeSyncMapper,
+            NoonAuthRecoveryProjectBatchCatalog projectBatchCatalog,
+            NoonAuthRecoveryProperties properties,
+            String configuredEmail,
+            String configuredMailboxAuthCode,
+            Clock clock
+    ) {
         this.recoveryRepository = recoveryRepository;
         this.pullRepository = pullRepository;
         this.storeSyncMapper = storeSyncMapper;
+        this.projectBatchCatalog = projectBatchCatalog;
         this.properties = properties;
         this.configuredEmail = normalize(configuredEmail);
         this.configuredMailboxAuthCode = normalize(configuredMailboxAuthCode);
@@ -87,14 +112,21 @@ public class NoonAuthRecoveryCoordinator implements
             return Optional.empty();
         }
 
-        return enqueueTarget(
+        Optional<Long> primaryRecovery = enqueueTarget(
                 task.getOwnerUserId(),
                 projectCode,
                 task.getStoreCode(),
                 task.getSiteCode(),
                 task,
-                "AUTH_REQUIRED"
+                "AUTH_REQUIRED",
+                false,
+                null
         );
+        primaryRecovery.ifPresent(ignored -> enqueueIdentityBatchSiblings(
+                task.getOwnerUserId(),
+                projectCode
+        ));
+        return primaryRecovery;
     }
 
     @Override
@@ -109,14 +141,55 @@ public class NoonAuthRecoveryCoordinator implements
                 || !normalizedProjectCode.equals(normalize(project.getProjectCode()))) {
             return Optional.empty();
         }
-        return enqueueTarget(
+        Optional<Long> primaryRecovery = enqueueTarget(
                 ownerUserId,
                 normalizedProjectCode,
                 firstNonBlank(storeCode, project.getStoreCode(), normalizedProjectCode),
                 project.getSite(),
                 null,
-                "BINDING_PENDING"
+                "BINDING_PENDING",
+                true,
+                "STORE_BINDING"
         );
+        primaryRecovery.ifPresent(ignored -> enqueueIdentityBatchSiblings(
+                ownerUserId,
+                normalizedProjectCode
+        ));
+        return primaryRecovery;
+    }
+
+    private void enqueueIdentityBatchSiblings(Long sourceOwnerUserId, String sourceProjectCode) {
+        for (NoonAuthRecoveryProjectCandidate candidate : projectBatchCatalog.listEligibleProjects(
+                properties.normalizedProjectAllowlist()
+        )) {
+            if (candidate == null
+                    || candidate.getOwnerUserId() == null
+                    || !StringUtils.hasText(candidate.getProjectCode())
+                    || !properties.allowsProject(candidate.getProjectCode())
+                    || sameProject(candidate, sourceOwnerUserId, sourceProjectCode)) {
+                continue;
+            }
+            String projectCode = candidate.getProjectCode().trim();
+            enqueueTarget(
+                    candidate.getOwnerUserId(),
+                    projectCode,
+                    firstNonBlank(candidate.getStoreCode(), projectCode),
+                    null,
+                    null,
+                    "AUTH_REQUIRED_SHARED_IDENTITY",
+                    false,
+                    "IDENTITY_BATCH"
+            );
+        }
+    }
+
+    private boolean sameProject(
+            NoonAuthRecoveryProjectCandidate candidate,
+            Long ownerUserId,
+            String projectCode
+    ) {
+        return ownerUserId.equals(candidate.getOwnerUserId())
+                && projectCode.equals(candidate.getProjectCode().trim());
     }
 
     private Optional<Long> enqueueTarget(
@@ -125,7 +198,9 @@ public class NoonAuthRecoveryCoordinator implements
             String storeCode,
             String siteCode,
             NoonPullTaskRecord sourceTask,
-            String failureCode
+            String failureCode,
+            boolean explicitBinding,
+            String sourceDomain
     ) {
 
         String identityKey = NoonAuthIdentityKey.fromEmail(configuredEmail);
@@ -142,12 +217,16 @@ public class NoonAuthRecoveryCoordinator implements
             return Optional.empty();
         }
         LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), clock.getZone());
-        boolean explicitBinding = sourceTask == null;
         NoonProjectAuthStateRecord stateBeforeEnqueue = recoveryRepository.selectProjectAuthState(
                 ownerUserId,
                 projectCode
         );
-        if (!explicitBinding && keepsManualHold(stateBeforeEnqueue, bindingFingerprint, configFingerprint)) {
+        if (!explicitBinding && NoonAuthRecoveryQueuePolicy.keepsManualHold(
+                recoveryRepository,
+                stateBeforeEnqueue,
+                bindingFingerprint,
+                configFingerprint
+        )) {
             return Optional.empty();
         }
         recoveryRepository.promoteReadySuccessors(now.plus(properties.coalesceDuration()), now);
@@ -174,7 +253,7 @@ public class NoonAuthRecoveryCoordinator implements
                 ownerUserId,
                 projectCode
         );
-        if (!explicitBinding && keepsManualHoldWithLockedRecoveries(
+        if (!explicitBinding && NoonAuthRecoveryQueuePolicy.keepsManualHoldWithLockedRecoveries(
                 existingProjectState,
                 bindingFingerprint,
                 configFingerprint,
@@ -184,10 +263,14 @@ public class NoonAuthRecoveryCoordinator implements
             recoveryRepository.cancelEmptyRecoveryAfterRejectedEnqueue(activeRecoveryId, now);
             return Optional.empty();
         }
-        boolean staleSourceTaskAuthFailure = sourceTaskPredatesCurrentAuth(sourceTask, existingProjectState);
+        boolean staleSourceTaskAuthFailure = NoonAuthRecoveryQueuePolicy.sourceTaskPredatesCurrentAuth(
+                sourceTask,
+                existingProjectState
+        );
         NoonAuthRecoveryItemRecord committedProjectItem = explicitBinding
                 ? null
-                : resolveCommittedProjectJoin(
+                : NoonAuthRecoveryQueuePolicy.resolveCommittedProjectJoin(
+                        recoveryRepository,
                         existingProjectState,
                         activeRecovery,
                         ownerUserId,
@@ -207,7 +290,7 @@ public class NoonAuthRecoveryCoordinator implements
                         projectCode
                 )
                 : null;
-        Long projectBoundRecoveryId = resolveProjectBoundRecovery(
+        Long projectBoundRecoveryId = NoonAuthRecoveryQueuePolicy.resolveProjectBoundRecovery(
                 existingProjectState,
                 activeRecovery,
                 waitingSuccessor,
@@ -293,7 +376,7 @@ public class NoonAuthRecoveryCoordinator implements
         item.setSiteCode(siteCode);
         item.setSourceTaskId(sourceTask == null ? null : sourceTask.getId());
         item.setSourceDomain(sourceTask == null
-                ? "STORE_BINDING"
+                ? sourceDomain
                 : sourceTask.getDataDomain() == null ? null : sourceTask.getDataDomain().name());
         item.setExpectedAuthVersion(expectedAuthVersion);
         item.setStatus(NoonAuthRecoveryItemStatus.PENDING);
@@ -319,130 +402,6 @@ public class NoonAuthRecoveryCoordinator implements
             }
         }
         return Optional.of(recoveryId);
-    }
-
-    private boolean sourceTaskPredatesCurrentAuth(
-            NoonPullTaskRecord sourceTask,
-            NoonProjectAuthStateRecord stateBeforeEnqueue
-    ) {
-        return sourceTask != null
-                && sourceTask.getStartedAt() != null
-                && stateBeforeEnqueue != null
-                && stateBeforeEnqueue.getStatus() == NoonProjectAuthStatus.HEALTHY
-                && stateBeforeEnqueue.getActiveRecoveryId() == null
-                && stateBeforeEnqueue.getAuthVersion() != null
-                && stateBeforeEnqueue.getAuthVersion() > 0L
-                && stateBeforeEnqueue.getLastSuccessAt() != null
-                && !stateBeforeEnqueue.getLastSuccessAt().isBefore(sourceTask.getStartedAt());
-    }
-
-    private NoonAuthRecoveryItemRecord resolveCommittedProjectJoin(
-            NoonProjectAuthStateRecord state,
-            NoonAuthIdentityRecoveryRecord activeRecovery,
-            Long ownerUserId,
-            String projectCode
-    ) {
-        if (state == null
-                || state.getStatus() != NoonProjectAuthStatus.HEALTHY
-                || state.getActiveRecoveryId() != null
-                || state.getAuthVersion() == null
-                || activeRecovery == null
-                || activeRecovery.getId() == null) {
-            return null;
-        }
-        NoonAuthRecoveryItemRecord existing = recoveryRepository.selectProjectRecoveryItem(
-                activeRecovery.getId(),
-                ownerUserId,
-                projectCode
-        );
-        if (existing == null
-                || existing.getExpectedAuthVersion() == null
-                || state.getAuthVersion() <= existing.getExpectedAuthVersion()) {
-            return null;
-        }
-        return existing;
-    }
-
-    private boolean keepsManualHold(
-            NoonProjectAuthStateRecord state,
-            String bindingFingerprint,
-            String configFingerprint
-    ) {
-        if (state == null || state.getStatus() != NoonProjectAuthStatus.MANUAL_HOLD) {
-            return false;
-        }
-        if (!StringUtils.hasText(state.getBindingFingerprint())
-                || !StringUtils.hasText(state.getConfigFingerprint())) {
-            return true;
-        }
-        boolean bindingChanged = !Objects.equals(state.getBindingFingerprint(), bindingFingerprint);
-        boolean configChanged = !Objects.equals(state.getConfigFingerprint(), configFingerprint);
-        if (!bindingChanged && !configChanged) {
-            return true;
-        }
-        if (state.getActiveRecoveryId() == null) {
-            return false;
-        }
-        NoonAuthIdentityRecoveryRecord bound = recoveryRepository.selectRecovery(state.getActiveRecoveryId());
-        return bound != null
-                && bound.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD
-                && !configChanged;
-    }
-
-    private Long resolveProjectBoundRecovery(
-            NoonProjectAuthStateRecord state,
-            NoonAuthIdentityRecoveryRecord activeRecovery,
-            NoonAuthIdentityRecoveryRecord waitingSuccessor,
-            String identityKey
-    ) {
-        if (state == null
-                || state.getStatus() == null
-                || !state.getStatus().blocksProviderCalls()
-                || state.getActiveRecoveryId() == null
-                || !identityKey.equals(state.getIdentityKey())) {
-            return null;
-        }
-        if (state.getActiveRecoveryId().equals(activeRecovery.getId())) {
-            return activeRecovery.getId();
-        }
-        if (waitingSuccessor == null
-                || !state.getActiveRecoveryId().equals(waitingSuccessor.getId())
-                || waitingSuccessor.getStatus() != NoonAuthRecoveryStatus.WAITING_PREDECESSOR
-                || !identityKey.equals(waitingSuccessor.getIdentityKey())
-                || !activeRecovery.getId().equals(waitingSuccessor.getPredecessorRecoveryId())) {
-            return null;
-        }
-        return waitingSuccessor.getId();
-    }
-
-    private boolean keepsManualHoldWithLockedRecoveries(
-            NoonProjectAuthStateRecord state,
-            String bindingFingerprint,
-            String configFingerprint,
-            NoonAuthIdentityRecoveryRecord activeRecovery,
-            NoonAuthIdentityRecoveryRecord waitingSuccessor
-    ) {
-        if (state == null || state.getStatus() != NoonProjectAuthStatus.MANUAL_HOLD) {
-            return false;
-        }
-        if (!StringUtils.hasText(state.getBindingFingerprint())
-                || !StringUtils.hasText(state.getConfigFingerprint())) {
-            return true;
-        }
-        boolean bindingChanged = !Objects.equals(state.getBindingFingerprint(), bindingFingerprint);
-        boolean configChanged = !Objects.equals(state.getConfigFingerprint(), configFingerprint);
-        if (!bindingChanged && !configChanged) {
-            return true;
-        }
-        if (configChanged || state.getActiveRecoveryId() == null) {
-            return false;
-        }
-        if (activeRecovery != null && state.getActiveRecoveryId().equals(activeRecovery.getId())) {
-            return activeRecovery.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD;
-        }
-        return waitingSuccessor != null
-                && state.getActiveRecoveryId().equals(waitingSuccessor.getId())
-                && waitingSuccessor.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD;
     }
 
     @Override
