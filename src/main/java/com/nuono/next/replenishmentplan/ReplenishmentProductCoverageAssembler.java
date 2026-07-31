@@ -66,8 +66,7 @@ final class ReplenishmentProductCoverageAssembler {
                     row.getActiveStateSyncedAt(),
                     row.getCurrentStockUnits(),
                     row.getFbnStockUnits(),
-                    row.getSupermallStockUnits(),
-                    Boolean.TRUE.equals(row.getIsActive())
+                    row.getSupermallStockUnits()
             ));
         }
     }
@@ -84,9 +83,9 @@ final class ReplenishmentProductCoverageAssembler {
         int unknown = 0;
         for (String productKey : allKeys) {
             ReplenishmentProductStockRow row = stockByPartnerSku.get(productKey);
-            if (forecasted.contains(productKey) || row != null && Boolean.TRUE.equals(row.getIsActive())) {
+            if (row == null || Boolean.TRUE.equals(row.getIsActive())) {
                 active++;
-            } else if (row != null && Boolean.FALSE.equals(row.getIsActive())) {
+            } else if (Boolean.FALSE.equals(row.getIsActive())) {
                 inactive++;
             } else {
                 unknown++;

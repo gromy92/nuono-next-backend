@@ -1,6 +1,7 @@
 package com.nuono.next.replenishmentplan;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanItemView;
@@ -15,37 +16,44 @@ import org.junit.jupiter.api.Test;
 
 class ReplenishmentProductCoverageAssemblerTest {
     @Test
-    void accountsForActiveInactiveAndUnknownWithoutDroppingBlockedRows() {
+    void everyMaintainedProductCanBeForecastedWhileActiveStateRemainsInformational() {
         Map<String, ReplenishmentProductStockRow> stock =
                 ReplenishmentProductCoverageAssembler.index(List.of(
                         stock("PSKU-ACTIVE", Boolean.TRUE, "NOON_PRICING_INFO"),
                         stock("PSKU-INACTIVE", Boolean.FALSE, "NOON_PRICING_INFO"),
                         stock("PSKU-UNKNOWN", null, null)
                 ));
-        Set<String> forecasted = Set.of("PSKU-ACTIVE");
+        Set<String> forecasted = Set.of("PSKU-ACTIVE", "PSKU-INACTIVE", "PSKU-UNKNOWN");
 
         ReplenishmentProductCoverageView coverage =
                 ReplenishmentProductCoverageAssembler.summarize(stock, forecasted);
+
+        assertEquals(3, coverage.getTotalProductCount());
+        assertEquals(3, coverage.getForecastedProductCount());
+        assertEquals(1, coverage.getActiveProductCount());
+        assertEquals(1, coverage.getInactiveProductCount());
+        assertEquals(1, coverage.getUnknownProductCount());
+    }
+
+    @Test
+    void missingForecastBlocksForMissingForecastRatherThanActiveState() {
+        Map<String, ReplenishmentProductStockRow> stock =
+                ReplenishmentProductCoverageAssembler.index(List.of(
+                        stock("PSKU-INACTIVE", Boolean.FALSE, "NOON_PRICING_INFO")
+                ));
         List<PlanItemView> blocked = new ArrayList<>();
+
         ReplenishmentProductCoverageAssembler.appendBlocked(
                 blocked,
                 ReplenishmentPlanConfig.defaultBasicV1(),
                 stock,
-                forecasted
+                Set.of()
         );
 
-        assertEquals(3, coverage.getTotalProductCount());
-        assertEquals(1, coverage.getForecastedProductCount());
-        assertEquals(1, coverage.getActiveProductCount());
-        assertEquals(1, coverage.getInactiveProductCount());
-        assertEquals(1, coverage.getUnknownProductCount());
-        assertEquals(2, blocked.size());
-        PlanItemView inactive = row(blocked, "PSKU-INACTIVE");
-        assertEquals("INACTIVE", inactive.getActiveState());
-        assertTrue(inactive.getWarnings().contains("product_inactive"));
-        PlanItemView unknown = row(blocked, "PSKU-UNKNOWN");
-        assertEquals("UNKNOWN", unknown.getActiveState());
-        assertTrue(unknown.getWarnings().contains("active_state_unknown"));
+        assertEquals(1, blocked.size());
+        assertEquals("INACTIVE", blocked.get(0).getActiveState());
+        assertTrue(blocked.get(0).getWarnings().contains("forecast_missing"));
+        assertFalse(blocked.get(0).getWarnings().contains("product_inactive"));
     }
 
     private ReplenishmentProductStockRow stock(String partnerSku, Boolean active, String source) {
@@ -64,10 +72,4 @@ class ReplenishmentProductCoverageAssemblerTest {
         );
     }
 
-    private PlanItemView row(List<PlanItemView> rows, String partnerSku) {
-        return rows.stream()
-                .filter(item -> partnerSku.equals(item.getPartnerSku()))
-                .findFirst()
-                .orElseThrow();
-    }
 }

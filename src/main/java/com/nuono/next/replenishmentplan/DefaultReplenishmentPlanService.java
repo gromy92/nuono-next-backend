@@ -155,7 +155,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     missingEtaBatches(inboundRows),
                     hasUnresolvedInboundSite(inboundRows)
             ), config).withActiveState(
-                    Boolean.TRUE,
+                    stockRow == null ? null : stockRow.getIsActive(),
                     stockRow == null ? null : stockRow.getActiveStateSource(),
                     stockRow == null ? null : stockRow.getActiveStateSyncedAt()
             ));
