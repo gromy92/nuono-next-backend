@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Component
@@ -22,6 +23,7 @@ public class ProductListActiveStateReconciler {
         this.productManagementMapper = productManagementMapper;
     }
 
+    @Transactional
     public void reconcile(NoonProductProjectionWriteCommand command) {
         if (command == null || !command.isCompleteProductScope() || command.getOwnerUserId() == null) {
             return;
@@ -34,13 +36,31 @@ public class ProductListActiveStateReconciler {
                 || presentPartnerSkus.isEmpty()) {
             return;
         }
+        LocalDateTime reconciledAt = LocalDateTime.now();
+        for (ProductMasterSeed seed : command.getProductSeeds()) {
+            if (seed == null || seed.getIsActive() == null || !StringUtils.hasText(seed.getPartnerSku())) {
+                continue;
+            }
+            productManagementMapper.updateProductOfferActiveStateFromCompleteList(
+                    command.getOwnerUserId(),
+                    storeCode,
+                    siteCode,
+                    normalize(seed.getPartnerSku()),
+                    seed.getIsActive(),
+                    normalize(seed.getActiveStateSource()),
+                    reconciledAt,
+                    normalize(seed.getStatusCode()),
+                    normalize(seed.getLiveStatus()),
+                    command.getOwnerUserId()
+            );
+        }
         productManagementMapper.markProductOffersMissingFromCompleteListInactive(
                 command.getOwnerUserId(),
                 storeCode,
                 siteCode,
                 presentPartnerSkus,
                 ABSENCE_STATE_SOURCE,
-                LocalDateTime.now(),
+                reconciledAt,
                 command.getOwnerUserId()
         );
     }

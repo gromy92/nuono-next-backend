@@ -105,4 +105,33 @@ class ProductActiveStateUpsertSqlTest {
                 .contains("UPPER(TRIM(pv.partner_sku)) NOT IN")
                 .contains("collection='presentPartnerSkus'");
     }
+
+    @Test
+    void completeProductListUpdatesPresentProductsByStableStoreSitePartnerIdentity() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "updateProductOfferActiveStateFromCompleteList",
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                Boolean.class,
+                String.class,
+                java.time.LocalDateTime.class,
+                String.class,
+                String.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .contains("UPPER(lss.store_code) = UPPER(#{storeCode})")
+                .contains("UPPER(lss.site) = UPPER(#{siteCode})")
+                .contains("UPPER(TRIM(pv.partner_sku)) = UPPER(TRIM(#{partnerSku}))")
+                .contains("pso.is_active = #{active}")
+                .contains("pso.status_code = COALESCE(#{statusCode}, pso.status_code)")
+                .contains("pso.live_status = COALESCE(#{liveStatus}, pso.live_status)")
+                .contains("pso.maintenance_enabled = b'1'");
+    }
 }

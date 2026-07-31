@@ -34,6 +34,32 @@ class ProductListActiveStateReconcilerTest {
     }
 
     @Test
+    void completeListUpdatesPresentProductStateBeforeMarkingAbsentProductsInactive() {
+        ProductManagementMapper mapper = mock(ProductManagementMapper.class);
+        ProductListActiveStateReconciler reconciler = new ProductListActiveStateReconciler(mapper);
+        ProductMasterSeed active = product("PAPERSAYSB261");
+        active.setIsActive(true);
+        active.setActiveStateSource("NOON_PRODUCT_LIST_STATUS_CODE");
+        active.setStatusCode("ACTIVE");
+        NoonProductProjectionWriteCommand command = completeCommand(active);
+
+        reconciler.reconcile(command);
+
+        verify(mapper).updateProductOfferActiveStateFromCompleteList(
+                eq(307L),
+                eq("STR108065-NSA"),
+                eq("SA"),
+                eq("PAPERSAYSB261"),
+                eq(true),
+                eq("NOON_PRODUCT_LIST_STATUS_CODE"),
+                any(),
+                eq("ACTIVE"),
+                eq(null),
+                eq(307L)
+        );
+    }
+
+    @Test
     void incompleteListNeverMarksMissingProductsInactive() {
         ProductManagementMapper mapper = mock(ProductManagementMapper.class);
         ProductListActiveStateReconciler reconciler = new ProductListActiveStateReconciler(mapper);
@@ -44,6 +70,9 @@ class ProductListActiveStateReconcilerTest {
 
         verify(mapper, never()).markProductOffersMissingFromCompleteListInactive(
                 any(), any(), any(), any(), any(), any(), any()
+        );
+        verify(mapper, never()).updateProductOfferActiveStateFromCompleteList(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any()
         );
     }
 

@@ -16,15 +16,15 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnExpo
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnReceivedImportResultView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.InventorySyncResultView;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.util.Comparator;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -933,16 +933,10 @@ public class NoonPullScheduledExecutionService {
                 provider
         );
         if (pullResult.getStatus() == NoonPullTaskStatus.SUCCEEDED) {
-            if (productListAdapter != null) {
-                productListAdapter.apply(NoonProductListApplyCommand.builder()
-                        .ownerUserId(task.getOwnerUserId())
-                        .projectCode(NoonPullScheduledExecutionSupport.deriveProjectCode(task.getStoreCode()))
-                        .storeCode(task.getStoreCode())
-                        .siteCode(task.getSiteCode())
-                        .sourceBatchId(pullResult.getSourceBatchId())
-                        .automaticDetailBackfill(task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
-                        .items(pullResult.getItems())
-                        .build());
+            if (productListAdapter != null && !NoonProductListTaskProjectionSupport.apply(
+                    productListAdapter, task, pullResult, foundationService)) {
+                result.failed();
+                return;
             }
             result.executed();
             return;
