@@ -280,7 +280,7 @@ class NoonAuthRecoveryPersistenceContractTest {
     }
 
     @Test
-    void manualHoldCanOnlyBeReleasedByARealConfigurationChange() {
+    void deterministicManualHoldCanOnlyBeReleasedByARealConfigurationChange() {
         String sql = updateSql("releaseManualHoldOnConfigChange");
         String projectSql = updateSql("releaseProjectManualHolds");
         String itemSql = updateSql("reopenFailedRecoveryItems");

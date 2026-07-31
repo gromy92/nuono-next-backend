@@ -82,9 +82,10 @@ public interface NoonAuthRecoveryRepository {
             LocalDateTime now
     );
 
-    int releaseChangedManualHolds(
+    int releaseEligibleManualHolds(
             String identityKey,
             String newConfigFingerprint,
+            LocalDateTime rateLimitCooldownCutoff,
             LocalDateTime nextAttemptAt,
             LocalDateTime now
     );

@@ -21,6 +21,7 @@ public class NoonAuthRecoveryProperties {
     private int leaseSeconds = 600;
     private int minResendSeconds = 60;
     private int minSendIntervalSeconds = 300;
+    private int rateLimitRetrySeconds = 1_800;
     private int maxSendAttemptsPerRecovery = 2;
     private String projectAllowlist;
     private String trustedSenderDomains;
@@ -95,6 +96,18 @@ public class NoonAuthRecoveryProperties {
 
     public void setMinSendIntervalSeconds(int minSendIntervalSeconds) {
         this.minSendIntervalSeconds = minSendIntervalSeconds;
+    }
+
+    public Duration rateLimitRetryDelay() {
+        return Duration.ofSeconds(Math.max(1_800, rateLimitRetrySeconds));
+    }
+
+    public int getRateLimitRetrySeconds() {
+        return rateLimitRetrySeconds;
+    }
+
+    public void setRateLimitRetrySeconds(int rateLimitRetrySeconds) {
+        this.rateLimitRetrySeconds = rateLimitRetrySeconds;
     }
 
     public int getMaxSendAttemptsPerRecovery() {

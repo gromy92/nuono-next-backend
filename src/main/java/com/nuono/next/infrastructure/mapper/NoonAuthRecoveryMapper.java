@@ -14,9 +14,8 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenticationMapper {
-
-
+public interface NoonAuthRecoveryMapper
+        extends NoonAuthRecoveryManualReauthenticationMapper, NoonAuthRateLimitRecoveryMapper {
     String RECOVERY_COLUMNS = ""
             + "id, predecessor_recovery_id AS predecessorRecoveryId, identity_key AS identityKey, "
             + "status, generation_no AS generationNo, "

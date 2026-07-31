@@ -409,39 +409,6 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
     }
 
     @Test
-    void rateLimitNeverTriggersAutomaticSecondSend() {
-        NoonAuthIdentityRecoveryRecord recovery = recovery(30L, NoonAuthRecoveryStatus.COALESCING, 0L, 0, 0);
-        List<NoonAuthRecoveryItemRecord> items = List.of(
-                item(1L, 30L, 308L, "PRJ308", "STORE308", 3001L, 5L)
-        );
-        when(repository.listDueRecoveries(any(), anyInt())).thenReturn(List.of(recovery), List.of());
-        when(repository.listPendingItems(30L, Integer.MAX_VALUE)).thenReturn(items);
-        when(repository.selectProjectAuthState(anyLong(), anyString()))
-                .thenReturn(blockedState(308L, "PRJ308", 30L, 5L));
-        when(gateway.attempt(any())).thenAnswer(invocation -> {
-            reserveOtpSend(invocation);
-            return NoonAuthRecoveryAttemptResult.failed(
-                    NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED,
-                    null,
-                    "provider rate limited the send"
-            );
-        });
-
-        worker.runOnce();
-        worker.runOnce();
-
-        verify(gateway, times(1)).attempt(any());
-        verify(repository).markProjectRecoveryFailed(
-                eq(308L), eq("PRJ308"), eq(30L), eq(5L), any(), anyLong(), anyString(),
-                eq(NoonProjectAuthStatus.MANUAL_HOLD), eq("SEND_RATE_LIMITED"), any(), any()
-        );
-        verify(repository, atLeastOnce()).transitionRecovery(
-                eq(30L), any(), eq(NoonAuthRecoveryStatus.MANUAL_HOLD), anyLong(), anyString(),
-                any(), eq("SEND_RATE_LIMITED"), any(), any(), eq(true), any()
-        );
-    }
-
-    @Test
     void mailboxSnapshotFailureDoesNotConsumeSendIntentOrQuota() {
         NoonAuthIdentityRecoveryRecord recovery = recovery(33L, NoonAuthRecoveryStatus.COALESCING, 0L, 0, 0);
         List<NoonAuthRecoveryItemRecord> items = List.of(
@@ -786,8 +753,8 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
 
         assertEquals(0, worker.runOnce());
 
-        verify(repository).releaseChangedManualHolds(
-                anyString(), anyString(), any(), any()
+        verify(repository).releaseEligibleManualHolds(
+                anyString(), anyString(), any(), any(), any()
         );
         verify(repository).releaseTerminalProjectHoldsOnConfigChange(
                 eq(NoonAuthIdentityKey.fromEmail("shared@example.com")),
@@ -820,7 +787,8 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
         List<NoonAuthRecoveryItemRecord> items = List.of(
                 item(941L, 94L, 307L, "PRJ307", "STORE307", 9401L, 12L)
         );
-        when(repository.releaseChangedManualHolds(anyString(), anyString(), any(), any())).thenReturn(1, 0);
+        when(repository.releaseEligibleManualHolds(anyString(), anyString(), any(), any(), any()))
+                .thenReturn(1, 0);
         when(repository.listDueRecoveries(any(), anyInt()))
                 .thenReturn(List.of(reset), List.of(afterFreshSend));
         when(repository.listPendingItems(94L, Integer.MAX_VALUE)).thenReturn(items);

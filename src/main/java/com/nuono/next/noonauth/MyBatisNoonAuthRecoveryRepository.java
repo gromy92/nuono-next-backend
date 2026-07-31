@@ -243,27 +243,23 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
 
     @Override
     @Transactional
-    public int releaseChangedManualHolds(
+    public int releaseEligibleManualHolds(
             String identityKey,
             String newConfigFingerprint,
+            LocalDateTime rateLimitCooldownCutoff,
             LocalDateTime nextAttemptAt,
             LocalDateTime now
     ) {
         NoonAuthIdentityRecoveryRecord active = mapper.selectActiveRecoveryForUpdate(identityKey);
-        if (active == null || active.getId() == null) {
-            return 0;
-        }
-        int released = mapper.releaseChangedManualHolds(
+        return NoonAuthManualHoldReleaser.release(
+                mapper,
+                active,
                 identityKey,
                 newConfigFingerprint,
+                rateLimitCooldownCutoff,
                 nextAttemptAt,
                 now
         );
-        if (released == 1) {
-            mapper.releaseProjectManualHolds(active.getId(), newConfigFingerprint, now);
-            mapper.reopenFailedRecoveryItems(active.getId(), now);
-        }
-        return released;
     }
 
     @Override
