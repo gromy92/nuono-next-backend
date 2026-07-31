@@ -33,15 +33,15 @@ class SchemaMigrationArtifactTest(unittest.TestCase):
         self.resources = self.root / "resources"
         (self.resources / "db/init").mkdir(parents=True)
         (self.resources / "db/postcheck").mkdir(parents=True)
-        self.script = self.resources / "db/init/210_history.sql"
-        self.postcheck = self.resources / "db/postcheck/210_history.sql"
-        self.script.write_text("SELECT 210;\n", encoding="utf-8")
+        self.script = self.resources / "db/init/227_history.sql"
+        self.postcheck = self.resources / "db/postcheck/227_history.sql"
+        self.script.write_text("SELECT 227;\n", encoding="utf-8")
         self.postcheck.write_text("SELECT 1;\n", encoding="utf-8")
         self.catalog = self.resources.joinpath(*CATALOG_PATH.parts)
         self.catalog.write_text(
             "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
-            "210\t210_history.sql\tBOOTSTRAP\tdb/init/210_history.sql\t"
-            "db/postcheck/210_history.sql\n",
+            "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
+            "db/postcheck/227_history.sql\n",
             encoding="utf-8",
         )
         self.migrations = load_catalog(self.resources)

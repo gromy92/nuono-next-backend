@@ -9,10 +9,27 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from schema_migrations.catalog import load_catalog  # noqa: E402
+from schema_migrations.catalog import load_catalog, sha256_bytes  # noqa: E402
+
+
+PUBLISHED_PRE_CATALOG_223_SHA256 = (
+    "3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742"
+)
 
 
 class RepositoryMigrationCatalogTest(unittest.TestCase):
+    def test_published_pre_catalog_223_is_immutable(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+        published = (
+            resource_root
+            / "db/init/223_product_site_offer_active_state_evidence.sql"
+        )
+
+        self.assertEqual(
+            PUBLISHED_PRE_CATALOG_223_SHA256,
+            sha256_bytes(published.read_bytes()),
+        )
+
     def test_catalog_owns_history_and_every_removed_runtime_schema(self):
         resource_root = SCRIPT_DIR.parent / "src/main/resources"
 

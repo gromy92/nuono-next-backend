@@ -41,4 +41,13 @@ public interface ReleaseSchemaMigrationMapper {
             @Result(column = "joined_attempt_no", property = "joinedAttemptNo")
     })
     List<ReleaseSchemaMigrationRow> selectMigrationHistory();
+
+    @Select({
+            "SELECT COUNT(*)",
+            "FROM nuono_schema_migration_attempt a",
+            "LEFT JOIN nuono_schema_migration h",
+            "  ON h.migration_key = a.migration_key",
+            "WHERE h.migration_key IS NULL"
+    })
+    long countOrphanAttempts();
 }

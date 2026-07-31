@@ -27,14 +27,14 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
         self.root = Path(self.temporary.name)
         (self.root / "db/init").mkdir(parents=True)
         (self.root / "db/postcheck").mkdir(parents=True)
-        self.write_migration("207_history.sql", "BOOTSTRAP", "SELECT 207;\n")
-        self.write_migration("208_feature.sql", "AUTO_ADDITIVE", "SELECT 208;\n")
+        self.write_migration("227_history.sql", "BOOTSTRAP", "SELECT 227;\n")
+        self.write_migration("228_feature.sql", "AUTO_ADDITIVE", "SELECT 228;\n")
         (self.root / "db/init/release-migrations.tsv").write_text(
             "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
-            "207\t207_history.sql\tBOOTSTRAP\tdb/init/207_history.sql\t"
-            "db/postcheck/207_history.sql\n"
-            "208\t208_feature.sql\tAUTO_ADDITIVE\tdb/init/208_feature.sql\t"
-            "db/postcheck/208_feature.sql\n",
+            "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
+            "db/postcheck/227_history.sql\n"
+            "228\t228_feature.sql\tAUTO_ADDITIVE\tdb/init/228_feature.sql\t"
+            "db/postcheck/228_feature.sql\n",
             encoding="utf-8",
         )
         self.migrations = load_catalog(self.root)
@@ -50,12 +50,43 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
     def test_catalog_uses_exact_filename_identity_and_sha256(self):
         migration = self.migrations[1]
 
-        self.assertEqual("208_feature.sql", migration.key)
+        self.assertEqual("228_feature.sql", migration.key)
         self.assertEqual(
-            hashlib.sha256(b"SELECT 208;\n").hexdigest(),
+            hashlib.sha256(b"SELECT 228;\n").hexdigest(),
             migration.checksum,
         )
-        self.assertEqual([207, 208], [item.order for item in self.migrations])
+        self.assertEqual([227, 228], [item.order for item in self.migrations])
+
+    def test_catalog_must_start_at_227_and_have_no_order_gaps(self):
+        cases = (
+            (
+                "wrong start",
+                "228\t228_history.sql\tBOOTSTRAP\tdb/init/228_history.sql\t"
+                "db/postcheck/228_history.sql\n",
+            ),
+            (
+                "gap",
+                "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
+                "db/postcheck/227_history.sql\n"
+                "229\t229_feature.sql\tAUTO_ADDITIVE\tdb/init/229_feature.sql\t"
+                "db/postcheck/229_feature.sql\n",
+            ),
+        )
+        for label, rows in cases:
+            with self.subTest(label=label):
+                for order, name in (
+                    (227, "227_history.sql"),
+                    (228, "228_history.sql"),
+                    (229, "229_feature.sql"),
+                ):
+                    self.write_migration(name, "ignored", f"SELECT {order};\n")
+                (self.root / "db/init/release-migrations.tsv").write_text(
+                    "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+                    + rows,
+                    encoding="utf-8",
+                )
+                with self.assertRaisesRegex(MigrationError, "start at 227|continuous"):
+                    load_catalog(self.root)
 
     def test_applied_same_checksum_is_skipped_and_drift_fails_closed(self):
         migration = self.migrations[1]
@@ -84,12 +115,12 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
         self.assertEqual(
             [
                 ("lock", 30),
-                ("bootstrap", "207_history.sql"),
-                ("postcheck", "207_history.sql"),
-                ("begin", "208_feature.sql", 1, "APPLY"),
-                ("script", "208_feature.sql"),
-                ("postcheck", "208_feature.sql"),
-                ("applied", "208_feature.sql", 1),
+                ("bootstrap", "227_history.sql"),
+                ("postcheck", "227_history.sql"),
+                ("begin", "228_feature.sql", 1, "APPLY"),
+                ("script", "228_feature.sql"),
+                ("postcheck", "228_feature.sql"),
+                ("applied", "228_feature.sql", 1),
                 ("unlock",),
             ],
             database.events,
@@ -100,9 +131,9 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
         database.script_error = RuntimeError("ddl failed")
         runner = self.runner(database)
 
-        with self.assertRaisesRegex(MigrationError, "208_feature.sql"):
+        with self.assertRaisesRegex(MigrationError, "228_feature.sql"):
             runner.apply()
-        self.assertEqual("FAILED", database.states["208_feature.sql"].state)
+        self.assertEqual("FAILED", database.states["228_feature.sql"].state)
         database.script_error = None
         with self.assertRaisesRegex(MigrationError, "repair-forward"):
             runner.apply()

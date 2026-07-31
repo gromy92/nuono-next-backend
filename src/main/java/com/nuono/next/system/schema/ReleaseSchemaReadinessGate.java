@@ -2,8 +2,11 @@ package com.nuono.next.system.schema;
 
 import com.nuono.next.infrastructure.mapper.ReleaseSchemaMigrationMapper;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
@@ -32,15 +35,25 @@ public class ReleaseSchemaReadinessGate implements InitializingBean {
     public void afterPropertiesSet() {
         List<ReleaseSchemaMigrationDescriptor> catalog = catalogLoader.load();
         List<ReleaseSchemaMigrationRow> history;
+        long orphanAttempts;
         try {
             history = mapper.selectMigrationHistory();
+            orphanAttempts = mapper.countOrphanAttempts();
         } catch (RuntimeException error) {
             throw blocked(
                     "migration history cannot be read; its tables may be missing",
                     error
             );
         }
+        if (orphanAttempts != 0) {
+            throw blocked(
+                    "database history contains "
+                            + orphanAttempts
+                            + " orphan attempt row(s)"
+            );
+        }
         Map<String, ReleaseSchemaMigrationRow> rows = index(history);
+        rejectUnknownHistoryRows(catalog, rows.keySet());
         for (int index = 0; index < catalog.size(); index++) {
             verify(catalog.get(index), rows.get(catalog.get(index).getKey()), index);
         }
@@ -60,6 +73,24 @@ public class ReleaseSchemaReadinessGate implements InitializingBean {
             }
         }
         return indexed;
+    }
+
+    private static void rejectUnknownHistoryRows(
+            List<ReleaseSchemaMigrationDescriptor> catalog,
+            Set<String> historyKeys
+    ) {
+        Set<String> catalogKeys = new HashSet<>();
+        for (ReleaseSchemaMigrationDescriptor migration : catalog) {
+            catalogKeys.add(migration.getKey());
+        }
+        Set<String> unknown = new TreeSet<>(historyKeys);
+        unknown.removeAll(catalogKeys);
+        if (!unknown.isEmpty()) {
+            throw blocked(
+                    "database history migration(s) not present in this Jar catalog: "
+                            + String.join(", ", unknown)
+            );
+        }
     }
 
     private static void verify(

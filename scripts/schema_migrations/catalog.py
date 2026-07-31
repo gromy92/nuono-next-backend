@@ -20,6 +20,7 @@ CATALOG_COLUMNS = (
 MIGRATION_KINDS = frozenset({"BOOTSTRAP", "AUTO_ADDITIVE", "MANAGED"})
 MIGRATION_NAME = re.compile(r"^(?P<order>[0-9]{3})_[a-z0-9_]+\.sql$")
 JAR_RESOURCE_PREFIX = "BOOT-INF/classes/"
+CATALOG_START_ORDER = 227
 
 
 def sha256_bytes(content: bytes) -> str:
@@ -102,6 +103,15 @@ def _load_catalog(catalog_bytes, read_resource) -> tuple[Migration, ...]:
         raise MigrationError("migration catalog contains duplicate order")
     if list(migrations) != sorted(migrations, key=lambda item: (item.order, item.key)):
         raise MigrationError("migration catalog rows must be in stable order")
+    if orders[0] != CATALOG_START_ORDER:
+        raise MigrationError(
+            f"migration catalog must start at {CATALOG_START_ORDER}"
+        )
+    expected_orders = list(
+        range(CATALOG_START_ORDER, CATALOG_START_ORDER + len(orders))
+    )
+    if orders != expected_orders:
+        raise MigrationError("migration catalog orders must form a continuous sequence")
     bootstraps = [item for item in migrations if item.kind == "BOOTSTRAP"]
     if len(bootstraps) != 1 or migrations[0] != bootstraps[0]:
         raise MigrationError("migration catalog must start with exactly one BOOTSTRAP")

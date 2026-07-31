@@ -32,6 +32,11 @@ REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
 PACKING_INDEX_MIGRATION_KEY = "233_warehouse_packing_soft_delete_index.sql"
 
 
+PUBLISHED_PRE_CATALOG_223_SHA256 = (
+    "3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742"
+)
+
+
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
     "requires an isolated MySQL schema",
@@ -150,10 +155,15 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             "site_id BIGINT NOT NULL, maintenance_enabled BIT(1) NOT NULL, "
             "is_active BIT(1) NOT NULL, PRIMARY KEY (id));"
         )
-        database.client.execute(
-            (resources / "db/init/223_product_site_offer_active_state_evidence.sql")
-            .read_text(encoding="utf-8")
+        published_223 = (
+            resources / "db/init/223_product_site_offer_active_state_evidence.sql"
+        ).read_bytes()
+        self.assertEqual(
+            PUBLISHED_PRE_CATALOG_223_SHA256,
+            sha256_bytes(published_223),
+            "published migration 223 no longer matches production evidence",
         )
+        database.client.execute(published_223.decode("utf-8"))
         database.client.execute(
             "DROP TABLE nuono_schema_migration_attempt;"
             "DROP TABLE nuono_schema_migration;"

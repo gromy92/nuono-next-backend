@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 @Component
 class ReleaseSchemaCatalogLoader {
     private static final String CATALOG = "db/init/release-migrations.tsv";
+    private static final int CATALOG_START_ORDER = 227;
     private static final String HEADER =
             "order\tmigration_key\tkind\tscript_path\tpostcheck_path";
     private static final Pattern NAME =
@@ -25,6 +26,7 @@ class ReleaseSchemaCatalogLoader {
 
     List<ReleaseSchemaMigrationDescriptor> load() {
         List<ReleaseSchemaMigrationDescriptor> migrations = new ArrayList<>();
+        List<Integer> orders = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 resource(CATALOG),
                 StandardCharsets.UTF_8
@@ -66,19 +68,31 @@ class ReleaseSchemaCatalogLoader {
                         sha256(resource(scriptPath)),
                         sha256(resource(postcheckPath))
                 ));
+                orders.add(order);
                 previousOrder = order;
             }
         } catch (IOException error) {
             throw invalid("cannot read release migration catalog", error);
         }
-        if (migrations.isEmpty()
-                || !"BOOTSTRAP".equals(migrations.get(0).getKind())
+        validateCatalogOrders(orders);
+        if (!"BOOTSTRAP".equals(migrations.get(0).getKind())
                 || migrations.stream().filter(
                         item -> "BOOTSTRAP".equals(item.getKind())
                 ).count() != 1) {
             throw invalid("catalog must start with exactly one BOOTSTRAP");
         }
         return migrations;
+    }
+
+    static void validateCatalogOrders(List<Integer> orders) {
+        if (orders.isEmpty() || orders.get(0) != CATALOG_START_ORDER) {
+            throw invalid("catalog must start at " + CATALOG_START_ORDER);
+        }
+        for (int index = 0; index < orders.size(); index++) {
+            if (orders.get(index) != CATALOG_START_ORDER + index) {
+                throw invalid("catalog orders must form a continuous sequence");
+            }
+        }
     }
 
     private static InputStream resource(String path) throws IOException {

@@ -57,6 +57,36 @@ class ReleaseSchemaReadinessGateTest {
     }
 
     @Test
+    void rejectsHistoryRowsMissingFromThisJarCatalog() {
+        List<ReleaseSchemaMigrationRow> rows = validRows();
+        ReleaseSchemaMigrationRow unknown = new ReleaseSchemaMigrationRow();
+        unknown.setMigrationKey("231_future_migration.sql");
+        rows.add(unknown);
+        when(mapper.selectMigrationHistory()).thenReturn(rows);
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                gate()::afterPropertiesSet
+        );
+
+        assertTrue(error.getMessage().contains("not present in this Jar catalog"));
+        assertTrue(error.getMessage().contains("231_future_migration.sql"));
+    }
+
+    @Test
+    void rejectsAttemptRowsWithoutAHistoryOwner() {
+        when(mapper.selectMigrationHistory()).thenReturn(validRows());
+        when(mapper.countOrphanAttempts()).thenReturn(1L);
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                gate()::afterPropertiesSet
+        );
+
+        assertTrue(error.getMessage().contains("orphan attempt"));
+    }
+
+    @Test
     void reportsMissingHistoryTablesAsAMigrationReadinessFailure() {
         when(mapper.selectMigrationHistory()).thenThrow(
                 new IllegalStateException("table does not exist")
