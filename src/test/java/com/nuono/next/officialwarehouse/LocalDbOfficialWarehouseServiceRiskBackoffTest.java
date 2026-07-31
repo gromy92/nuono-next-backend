@@ -68,12 +68,14 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
         when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(1);
         when(bindingResolver.resolve(any())).thenReturn(binding());
-        when(noonSessionGateway.loginWithPersistedCookie(
+        when(noonSessionGateway.loginWithPersistedCookiePinnedEgress(
                 eq(307L),
                 eq("merchant@example.com"),
                 eq("persisted-cookie"),
                 eq("PRJ108065"),
-                eq("STR108065-NSA")
+                eq("STR108065-NSA"),
+                eq("fbn.noon.partners"),
+                eq(443)
         )).thenThrow(new IllegalStateException(
                 "auth_required: Noon Cookie 无效或已过期，请人工重新授权; project=PRJ108065"
         ));
