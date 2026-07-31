@@ -1,9 +1,10 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundLineRow;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
+import com.nuono.next.replenishmentplan.ReplenishmentProductStockRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.apache.ibatis.annotations.Arg;
 import org.apache.ibatis.annotations.ConstructorArgs;
@@ -41,8 +42,12 @@ public interface ReplenishmentPlanMapper {
     @ConstructorArgs({
             @Arg(column = "partnerSku", javaType = String.class),
             @Arg(column = "sku", javaType = String.class),
+            @Arg(column = "productTitle", javaType = String.class),
             @Arg(column = "imageUrl", javaType = String.class),
             @Arg(column = "listingAt", javaType = LocalDate.class),
+            @Arg(column = "isActive", javaType = Boolean.class),
+            @Arg(column = "activeStateSource", javaType = String.class),
+            @Arg(column = "activeStateSyncedAt", javaType = LocalDateTime.class),
             @Arg(column = "currentStockUnits", javaType = BigDecimal.class),
             @Arg(column = "fbnStockUnits", javaType = BigDecimal.class),
             @Arg(column = "supermallStockUnits", javaType = BigDecimal.class)
@@ -51,6 +56,7 @@ public interface ReplenishmentPlanMapper {
             "SELECT",
             "  pv.partner_sku AS partnerSku,",
             "  COALESCE(NULLIF(pv.child_sku, ''), NULLIF(pso.offer_code, ''), NULLIF(pso.psku_code, '')) AS sku,",
+            "  COALESCE(NULLIF(pm.title_cn_cache, ''), NULLIF(pm.title_cache, '')) AS productTitle,",
             "  COALESCE(",
             "    NULLIF(pm.cover_image_url, ''),",
             "    NULLIF(public_detail.main_image_url, ''),",
@@ -58,6 +64,9 @@ public interface ReplenishmentPlanMapper {
             "    NULLIF(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(pms.snapshot_json, '$.content.images[0]')), 'null'), '')",
             "  ) AS imageUrl,",
             "  DATE(pso.listing_started_at) AS listingAt,",
+            "  pso.is_active AS isActive,",
+            "  pso.active_state_source AS activeStateSource,",
+            "  pso.active_state_synced_at AS activeStateSyncedAt,",
             "  pso.fbn_stock AS currentStockUnits,",
             "  pso.fbn_stock AS fbnStockUnits,",
             "  pso.supermall_stock AS supermallStockUnits",
@@ -93,9 +102,10 @@ public interface ReplenishmentPlanMapper {
             "  AND lss.store_code = #{storeCode}",
             "  AND lss.site = #{siteCode}",
             "  AND pso.is_deleted = b'0'",
+            "  AND pso.maintenance_enabled = b'1'",
             "ORDER BY pv.partner_sku ASC, sku ASC"
     })
-    List<StockRow> selectFbnSupermallStock(
+    List<ReplenishmentProductStockRow> selectFbnSupermallStock(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode

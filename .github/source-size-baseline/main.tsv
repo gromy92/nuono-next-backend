@@ -81,7 +81,7 @@ src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344
 src/main/java/com/nuono/next/noon/ImapNoonEmailOtpReader.java	554
-src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3060
+src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3059
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
@@ -169,7 +169,7 @@ src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java
 src/main/java/com/nuono/next/procurementorder/PurchaseOrderLogisticsCostCalculator.java	443
 src/main/java/com/nuono/next/product/LocalDbProductMasterService.java	4572
 src/main/java/com/nuono/next/product/ProductAttributeTemplateService.java	1013
-src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	320
+src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	314
 src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440
 src/main/java/com/nuono/next/product/ProductGroupPublishService.java	343
 src/main/java/com/nuono/next/product/ProductImageMetadataService.java	407
@@ -189,7 +189,7 @@ src/main/java/com/nuono/next/product/ProductPublishSharedZskuWriter.java	549
 src/main/java/com/nuono/next/product/ProductPublishTaskRecord.java	313
 src/main/java/com/nuono/next/product/ProductReadModelService.java	479
 src/main/java/com/nuono/next/product/ProductRebuildService.java	466
-src/main/java/com/nuono/next/product/ProductSiteOfferFetcher.java	410
+src/main/java/com/nuono/next/product/ProductSiteOfferFetcher.java	407
 src/main/java/com/nuono/next/product/ProductSnapshotSectionBuilder.java	648
 src/main/java/com/nuono/next/product/ProductSpecManagementController.java	349
 src/main/java/com/nuono/next/product/ProductVariantLogisticsProfileService.java	317
@@ -224,9 +224,9 @@ src/main/java/com/nuono/next/profit/ProfitCalculationEngine.java	338
 src/main/java/com/nuono/next/profit/ProfitCalculationResult.java	341
 src/main/java/com/nuono/next/profit/ProfitCalculationView.java	476
 src/main/java/com/nuono/next/profit/ProfitQuickSignalsView.java	480
-src/main/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanService.java	398
+src/main/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanService.java	394
 src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculator.java	644
-src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanRecords.java	1221
+src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanRecords.java	1193
 src/main/java/com/nuono/next/sales/ProductLifecycleClassifier.java	359
 src/main/java/com/nuono/next/sales/SalesAnalyticsService.java	712
 src/main/java/com/nuono/next/sales/SalesDataController.java	592

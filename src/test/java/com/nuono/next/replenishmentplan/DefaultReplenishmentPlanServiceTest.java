@@ -11,7 +11,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
 import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
 import com.nuono.next.salesforecast.SalesForecastResultRecord;
@@ -62,7 +61,7 @@ class DefaultReplenishmentPlanServiceTest {
     void readyForecastMapsStockEtaInboundAndMissingEtaByCanonicalPartnerSku() {
         givenForecast(List.of(resultWithEvidence("PSKU-001", "SKU-001", 900)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         " psku-001 ",
                         "SKU-001",
                         "https://f.nooncdn.com/p/eff639f2df2651369082d90705ccc7ca|pzsku/Z930F2C6D839E70FE2653Z/45/1769591448/41897da8-e52a-4e7a-b654-13fb35dfdcd6.jpg",
@@ -106,7 +105,7 @@ class DefaultReplenishmentPlanServiceTest {
                         )
                 ));
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         assertEquals("ready", overview.getState());
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
@@ -167,7 +166,7 @@ class DefaultReplenishmentPlanServiceTest {
                 900
         )));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-UNRESOLVED",
                         "SKU-UNRESOLVED",
                         null,
@@ -204,13 +203,13 @@ class DefaultReplenishmentPlanServiceTest {
     void missingForecastRunReturnsEmptyOverviewWithoutReadingRepositoriesOrWritingForecast() {
         when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         assertEquals("empty", overview.getState());
         assertEquals(LocalDate.of(2026, 7, 6), overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());
         verify(forecastRunRepository, never()).listResults(any());
-        verify(repository, never()).listFbnSupermallStock(any(), any(), any());
+        verify(repository).listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE);
         verify(repository, never()).listActiveInbound(any(), any(), any());
     }
 
@@ -218,12 +217,12 @@ class DefaultReplenishmentPlanServiceTest {
     void emptyForecastResultsReturnEmptyOverviewWithoutReadingRepositories() {
         givenForecast(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         assertEquals("empty", overview.getState());
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());
-        verify(repository, never()).listFbnSupermallStock(any(), any(), any());
+        verify(repository).listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE);
         verify(repository, never()).listActiveInbound(any(), any(), any());
     }
 
@@ -232,12 +231,12 @@ class DefaultReplenishmentPlanServiceTest {
         givenForecast(List.of());
         when(forecastRunRepository.listResults(100L)).thenReturn(null);
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         assertEquals("empty", overview.getState());
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());
-        verify(repository, never()).listFbnSupermallStock(any(), any(), any());
+        verify(repository).listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE);
         verify(repository, never()).listActiveInbound(any(), any(), any());
     }
 
@@ -247,7 +246,7 @@ class DefaultReplenishmentPlanServiceTest {
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertNull(row.getCurrentStockUnits());
@@ -262,7 +261,7 @@ class DefaultReplenishmentPlanServiceTest {
     void partialStockFactsUseFbnAsCurrentStockAndIgnoreMissingSupermall() {
         givenForecast(List.of(result("PSKU-PARTIAL", "SKU-PARTIAL", 90)));
         when(repository.listFbnSupermallStock(OWNER_USER_ID, STORE_CODE, SITE_CODE))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-PARTIAL",
                         "SKU-PARTIAL",
                         null,
@@ -272,7 +271,7 @@ class DefaultReplenishmentPlanServiceTest {
                 )));
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals(new BigDecimal("8"), row.getCurrentStockUnits());
@@ -318,7 +317,7 @@ class DefaultReplenishmentPlanServiceTest {
                         )
                 ));
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = serviceOnJuly8.getOverview(query());
+        ReplenishmentPlanOverviewView overview = serviceOnJuly8.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
@@ -346,7 +345,7 @@ class DefaultReplenishmentPlanServiceTest {
                 "SKU-SHIFTED"
         )));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-SHIFTED",
                         "SKU-SHIFTED",
                         null,
@@ -356,7 +355,7 @@ class DefaultReplenishmentPlanServiceTest {
                 )));
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = serviceOnJuly8.getOverview(query());
+        ReplenishmentPlanOverviewView overview = serviceOnJuly8.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertEquals(SOURCE_DATE, overview.getAnchorDate());
@@ -375,7 +374,7 @@ class DefaultReplenishmentPlanServiceTest {
     void missingDailyForecastDoesNotFallBackToNinetyDayAverage() {
         givenForecast(List.of(result("PSKU-DEMAND", "SKU-DEMAND", 180)));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-DEMAND",
                         "SKU-DEMAND",
                         null,
@@ -385,7 +384,7 @@ class DefaultReplenishmentPlanServiceTest {
                 )));
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertTrue(row.isCalculationBlocked());
@@ -402,7 +401,7 @@ class DefaultReplenishmentPlanServiceTest {
                 900
         )));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-DAILY",
                         "SKU-DAILY",
                         null,
@@ -412,7 +411,7 @@ class DefaultReplenishmentPlanServiceTest {
                 )));
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         assertEquals(new BigDecimal("60"), overview.getRows().get(0).getSeaCalculatedUnits());
         assertEquals(new BigDecimal("60"), overview.getRows().get(0).getSeaSuggestedUnits());
@@ -423,7 +422,7 @@ class DefaultReplenishmentPlanServiceTest {
         DefaultReplenishmentPlanService boundaryService = serviceAt(Instant.parse("2026-07-06T16:30:00Z"));
         when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = boundaryService.getOverview(query());
+        ReplenishmentPlanOverviewView overview = boundaryService.getOverview(query());
 
         assertEquals(LocalDate.of(2026, 7, 7), overview.getAnchorDate());
     }
@@ -439,7 +438,7 @@ class DefaultReplenishmentPlanServiceTest {
                 new BigDecimal("1")
         )));
         when(repository.listFbnSupermallStock(eq(OWNER_USER_ID), eq(STORE_CODE), eq(SITE_CODE)))
-                .thenReturn(List.of(new StockRow(
+                .thenReturn(List.of(new ReplenishmentProductStockRow(
                         "PSKU-DETAIL",
                         "SKU-DETAIL",
                         null,
@@ -449,7 +448,7 @@ class DefaultReplenishmentPlanServiceTest {
                 )));
         when(repository.listActiveInbound(OWNER_USER_ID, STORE_CODE, SITE_CODE)).thenReturn(List.of());
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query());
+        ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
         ReplenishmentPlanRecords.PlanItemView row = overview.getRows().get(0);
         assertTrue(row.isCalculationBlocked());
@@ -486,7 +485,7 @@ class DefaultReplenishmentPlanServiceTest {
                 STORE_CODE,
                 SITE_CODE,
                 SOURCE_DATE,
-                "SALES_FORECAST_V1_4",
+                "SALES_FORECAST_V1_5",
                 "default",
                 "succeeded",
                 1,
@@ -666,7 +665,7 @@ class DefaultReplenishmentPlanServiceTest {
                 forecastUnits90 / 3,
                 forecastUnits90 * 2 / 3,
                 forecastUnits90,
-                "SALES_FORECAST_V1_4",
+                "SALES_FORECAST_V1_5",
                 "default",
                 baseDailySales,
                 BigDecimal.ONE,

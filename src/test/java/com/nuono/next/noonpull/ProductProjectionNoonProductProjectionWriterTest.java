@@ -13,11 +13,13 @@ import org.junit.jupiter.api.Test;
 class ProductProjectionNoonProductProjectionWriterTest {
 
     @Test
-    void shouldForwardCompleteSiteScopeToPersistenceService() {
+    void shouldForwardCompleteSiteAndProductScopesToPersistenceService() {
         ProductProjectionPersistenceService persistenceService =
                 mock(ProductProjectionPersistenceService.class);
+        ProductListActiveStateReconciler activeStateReconciler =
+                mock(ProductListActiveStateReconciler.class);
         ProductProjectionNoonProductProjectionWriter writer =
-                new ProductProjectionNoonProductProjectionWriter(persistenceService);
+                new ProductProjectionNoonProductProjectionWriter(persistenceService, activeStateReconciler);
         List<ProductProjectionPersistenceService.SiteSeed> siteSeeds = List.of(
                 new ProductProjectionPersistenceService.SiteSeed("STR244978-NAE", "AE", "LOCAL_READY", true)
         );
@@ -35,6 +37,7 @@ class ProductProjectionNoonProductProjectionWriterTest {
         command.setWarnings(warnings);
         command.setPreserveDrafts(true);
         command.setCompleteSiteScope(true);
+        command.setCompleteProductScope(true);
 
         writer.write(command);
 
@@ -49,5 +52,6 @@ class ProductProjectionNoonProductProjectionWriterTest {
                 eq(true),
                 eq(true)
         );
+        verify(activeStateReconciler).reconcile(same(command));
     }
 }

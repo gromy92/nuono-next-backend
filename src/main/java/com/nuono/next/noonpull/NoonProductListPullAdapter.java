@@ -54,6 +54,7 @@ public class NoonProductListPullAdapter {
         writeCommand.setPreserveDrafts(true);
         writeCommand.setPublishFlowTriggered(false);
         writeCommand.setCompleteSiteScope(false);
+        writeCommand.setCompleteProductScope(isCompleteProductScope(command, seeds));
         writeCommand.setSiteSeeds(List.of(new ProductProjectionPersistenceService.SiteSeed(
                 command.getStoreCode(),
                 command.getSiteCode(),
@@ -67,6 +68,16 @@ public class NoonProductListPullAdapter {
             enqueueDailyDetailBackfill(command);
         }
         return new NoonProductListApplyResult(seeds.size());
+    }
+
+    private boolean isCompleteProductScope(
+            NoonProductListApplyCommand command,
+            List<ProductProjectionPersistenceService.ProductMasterSeed> seeds
+    ) {
+        if (command.getItems().isEmpty() || seeds.size() != command.getItems().size()) {
+            return false;
+        }
+        return seeds.stream().allMatch(seed -> seed != null && StringUtils.hasText(seed.getPartnerSku()));
     }
 
     private void enqueueDailyDetailBackfill(NoonProductListApplyCommand command) {
@@ -132,7 +143,16 @@ public class NoonProductListPullAdapter {
         seed.setFinalPriceSource(seed.getFinalPrice() == null ? null : "offer_list");
         seed.setLiveStatus(firstNonBlank(text(item, "live_status"), text(item, "seller_status")));
         seed.setStatusCode(text(item, "status_code"));
-        seed.setIsActive(resolveActive(seed.getLiveStatus()));
+        Boolean statusCodeActive = resolveActive(seed.getStatusCode());
+        Boolean liveStatusActive = resolveActive(seed.getLiveStatus());
+        Boolean resolvedActive = statusCodeActive != null ? statusCodeActive : liveStatusActive;
+        seed.setIsActive(resolvedActive);
+        if (resolvedActive != null) {
+            seed.setActiveStateSource(statusCodeActive != null
+                    ? "NOON_PRODUCT_LIST_STATUS_CODE"
+                    : "NOON_PRODUCT_LIST_LIVE_STATUS");
+            seed.setActiveStateSyncedAt(LocalDateTime.now().toString());
+        }
         seed.setFbnStock(intValue(item.get("fbn_stock")));
         seed.setSupermallStock(intValue(item.get("supermall_stock")));
         seed.setFbpStock(intValue(item.get("fbp_stock")));
@@ -181,14 +201,24 @@ public class NoonProductListPullAdapter {
 
     private Boolean resolveActive(String liveStatus) {
         if (!StringUtils.hasText(liveStatus)) {
-            return false;
+            return null;
         }
         String normalized = liveStatus.trim().toLowerCase(Locale.ROOT);
-        return "active".equals(normalized)
+        if ("active".equals(normalized)
                 || "true".equals(normalized)
                 || "1".equals(normalized)
                 || "yes".equals(normalized)
-                || "enabled".equals(normalized);
+                || "enabled".equals(normalized)) {
+            return true;
+        }
+        if ("inactive".equals(normalized)
+                || "false".equals(normalized)
+                || "0".equals(normalized)
+                || "no".equals(normalized)
+                || "disabled".equals(normalized)) {
+            return false;
+        }
+        return null;
     }
 
     private String resolveImageUrl(String image) {

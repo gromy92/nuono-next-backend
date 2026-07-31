@@ -19,8 +19,8 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
-        assertEquals("SALES_FORECAST_V1_4", result.getConfigVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getConfigVersion());
         assertEquals(55, result.getForecastUnits30());
         assertEquals(110, result.getForecastUnits60());
         assertEquals(165, result.getForecastUnits90());
@@ -38,7 +38,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("0.5000", result.getRecentDailyTrendRate().toPlainString());
         assertEquals("1.0000", result.getTrendFactor().toPlainString());
         assertEquals(55, result.getForecastUnits30());
@@ -111,7 +111,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("1.8250", result.getBaseDailySales().toPlainString());
         assertEquals(55, result.getForecastUnits30());
         assertEquals(110, result.getForecastUnits60());
@@ -132,7 +132,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("1.4786", result.getBaseDailySales().toPlainString());
         assertEquals(45, result.getForecastUnits30());
     }
@@ -151,7 +151,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("0.0571", result.getBaseDailySales().toPlainString());
         assertEquals(2, result.getForecastUnits30());
     }
@@ -170,7 +170,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("2.0000", result.getBaseDailySales().toPlainString());
         assertEquals(60, result.getForecastUnits30());
     }
@@ -217,7 +217,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("1.9681", result.getBaseDailySales().toPlainString());
         assertEquals("1.0000", result.getTrendFactor().toPlainString());
         assertEquals(60, result.getForecastUnits30());
@@ -236,7 +236,7 @@ class DefaultSalesForecastEngineTest {
 
         SalesForecastFormulaResult result = engine.forecast30(snapshot, DefaultSalesForecastEngine.CALCULATION_VERSION);
 
-        assertEquals("SALES_FORECAST_V1_4", result.getCalculationVersion());
+        assertEquals("SALES_FORECAST_V1_5", result.getCalculationVersion());
         assertEquals("1.0385", result.getBaseDailySales().toPlainString());
         assertEquals("1.0000", result.getTrendFactor().toPlainString());
         assertEquals(32, result.getForecastUnits30());

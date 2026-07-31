@@ -45,7 +45,7 @@ class ReplenishmentPlanControllerAccessTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, "STR108065-NSA"))
                 .thenReturn(contextWithStoreOwner());
-        when(service.getOverview(any())).thenReturn(new ReplenishmentPlanRecords.PlanOverviewView(
+        when(service.getOverview(any())).thenReturn(new ReplenishmentPlanOverviewView(
                 "ready",
                 "STR108065-NSA",
                 "SA",
@@ -55,7 +55,7 @@ class ReplenishmentPlanControllerAccessTest {
                 List.of()
         ));
 
-        ReplenishmentPlanRecords.PlanOverviewView view = controller.overview("STR108065-NSA", "SA", request);
+        ReplenishmentPlanOverviewView view = controller.overview("STR108065-NSA", "SA", request);
 
         assertEquals("ready", view.getState());
         ArgumentCaptor<ReplenishmentPlanRecords.PlanQuery> captor =
@@ -71,7 +71,7 @@ class ReplenishmentPlanControllerAccessTest {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.PROCUREMENT, "STR108065-NSA"))
                 .thenReturn(contextWithoutStoreOwner());
-        when(service.getOverview(any())).thenReturn(new ReplenishmentPlanRecords.PlanOverviewView(
+        when(service.getOverview(any())).thenReturn(new ReplenishmentPlanOverviewView(
                 "empty",
                 "STR108065-NSA",
                 "SA",

@@ -71,7 +71,7 @@ src/test/java/com/nuono/next/product/ProductImageProfileServiceTest.java	1135
 src/test/java/com/nuono/next/product/ProductManagementMapperPublishTaskSqlTest.java	322
 src/test/java/com/nuono/next/product/ProductMasterControllerAccessTest.java	382
 src/test/java/com/nuono/next/product/ProductProjectionPersistenceServiceListSummaryTest.java	1370
-src/test/java/com/nuono/next/product/ProductPskuProductIdentityMapperSqlTest.java	422
+src/test/java/com/nuono/next/product/ProductPskuProductIdentityMapperSqlTest.java	357
 src/test/java/com/nuono/next/product/ProductReadModelServiceListDatasetTest.java	317
 src/test/java/com/nuono/next/product/ProductSpecManagementControllerTest.java	303
 src/test/java/com/nuono/next/product/ProductVariantSpecServiceTest.java	400
@@ -86,7 +86,7 @@ src/test/java/com/nuono/next/productlogisticscost/ProductLogisticsCostController
 src/test/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncServiceTest.java	599
 src/test/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapterTest.java	535
 src/test/java/com/nuono/next/productselection/ProductSelectionSourceCollectionCollectorTest.java	638
-src/test/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanServiceTest.java	722
+src/test/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanServiceTest.java	721
 src/test/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculatorTest.java	1109
 src/test/java/com/nuono/next/replenishmentplan/ReplenishmentPlanConfigResolverTest.java	327
 src/test/java/com/nuono/next/sales/SalesAnalyticsServiceTest.java	944
