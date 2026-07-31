@@ -15,7 +15,6 @@ import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 
 abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOperations {
-
     protected WarehouseDispatchPlanOperations(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);
     }
@@ -143,7 +142,6 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         log(planId, "CREATE_DISPATCH_PLAN", operatorUserId, null, "DRAFT", planNo);
         return toDispatchPlanView(plan);
     }
-
     private void validateDispatchBalance(
             BusinessAccessContext access,
             FulfillmentBalanceRecord balance,

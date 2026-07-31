@@ -2,7 +2,6 @@
 -- Existing duplicate non-null request keys require separately evidenced repair.
 SET SESSION `lock_wait_timeout` = 5;
 SET SESSION `innodb_lock_wait_timeout` = 5;
-
 SET @warehouse_idempotency_table_count := (
     SELECT COUNT(*)
     FROM information_schema.tables
@@ -14,7 +13,6 @@ SET @warehouse_idempotency_table_count := (
       AND table_type = 'BASE TABLE'
       AND UPPER(engine) = 'INNODB'
 );
-
 SET @warehouse_idempotency_owner_column_count := (
     SELECT COUNT(*)
     FROM information_schema.columns
@@ -31,7 +29,6 @@ SET @warehouse_idempotency_owner_column_count := (
       AND extra = ''
       AND generation_expression = ''
 );
-
 SET @warehouse_idempotency_conflicting_column_count := (
     SELECT COUNT(*)
     FROM information_schema.columns
@@ -79,19 +76,16 @@ SET @warehouse_idempotency_conflicting_column_count := (
           )
       )
 );
-
 DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_schema_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_schema_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
-    CONSTRAINT `chk_232_warehouse_idempotency_schema`
-        CHECK (`invalid_schema_count` = 0)
+    CONSTRAINT `chk_232_warehouse_idempotency_schema` CHECK (`invalid_schema_count` = 0)
 ) ENGINE=MEMORY;
 INSERT INTO `nuono_232_warehouse_idempotency_schema_guard`
 VALUES (IF(@warehouse_idempotency_table_count = 2
     AND @warehouse_idempotency_owner_column_count = 2
     AND @warehouse_idempotency_conflicting_column_count = 0, 0, 1));
 DROP TEMPORARY TABLE `nuono_232_warehouse_idempotency_schema_guard`;
-
 SET @dispatch_client_request_column_exists := EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -99,7 +93,6 @@ SET @dispatch_client_request_column_exists := EXISTS (
       AND table_name = 'procurement_dispatch_plan'
       AND column_name = 'client_request_id'
 );
-
 SET @dispatch_request_fingerprint_column_exists := EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -107,7 +100,6 @@ SET @dispatch_request_fingerprint_column_exists := EXISTS (
       AND table_name = 'procurement_dispatch_plan'
       AND column_name = 'request_fingerprint'
 );
-
 SET @dispatch_idempotency_columns_sql := CASE
     WHEN @dispatch_client_request_column_exists = 0
         AND @dispatch_request_fingerprint_column_exists = 0
@@ -126,11 +118,9 @@ SET @dispatch_idempotency_columns_sql := CASE
             AFTER `client_request_id`'
     ELSE 'DO 0'
 END;
-PREPARE dispatch_idempotency_columns_stmt
-    FROM @dispatch_idempotency_columns_sql;
+PREPARE dispatch_idempotency_columns_stmt FROM @dispatch_idempotency_columns_sql;
 EXECUTE dispatch_idempotency_columns_stmt;
 DEALLOCATE PREPARE dispatch_idempotency_columns_stmt;
-
 SET @receipt_client_request_column_exists := EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -138,7 +128,6 @@ SET @receipt_client_request_column_exists := EXISTS (
       AND table_name = 'procurement_fulfillment_confirmation'
       AND column_name = 'client_request_id'
 );
-
 SET @receipt_request_fingerprint_column_exists := EXISTS (
     SELECT 1
     FROM information_schema.columns
@@ -146,7 +135,6 @@ SET @receipt_request_fingerprint_column_exists := EXISTS (
       AND table_name = 'procurement_fulfillment_confirmation'
       AND column_name = 'request_fingerprint'
 );
-
 SET @receipt_idempotency_columns_sql := CASE
     WHEN @receipt_client_request_column_exists = 0
         AND @receipt_request_fingerprint_column_exists = 0
@@ -165,11 +153,9 @@ SET @receipt_idempotency_columns_sql := CASE
             AFTER `client_request_id`'
     ELSE 'DO 0'
 END;
-PREPARE receipt_idempotency_columns_stmt
-    FROM @receipt_idempotency_columns_sql;
+PREPARE receipt_idempotency_columns_stmt FROM @receipt_idempotency_columns_sql;
 EXECUTE receipt_idempotency_columns_stmt;
 DEALLOCATE PREPARE receipt_idempotency_columns_stmt;
-
 SET @dispatch_request_key_exists := EXISTS (
     SELECT 1
     FROM information_schema.statistics
@@ -177,7 +163,6 @@ SET @dispatch_request_key_exists := EXISTS (
       AND table_name = 'procurement_dispatch_plan'
       AND index_name = 'uk_dispatch_plan_owner_client_request'
 );
-
 SET @receipt_request_key_exists := EXISTS (
     SELECT 1
     FROM information_schema.statistics
@@ -186,7 +171,6 @@ SET @receipt_request_key_exists := EXISTS (
       AND index_name =
           'uk_fulfillment_confirmation_owner_client_request'
 );
-
 SET @warehouse_idempotency_conflicting_index_count := (
     SELECT COUNT(*)
     FROM (
@@ -224,17 +208,14 @@ SET @warehouse_idempotency_conflicting_index_count := (
         )
     ) AS conflicting_indexes
 );
-
 DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_index_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_index_guard` (
     `conflicting_index_count` BIGINT NOT NULL,
-    CONSTRAINT `chk_232_warehouse_idempotency_index`
-        CHECK (`conflicting_index_count` = 0)
+    CONSTRAINT `chk_232_warehouse_idempotency_index` CHECK (`conflicting_index_count` = 0)
 ) ENGINE=MEMORY;
 INSERT INTO `nuono_232_warehouse_idempotency_index_guard`
 VALUES (@warehouse_idempotency_conflicting_index_count);
 DROP TEMPORARY TABLE `nuono_232_warehouse_idempotency_index_guard`;
-
 SET @warehouse_idempotency_duplicate_group_count := (
     SELECT
         (
@@ -259,7 +240,6 @@ SET @warehouse_idempotency_duplicate_group_count := (
             ) AS `receipt_duplicates`
         )
 );
-
 SET @warehouse_idempotency_invalid_request_row_count := (
     SELECT
         (
@@ -269,6 +249,7 @@ SET @warehouse_idempotency_invalid_request_row_count := (
                OR (`client_request_id` IS NOT NULL AND (
                     TRIM(`client_request_id`) = ''
                     OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                    OR `client_request_id` REGEXP '[[:cntrl:]]'
                     OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
                ))
         )
@@ -280,11 +261,11 @@ SET @warehouse_idempotency_invalid_request_row_count := (
                OR (`client_request_id` IS NOT NULL AND (
                     TRIM(`client_request_id`) = ''
                     OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                    OR `client_request_id` REGEXP '[[:cntrl:]]'
                     OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
                ))
         )
 );
-
 DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_data_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_data_guard` (
     `invalid_row_count` BIGINT NOT NULL,
@@ -297,7 +278,6 @@ VALUES (
     + @warehouse_idempotency_invalid_request_row_count
 );
 DROP TEMPORARY TABLE `nuono_232_warehouse_idempotency_data_guard`;
-
 SET @dispatch_request_key_sql := IF(
     @dispatch_request_key_exists = 0,
     'ALTER TABLE `procurement_dispatch_plan`
@@ -308,7 +288,6 @@ SET @dispatch_request_key_sql := IF(
 PREPARE dispatch_request_key_stmt FROM @dispatch_request_key_sql;
 EXECUTE dispatch_request_key_stmt;
 DEALLOCATE PREPARE dispatch_request_key_stmt;
-
 SET @receipt_request_key_sql := IF(
     @receipt_request_key_exists = 0,
     'ALTER TABLE `procurement_fulfillment_confirmation`

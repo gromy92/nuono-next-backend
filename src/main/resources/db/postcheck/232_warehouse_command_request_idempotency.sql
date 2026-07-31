@@ -132,6 +132,7 @@ SELECT IF(
            OR (`client_request_id` IS NOT NULL AND (
                 TRIM(`client_request_id`) = ''
                 OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                OR `client_request_id` REGEXP '[[:cntrl:]]'
                 OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
            ))
     )
@@ -142,6 +143,7 @@ SELECT IF(
            OR (`client_request_id` IS NOT NULL AND (
                 TRIM(`client_request_id`) = ''
                 OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                OR `client_request_id` REGEXP '[[:cntrl:]]'
                 OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
            ))
     ),

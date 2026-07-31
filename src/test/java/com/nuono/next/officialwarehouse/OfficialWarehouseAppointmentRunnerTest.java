@@ -87,7 +87,7 @@ class OfficialWarehouseAppointmentRunnerTest {
     @Test
     void availabilityQueryReturnsMatchingSlotsWithoutScheduling() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
-        client.asnStatus = "created";
+        client.asnStatus = "sealed";
         client.dayCapacity = List.of("2026-06-16");
         client.slotsByDate.add(new DatedSlots("2026-06-16", List.of(
                 new SlotCapacity(7, "7am-8am"),
@@ -101,38 +101,33 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(slots.get(0).slotId).isEqualTo(9);
         assertThat(client.calls).containsExactly(
                 "detail",
-                "set-warehouses:JED01",
-                "detail",
                 "days",
                 "slots:2026-06-16"
         );
     }
 
     @Test
-    void confirmsWarehouseProjectionOnlyAfterNoonAcceptsSetWarehouses() {
+    void availabilityQueryNeverMutatesCreatedAsn() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "created";
         client.recordWarehouseConfirmation = true;
 
-        runner.queryAvailability(task(""), client);
+        List<OfficialWarehouseAppointmentRunner.AvailableSlot> slots =
+                runner.queryAvailability(task(""), client);
 
-        assertThat(client.calls).containsSubsequence(
-                "set-warehouses:JED01",
-                "warehouse-confirmed:JED01"
-        );
+        assertThat(slots).isEmpty();
+        assertThat(client.calls).containsExactly("detail");
     }
 
     @Test
-    void doesNotConfirmWarehouseProjectionWhenNoonRejectsSetWarehouses() {
+    void availabilityQueryForScheduledAsnIsAlsoReadOnly() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
-        client.asnStatus = "created";
-        client.setWarehousesAccepted = false;
+        client.asnStatus = "scheduled";
         client.recordWarehouseConfirmation = true;
 
         runner.queryAvailability(task(""), client);
 
-        assertThat(client.calls).contains("set-warehouses:JED01");
-        assertThat(client.calls).doesNotContain("warehouse-confirmed:JED01");
+        assertThat(client.calls).containsExactly("detail", "days");
     }
 
     @Test
@@ -165,8 +160,6 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(client.calls).containsExactly(
                 "detail",
                 "reschedule:A05531714PN",
-                "set-warehouses:JED01",
-                "detail",
                 "schedule:2026-06-16:9",
                 "detail"
         );
@@ -182,14 +175,31 @@ class OfficialWarehouseAppointmentRunnerTest {
 
         assertThat(result.status).isEqualTo("FAILED");
         assertThat(result.failureType).isEqualTo("SCHEDULE_NOT_CONFIRMED");
+        assertThat(result.reconciliationRequired).isTrue();
         assertThat(result.errorMessage).contains("Noon");
         assertThat(client.calls).containsExactly(
-                "detail",
-                "set-warehouses:JED01",
                 "detail",
                 "schedule:2026-06-16:43",
                 "detail"
         );
+    }
+
+    @Test
+    void rejectedScheduleStopsAndRequiresReconciliation() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "sealed";
+        client.scheduleAccepted = false;
+
+        RunResult result = runner.scheduleSelectedSlot(
+                task(""),
+                client,
+                LocalDate.parse("2026-06-16"),
+                new SlotCapacity(9, "9am-10am")
+        );
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("SCHEDULE_APPOINTMENT");
+        assertThat(client.calls).containsExactly("detail", "schedule:2026-06-16:9");
     }
 
     private static AppointmentTask task(String timeRange) {
@@ -210,6 +220,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         private String asnStatus;
         private String asnStatusAfterSchedule = "scheduled";
         private boolean setWarehousesAccepted = true;
+        private boolean scheduleAccepted = true;
         private boolean recordWarehouseConfirmation;
         private List<String> dayCapacity = List.of();
         private final List<DatedSlots> slotsByDate = new ArrayList<>();
@@ -265,8 +276,10 @@ class OfficialWarehouseAppointmentRunnerTest {
         @Override
         public boolean schedule(AppointmentTask task, LocalDate capacityDate, SlotCapacity slot) {
             calls.add("schedule:" + capacityDate + ":" + slot.idSlot);
-            asnStatus = asnStatusAfterSchedule;
-            return true;
+            if (scheduleAccepted) {
+                asnStatus = asnStatusAfterSchedule;
+            }
+            return scheduleAccepted;
         }
     }
 

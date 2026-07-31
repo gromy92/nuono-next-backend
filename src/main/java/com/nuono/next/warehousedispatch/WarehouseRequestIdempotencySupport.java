@@ -8,12 +8,15 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationLi
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.DispatchPlanSourceCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.DispatchPlanView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ShippingBatchView;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.util.StringUtils;
 
@@ -53,6 +56,32 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
                 "收货确认缺少客户端请求号，请刷新后重试。",
                 "收货确认客户端请求号不能超过 100 个字符。"
         );
+    }
+
+    protected String normalizeShippingBatchClientRequestId(String value) {
+        return normalizeClientRequestId(
+                value,
+                "发货批次缺少客户端请求号，请刷新后重试。",
+                "发货批次客户端请求号不能超过 100 个字符。"
+        );
+    }
+
+    protected RequestFingerprint shippingBatchRequestFingerprint(
+            String remark,
+            Map<Long, Integer> requested
+    ) {
+        String sources = requested.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> String.join("|",
+                        fingerprintField(entry.getKey()),
+                        fingerprintField(entry.getValue())
+                ))
+                .collect(Collectors.joining(","));
+        String fingerprint = sha256(String.join("|",
+                fingerprintField(trimToNull(remark)),
+                fingerprintField(sources)
+        ));
+        return new RequestFingerprint(fingerprint);
     }
 
     protected RequestFingerprint dispatchRequestFingerprint(CreateDispatchPlanCommand command) {
@@ -101,6 +130,27 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
         return toDispatchPlanView(existing);
     }
 
+    protected ShippingBatchView lockAndReplayShippingBatch(
+            BusinessAccessContext access,
+            Long ownerUserId,
+            String clientRequestId,
+            RequestFingerprint requestFingerprint
+    ) {
+        requireRequestOwnerLock(ownerUserId);
+        ShippingBatchRecord existing =
+                mapper.selectShippingBatchByClientRequestId(ownerUserId, clientRequestId);
+        if (existing == null) {
+            return null;
+        }
+        requireShippingBatchAggregateAccess(access, existing);
+        requireMatchingRequestFingerprint(
+                existing.requestFingerprint,
+                requestFingerprint,
+                "同一客户端请求号不能提交不同的发货批次商品。"
+        );
+        return toShippingBatchDetail(existing);
+    }
+
     protected void requireMatchingRequestFingerprint(
             String persistedFingerprint,
             RequestFingerprint requestedFingerprint,
@@ -125,6 +175,9 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
     }
 
     private String normalizeClientRequestId(String value, String missingMessage, String lengthMessage) {
+        if (value != null && value.chars().anyMatch(Character::isISOControl)) {
+            throw new IllegalArgumentException("客户端请求号包含非法控制字符，请刷新后重试。");
+        }
         String normalized = trim(value);
         if (!StringUtils.hasText(normalized)) {
             throw new IllegalArgumentException(missingMessage);

@@ -23,6 +23,7 @@ import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import java.time.LocalDate;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
@@ -54,9 +55,12 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 new NoonPullFailurePolicy(),
                 new OfficialWarehouseAppointmentAuthRecovery(recoveryQueue, authGate)
         );
-        AppointmentRecord appointment = appointment();
-        when(mapper.selectAppointment(308L, 611402L)).thenReturn(appointment);
-        when(mapper.markAppointmentRunning(611402L, 901L)).thenReturn(1);
+        AppointmentRecord appointment = appointment("PENDING", 0L);
+        when(mapper.selectAuthorizedAppointment(Map.of("STR512183-NSA", 308L), 611402L))
+                .thenReturn(appointment);
+        when(mapper.selectAppointment(308L, 611402L))
+                .thenReturn(appointment("RUNNING", 1L));
+        when(mapper.markAppointmentRunning(308L, 611402L, 0L, 901L)).thenReturn(1);
         when(bindingResolver.resolve(any())).thenReturn(binding());
     }
 
@@ -82,7 +86,9 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         service.runAppointmentOnce(access(), "611402");
 
         verify(mapper).markAppointmentPendingRetry(
+                eq(308L),
                 eq(611402L),
+                eq(1L),
                 eq(60),
                 eq("AUTH_RECOVERY"),
                 eq("AUTH_RECOVERY_PENDING"),
@@ -90,7 +96,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 eq(901L)
         );
         verify(mapper, never()).markAppointmentFailed(
-                eq(611402L), any(), any(), any(), eq(901L)
+                eq(308L), eq(611402L), eq(1L), any(), any(), any(), eq(901L)
         );
     }
 
@@ -107,7 +113,9 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 any(), any(), any()
         );
         verify(mapper).markAppointmentPendingRetry(
+                eq(308L),
                 eq(611402L),
+                eq(1L),
                 eq(60),
                 eq("AUTH_RECOVERY"),
                 eq("AUTH_RECOVERY_PENDING"),
@@ -130,7 +138,9 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         service.runAppointmentOnce(access(), "611402");
 
         verify(mapper).markAppointmentFailed(
+                eq(308L),
                 eq(611402L),
+                eq(1L),
                 eq("NOON_CALL"),
                 eq("IllegalStateException"),
                 contains("auth_required"),
@@ -150,7 +160,9 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
         verify(recoveryQueue, never()).enqueueProject(any(), any(), any());
         verify(mapper).markAppointmentFailed(
+                eq(308L),
                 eq(611402L),
+                eq(1L),
                 eq("NOON_CALL"),
                 eq("IllegalStateException"),
                 contains("does not contain current project"),
@@ -182,7 +194,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         );
     }
 
-    private static AppointmentRecord appointment() {
+    private static AppointmentRecord appointment(String status, Long executionVersion) {
         AppointmentRecord record = new AppointmentRecord();
         record.id = 611402L;
         record.asnId = 501669L;
@@ -198,7 +210,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         record.warehouseToCode = "W00105371A";
         record.apStartDateValue = LocalDate.now().plusDays(1);
         record.apEndDateValue = LocalDate.now().plusDays(3);
-        record.status = "PENDING";
+        record.status = status;
+        record.executionVersion = executionVersion;
         record.attemptCount = 37;
         return record;
     }

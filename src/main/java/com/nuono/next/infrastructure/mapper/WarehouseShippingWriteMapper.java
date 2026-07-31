@@ -37,11 +37,13 @@ public interface WarehouseShippingWriteMapper extends WarehouseDispatchWriteMapp
 
 @Insert({
             "INSERT INTO warehouse_shipping_batch (",
-            "id, owner_user_id, batch_no, status, selected_option_id, source_count, sku_count, total_quantity,",
+            "id, owner_user_id, client_request_id, request_fingerprint, batch_no, status,",
+            "selected_option_id, source_count, sku_count, total_quantity,",
             "store_summary_json, site_summary_json, transport_summary_json, origin_summary_json, remark,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.batchNo}, #{row.status}, #{row.selectedOptionId},",
+            "#{row.id}, #{row.ownerUserId}, #{row.clientRequestId}, #{row.requestFingerprint},",
+            "#{row.batchNo}, #{row.status}, #{row.selectedOptionId},",
             "#{row.sourceCount}, #{row.skuCount}, #{row.totalQuantity}, #{row.storeSummaryJson},",
             "#{row.siteSummaryJson}, #{row.transportSummaryJson}, #{row.originSummaryJson}, #{row.remark},",
             "b'0', #{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
@@ -49,6 +51,26 @@ public interface WarehouseShippingWriteMapper extends WarehouseDispatchWriteMapp
     int insertShippingBatch(
             @Param("row") ShippingBatchRecord row,
             @Param("operatorUserId") Long operatorUserId
+    );
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, batch_no AS batchNo, status,",
+            "       selected_option_id AS selectedOptionId, source_count AS sourceCount,",
+            "       sku_count AS skuCount, total_quantity AS totalQuantity,",
+            "       store_summary_json AS storeSummaryJson, site_summary_json AS siteSummaryJson,",
+            "       transport_summary_json AS transportSummaryJson, origin_summary_json AS originSummaryJson, remark,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM warehouse_shipping_batch",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND client_request_id = #{clientRequestId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1 FOR UPDATE"
+    })
+    ShippingBatchRecord selectShippingBatchByClientRequestId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("clientRequestId") String clientRequestId
     );
 
 @Insert({

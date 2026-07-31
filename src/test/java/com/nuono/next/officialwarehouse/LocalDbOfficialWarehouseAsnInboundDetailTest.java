@@ -19,6 +19,7 @@ import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,7 +55,7 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
 
         when(mapper.listAsns(307L, List.of("STR245027-NAE"), "STR245027-NAE", "AE", null, 200))
                 .thenReturn(List.of(asn));
-        when(mapper.selectAsn(307L, 500001L)).thenReturn(asn);
+        when(mapper.selectAuthorizedAsn(Map.of("STR245027-NAE", 307L), 500001L)).thenReturn(asn);
         when(mapper.listAsnLines(500001L)).thenReturn(List.of(firstLine, secondLine));
         when(mapper.listAsnInboundReceipts(307L, List.of(500001L)))
                 .thenReturn(List.of(shortReceipt, qcReceipt));
@@ -92,7 +93,7 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
         candidate.partnerSku = "REPORT-ONLY";
         candidate.titleCache = "报表商品标题";
         candidate.imageUrlCache = "https://f.nooncdn.com/p/pzsku/Z-REPORT/45/_/image";
-        when(mapper.selectAsn(307L, 500001L)).thenReturn(asn);
+        when(mapper.selectAuthorizedAsn(Map.of("STR245027-NAE", 307L), 500001L)).thenReturn(asn);
         when(mapper.listAsnLines(500001L)).thenReturn(List.of());
         when(mapper.listAsnInboundReceipts(307L, List.of(500001L))).thenReturn(List.of(receipt));
         when(mapper.listProductCandidates(
@@ -180,6 +181,7 @@ class LocalDbOfficialWarehouseAsnInboundDetailTest {
                 .businessOwnerUserId(307L)
                 .accountType(BusinessAccountType.BOSS)
                 .storeCodes(Set.of("STR245027-NAE"))
+                .storeOwnerUserIds(Map.of("STR245027-NAE", 307L))
                 .build();
     }
 }

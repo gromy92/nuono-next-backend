@@ -10,7 +10,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from schema_migrations.catalog import load_catalog  # noqa: E402
+from schema_migrations.catalog import load_catalog, sha256_bytes  # noqa: E402
 from schema_migrations.core import (  # noqa: E402
     MigrationError,
     MigrationRunner,
@@ -23,6 +23,8 @@ from ci.release_schema_mysql_scenario import (  # noqa: E402
     verify_applied_schema,
     verify_lock_contention,
 )
+from ci.release_schema_mysql_official_warehouse_scenario import verify_appointment_concurrency_migration  # noqa: E402
+from ci.release_schema_mysql_shipping_batch_scenario import verify_shipping_batch_idempotency_migration  # noqa: E402
 
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
@@ -30,6 +32,8 @@ REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
     "232_warehouse_command_request_idempotency.sql"
 )
 PACKING_INDEX_MIGRATION_KEY = "233_warehouse_packing_soft_delete_index.sql"
+APPOINTMENT_MIGRATION_KEY = "234_official_warehouse_appointment_concurrency.sql"
+SHIPPING_BATCH_MIGRATION_KEY = "235_warehouse_shipping_batch_request_idempotency.sql"
 
 
 PUBLISHED_PRE_CATALOG_223_SHA256 = (
@@ -74,10 +78,16 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         packing_index = next(
             item for item in migrations if item.key == PACKING_INDEX_MIGRATION_KEY
         )
+        appointment = next(item for item in migrations if item.key == APPOINTMENT_MIGRATION_KEY)
+        shipping_batch = next(item for item in migrations if item.key == SHIPPING_BATCH_MIGRATION_KEY)
         approvals = [integrity.key]
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
             runner.apply()
         self.assertNotIn(integrity.key, database.load_states())
+        with self.assertRaisesRegex(MigrationError, "missing " + appointment.key):
+            runner.apply(approved_managed=approvals)
+        self.assertNotIn(shipping_batch.key, database.load_states())
+        approvals.append(appointment.key)
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.apply(approved_managed=approvals)
         states = database.load_states()
@@ -130,7 +140,8 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
         self.assertEqual(
-            [request_idempotency.key, packing_index.key],
+            [request_idempotency.key, packing_index.key,
+             appointment.key, shipping_batch.key],
             runner.apply(approved_managed=approvals),
         )
         self.assertTrue(all(state.state == "APPLIED"
@@ -143,6 +154,8 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             request_idempotency,
             packing_index,
         )
+        verify_appointment_concurrency_migration(self, database, migrations)
+        verify_shipping_batch_idempotency_migration(self, database, migrations)
         verify_lock_contention(self, defaults_file, expected_schema)
 
         # Production already executed 223 before the forward catalog existed.

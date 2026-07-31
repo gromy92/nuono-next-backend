@@ -125,6 +125,7 @@ protected ShippingBatchView toShippingBatchDetail(ShippingBatchRecord record) {
             }
             view.options.add(optionView);
         }
+        view.optionCount = view.options.size();
         return view;
     }
 

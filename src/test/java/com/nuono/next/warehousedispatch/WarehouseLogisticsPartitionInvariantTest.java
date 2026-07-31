@@ -66,6 +66,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         )).thenReturn(List.of(sa, ae));
 
         CreateShippingBatchCommand command = new CreateShippingBatchCommand();
+        command.clientRequestId = "shipping-mixed-partition-test";
         command.sources = List.of(shippingSource(900001L), shippingSource(900002L));
 
         assertThatThrownBy(() -> service.createShippingBatch(access(), command))

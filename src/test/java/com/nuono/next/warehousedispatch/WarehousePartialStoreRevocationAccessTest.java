@@ -13,7 +13,9 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreatePackingListCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.DispatchPlanSourceCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ShippingBatchSourceCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderRecord;
@@ -172,6 +174,33 @@ class WarehousePartialStoreRevocationAccessTest extends WarehouseDispatchService
     }
 
     @Test
+    void shippingBatchReplayChecksPersistedScopeBeforeRevealingFingerprintConflicts() {
+        FulfillmentBalanceRecord currentBalance = balance("CONFIRMED", "SUBMITTED");
+        currentBalance.sourceStoreCode = "STORE-A";
+        ShippingBatchRecord existing = shippingBatch();
+        existing.clientRequestId = "shipping-request-revoked";
+        existing.requestFingerprint = "different-persisted-fingerprint";
+        when(mapper.selectBalanceScopes(List.of(900001L), authorizedStoreOwners()))
+                .thenReturn(List.of(currentBalance));
+        when(mapper.lockDispatchOwner(307L)).thenReturn(307L);
+        when(mapper.selectShippingBatchByClientRequestId(307L, "shipping-request-revoked"))
+                .thenReturn(existing);
+        when(mapper.isShippingBatchSourceScopeAuthorized(700001L, authorizedStoreOwners()))
+                .thenReturn(false);
+
+        assertThatThrownBy(() -> service.createShippingBatch(
+                partiallyRevokedAccess(),
+                shippingBatchCommand()
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("不能操作");
+
+        verify(mapper, never()).selectAuthorizedBalancesForUpdate(any(), any());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).insertShippingBatch(any(ShippingBatchRecord.class), anyLong());
+    }
+
+    @Test
     void historicalListsPassExactStoreOwnerPairs() {
         DispatchPlanRecord plan = dispatchPlan("DRAFT");
         ShippingBatchRecord batch = shippingBatch();
@@ -223,6 +252,16 @@ class WarehousePartialStoreRevocationAccessTest extends WarehouseDispatchService
         source.quantity = 6;
         source.targetSiteCode = "SA";
         source.actualTransportMode = "AIR";
+        command.sources = List.of(source);
+        return command;
+    }
+
+    private CreateShippingBatchCommand shippingBatchCommand() {
+        CreateShippingBatchCommand command = new CreateShippingBatchCommand();
+        command.clientRequestId = "shipping-request-revoked";
+        ShippingBatchSourceCommand source = new ShippingBatchSourceCommand();
+        source.fulfillmentBalanceId = 900001L;
+        source.quantity = 5;
         command.sources = List.of(source);
         return command;
     }

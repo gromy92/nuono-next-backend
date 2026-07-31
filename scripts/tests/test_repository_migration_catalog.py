@@ -45,6 +45,8 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "231_procurement_fulfillment_balance_quantity_invariant.sql",
                 "232_warehouse_command_request_idempotency.sql",
                 "233_warehouse_packing_soft_delete_index.sql",
+                "234_official_warehouse_appointment_concurrency.sql",
+                "235_warehouse_shipping_batch_request_idempotency.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -56,6 +58,8 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "MANAGED",
                 "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
+                "MANAGED",
                 "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
@@ -200,6 +204,64 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 re.IGNORECASE,
             ),
         )
+
+    def test_appointment_concurrency_is_managed_and_fail_closed(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+        migration = next(
+            item for item in load_catalog(resource_root)
+            if item.key == "234_official_warehouse_appointment_concurrency.sql"
+        )
+
+        self.assertEqual("MANAGED", migration.kind)
+        for marker in (
+            "execution_version",
+            "uk_official_warehouse_appointment_active_asn",
+            "uk_official_warehouse_appointment_active_remote",
+            "CHAR_LENGTH(UPPER(TRIM(COALESCE(`project_code`, ''))))",
+            "@appointment_parent_mismatch_count",
+            "@appointment_running_count",
+            "@appointment_parent_scope_column_count",
+            "NOT (parent_asn.owner_user_id <=> appointment.owner_user_id)",
+        ):
+            self.assertIn(marker, migration.script_sql + migration.postcheck_sql)
+        for marker in ("column_name = 'id'", "column_name = 'owner_user_id'",
+                       "column_name = 'store_code'", "column_name = 'attempt_count'"):
+            self.assertIn(marker, migration.postcheck_sql)
+        self.assertIn("HAVING COUNT(*) > 1", migration.postcheck_sql)
+        self.assertIn("nuono_234_appointment_data_guard", migration.script_sql)
+        self.assertNotIn("nuono_217_", migration.script_sql)
+
+    def test_shipping_batch_request_idempotency_is_additive_and_exact(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+        migration = next(
+            item for item in load_catalog(resource_root)
+            if item.key == "235_warehouse_shipping_batch_request_idempotency.sql"
+        )
+
+        self.assertEqual("AUTO_ADDITIVE", migration.kind)
+        for marker in (
+            "VARCHAR(100) CHARACTER SET utf8mb4",
+            "COLLATE utf8mb4_bin NULL DEFAULT NULL",
+            "CHAR(64) CHARACTER SET ascii",
+            "COLLATE ascii_bin NULL DEFAULT NULL",
+            "uk_shipping_batch_owner_client_request",
+            "1:owner_user_id,2:client_request_id",
+            "HAVING COUNT(*) > 1",
+        ):
+            self.assertIn(marker, migration.script_sql + migration.postcheck_sql)
+        for sql in (migration.script_sql, migration.postcheck_sql):
+            self.assertIn(
+                "BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)", sql
+            )
+            self.assertIn("`client_request_id` REGEXP '[[:cntrl:]]'", sql)
+        self.assertNotRegex(
+            migration.script_sql,
+            re.compile(
+                r"\b(?:UPDATE|DELETE\s+FROM)\s+`?warehouse_shipping_batch\b",
+                re.IGNORECASE,
+            ),
+        )
+        self.assertNotIn("nuono_218_", migration.script_sql)
 
     @staticmethod
     def compact(sql: str) -> str:

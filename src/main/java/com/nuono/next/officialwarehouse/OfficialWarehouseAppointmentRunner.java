@@ -15,13 +15,11 @@ public class OfficialWarehouseAppointmentRunner {
 
     private static final int MAX_SEALED_CHECK_ATTEMPTS = 5;
     private static final long SEALED_CHECK_INTERVAL_MS = 1200L;
-
     private final Clock clock;
 
     public OfficialWarehouseAppointmentRunner(Clock clock) {
         this.clock = clock == null ? Clock.systemDefaultZone() : clock;
     }
-
     public RunResult runOnce(AppointmentTask task, NoonAppointmentClient client) {
         if (task == null) {
             return RunResult.failed("VALIDATION", "缺少约仓任务。");
@@ -37,34 +35,36 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonScheduledStatus(status)) {
             return RunResult.alreadyScheduled();
         }
-        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
+        boolean warehousesChanged = !isNoonReadyForScheduleStatus(status);
+        RunResult readiness = warehousesChanged ? setWarehousesAndWaitUntilReady(task, client, false) : null;
         if (readiness != null) {
             return readiness;
         }
-
-        List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
-                .map(OfficialWarehouseAppointmentRunner::parseDate)
-                .filter(date -> date != null)
-                .filter(date -> inRange(task, date))
-                .filter(date -> task.availableToday || !date.equals(LocalDate.now(clock)))
-                .collect(Collectors.toList());
-        Set<Integer> acceptedHours = parseAcceptedHours(task.apTimeRange);
-        for (LocalDate capacityDate : capacityDates) {
-            List<SlotCapacity> slots = new ArrayList<>(client.querySlotCapacity(task, capacityDate));
-            slots.sort(Comparator.comparingInt((SlotCapacity slot) -> slot.idSlot == null ? -1 : slot.idSlot).reversed());
-            for (SlotCapacity slot : slots) {
-                if (!matchesTimeRange(slot, acceptedHours)) {
-                    continue;
-                }
-                RunResult scheduled = scheduleAndConfirm(task, client, capacityDate, slot);
-                if (scheduled != null) {
-                    return scheduled;
+        try {
+            List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
+                    .map(OfficialWarehouseAppointmentRunner::parseDate)
+                    .filter(date -> date != null)
+                    .filter(date -> inRange(task, date))
+                    .filter(date -> task.availableToday || !date.equals(LocalDate.now(clock)))
+                    .collect(Collectors.toList());
+            Set<Integer> acceptedHours = parseAcceptedHours(task.apTimeRange);
+            for (LocalDate capacityDate : capacityDates) {
+                List<SlotCapacity> slots = new ArrayList<>(client.querySlotCapacity(task, capacityDate));
+                slots.sort(Comparator.comparingInt((SlotCapacity slot) -> slot.idSlot == null ? -1 : slot.idSlot).reversed());
+                for (SlotCapacity slot : slots) {
+                    if (matchesTimeRange(slot, acceptedHours)) {
+                        return scheduleAndConfirm(task, client, capacityDate, slot);
+                    }
                 }
             }
+        } catch (RuntimeException exception) {
+            if (!warehousesChanged) {
+                throw exception;
+            }
+            return RunResult.reconciliationRequired("SET_WAREHOUSES_FOLLOW_UP", "Noon 已接受设置仓库，但后续读取失败，请先在 Noon 后台核对。");
         }
         return RunResult.failed("NO_CAPACITY", "没有匹配的 Noon 可约仓日期或时段。");
     }
-
     public List<AvailableSlot> queryAvailability(AppointmentTask task, NoonAppointmentClient client) {
         if (task == null || client == null) {
             return List.of();
@@ -74,8 +74,7 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(status)) {
             return List.of();
         }
-        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
-        if (readiness != null) {
+        if (!isNoonReadyForScheduleStatus(status) && !isNoonScheduledStatus(status)) {
             return List.of();
         }
         List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
@@ -97,7 +96,6 @@ public class OfficialWarehouseAppointmentRunner {
         }
         return availableSlots;
     }
-
     public RunResult scheduleSelectedSlot(
             AppointmentTask task,
             NoonAppointmentClient client,
@@ -118,19 +116,23 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
-        if (isNoonScheduledStatus(status) && !client.reschedule(task)) {
-            return RunResult.failed("RESCHEDULE_ASN", "Noon 取消当前约仓失败。");
+        if (isNoonScheduledStatus(status)) {
+            try {
+                if (!client.reschedule(task)) {
+                    return RunResult.reconciliationRequired("RESCHEDULE_ASN", "Noon 改约请求已发出，但结果未确认，请先在 Noon 后台核对。");
+                }
+            } catch (RuntimeException exception) {
+                return RunResult.reconciliationRequired("RESCHEDULE_ASN", "Noon 改约请求已发出，但结果未确认，请先在 Noon 后台核对。");
+            }
+            status = "SEALED";
         }
-        RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
+        RunResult readiness = isNoonReadyForScheduleStatus(status) ? null
+                : setWarehousesAndWaitUntilReady(task, client, true);
         if (readiness != null) {
             return readiness;
         }
-        RunResult scheduled = scheduleAndConfirm(task, client, appointmentDate, slot);
-        return scheduled == null
-                ? RunResult.failed("SCHEDULE_APPOINTMENT", "Noon 提交约仓失败。")
-                : scheduled;
+        return scheduleAndConfirm(task, client, appointmentDate, slot);
     }
-
     private static boolean inRange(AppointmentTask task, LocalDate date) {
         LocalDate start = task.apStartDate;
         LocalDate end = task.apEndDate;
@@ -139,16 +141,22 @@ public class OfficialWarehouseAppointmentRunner {
         }
         return end == null || !date.isAfter(end);
     }
-
-    private static RunResult waitUntilReadyForSchedule(AppointmentTask task, NoonAppointmentClient client) {
+    private static RunResult waitUntilReadyForSchedule(AppointmentTask task,
+            NoonAppointmentClient client, boolean selectedSlot) {
         for (int attempt = 0; attempt < MAX_SEALED_CHECK_ATTEMPTS; attempt++) {
             AsnDetail detail = client.queryAsnDetail(task);
             String status = normalize(detail == null ? null : detail.status);
             if (isNoonFailureStatus(status)) {
                 return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
             }
-            if (isNoonReadyForScheduleStatus(status) || isNoonScheduledStatus(status)) {
+            if (isNoonReadyForScheduleStatus(status)) {
                 return null;
+            }
+            if (isNoonScheduledStatus(status)) {
+                return selectedSlot
+                        ? RunResult.reconciliationRequired("NOON_ALREADY_SCHEDULED_DURING_PREPARATION",
+                            "等待 Noon 仓库准备期间 ASN 已被约仓，请核对后再显式改约。")
+                        : RunResult.alreadyScheduled();
             }
             if (attempt + 1 < MAX_SEALED_CHECK_ATTEMPTS) {
                 sleepBeforeNextSealedCheck();
@@ -156,25 +164,39 @@ public class OfficialWarehouseAppointmentRunner {
         }
         return RunResult.failed("ASN_NOT_SEALED", "Noon 已设置仓库，但 ASN 尚未 sealed，稍后再点立即约仓。");
     }
-
-    private static RunResult setWarehousesAndWaitUntilReady(AppointmentTask task, NoonAppointmentClient client) {
-        if (!client.setWarehouses(task)) {
-            return RunResult.failed("SET_WAREHOUSES", "Noon 设置约仓仓库失败。");
+    private static RunResult setWarehousesAndWaitUntilReady(AppointmentTask task,
+            NoonAppointmentClient client, boolean selectedSlot) {
+        try {
+            if (!client.setWarehouses(task)) {
+                return RunResult.reconciliationRequired("SET_WAREHOUSES", "Noon 设置仓库请求已发出，但结果未确认，请先在 Noon 后台核对。");
+            }
+            client.onWarehousesSet(task);
+            RunResult readiness = waitUntilReadyForSchedule(task, client, selectedSlot);
+            if (readiness != null && !readiness.alreadyScheduled) {
+                readiness.reconciliationRequired = true;
+            }
+            return readiness;
+        } catch (RuntimeException exception) {
+            return RunResult.reconciliationRequired("SET_WAREHOUSES", "Noon 设置仓库请求已发出，但结果未确认，请先在 Noon 后台核对。");
         }
-        client.onWarehousesSet(task);
-        return waitUntilReadyForSchedule(task, client);
     }
-
-    private static RunResult scheduleAndConfirm(
-            AppointmentTask task,
-            NoonAppointmentClient client,
-            LocalDate appointmentDate,
-            SlotCapacity slot
-    ) {
-        if (!client.schedule(task, appointmentDate, slot)) {
-            return null;
+    private static RunResult scheduleAndConfirm(AppointmentTask task, NoonAppointmentClient client,
+            LocalDate appointmentDate, SlotCapacity slot) {
+        boolean accepted;
+        try {
+            accepted = client.schedule(task, appointmentDate, slot);
+        } catch (RuntimeException exception) {
+            return RunResult.reconciliationRequired("SCHEDULE_APPOINTMENT", "Noon 约仓请求已发出，但结果未确认，请先在 Noon 后台核对。");
         }
-        AsnDetail confirmed = client.queryAsnDetail(task);
+        if (!accepted) {
+            return RunResult.reconciliationRequired("SCHEDULE_APPOINTMENT", "Noon 约仓请求已发出，但结果未确认，请先在 Noon 后台核对。");
+        }
+        AsnDetail confirmed;
+        try {
+            confirmed = client.queryAsnDetail(task);
+        } catch (RuntimeException exception) {
+            return RunResult.reconciliationRequired("SCHEDULE_CONFIRMATION", "Noon 已接受约仓，但确认读取失败，请先在 Noon 后台核对。");
+        }
         String confirmedStatus = normalize(confirmed == null ? null : confirmed.status);
         if (isNoonScheduledStatus(confirmedStatus)) {
             return RunResult.scheduled(appointmentDate, slot.idSlot, slot.name);
@@ -182,7 +204,7 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(confirmedStatus)) {
             return RunResult.failed("NOON_ASN_" + confirmedStatus, "Noon ASN 状态不可约仓：" + confirmedStatus);
         }
-        return RunResult.failed(
+        return RunResult.reconciliationRequired(
                 "SCHEDULE_NOT_CONFIRMED",
                 "Noon 返回约仓提交成功，但 ASN 详情尚未确认已约仓，请稍后重试或在 Noon 后台核对。"
         );
@@ -195,7 +217,6 @@ public class OfficialWarehouseAppointmentRunner {
             Thread.currentThread().interrupt();
         }
     }
-
     private static boolean matchesTimeRange(SlotCapacity slot, Set<Integer> acceptedHours) {
         if (acceptedHours == null || acceptedHours.isEmpty()) {
             return true;
@@ -216,7 +237,6 @@ public class OfficialWarehouseAppointmentRunner {
         int max = acceptedHours.stream().max(Integer::compareTo).orElse(23);
         return start >= min && end <= max;
     }
-
     private static Set<Integer> parseAcceptedHours(String apTimeRange) {
         if (!StringUtils.hasText(apTimeRange)) {
             return Set.of();
@@ -294,18 +314,12 @@ public class OfficialWarehouseAppointmentRunner {
 
     public interface NoonAppointmentClient {
         AsnDetail queryAsnDetail(AppointmentTask task);
-
         List<String> queryDayCapacity(AppointmentTask task);
-
         List<SlotCapacity> querySlotCapacity(AppointmentTask task, LocalDate capacityDate);
-
         boolean setWarehouses(AppointmentTask task);
-
         default void onWarehousesSet(AppointmentTask task) {
         }
-
         boolean reschedule(AppointmentTask task);
-
         boolean schedule(AppointmentTask task, LocalDate capacityDate, SlotCapacity slot);
     }
 
@@ -324,64 +338,48 @@ public class OfficialWarehouseAppointmentRunner {
 
     public static class AsnDetail {
         public final String status;
-
-        public AsnDetail(String status) {
-            this.status = status;
-        }
+        public AsnDetail(String status) { this.status = status; }
     }
 
     public static class SlotCapacity {
-        public final Integer idSlot;
-        public final String name;
-
+        public final Integer idSlot; public final String name;
         public SlotCapacity(Integer idSlot, String name) {
-            this.idSlot = idSlot;
-            this.name = name;
+            this.idSlot = idSlot; this.name = name;
         }
     }
 
     public static class AvailableSlot {
-        public final LocalDate capacityDate;
-        public final Integer slotId;
+        public final LocalDate capacityDate; public final Integer slotId;
         public final String name;
-
         public AvailableSlot(LocalDate capacityDate, Integer slotId, String name) {
-            this.capacityDate = capacityDate;
-            this.slotId = slotId;
-            this.name = name;
+            this.capacityDate = capacityDate; this.slotId = slotId; this.name = name;
         }
     }
 
     public static class RunResult {
-        public String status;
-        public LocalDate appointmentDate;
-        public Integer slotId;
-        public String appointmentTime;
-        public String failureType;
-        public String errorMessage;
-        public boolean alreadyScheduled;
-
+        public String status; public LocalDate appointmentDate;
+        public Integer slotId; public String appointmentTime;
+        public String failureType; public String errorMessage;
+        public boolean alreadyScheduled, reconciliationRequired;
         private static RunResult scheduled(LocalDate appointmentDate, Integer slotId, String appointmentTime) {
             RunResult result = new RunResult();
-            result.status = "SCHEDULED";
-            result.appointmentDate = appointmentDate;
-            result.slotId = slotId;
-            result.appointmentTime = appointmentTime;
+            result.status = "SCHEDULED"; result.appointmentDate = appointmentDate;
+            result.slotId = slotId; result.appointmentTime = appointmentTime;
             return result;
         }
-
         private static RunResult alreadyScheduled() {
             RunResult result = scheduled(null, null, null);
-            result.alreadyScheduled = true;
-            return result;
+            result.alreadyScheduled = true; return result;
         }
-
         private static RunResult failed(String failureType, String errorMessage) {
             RunResult result = new RunResult();
-            result.status = "FAILED";
-            result.failureType = failureType;
+            result.status = "FAILED"; result.failureType = failureType;
             result.errorMessage = errorMessage;
             return result;
+        }
+        private static RunResult reconciliationRequired(String failureType, String errorMessage) {
+            RunResult result = failed(failureType, errorMessage);
+            result.reconciliationRequired = true; return result;
         }
     }
 }

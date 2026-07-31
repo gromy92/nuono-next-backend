@@ -7,6 +7,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchCommand;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,5 +72,20 @@ class WarehouseShippingBatchControllerTest {
         );
 
         assertEquals(HttpStatus.CONFLICT, error.getStatus());
+    }
+
+    @Test
+    void createShippingBatchMapsRequestConflictToHttp409() {
+        CreateShippingBatchCommand command = new CreateShippingBatchCommand();
+        when(service.createShippingBatch(access, command))
+                .thenThrow(new WarehouseRequestConflictException("同一客户端请求号不能提交不同的发货批次商品。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.createShippingBatch(command, request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
+        assertEquals("同一客户端请求号不能提交不同的发货批次商品。", error.getReason());
     }
 }

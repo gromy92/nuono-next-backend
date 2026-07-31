@@ -70,6 +70,8 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
     ) {
         try {
             return service().createShippingBatch(access(request), command);
+        } catch (WarehouseRequestConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

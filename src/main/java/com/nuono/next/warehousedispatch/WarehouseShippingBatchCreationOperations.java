@@ -30,6 +30,9 @@ abstract class WarehouseShippingBatchCreationOperations extends WarehouseMobileS
             BusinessAccessContext access,
             CreateShippingBatchCommand command
     ) {
+        String clientRequestId = normalizeShippingBatchClientRequestId(
+                command == null ? null : command.clientRequestId
+        );
         if (command == null || command.sources == null || command.sources.isEmpty()) {
             throw new IllegalArgumentException("请选择可发运商品。");
         }
@@ -46,7 +49,18 @@ abstract class WarehouseShippingBatchCreationOperations extends WarehouseMobileS
 
         List<Long> balanceIds = new ArrayList<>(requested.keySet());
         Long ownerUserId = resolveAggregateOwner(access, balanceIds);
-        requireRequestOwnerLock(ownerUserId);
+        RequestFingerprint requestFingerprint =
+                shippingBatchRequestFingerprint(command.remark, requested);
+        ShippingBatchView replay = lockAndReplayShippingBatch(
+                access,
+                ownerUserId,
+                clientRequestId,
+                requestFingerprint
+        );
+        if (replay != null) {
+            return replay;
+        }
+        command.clientRequestId = clientRequestId;
         List<FulfillmentBalanceRecord> balances =
                 selectAuthorizedBalancesForUpdate(access, balanceIds, ownerUserId);
         return createShippingBatchFromLockedBalances(access, command, requested, balances, ownerUserId);
@@ -99,6 +113,10 @@ abstract class WarehouseShippingBatchCreationOperations extends WarehouseMobileS
         ShippingBatchRecord batch = new ShippingBatchRecord();
         batch.id = batchId;
         batch.ownerUserId = ownerUserId;
+        batch.clientRequestId = trimToNull(command.clientRequestId);
+        batch.requestFingerprint = batch.clientRequestId == null
+                ? null
+                : shippingBatchRequestFingerprint(command.remark, requested).persistedValue();
         batch.batchNo = batchNo;
         batch.status = "DRAFT";
         batch.sourceCount = sourceRows.size();
@@ -120,6 +138,7 @@ abstract class WarehouseShippingBatchCreationOperations extends WarehouseMobileS
             view.sources.add(toShippingBatchSourceView(sourceRow));
         }
         view.options.addAll(createDefaultShippingSuggestionOptions(batch, currentSources, operatorUserId));
+        view.optionCount = view.options.size();
         log(null, "CREATE_SHIPPING_BATCH", operatorUserId, null, "DRAFT", batchNo);
         return view;
     }

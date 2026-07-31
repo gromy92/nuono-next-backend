@@ -51,5 +51,6 @@ public final class OfficialWarehouseCommands {
         public String failureType;
         public String errorStage;
         public String errorMessage;
+        public Boolean reconciliationConfirmed;
     }
 }

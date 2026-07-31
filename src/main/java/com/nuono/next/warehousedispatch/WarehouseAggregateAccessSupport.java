@@ -60,7 +60,7 @@ abstract class WarehouseAggregateAccessSupport extends WarehousePackingProjectio
         );
     }
 
-    private ShippingBatchRecord requireShippingBatchAggregateAccess(
+    protected ShippingBatchRecord requireShippingBatchAggregateAccess(
             BusinessAccessContext access,
             ShippingBatchRecord batch
     ) {

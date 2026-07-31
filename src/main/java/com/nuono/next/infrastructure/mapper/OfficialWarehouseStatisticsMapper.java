@@ -869,6 +869,7 @@ public interface OfficialWarehouseStatisticsMapper {
             ") selected_source ON selected_source.batch_source_id = s.id",
             "WHERE s.is_deleted = b'0'",
             "  AND s.owner_user_id = #{ownerUserId}",
+            "  AND s.source_store_code = #{storeCode}",
             "  AND UPPER(s.site_code) = UPPER(#{siteCode})",
             "<choose>",
             "  <when test='partnerSku != null and partnerSku != \"\"'>",
@@ -894,7 +895,6 @@ public interface OfficialWarehouseStatisticsMapper {
     })
     List<ProductStockSourceCandidateRecord> listProductStockSourceCandidates(
             @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCodes") Collection<String> storeCodes,
             @Param("storeCode") String storeCode,
             @Param("siteCode") String siteCode,
             @Param("productSiteOfferId") Long productSiteOfferId,

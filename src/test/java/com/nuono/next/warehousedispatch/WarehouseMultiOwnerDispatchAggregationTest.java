@@ -92,6 +92,7 @@ class WarehouseMultiOwnerDispatchAggregationTest extends WarehouseDispatchServic
         InOrder lockOrder = inOrder(mapper);
         lockOrder.verify(mapper).selectBalanceScopes(List.of(900001L), storeOwners());
         lockOrder.verify(mapper).lockDispatchOwner(409L);
+        lockOrder.verify(mapper).selectShippingBatchByClientRequestId(409L, "second-owner-batch");
         lockOrder.verify(mapper).selectAuthorizedBalancesForUpdate(List.of(900001L), storeOwners());
         lockOrder.verify(mapper).reserveBalance(900001L, 409L, 5, 901L);
     }
@@ -205,6 +206,7 @@ class WarehouseMultiOwnerDispatchAggregationTest extends WarehouseDispatchServic
 
     private CreateShippingBatchCommand batchCommand(Long balanceId) {
         CreateShippingBatchCommand command = new CreateShippingBatchCommand();
+        command.clientRequestId = "second-owner-batch";
         ShippingBatchSourceCommand source = new ShippingBatchSourceCommand();
         source.fulfillmentBalanceId = balanceId;
         source.quantity = 5;

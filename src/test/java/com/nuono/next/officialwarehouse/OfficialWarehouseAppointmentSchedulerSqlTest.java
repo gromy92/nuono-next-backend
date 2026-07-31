@@ -41,9 +41,7 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     @Test
     void schedulerDueClaimIsAtomicAndOnlyClaimsStillDuePendingAppointments() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
-                "claimDueAppointmentForRun",
-                Long.class,
-                Long.class
+                "claimDueAppointmentForRun", Long.class, Long.class, Long.class, Long.class
         );
         String sql = String.join(" ", method.getAnnotation(Update.class).value())
                 .replaceAll("\\s+", " ");
@@ -51,6 +49,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         assertThat(sql).contains("UPDATE official_warehouse_appointment");
         assertThat(sql).contains("SET status = 'RUNNING'");
         assertThat(sql).contains("attempt_count = attempt_count + 1");
+        assertThat(sql).contains("execution_version = execution_version + 1");
+        assertThat(sql).contains("execution_version = #{expectedExecutionVersion}");
         assertThat(sql).contains("WHERE id = #{appointmentId}");
         assertThat(sql).contains("status = 'PENDING'");
         assertThat(sql).contains("(next_attempt_at IS NULL OR next_attempt_at <= NOW())");
@@ -61,6 +61,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     void manualRunCannotReclaimAlreadyRunningAppointment() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentRunning",
+                Long.class,
+                Long.class,
                 Long.class,
                 Long.class
         );
@@ -73,9 +75,9 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
-    void staleRunningRecoveryOnlyRequeuesNoCapacityAppointments() throws Exception {
+    void staleRunningRecoveryQuarantinesUnknownRemoteOutcome() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
-                "markStaleNoCapacityAppointmentsPending",
+                "markStaleAppointmentsForReconciliation",
                 int.class,
                 Long.class
         );
@@ -83,12 +85,11 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("status = 'RUNNING'");
-        assertThat(sql).contains("failure_type = 'NO_CAPACITY'");
         assertThat(sql).contains("gmt_updated <= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)");
-        assertThat(sql).contains("status = 'PENDING'");
-        assertThat(sql).contains("next_attempt_at = NOW()");
-        assertThat(sql).doesNotContain("failure_type IN");
-        assertThat(sql).doesNotContain("status IN ('RUNNING'");
+        assertThat(sql).contains("status = 'FAILED'");
+        assertThat(sql).contains("STALE_EXECUTION_RECONCILIATION_REQUIRED");
+        assertThat(sql).contains("execution_version = execution_version + 1");
+        assertThat(sql).doesNotContain("status = 'PENDING'");
     }
 
     @Test
@@ -107,6 +108,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentPendingRetry",
                 Long.class,
+                Long.class,
+                Long.class,
                 int.class,
                 String.class,
                 String.class,
@@ -124,6 +127,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     void successfulAppointmentResetsRetryAttemptCount() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentScheduled",
+                Long.class,
+                Long.class,
                 Long.class,
                 java.time.LocalDate.class,
                 Integer.class,
