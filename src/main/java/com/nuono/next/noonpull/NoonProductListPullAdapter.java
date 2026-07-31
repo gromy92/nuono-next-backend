@@ -149,6 +149,7 @@ public class NoonProductListPullAdapter {
         String activeStateSource = statusCodeActive != null
                 ? "NOON_PRODUCT_LIST_STATUS_CODE"
                 : liveStatusActive != null ? "NOON_PRODUCT_LIST_LIVE_STATUS" : null;
+        // Noon keeps non-live offers in the complete list with both status fields absent.
         if (resolvedActive == null
                 && !StringUtils.hasText(seed.getStatusCode())
                 && !StringUtils.hasText(seed.getLiveStatus())) {
