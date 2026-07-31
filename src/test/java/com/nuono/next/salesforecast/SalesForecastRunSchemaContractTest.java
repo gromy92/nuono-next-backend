@@ -67,7 +67,7 @@ class SalesForecastRunSchemaContractTest {
     }
 
     @Test
-    void salesForecastCurrentProductBoundaryUsesEveryMaintainedPartnerSkuRegardlessOfActiveState() throws IOException {
+    void salesForecastCurrentProductBoundaryUsesActivePartnerSku() throws IOException {
         String mapper = Files.readString(Path.of(
                 "src",
                 "main",
@@ -83,7 +83,7 @@ class SalesForecastRunSchemaContractTest {
         assertTrue(mapper.contains("pv.partner_sku AS partnerSku"));
         assertFalse(mapper.contains("pso.psku_code AS partnerSku"));
         assertTrue(mapper.contains("pso.maintenance_enabled = b'1'"));
-        assertFalse(mapper.contains("pso.is_active = b'1'"));
+        assertTrue(mapper.contains("pso.is_active = b'1'"));
         assertFalse(mapper.contains("COALESCE(pso.is_active"));
         assertTrue(mapper.contains("TRIM(pv.partner_sku) <> ''"));
     }

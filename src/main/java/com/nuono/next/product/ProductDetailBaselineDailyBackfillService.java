@@ -26,7 +26,6 @@ import org.springframework.util.StringUtils;
 public class ProductDetailBaselineDailyBackfillService {
     private static final Logger log = LoggerFactory.getLogger(ProductDetailBaselineDailyBackfillService.class);
     private static final String REASON = "daily-maintenance-audit";
-    static final String ACTIVE_STATE_RECONCILIATION_REASON = ProductActiveStateBackfillHandler.REASON;
     private static final String STALE_RECOVERY_MESSAGE = "每日详情基线巡检回收超时任务，允许后续重试。";
     private static final int DEFAULT_MAX_ITEMS_PER_STORE_SITE = 10;
 
@@ -180,7 +179,7 @@ public class ProductDetailBaselineDailyBackfillService {
             }
             requests.add(new ProductDetailBaselineBatchExecutor.Request(
                     toFetchCommand(ownerUserId, storeCode, candidate),
-                    candidate.isActiveStateUnknown() ? ACTIVE_STATE_RECONCILIATION_REASON : REASON,
+                    REASON,
                     normalizedSiteCode
             ));
             if (requests.size() >= maxItemsPerStoreSite) {

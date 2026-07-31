@@ -78,7 +78,7 @@ class ProductSiteOfferFetcher {
                         NoonProductGateway.PRICING_INFO_URL,
                         pricingBody,
                         true,
-                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 价格信息失败"
+                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 价格信息失败", warnings
                 );
                 log.info(
                         "product-management fetchSnapshot detail stage=pricing.info store={} site={} durationMs={}",
@@ -100,7 +100,7 @@ class ProductSiteOfferFetcher {
                         NoonProductGateway.STOCK_INFO_URL,
                         stockBody,
                         true,
-                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 库存摘要失败"
+                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 库存摘要失败", warnings
                 );
                 log.info(
                         "product-management fetchSnapshot detail stage=stock.info store={} site={} durationMs={}",
@@ -241,7 +241,6 @@ class ProductSiteOfferFetcher {
                 : null);
         return pricing;
     }
-
     Map<String, Object> buildStock(JsonNode stockRoot) {
         Map<String, Object> stock = new LinkedHashMap<>();
         JsonNode stockItem = firstDataItem(stockRoot);
@@ -259,7 +258,6 @@ class ProductSiteOfferFetcher {
         putIfNotNull(stock, "fbpStock", numberOrText(stockItem.path("fbp_stock")));
         return stock;
     }
-
     private Map<String, Object> buildSiteOffer(
             ProductProjectSiteContext projectSite,
             JsonNode pricingRoot,
@@ -278,7 +276,6 @@ class ProductSiteOfferFetcher {
         siteOffer.putAll(stock);
         return siteOffer;
     }
-
     private Map<String, Map<String, Object>> siteOfferMap(List<Map<String, Object>> siteOffers) {
         Map<String, Map<String, Object>> index = new LinkedHashMap<>();
         if (siteOffers == null) {
@@ -297,13 +294,16 @@ class ProductSiteOfferFetcher {
             String url,
             JsonNode body,
             boolean withProject,
-            String warningPrefix
+            String warningPrefix,
+            List<String> warnings
     ) {
         try {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
             ProductWriteAuthRequiredException.rethrowIfPresent(exception);
-            log.warn("{}：{}", warningPrefix, noonFailureMessage(exception));
+            String warning = warningPrefix + "：" + noonFailureMessage(exception);
+            log.warn("{}", warning);
+            if (warnings != null) warnings.add(warning);
             return MissingNode.getInstance();
         }
     }

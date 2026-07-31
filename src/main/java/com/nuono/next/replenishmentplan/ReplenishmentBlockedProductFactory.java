@@ -22,8 +22,21 @@ final class ReplenishmentBlockedProductFactory {
             LocalDateTime activeStateSyncedAt,
             BigDecimal currentStockUnits,
             BigDecimal fbnStockUnits,
-            BigDecimal supermallStockUnits
+            BigDecimal supermallStockUnits,
+            boolean forecastMissing
     ) {
+        String warning;
+        String explanation;
+        if (Boolean.FALSE.equals(isActive)) {
+            warning = "product_inactive";
+            explanation = "Noon 明确返回商品已停用，当前不生成补货建议。";
+        } else if (Boolean.TRUE.equals(isActive) && forecastMissing) {
+            warning = "active_forecast_missing";
+            explanation = "商品在售，但本次运行缺少对应销量预测，当前不生成补货建议。";
+        } else {
+            warning = "active_state_unknown";
+            explanation = "商品在售状态正在通过 Noon 权威定价接口自动核实，完成前不生成补货建议。";
+        }
         int airStart = config == null ? 0 : config.getAirLeadDays();
         int airEnd = config == null ? 0 : airStart + config.getAirCoverDays();
         int seaStart = config == null ? 0 : config.getSeaLeadDays();
@@ -62,8 +75,8 @@ final class ReplenishmentBlockedProductFactory {
                 List.of(),
                 List.of(),
                 true,
-                List.of("forecast_missing"),
-                "本次运行缺少对应销量预测，当前无法生成补货建议。"
+                List.of(warning),
+                explanation
         ).withActiveState(isActive, activeStateSource, activeStateSyncedAt);
     }
 }

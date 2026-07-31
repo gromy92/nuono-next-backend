@@ -129,9 +129,6 @@ public class ProductDetailBaselineBackfillService {
     ) {
         try {
             operationalTaskService.progress(taskId, 10, PREPARING_MESSAGE);
-            if (ProductActiveStateBackfillHandler.handle(operationalTaskService, taskId, command, reason, runner)) {
-                return;
-            }
             ProductPublicDetailFetchResult frontendResult = frontendFetcher == null
                     ? ProductPublicDetailFetchResult.of(
                             ProductPublicDetailSyncStatus.FAILED,

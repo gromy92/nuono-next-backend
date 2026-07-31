@@ -2,15 +2,34 @@ package com.nuono.next.product;
 
 import java.time.LocalDateTime;
 
-public class ProductDetailBaselineCandidate {
-    private Long productMasterId;
+public class ProductActiveStateReconciliationCandidate {
+    private Long ownerUserId;
     private Long logicalStoreId;
+    private Long productMasterId;
+    private Long variantId;
+    private Long siteOfferId;
     private String storeCode;
     private String siteCode;
     private String skuParent;
     private String partnerSku;
     private String pskuCode;
     private LocalDateTime lastAttemptAt;
+
+    public Long getOwnerUserId() {
+        return ownerUserId;
+    }
+
+    public void setOwnerUserId(Long ownerUserId) {
+        this.ownerUserId = ownerUserId;
+    }
+
+    public Long getLogicalStoreId() {
+        return logicalStoreId;
+    }
+
+    public void setLogicalStoreId(Long logicalStoreId) {
+        this.logicalStoreId = logicalStoreId;
+    }
 
     public Long getProductMasterId() {
         return productMasterId;
@@ -20,12 +39,20 @@ public class ProductDetailBaselineCandidate {
         this.productMasterId = productMasterId;
     }
 
-    public Long getLogicalStoreId() {
-        return logicalStoreId;
+    public Long getVariantId() {
+        return variantId;
     }
 
-    public void setLogicalStoreId(Long logicalStoreId) {
-        this.logicalStoreId = logicalStoreId;
+    public void setVariantId(Long variantId) {
+        this.variantId = variantId;
+    }
+
+    public Long getSiteOfferId() {
+        return siteOfferId;
+    }
+
+    public void setSiteOfferId(Long siteOfferId) {
+        this.siteOfferId = siteOfferId;
     }
 
     public String getStoreCode() {

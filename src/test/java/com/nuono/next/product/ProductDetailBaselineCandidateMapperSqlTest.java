@@ -26,8 +26,8 @@ class ProductDetailBaselineCandidateMapperSqlTest {
         assertThat(sql).contains("FROM product_public_detail_snapshot public_detail");
         assertThat(sql).contains("public_detail.sync_status IN ('SUCCEEDED', 'PARTIAL')");
         assertThat(sql).contains("public_detail.is_latest = b'1'");
-        assertThat(sql).contains("pso.is_active IS NULL");
-        assertThat(sql).contains("AS activeStateUnknown");
+        assertThat(sql).doesNotContain("pso.is_active IS NULL");
+        assertThat(sql).doesNotContain("AS activeStateUnknown");
     }
 
     @Test
