@@ -104,11 +104,16 @@ public class NoonSessionGateway {
     private final String proxyHost;
     private final int proxyPort;
     private final String proxyProviderUrl;
+    private final NoonEdgeAccessGuard edgeAccessGuard = new NoonEdgeAccessGuard();
     private final ConcurrentMap<String, AuthSessionState> sessionCache = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Object> accountLocks = new ConcurrentHashMap<>();
     private final ThreadLocal<LinkedHashMap<String, Integer>> requestCountScope = new ThreadLocal<>();
     private NoonHttpCallLogService noonHttpCallLogService;
     private NoonEmailOtpReader emailOtpReader;
+    @Value("${nuono.noon.proxy.mode:AUTO}")
+    private String proxyMode = "AUTO";
+    @Value("${nuono.noon.auth.edge-access-hold-seconds:1800}")
+    private long edgeAccessHoldSeconds = 1800L;
     @Value("${nuono.noon.auth.email-otp.email:}")
     private String configuredMerchantEmail;
     @Value("${nuono.noon.auth.email-otp.mail-auth-code:}")
@@ -201,6 +206,10 @@ public class NoonSessionGateway {
 
     void setCatalogSessionBootstrapUrl(String url) {
         this.catalogSessionBootstrapUrl = defaultIfBlank(url, DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL);
+    }
+
+    void setProxyMode(String proxyMode) {
+        this.proxyMode = StringUtils.hasText(proxyMode) ? proxyMode.trim() : "AUTO";
     }
 
     public NoonSession login(
@@ -590,23 +599,7 @@ public class NoonSessionGateway {
             throw new IllegalArgumentException("缺少 Noon Cookie。");
         }
         try {
-            CookieManager cookieManager = new CookieManager();
-            cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
-            HttpClient httpClient = newHttpClient(cookieManager);
-            AuthSessionState state = new AuthSessionState(
-                    objectMapper,
-                    "cookie-check",
-                    "",
-                    httpClient,
-                    cookieManager,
-                    accountMinRequestIntervalMillis,
-                    requestUserAgent,
-                    acceptLanguage,
-                    localeHeader,
-                    langHeader,
-                    this::recordRequest,
-                    this::recordHttpCall
-            );
+            AuthSessionState state = newSessionState("cookie-check", "");
             state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(normalize(projectCode), normalize(storeCode));
             return state.getJson(normalize(projectCode), normalize(storeCode), whoamiUrl, false, null);
@@ -920,22 +913,9 @@ public class NoonSessionGateway {
             throw cookieAuthRequired(projectCode, storeCode, "missing_cookie");
         }
         try {
-            CookieManager cookieManager = new CookieManager();
-            cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
-            HttpClient httpClient = newHttpClient(cookieManager);
-            AuthSessionState state = new AuthSessionState(
-                    objectMapper,
+            AuthSessionState state = newSessionState(
                     firstNonBlank(noonUser, "cookie-only"),
-                    cookieFingerprint,
-                    httpClient,
-                    cookieManager,
-                    accountMinRequestIntervalMillis,
-                    requestUserAgent,
-                    acceptLanguage,
-                    localeHeader,
-                    langHeader,
-                    this::recordRequest,
-                    this::recordHttpCall
+                    cookieFingerprint
             );
             state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(projectCode, storeCode);
@@ -977,6 +957,8 @@ public class NoonSessionGateway {
                 );
                 persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
+            } catch (NoonEdgeAccessDeniedException exception) {
+                throw exception;
             } catch (IllegalStateException exception) {
                 partnerIdentityFailure = exception;
             }
@@ -994,6 +976,8 @@ public class NoonSessionGateway {
                 );
                 persistCookie(ownerUserId, projectCode, state.exportAuthCookieHeader());
                 return state;
+            } catch (NoonEdgeAccessDeniedException exception) {
+                throw exception;
             } catch (IllegalStateException exception) {
                 AuthSessionState fallbackState = createChromeFallbackState(
                         noonUser,
@@ -1235,6 +1219,7 @@ public class NoonSessionGateway {
     }
 
     private AuthSessionState newSessionState(String noonUser, String noonPassword) {
+        edgeAccessGuard.requireAvailable();
         CookieManager cookieManager = new CookieManager();
         cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
         HttpClient httpClient = newHttpClient(cookieManager);
@@ -1250,7 +1235,9 @@ public class NoonSessionGateway {
                 localeHeader,
                 langHeader,
                 this::recordRequest,
-                this::recordHttpCall
+                this::recordHttpCall,
+                edgeAccessGuard,
+                Math.max(1L, edgeAccessHoldSeconds)
         );
     }
 
@@ -1263,27 +1250,13 @@ public class NoonSessionGateway {
     ) {
         if (!StringUtils.hasText(persistedCookie)){ return null; }
         try {
-            CookieManager cookieManager = new CookieManager();
-            cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
-            HttpClient httpClient = newHttpClient(cookieManager);
-            AuthSessionState state = new AuthSessionState(
-                    objectMapper,
-                    noonUser,
-                    noonPassword,
-                    httpClient,
-                    cookieManager,
-                    accountMinRequestIntervalMillis,
-                    requestUserAgent,
-                    acceptLanguage,
-                    localeHeader,
-                    langHeader,
-                    this::recordRequest,
-                    this::recordHttpCall
-            );
+            AuthSessionState state = newSessionState(noonUser, noonPassword);
             state.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
             state.applyContextCookies(projectCode, storeCode);
             state.getJson(projectCode, storeCode, whoamiUrl, false, null);
             return state;
+        } catch (NoonEdgeAccessDeniedException exception) {
+            throw exception;
         } catch (Exception ignored) {
             return null;
         }
@@ -1505,23 +1478,7 @@ public class NoonSessionGateway {
     ) {
         if (!chromeCookieFallbackEnabled || !isRateLimitedMessage(exception.getMessage())){ return null; }
         try {
-            CookieManager cookieManager = new CookieManager();
-            cookieManager.setCookiePolicy(CookiePolicy.ACCEPT_ALL);
-            HttpClient httpClient = newHttpClient(cookieManager);
-            AuthSessionState state = new AuthSessionState(
-                    objectMapper,
-                    noonUser,
-                    noonPassword,
-                    httpClient,
-                    cookieManager,
-                    accountMinRequestIntervalMillis,
-                    requestUserAgent,
-                    acceptLanguage,
-                    localeHeader,
-                    langHeader,
-                    this::recordRequest,
-                    this::recordHttpCall
-            );
+            AuthSessionState state = newSessionState(noonUser, noonPassword);
             Map<String, String> cookies = ChromeNoonCookieSupport.loadAuthCookies();
             for (Map.Entry<String, String> entry : cookies.entrySet()) {
                 if (StringUtils.hasText(entry.getValue())) {
@@ -1725,12 +1682,11 @@ public class NoonSessionGateway {
         return builder.build();
     }
 
-    private Proxy resolveProxy() {
-        if (!proxyEnabled){ return null; }
-        Proxy.Type resolvedProxyType = "SOCKS".equalsIgnoreCase(proxyType) ? Proxy.Type.SOCKS : Proxy.Type.HTTP;
-        if (StringUtils.hasText(proxyProviderUrl)){ return loadProxyFromProvider(resolvedProxyType); }
-        if (StringUtils.hasText(proxyHost) && proxyPort > 0){ return new Proxy(resolvedProxyType, new InetSocketAddress(proxyHost, proxyPort)); }
-        throw new IllegalStateException("Noon 代理已启用但未配置 provider-url 或 host/port；请检查生产 .env 是否被正确加载。");
+    Proxy resolveProxy() {
+        return NoonProxyMode.select(
+                proxyMode, proxyEnabled, proxyType, proxyHost, proxyPort,
+                proxyProviderUrl, this::loadProxyFromProvider
+        );
     }
 
     private Proxy loadProxyFromProvider(Proxy.Type proxyType) {
@@ -2280,6 +2236,8 @@ public class NoonSessionGateway {
         private final String langHeader;
         private final Consumer<String> requestRecorder;
         private final HttpCallRecorder httpCallRecorder;
+        private final NoonEdgeAccessGuard edgeAccessGuard;
+        private final long edgeAccessHoldSeconds;
         private final NoonCatalogAuthCookieExport authCookieExport;
         private final Object requestMutex = new Object();
         private final Instant createdAt = Instant.now();
@@ -2297,7 +2255,9 @@ public class NoonSessionGateway {
                 String localeHeader,
                 String langHeader,
                 Consumer<String> requestRecorder,
-                HttpCallRecorder httpCallRecorder
+                HttpCallRecorder httpCallRecorder,
+                NoonEdgeAccessGuard edgeAccessGuard,
+                long edgeAccessHoldSeconds
         ) {
             this.objectMapper = objectMapper;
             this.noonPassword = noonPassword;
@@ -2311,6 +2271,8 @@ public class NoonSessionGateway {
             this.authCookieExport = new NoonCatalogAuthCookieExport(cookieManager);
             this.requestRecorder = requestRecorder;
             this.httpCallRecorder = httpCallRecorder;
+            this.edgeAccessGuard = edgeAccessGuard;
+            this.edgeAccessHoldSeconds = edgeAccessHoldSeconds;
             addCookie("projectUser", noonUser);
         }
 
@@ -2595,6 +2557,12 @@ public class NoonSessionGateway {
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
+                        throwIfEdgeAccessDenied(
+                                request,
+                                response.statusCode(),
+                                responseBody,
+                                startedNanos
+                        );
                         if (retryTransientReadFailures
                                 && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
                             sleepForRateLimit(attempt);
@@ -2680,6 +2648,12 @@ public class NoonSessionGateway {
                     String responseBody = decodeResponseBody(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
+                        throwIfEdgeAccessDenied(
+                                request,
+                                response.statusCode(),
+                                responseBody,
+                                startedNanos
+                        );
                         if (retryTransientReadFailures
                                 && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
                             sleepForRateLimit(attempt);
@@ -2765,6 +2739,12 @@ public class NoonSessionGateway {
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         String responseText = new String(responseBody, StandardCharsets.UTF_8);
                         attempt++;
+                        throwIfEdgeAccessDenied(
+                                request,
+                                response.statusCode(),
+                                responseText,
+                                startedNanos
+                        );
                         if (retryTransientReadFailures
                                 && shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
                             sleepForRateLimit(attempt);
@@ -2866,6 +2846,21 @@ public class NoonSessionGateway {
                     failureType,
                     errorMessage
             );
+        }
+
+        private void throwIfEdgeAccessDenied(
+                HttpRequest request,
+                int statusCode,
+                String responseBody,
+                long startedNanos
+        ) {
+            if (!NoonEdgeAccessGuard.matches(statusCode, responseBody)) {
+                return;
+            }
+            NoonEdgeAccessDeniedException failure = edgeAccessGuard.block(edgeAccessHoldSeconds);
+            recordAttempt(request, statusCode, responseBody, startedNanos,
+                    "FAILED", "EGRESS_BLOCKED", failure.getMessage());
+            throw failure;
         }
 
         private boolean shouldRetryRateLimit(int statusCode, String responseBody, int attempt){ return attempt <= MAX_RATE_LIMIT_RETRIES && isRateLimitedResponse(statusCode, responseBody); }
