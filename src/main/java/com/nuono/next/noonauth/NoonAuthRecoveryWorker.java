@@ -168,13 +168,6 @@ public class NoonAuthRecoveryWorker {
                     configuredFingerprint,
                     now
             );
-            repository.releaseEligibleRateLimitedManualHold(
-                    configuredIdentityKey,
-                    configuredFingerprint,
-                    now.minus(properties.rateLimitRetryDelay()),
-                    now,
-                    now
-            );
         }
         reopenChangedManualHolds(now);
         repository.promoteReadySuccessors(now.plus(properties.coalesceDuration()), now);
@@ -473,41 +466,28 @@ public class NoonAuthRecoveryWorker {
             int sendAttemptCount
     ) {
         NoonAuthRecoveryFailureCode code = result.getFailureCode() == null
-                ? NoonAuthRecoveryFailureCode.INTERNAL_FAILURE
-                : result.getFailureCode();
+                ? NoonAuthRecoveryFailureCode.INTERNAL_FAILURE : result.getFailureCode();
         if (code.isManualHold()) {
             holdIdentityAndItems(candidate, fence, pending, code, result.getSafeDiagnostic());
             return;
         }
         if (code == NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED) {
             if (sendAttemptCount < properties.getMaxSendAttemptsPerRecovery()) {
-                cooldown(
-                        fence,
-                        code.name(),
-                        safeDiagnostic(result.getSafeDiagnostic()),
-                        now().plus(properties.rateLimitRetryDelay())
-                );
-                return;
+                cooldown(fence, code.name(), safeDiagnostic(result.getSafeDiagnostic()),
+                        now().plus(properties.rateLimitRetryDelay()));
+            } else {
+                holdIdentityAndItems(candidate, fence, pending, code, result.getSafeDiagnostic());
             }
-            holdIdentityAndItems(candidate, fence, pending, code, result.getSafeDiagnostic());
             return;
         }
         if (code == NoonAuthRecoveryFailureCode.MAILBOX_UNAVAILABLE) {
-            cooldown(
-                    fence,
-                    code.name(),
-                    safeDiagnostic(result.getSafeDiagnostic()),
-                    now().plus(properties.minResendDelay())
-            );
+            cooldown(fence, code.name(), safeDiagnostic(result.getSafeDiagnostic()),
+                    now().plus(properties.minResendDelay()));
             return;
         }
         if (code.isResendEligible() && sendAttemptCount < properties.getMaxSendAttemptsPerRecovery()) {
-            cooldown(
-                    fence,
-                    code.name(),
-                    safeDiagnostic(result.getSafeDiagnostic()),
-                    now().plus(properties.minResendDelay())
-            );
+            cooldown(fence, code.name(), safeDiagnostic(result.getSafeDiagnostic()),
+                    now().plus(properties.minResendDelay()));
             return;
         }
         if (sendAttemptCount >= properties.getMaxSendAttemptsPerRecovery()) {
@@ -800,9 +780,10 @@ public class NoonAuthRecoveryWorker {
         if (!StringUtils.hasText(configuredIdentityKey) || !StringUtils.hasText(configuredFingerprint)) {
             return;
         }
-        repository.releaseChangedManualHolds(
+        repository.releaseEligibleManualHolds(
                 configuredIdentityKey,
                 configuredFingerprint,
+                now.minus(properties.rateLimitRetryDelay()),
                 now.plus(properties.minResendDelay()),
                 now
         );

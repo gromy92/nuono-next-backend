@@ -44,13 +44,13 @@ class MyBatisNoonAuthRecoveryManualHoldRetryTest {
                 now
         )).thenReturn(1);
 
-        assertThat(repository.releaseEligibleRateLimitedManualHold(
+        assertThat(repository.releaseEligibleManualHolds(
                 "identity-hash",
                 "config-v1",
                 cooldownCutoff,
                 now,
                 now
-        )).isTrue();
+        )).isEqualTo(1);
 
         InOrder ordered = Mockito.inOrder(mapper);
         ordered.verify(mapper).selectActiveRecoveryForUpdate("identity-hash");
@@ -84,13 +84,13 @@ class MyBatisNoonAuthRecoveryManualHoldRetryTest {
         held.setFirstSendAt(now.minusHours(2));
         when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
 
-        assertThat(repository.releaseEligibleRateLimitedManualHold(
+        assertThat(repository.releaseEligibleManualHolds(
                 "identity-hash",
                 "config-v1",
                 now.minusMinutes(30),
                 now,
                 now
-        )).isFalse();
+        )).isZero();
 
         verify(mapper, never()).releaseEligibleRateLimitedManualHold(
                 org.mockito.ArgumentMatchers.anyLong(),
@@ -105,6 +105,48 @@ class MyBatisNoonAuthRecoveryManualHoldRetryTest {
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.any()
         );
+    }
+
+    @Test
+    void credentialChangeStillReopensAndResetsTheExistingManualHoldEpoch() {
+        NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
+        MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
+        LocalDateTime now = LocalDateTime.of(2026, 7, 31, 3, 0);
+        LocalDateTime nextAttemptAt = now.plusMinutes(1);
+        NoonAuthIdentityRecoveryRecord held = recovery(
+                353L,
+                NoonAuthRecoveryStatus.MANUAL_HOLD,
+                7L,
+                "identity-hash"
+        );
+        held.setFailureCode("MAILBOX_AUTH_FAILED");
+        held.setConfigFingerprint("config-v1");
+        when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
+        when(mapper.releaseChangedManualHolds(
+                "identity-hash",
+                "config-v2",
+                nextAttemptAt,
+                now
+        )).thenReturn(1);
+
+        assertThat(repository.releaseEligibleManualHolds(
+                "identity-hash",
+                "config-v2",
+                now.minusMinutes(30),
+                nextAttemptAt,
+                now
+        )).isEqualTo(1);
+
+        InOrder ordered = Mockito.inOrder(mapper);
+        ordered.verify(mapper).selectActiveRecoveryForUpdate("identity-hash");
+        ordered.verify(mapper).releaseChangedManualHolds(
+                "identity-hash",
+                "config-v2",
+                nextAttemptAt,
+                now
+        );
+        ordered.verify(mapper).releaseProjectManualHolds(353L, "config-v2", now);
+        ordered.verify(mapper).reopenFailedRecoveryItems(353L, now);
     }
 
     @Test
