@@ -178,6 +178,60 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             second.release_lock()
             first.release_lock()
 
+        # Production already executed 223 before the forward catalog existed.
+        # Recreate that exact boundary: 223 is present in the schema, both
+        # history tables are absent, and the new 227+ catalog must bootstrap
+        # without trying to back-insert or undo the published migration.
+        database.client.execute(
+            "CREATE TABLE IF NOT EXISTS product_site_offer ("
+            "id BIGINT NOT NULL, logical_store_id BIGINT NOT NULL, "
+            "site_id BIGINT NOT NULL, maintenance_enabled BIT(1) NOT NULL, "
+            "is_active BIT(1) NOT NULL, PRIMARY KEY (id));"
+        )
+        database.client.execute(
+            (resources / "db/init/223_product_site_offer_active_state_evidence.sql")
+            .read_text(encoding="utf-8")
+        )
+        database.client.execute(
+            "DROP TABLE nuono_schema_migration_attempt;"
+            "DROP TABLE nuono_schema_migration;"
+        )
+        self.assertEqual({}, database.load_states())
+        self.assertEqual(
+            [migration.key for migration in migrations[1:]],
+            runner.apply(
+                approved_managed=[
+                    migration.key
+                    for migration in migrations
+                    if migration.kind == "MANAGED"
+                ]
+            ),
+        )
+        self.assertEqual(
+            "2",
+            database.client.execute(
+                "SELECT COUNT(*) FROM information_schema.columns "
+                "WHERE table_schema=DATABASE() "
+                "AND table_name='product_site_offer' "
+                "AND column_name IN ('active_state_source', "
+                "'active_state_synced_at');"
+            ),
+        )
+        self.assertEqual(
+            "1",
+            database.client.execute(
+                "SELECT COUNT(*) FROM information_schema.statistics "
+                "WHERE table_schema=DATABASE() "
+                "AND table_name='product_site_offer' "
+                "AND index_name='idx_product_site_offer_replenishment_coverage' "
+                "AND seq_in_index=1;"
+            ),
+        )
+        self.assertEqual(
+            {migration.key for migration in migrations},
+            set(database.load_states()),
+        )
+
         target = integrity
         database.client.execute(
             "UPDATE nuono_schema_migration h "
