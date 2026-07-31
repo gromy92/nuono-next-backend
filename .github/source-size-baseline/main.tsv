@@ -34,7 +34,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1061
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1346
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	602
-src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1416
+src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1248
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1367
 src/main/java/com/nuono/next/infrastructure/mapper/OperationsSkinMapper.java	463
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	450
