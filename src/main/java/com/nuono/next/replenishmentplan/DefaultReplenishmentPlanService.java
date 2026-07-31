@@ -4,9 +4,7 @@ import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.InboundBatch;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.MissingEtaBatch;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanInput;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanItemView;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanOverviewView;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.PlanQuery;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRecords.StockSnapshot;
 import com.nuono.next.salesforecast.SalesForecastDetailView;
 import com.nuono.next.salesforecast.SalesForecastDailyForecastView;
 import com.nuono.next.salesforecast.SalesForecastFactorBreakdownView;
@@ -24,9 +22,11 @@ import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -77,7 +77,7 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     }
 
     @Override
-    public PlanOverviewView getOverview(PlanQuery query) {
+    public ReplenishmentPlanOverviewView getOverview(PlanQuery query) {
         ReplenishmentPlanConfig config = configResolver.resolve(
                 query.getOwnerUserId(),
                 query.getStoreCode(),
@@ -88,21 +88,23 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 query.getStoreCode(),
                 query.getSiteCode()
         );
+        Map<String, ReplenishmentProductStockRow> stockByPartnerSku =
+                ReplenishmentProductCoverageAssembler.index(listStockRows(query));
         SalesForecastOverviewView forecast = forecastService.getOverview(forecastQuery);
         LocalDate anchorDate = anchorDate(forecast);
         if (forecast == null || !"ready".equals(forecast.getState()) || forecast.getRunId() == null) {
-            return emptyOverview(query, config, anchorDate);
+            return coverageOnlyOverview(query, config, anchorDate, stockByPartnerSku);
         }
         LocalDate planDate = LocalDate.now(clock);
         List<SalesForecastResultRecord> forecastResults = forecastRunRepository.listResults(forecast.getRunId());
         if (forecastResults == null || forecastResults.isEmpty()) {
-            return emptyOverview(query, config, anchorDate);
+            return coverageOnlyOverview(query, config, anchorDate, stockByPartnerSku);
         }
         List<SalesForecastOverviewRow> forecastRows = forecast.getRows().stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
                 .collect(Collectors.toList());
         if (forecastRows.isEmpty()) {
-            return emptyOverview(query, config, anchorDate);
+            return coverageOnlyOverview(query, config, anchorDate, stockByPartnerSku);
         }
         Map<String, SalesForecastResultRecord> forecastResultByPartnerSku = forecastResults.stream()
                 .filter(record -> record != null && hasText(record.getPartnerSku()))
@@ -112,28 +114,24 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                         (left, right) -> left
                 ));
 
-        Map<String, ReplenishmentPlanRepository.StockRow> stockByPartnerSku = listStockRows(query).stream()
-                .filter(row -> row != null && hasText(row.getPartnerSku()))
-                .collect(Collectors.toMap(
-                        row -> skuKey(row.getPartnerSku()),
-                        row -> row,
-                        (left, right) -> left
-                ));
         Map<String, List<ReplenishmentPlanRepository.InboundRow>> inboundByPartnerSku = listInboundRows(query).stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
                 .collect(Collectors.groupingBy(row -> skuKey(row.getPartnerSku())));
 
         List<PlanItemView> rows = new ArrayList<>();
+        Set<String> forecastedProductKeys = new HashSet<>();
         for (SalesForecastOverviewRow forecastRow : forecastRows) {
             String partnerSkuKey = skuKey(forecastRow.getPartnerSku());
+            forecastedProductKeys.add(partnerSkuKey);
+            ReplenishmentProductStockRow stockRow = stockByPartnerSku.get(partnerSkuKey);
             List<ReplenishmentPlanRepository.InboundRow> inboundRows =
                     inboundByPartnerSku.getOrDefault(partnerSkuKey, List.of());
             rows.add(calculator.calculate(new PlanInput(
                     forecastRow.getPartnerSku(),
                     forecastRow.getSku(),
                     forecastRow.getProductTitle(),
-                    stockImageUrl(stockByPartnerSku.get(partnerSkuKey)),
-                    stockListingAt(stockByPartnerSku.get(partnerSkuKey)),
+                    ReplenishmentProductCoverageAssembler.imageUrl(stockRow),
+                    ReplenishmentProductCoverageAssembler.listingAt(stockRow),
                     forecastRow.getLatestFactDate(),
                     observedDays(forecastRow),
                     forecastRow.getHistoryUnits7(),
@@ -151,35 +149,57 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                     forecastRow.getShortReason(),
                     anchorDate,
                     planDate,
-                    stockSnapshot(stockByPartnerSku.get(partnerSkuKey)),
+                    ReplenishmentProductCoverageAssembler.stockSnapshot(stockRow),
                     dailyDemandByDay(forecastResultByPartnerSku.get(partnerSkuKey), config, anchorDate, planDate),
                     knownInboundBatches(inboundRows),
                     missingEtaBatches(inboundRows),
                     hasUnresolvedInboundSite(inboundRows)
-            ), config));
+            ), config).withActiveState(
+                    stockRow == null ? null : stockRow.getIsActive(),
+                    stockRow == null ? null : stockRow.getActiveStateSource(),
+                    stockRow == null ? null : stockRow.getActiveStateSyncedAt()
+            ));
         }
 
-        return new PlanOverviewView(
+        ReplenishmentProductCoverageAssembler.appendBlocked(
+                rows, config, stockByPartnerSku, forecastedProductKeys);
+
+        return new ReplenishmentPlanOverviewView(
                 "ready",
                 query.getStoreCode(),
                 query.getSiteCode(),
                 ReplenishmentPlanConfig.CALCULATION_VERSION,
                 config,
                 anchorDate,
+                ReplenishmentProductCoverageAssembler.summarize(stockByPartnerSku, forecastedProductKeys),
                 rows
         );
     }
 
-    private PlanOverviewView emptyOverview(PlanQuery query, ReplenishmentPlanConfig config, LocalDate anchorDate) {
-        return new PlanOverviewView(
+    private ReplenishmentPlanOverviewView emptyOverview(PlanQuery query, ReplenishmentPlanConfig config, LocalDate anchorDate) {
+        return new ReplenishmentPlanOverviewView(
                 "empty",
                 query.getStoreCode(),
                 query.getSiteCode(),
                 ReplenishmentPlanConfig.CALCULATION_VERSION,
                 config,
                 anchorDate,
+                ReplenishmentProductCoverageView.empty(),
                 List.of()
         );
+    }
+
+    private ReplenishmentPlanOverviewView coverageOnlyOverview(
+            PlanQuery query,
+            ReplenishmentPlanConfig config,
+            LocalDate anchorDate,
+            Map<String, ReplenishmentProductStockRow> stockByPartnerSku
+    ) {
+        if (stockByPartnerSku == null || stockByPartnerSku.isEmpty()) {
+            return emptyOverview(query, config, anchorDate);
+        }
+        return ReplenishmentProductCoverageAssembler.coverageOnly(
+                query, config, anchorDate, stockByPartnerSku);
     }
 
     private LocalDate anchorDate(SalesForecastOverviewView forecast) {
@@ -237,8 +257,8 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         return 0;
     }
 
-    private List<ReplenishmentPlanRepository.StockRow> listStockRows(PlanQuery query) {
-        List<ReplenishmentPlanRepository.StockRow> rows = repository.listFbnSupermallStock(
+    private List<ReplenishmentProductStockRow> listStockRows(PlanQuery query) {
+        List<ReplenishmentProductStockRow> rows = repository.listFbnSupermallStock(
                 query.getOwnerUserId(),
                 query.getStoreCode(),
                 query.getSiteCode()
@@ -253,30 +273,6 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 query.getSiteCode()
         );
         return rows == null ? List.of() : rows;
-    }
-
-    private static StockSnapshot stockSnapshot(ReplenishmentPlanRepository.StockRow row) {
-        if (row == null) {
-            return new StockSnapshot(null, null, null);
-        }
-        BigDecimal fbnStockUnits = row.getFbnStockUnits();
-        BigDecimal supermallStockUnits = row.getSupermallStockUnits();
-        BigDecimal currentStockUnits = fbnStockUnits;
-        boolean currentStockFactMissing = fbnStockUnits == null;
-        return new StockSnapshot(
-                currentStockUnits,
-                fbnStockUnits,
-                supermallStockUnits,
-                currentStockFactMissing
-        );
-    }
-
-    private static String stockImageUrl(ReplenishmentPlanRepository.StockRow row) {
-        return row == null ? null : row.getImageUrl();
-    }
-
-    private static LocalDate stockListingAt(ReplenishmentPlanRepository.StockRow row) {
-        return row == null ? null : row.getListingAt();
     }
 
     private static List<InboundBatch> knownInboundBatches(List<ReplenishmentPlanRepository.InboundRow> rows) {

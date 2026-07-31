@@ -126,6 +126,8 @@ CREATE TABLE IF NOT EXISTS `product_site_offer` (
     `id_warranty` INT DEFAULT NULL,
     `offer_note` VARCHAR(500) DEFAULT NULL,
     `is_active` BIT(1) DEFAULT NULL,
+    `active_state_source` VARCHAR(80) DEFAULT NULL,
+    `active_state_synced_at` DATETIME DEFAULT NULL,
     `maintenance_enabled` BIT(1) NOT NULL DEFAULT b'1',
     `live_status` VARCHAR(50) DEFAULT NULL,
     `status_code` VARCHAR(50) DEFAULT NULL,

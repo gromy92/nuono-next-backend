@@ -1133,10 +1133,7 @@ public class ProductProjectionPersistenceService {
         if (winningBuyboxFlag != null) {
             target.put("isWinningBuybox", winningBuyboxFlag > 0);
         }
-        Integer activeFlag = asInteger(row.get("activeFlag"));
-        if (activeFlag != null) {
-            target.put("isActive", activeFlag > 0);
-        }
+        ProductActiveStateProjectionSupport.hydrate(target, row);
         Integer maintenanceEnabledFlag = asInteger(row.get("maintenanceEnabledFlag"));
         if (maintenanceEnabledFlag != null) {
             target.put("maintenanceEnabled", maintenanceEnabledFlag > 0);
@@ -2735,7 +2732,8 @@ public class ProductProjectionPersistenceService {
             putIfNotBlank(siteOffer, "statusCode", offerSeed.getStatusCode());
             putIfNotBlank(siteOffer, "listingStartedAt", offerSeed.getListingStartedAt());
             putIfNotBlank(siteOffer, "listingStartedSource", offerSeed.getListingStartedSource());
-            putIfNotNull(siteOffer, "isActive", offerSeed.getIsActive());
+            ProductActiveStateProjectionSupport.write(
+                    siteOffer, offerSeed.getIsActive(), offerSeed.activeStateEvidence());
             putIfNotNull(siteOffer, "fbnStock", offerSeed.getFbnStock());
             putIfNotNull(siteOffer, "supermallStock", offerSeed.getSupermallStock());
             putIfNotNull(siteOffer, "fbpStock", offerSeed.getFbpStock());
@@ -2815,7 +2813,9 @@ public class ProductProjectionPersistenceService {
                 normalize(text(siteOffer.get("offerNote"))),
                 normalize(text(siteOffer.get("deliveryMethod"))),
                 asBoolean(siteOffer.get("isWinningBuybox")),
-                asBoolean(siteOffer.get("isActive")),
+                asBoolean(siteOffer.get("isActive")), normalize(text(siteOffer.get("activeStateSource"))),
+                parseDateTime(ProductActiveStateEvidence.syncedAt(siteOffer,
+                        siteOffer.containsKey("isActive") ? lastSyncedAt : null)),
                 normalize(text(siteOffer.get("liveStatus"))),
                 normalize(text(siteOffer.get("statusCode"))),
                 parseDateTime(text(siteOffer.get("listingStartedAt"))),
@@ -4689,7 +4689,7 @@ public class ProductProjectionPersistenceService {
         }
     }
 
-    public static class ProductMasterSeed {
+    public static class ProductMasterSeed extends ProductActiveStateSeed {
         private String skuParent;
         private String productSourceType;
         private String brandCache;
@@ -5248,7 +5248,7 @@ public class ProductProjectionPersistenceService {
         }
     }
 
-    public static class SiteOfferSeed {
+    public static class SiteOfferSeed extends ProductActiveStateSeed {
         private String storeCode;
         private String pskuCode;
         private String offerCode;
@@ -5296,7 +5296,7 @@ public class ProductProjectionPersistenceService {
             siteOfferSeed.setStatusCode(seed.getStatusCode());
             siteOfferSeed.setListingStartedAt(seed.getListingStartedAt());
             siteOfferSeed.setListingStartedSource(seed.getListingStartedSource());
-            siteOfferSeed.setIsActive(seed.getIsActive());
+            siteOfferSeed.setIsActive(seed.getIsActive()); siteOfferSeed.activeStateEvidence().copyFrom(seed.activeStateEvidence());
             siteOfferSeed.setFbnStock(seed.getFbnStock());
             siteOfferSeed.setSupermallStock(seed.getSupermallStock());
             siteOfferSeed.setFbpStock(seed.getFbpStock());

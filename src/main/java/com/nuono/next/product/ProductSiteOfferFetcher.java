@@ -17,7 +17,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 
 class ProductSiteOfferFetcher {
-
     private static final Logger log = LoggerFactory.getLogger(ProductSiteOfferFetcher.class);
     private static final String PRICING_METHOD_MANUAL = "manual";
 
@@ -233,6 +232,7 @@ class ProductSiteOfferFetcher {
         putIfNotBlank(pricing, "offerNote", text(pricingItem, "offer_note"));
         if (!pricingItem.path("is_active").isMissingNode() && !pricingItem.path("is_active").isNull()) {
             pricing.put("isActive", pricingItem.path("is_active").asBoolean());
+            ProductActiveStateEvidence.record(pricing, "NOON_PRICING_INFO");
         }
         putIfNotNull(pricing, "idWarranty", numberOrText(pricingItem.path("id_warranty")));
         putIfNotBlank(pricing, "priceSource", text(pricingItem, "price_source"));

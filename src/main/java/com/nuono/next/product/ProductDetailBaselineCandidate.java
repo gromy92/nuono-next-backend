@@ -10,6 +10,7 @@ public class ProductDetailBaselineCandidate {
     private String skuParent;
     private String partnerSku;
     private String pskuCode;
+    private boolean activeStateUnknown;
     private LocalDateTime lastAttemptAt;
 
     public Long getProductMasterId() {
@@ -66,6 +67,14 @@ public class ProductDetailBaselineCandidate {
 
     public void setPskuCode(String pskuCode) {
         this.pskuCode = pskuCode;
+    }
+
+    public boolean isActiveStateUnknown() {
+        return activeStateUnknown;
+    }
+
+    public void setActiveStateUnknown(boolean activeStateUnknown) {
+        this.activeStateUnknown = activeStateUnknown;
     }
 
     public LocalDateTime getLastAttemptAt() {

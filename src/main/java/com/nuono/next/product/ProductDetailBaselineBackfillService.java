@@ -85,18 +85,12 @@ public class ProductDetailBaselineBackfillService {
         return "preparing";
     }
     public BackfillState state(Long ownerUserId, String storeCode, String skuParent) {
-        if (operationalTaskService == null) {
-            return null;
-        }
-        String naturalKey = naturalKey(ownerUserId, storeCode, skuParent);
-        return stateByNaturalKey(naturalKey);
+        if (operationalTaskService == null) return null;
+        return stateByNaturalKey(naturalKey(ownerUserId, storeCode, skuParent));
     }
     public BackfillState stateForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
-        if (operationalTaskService == null) {
-            return null;
-        }
-        String naturalKey = naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent);
-        return stateByNaturalKey(naturalKey);
+        if (operationalTaskService == null) return null;
+        return stateByNaturalKey(naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent));
     }
     private BackfillState stateByNaturalKey(String naturalKey) {
         if (!StringUtils.hasText(naturalKey)) {
@@ -135,6 +129,9 @@ public class ProductDetailBaselineBackfillService {
     ) {
         try {
             operationalTaskService.progress(taskId, 10, PREPARING_MESSAGE);
+            if (ProductActiveStateBackfillHandler.handle(operationalTaskService, taskId, command, reason, runner)) {
+                return;
+            }
             ProductPublicDetailFetchResult frontendResult = frontendFetcher == null
                     ? ProductPublicDetailFetchResult.of(
                             ProductPublicDetailSyncStatus.FAILED,

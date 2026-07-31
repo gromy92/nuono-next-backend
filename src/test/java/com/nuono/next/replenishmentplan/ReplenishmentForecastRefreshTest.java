@@ -41,7 +41,7 @@ class ReplenishmentForecastRefreshTest {
                 "AE",
                 refreshedFactDate,
                 LocalDateTime.of(2026, 7, 22, 9, 0),
-                "SALES_FORECAST_V1_4",
+                "SALES_FORECAST_V1_5",
                 "default",
                 null,
                 List.of()
@@ -56,7 +56,7 @@ class ReplenishmentForecastRefreshTest {
                 Clock.fixed(Instant.parse("2026-07-22T01:00:00Z"), ZoneOffset.UTC)
         );
 
-        ReplenishmentPlanRecords.PlanOverviewView overview = service.getOverview(query);
+        ReplenishmentPlanOverviewView overview = service.getOverview(query);
 
         assertEquals(refreshedFactDate, overview.getAnchorDate());
         assertTrue(overview.getRows().isEmpty());

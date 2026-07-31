@@ -158,6 +158,8 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 any(),
                 any(),
                 any(),
+                any(),
+                any(),
                 eq(307L)
         );
         verify(productManagementMapper).markProductSiteOfferLogisticsHistoryByStock(

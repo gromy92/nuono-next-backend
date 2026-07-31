@@ -377,7 +377,7 @@ public interface SalesDataMapper {
             "  AND lss.store_code = #{query.storeCode}",
             "  AND lss.site = #{query.siteCode}",
             "  AND pso.is_deleted = 0",
-            "  AND COALESCE(pso.is_active, b'0') = b'1'",
+            "  AND pso.maintenance_enabled = b'1'",
             "  AND pv.partner_sku IS NOT NULL",
             "  AND TRIM(pv.partner_sku) <> ''",
             "ORDER BY pv.partner_sku ASC, sku ASC"

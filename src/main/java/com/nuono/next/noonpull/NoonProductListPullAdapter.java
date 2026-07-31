@@ -132,7 +132,12 @@ public class NoonProductListPullAdapter {
         seed.setFinalPriceSource(seed.getFinalPrice() == null ? null : "offer_list");
         seed.setLiveStatus(firstNonBlank(text(item, "live_status"), text(item, "seller_status")));
         seed.setStatusCode(text(item, "status_code"));
-        seed.setIsActive(resolveActive(seed.getLiveStatus()));
+        Boolean resolvedActive = resolveActive(seed.getLiveStatus());
+        seed.setIsActive(resolvedActive);
+        if (resolvedActive != null) {
+            seed.setActiveStateSource("NOON_PRODUCT_LIST_LIVE_STATUS");
+            seed.setActiveStateSyncedAt(LocalDateTime.now().toString());
+        }
         seed.setFbnStock(intValue(item.get("fbn_stock")));
         seed.setSupermallStock(intValue(item.get("supermall_stock")));
         seed.setFbpStock(intValue(item.get("fbp_stock")));
@@ -181,14 +186,24 @@ public class NoonProductListPullAdapter {
 
     private Boolean resolveActive(String liveStatus) {
         if (!StringUtils.hasText(liveStatus)) {
-            return false;
+            return null;
         }
         String normalized = liveStatus.trim().toLowerCase(Locale.ROOT);
-        return "active".equals(normalized)
+        if ("active".equals(normalized)
                 || "true".equals(normalized)
                 || "1".equals(normalized)
                 || "yes".equals(normalized)
-                || "enabled".equals(normalized);
+                || "enabled".equals(normalized)) {
+            return true;
+        }
+        if ("inactive".equals(normalized)
+                || "false".equals(normalized)
+                || "0".equals(normalized)
+                || "no".equals(normalized)
+                || "disabled".equals(normalized)) {
+            return false;
+        }
+        return null;
     }
 
     private String resolveImageUrl(String image) {
