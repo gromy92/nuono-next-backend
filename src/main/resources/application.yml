@@ -155,6 +155,7 @@ nuono:
     maintenance-scope:
       file: ${NUONO_NOON_MAINTENANCE_SCOPE_FILE:}
     auth:
+      edge-access-hold-seconds: ${NUONO_NOON_EDGE_ACCESS_HOLD_SECONDS:1800}
       email-otp:
         email: ${NUONO_NOON_MERCHANT_EMAIL_OTP_EMAIL:}
         mail-auth-code: ${NUONO_NOON_MERCHANT_EMAIL_OTP_MAIL_AUTH_CODE:}
