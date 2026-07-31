@@ -119,6 +119,25 @@ class OfficialWarehouseBatchSummaryServiceTest {
         verify(summaryMapper, never()).listRawLines(any(), anyList());
     }
 
+    @Test
+    void rejectsStoreWithoutAnAuthoritativeOwnerMapping() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(900L)
+                .businessOwnerUserId(307L)
+                .storeCodes(Set.of(CURRENT_STORE))
+                .build();
+
+        assertThatThrownBy(() -> service.summarize(
+                access, CURRENT_STORE, "SA", List.of("901235")
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("业务老板账号");
+
+        verify(warehouseMapper, never()).listShippingBatchSourceAllocations(
+                any(), any(), any(), anyList(), anyList(), anyList()
+        );
+        verify(summaryMapper, never()).listRawLines(any(), anyList());
+    }
+
     private static BusinessAccessContext access() {
         return BusinessAccessContext.builder()
                 .sessionUserId(900L)

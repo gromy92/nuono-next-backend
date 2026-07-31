@@ -49,9 +49,8 @@ public class OfficialWarehouseBatchSummaryService {
         String currentStoreCode = requireUpper(storeCode, "请选择店铺。");
         String currentSiteCode = requireUpper(siteCode, "请选择站点。");
         List<Long> batchIds = normalizeBatchIds(shippingBatchIds);
-        Long ownerUserId = OfficialWarehouseBusinessScope.resolve(access, currentStoreCode).ownerUserId();
-        Map<String, Long> accessibleStoreOwners =
-                OfficialWarehouseBusinessScope.resolveObjectAccess(access).storeOwnerUserIds();
+        Long ownerUserId = requireStoreOwner(access, currentStoreCode);
+        Map<String, Long> accessibleStoreOwners = access.getStoreOwnerUserIds();
         List<String> accessibleStoreCodes = accessibleStoreOwners.entrySet().stream()
                 .filter(entry -> ownerUserId.equals(entry.getValue()))
                 .map(Map.Entry::getKey)
@@ -139,5 +138,16 @@ public class OfficialWarehouseBatchSummaryService {
             throw new IllegalArgumentException(message);
         }
         return value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static Long requireStoreOwner(BusinessAccessContext access, String storeCode) {
+        if (access == null || !access.canAccessStore(storeCode)) {
+            throw new IllegalArgumentException("当前账号不能访问该店铺。");
+        }
+        Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
+        if (ownerUserId == null || ownerUserId <= 0) {
+            throw new IllegalArgumentException("无法识别当前店铺的业务老板账号。");
+        }
+        return ownerUserId;
     }
 }
