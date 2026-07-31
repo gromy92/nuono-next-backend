@@ -24,8 +24,8 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSo
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineSourceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
-import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -36,6 +36,7 @@ import org.apache.ibatis.annotations.Update;
 public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper {
 
 @Select({
+            "<script>",
             "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
             "       request_fingerprint AS requestFingerprint, plan_no AS planNo, status,",
             "       item_count AS itemCount, sku_count AS skuCount,",
@@ -43,12 +44,15 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
             "       remark, handoff_generation_no AS handoffGenerationNo, handoff_request_no AS handoffRequestNo,",
             "       handoff_error_message AS handoffErrorMessage,",
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
-            "FROM procurement_dispatch_plan",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY gmt_updated DESC, id DESC"
+            "FROM procurement_dispatch_plan plan",
+            "WHERE plan.is_deleted = b'0'",
+            WarehouseAggregateSourceScopeMapper.DISPATCH_PLAN_SOURCE_SCOPE,
+            "ORDER BY plan.gmt_updated DESC, plan.id DESC",
+            "</script>"
     })
-    List<DispatchPlanRecord> listDispatchPlans(@Param("ownerUserId") Long ownerUserId);
+    List<DispatchPlanRecord> listDispatchPlans(
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
             "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",

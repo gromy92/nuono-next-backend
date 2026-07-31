@@ -1,6 +1,7 @@
 package com.nuono.next.warehousedispatch;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
@@ -58,6 +59,10 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
     ) {
         try {
             return service().updateItemFulfillment(access(request), purchaseOrderId, purchaseOrderItemId, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -70,6 +75,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
     ) {
         try {
             return service().createConfirmation(access(request), command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (WarehouseRequestConflictException exception) {

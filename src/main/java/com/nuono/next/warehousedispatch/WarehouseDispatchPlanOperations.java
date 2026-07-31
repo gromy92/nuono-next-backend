@@ -38,17 +38,21 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
             throw new IllegalArgumentException("请选择可发运商品。");
         }
 
+        List<Long> balanceIds = new ArrayList<>(requested.keySet());
+        Long ownerUserId = resolveAggregateOwner(access, balanceIds);
         Long operatorUserId = access.getSessionUserId();
-        Long ownerUserId = ownerUserId(access);
-        DispatchPlanView existing = lockAndReplayDispatchPlan(ownerUserId, clientRequestId, requestFingerprint);
+        DispatchPlanView existing = lockAndReplayDispatchPlan(
+                access,
+                ownerUserId,
+                clientRequestId,
+                requestFingerprint
+        );
         if (existing != null) {
             return existing;
         }
 
-        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(new ArrayList<>(requested.keySet()));
-        if (balances.size() != requested.size()) {
-            throw new IllegalArgumentException("可发运来源不存在或已被占用。");
-        }
+        List<FulfillmentBalanceRecord> balances =
+                selectAuthorizedBalancesForUpdate(access, balanceIds, ownerUserId);
         List<String> partitionKeys = new ArrayList<>();
         for (FulfillmentBalanceRecord balance : balances) {
             List<DispatchPlanSourceCommand> sourceCommands = requested.get(balance.id);
@@ -69,7 +73,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         for (FulfillmentBalanceRecord balance : balances) {
             List<DispatchPlanSourceCommand> sourceCommands = requested.get(balance.id);
             int totalQuantity = sourceCommands.stream().mapToInt(source -> nonNull(source.quantity)).sum();
-            int reserved = mapper.reserveBalance(balance.id, totalQuantity, operatorUserId);
+            int reserved = mapper.reserveBalance(balance.id, ownerUserId, totalQuantity, operatorUserId);
             if (reserved != 1) {
                 throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足或已被占用。");
             }
@@ -159,8 +163,7 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
 
 @Transactional(readOnly = true)
     public List<DispatchPlanView> listDispatchPlans(BusinessAccessContext access) {
-        Long ownerUserId = ownerUserId(access);
-        return mapper.listDispatchPlans(ownerUserId).stream()
+        return mapper.listDispatchPlans(warehouseBusinessScope(access).storeOwnerUserIds()).stream()
                 .map(this::toDispatchPlanView)
                 .collect(Collectors.toList());
     }

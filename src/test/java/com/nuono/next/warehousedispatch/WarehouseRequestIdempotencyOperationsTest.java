@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -44,8 +46,15 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
         when(mapper.lockDispatchOwner(307L)).thenReturn(307L);
         when(mapper.selectDispatchPlanByClientRequestId(307L, "dispatch-request-1"))
                 .thenAnswer(invocation -> persisted.get());
-        when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
-        when(mapper.reserveBalance(900001L, 5, 307L)).thenReturn(1);
+        when(mapper.selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
+        when(mapper.reserveBalance(900001L, 307L, 5, 307L)).thenReturn(1);
         when(mapper.nextDispatchPlanId()).thenReturn(340001L);
         when(mapper.nextDispatchLineId()).thenReturn(350001L);
         when(mapper.nextDispatchSourceId()).thenReturn(360001L);
@@ -59,14 +68,18 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
 
         CreateDispatchPlanCommand command = dispatchCommand("dispatch-request-1", 5);
         var first = service.createDispatchPlan(access(), command);
-        persisted.get().requestFingerprint =
-                "8af1aeebcef57ea41741a3b0eea3b7aa0f876e346cd9f4800552fd4b7b570816";
         var replay = service.createDispatchPlan(access(), dispatchCommand("dispatch-request-1", 5));
 
         assertThat(replay.id).isEqualTo(first.id);
         assertThat(replay.planNo).isEqualTo(first.planNo);
         assertThat(replay.totalQuantity).isEqualTo(first.totalQuantity);
         assertThat(replay.clientRequestId).isEqualTo("dispatch-request-1");
+
+        CreateDispatchPlanCommand changedRemark = dispatchCommand("dispatch-request-1", 5);
+        changedRemark.remark = "修改后的备注";
+        assertThatThrownBy(() -> service.createDispatchPlan(access(), changedRemark))
+                .isInstanceOf(WarehouseRequestConflictException.class)
+                .hasMessageContaining("同一客户端请求号");
 
         assertThatThrownBy(() -> service.createDispatchPlan(
                 access(),
@@ -75,25 +88,34 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
                 .isInstanceOf(WarehouseRequestConflictException.class)
                 .hasMessageContaining("同一客户端请求号");
 
-        verify(mapper, times(1)).reserveBalance(900001L, 5, 307L);
+        verify(mapper, times(1)).reserveBalance(900001L, 307L, 5, 307L);
         verify(mapper, times(1)).insertDispatchPlan(any(DispatchPlanRecord.class), anyLong());
         InOrder order = inOrder(mapper);
+        order.verify(mapper).selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        );
         order.verify(mapper).lockDispatchOwner(307L);
         order.verify(mapper).selectDispatchPlanByClientRequestId(307L, "dispatch-request-1");
-        order.verify(mapper).selectBalancesForUpdate(List.of(900001L));
+        order.verify(mapper).selectAuthorizedBalancesForUpdate(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        );
     }
 
     @Test
     void createConfirmationReplaysSameRequestAndRejectsChangedPayloadWithoutApplyingInventoryAgain() {
         AtomicReference<FulfillmentConfirmationInsertRecord> persisted = new AtomicReference<>();
         List<FulfillmentConfirmationLineInsertRecord> persistedLines = new ArrayList<>();
-        when(mapper.selectOrderAccess(200001L)).thenReturn(purchaseOrder());
+        when(mapper.selectOrderAccess(eq(200001L), anyMap())).thenReturn(purchaseOrder());
         when(mapper.lockDispatchOwner(409L)).thenReturn(409L);
         when(mapper.selectConfirmationByClientRequestId(409L, "receipt-request-1"))
                 .thenAnswer(invocation -> persisted.get());
-        when(mapper.selectPurchaseOrderItem(210001L)).thenReturn(purchaseOrderItem());
-        when(mapper.listItemSitesForBalance(210001L)).thenReturn(List.of(purchaseOrderItemSite()));
-        when(mapper.listBalancesForItemForUpdate(210001L)).thenReturn(List.of(fulfillmentBalance()));
+        when(mapper.selectPurchaseOrderItem(210001L, 200001L, 409L)).thenReturn(purchaseOrderItem());
+        when(mapper.listItemSitesForBalance(210001L, 200001L, 409L))
+                .thenReturn(List.of(purchaseOrderItemSite()));
+        when(mapper.listBalancesForItemForUpdate(210001L, 200001L, 409L))
+                .thenReturn(List.of(fulfillmentBalance()));
         when(mapper.nextConfirmationId()).thenReturn(370001L);
         when(mapper.nextConfirmationLineId()).thenReturn(380001L);
         when(mapper.insertConfirmation(any(FulfillmentConfirmationInsertRecord.class)))
@@ -111,8 +133,6 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
 
         ConfirmationCommand command = confirmationCommand("receipt-request-1", 5);
         var first = service.createConfirmation(receiptAccess(), command);
-        persisted.get().requestFingerprint =
-                "1db2526f4e0c7512d90f3a77ff91328213053794a762d444fbcb3c422342a5d9";
         var replay = service.createConfirmation(receiptAccess(), confirmationCommand("receipt-request-1", 5));
 
         assertThat(replay.id).isEqualTo(first.id);
@@ -135,10 +155,10 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
         verify(mapper, times(1)).insertConfirmation(any(FulfillmentConfirmationInsertRecord.class));
         verify(mapper, times(1)).insertConfirmationLine(any(FulfillmentConfirmationLineInsertRecord.class));
         InOrder order = inOrder(mapper);
-        order.verify(mapper).selectOrderAccess(200001L);
+        order.verify(mapper).selectOrderAccess(eq(200001L), anyMap());
         order.verify(mapper).lockDispatchOwner(409L);
         order.verify(mapper).selectConfirmationByClientRequestId(409L, "receipt-request-1");
-        order.verify(mapper).listBalancesForItemForUpdate(210001L);
+        order.verify(mapper).listBalancesForItemForUpdate(210001L, 200001L, 409L);
     }
 
     @Test
@@ -154,13 +174,17 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
                 .hasMessageContaining("客户端请求号");
 
         verify(mapper, never()).lockDispatchOwner(anyLong());
-        verify(mapper, never()).selectBalancesForUpdate(any());
+        verify(mapper, never()).selectAuthorizedBalancesForUpdate(any(), anyMap());
         verify(mapper, never()).updateBalanceQuantities(any(BalanceQuantityDelta.class));
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
     @Test
     void writeRequestFailsClosedWhenOwnerRowCannotBeLocked() {
+        when(mapper.selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance("CONFIRMED", "SUBMITTED")));
         when(mapper.lockDispatchOwner(307L)).thenReturn(null);
 
         assertThatThrownBy(() -> service.createDispatchPlan(
@@ -170,8 +194,77 @@ class WarehouseRequestIdempotencyOperationsTest extends WarehouseDispatchService
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("无法安全提交");
 
-        verify(mapper, never()).selectBalancesForUpdate(any());
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).selectAuthorizedBalancesForUpdate(any(), anyMap());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
+    }
+
+    @Test
+    void dispatchReplayRejectsMissingBlankUppercaseAndMalformedPersistedFingerprints() {
+        DispatchPlanRecord existing = existingDispatchPlan("dispatch-request-invalid-fingerprint");
+        when(mapper.selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance("CONFIRMED", "SUBMITTED")));
+        when(mapper.selectDispatchPlanByClientRequestId(
+                307L,
+                "dispatch-request-invalid-fingerprint"
+        )).thenReturn(existing);
+
+        existing.requestFingerprint = null;
+        assertFingerprintConflict("dispatch-request-invalid-fingerprint");
+        existing.requestFingerprint = " ";
+        assertFingerprintConflict("dispatch-request-invalid-fingerprint");
+        existing.requestFingerprint =
+                "1719BE8EB7BBF3AE9225E8CD9C8D5ABBC679D9162B8791EFB787524EF89FCC21";
+        assertFingerprintConflict("dispatch-request-invalid-fingerprint");
+        existing.requestFingerprint = "deadbeef";
+        assertFingerprintConflict("dispatch-request-invalid-fingerprint");
+
+        verify(mapper, never()).selectAuthorizedBalancesForUpdate(any(), anyMap());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
+    }
+
+    @Test
+    void legacyDispatchFingerprintCannotIgnoreChangedRemark() {
+        DispatchPlanRecord existing = existingDispatchPlan("dispatch-request-legacy");
+        existing.remark = "原备注";
+        existing.requestFingerprint =
+                "8af1aeebcef57ea41741a3b0eea3b7aa0f876e346cd9f4800552fd4b7b570816";
+        when(mapper.selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance("CONFIRMED", "SUBMITTED")));
+        when(mapper.selectDispatchPlanByClientRequestId(307L, "dispatch-request-legacy"))
+                .thenReturn(existing);
+
+        CreateDispatchPlanCommand changed = dispatchCommand("dispatch-request-legacy", 5);
+        changed.remark = "修改后的备注";
+
+        assertThatThrownBy(() -> service.createDispatchPlan(access(), changed))
+                .isInstanceOf(WarehouseRequestConflictException.class)
+                .hasMessageContaining("同一客户端请求号");
+
+        verify(mapper, never()).selectAuthorizedBalancesForUpdate(any(), anyMap());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
+    }
+
+    private void assertFingerprintConflict(String clientRequestId) {
+        assertThatThrownBy(() -> service.createDispatchPlan(
+                access(),
+                dispatchCommand(clientRequestId, 5)
+        ))
+                .isInstanceOf(WarehouseRequestConflictException.class)
+                .hasMessageContaining("同一客户端请求号");
+    }
+
+    private DispatchPlanRecord existingDispatchPlan(String clientRequestId) {
+        DispatchPlanRecord existing = new DispatchPlanRecord();
+        existing.id = 340001L;
+        existing.ownerUserId = 307L;
+        existing.clientRequestId = clientRequestId;
+        existing.planNo = "DP-340001";
+        existing.status = "DRAFT";
+        return existing;
     }
 
     private CreateDispatchPlanCommand dispatchCommand(String clientRequestId, int quantity) {

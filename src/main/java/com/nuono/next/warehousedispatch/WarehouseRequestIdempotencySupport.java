@@ -2,6 +2,7 @@ package com.nuono.next.warehousedispatch;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
+import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationLineCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
@@ -20,11 +21,9 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
 
     protected static final class RequestFingerprint {
         private final String current;
-        private final String legacy;
 
-        private RequestFingerprint(String current, String legacy) {
+        private RequestFingerprint(String current) {
             this.current = current;
-            this.legacy = legacy;
         }
 
         protected String persistedValue() {
@@ -32,7 +31,7 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
         }
 
         private boolean matches(String persisted) {
-            return current.equals(persisted) || legacy.equals(persisted);
+            return current.equals(persisted);
         }
     }
 
@@ -61,13 +60,10 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
                 .map(this::dispatchSourceFingerprint)
                 .sorted()
                 .collect(Collectors.toList());
-        return new RequestFingerprint(
-                sha256(String.join("|",
-                        fingerprintField(trimToNull(command.remark)),
-                        fingerprintField(String.join(",", sources))
-                )),
-                legacyDispatchRequestFingerprint(command)
-        );
+        return new RequestFingerprint(sha256(String.join("|",
+                fingerprintField(trimToNull(command.remark)),
+                fingerprintField(String.join(",", sources))
+        )));
     }
 
     protected RequestFingerprint confirmationRequestFingerprint(ConfirmationCommand command) {
@@ -76,19 +72,17 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
                 .map(this::confirmationLineFingerprint)
                 .sorted()
                 .collect(Collectors.toList());
-        return new RequestFingerprint(
-                sha256(String.join("|",
-                        fingerprintField(trimToNull(command.purchaseOrderId)),
-                        fingerprintField(confirmationType),
-                        fingerprintField(trimToNull(command.sourcePartyName)),
-                        fingerprintField(trimToNull(command.remark)),
-                        fingerprintField(String.join(",", lines))
-                )),
-                legacyConfirmationRequestFingerprint(command, confirmationType)
-        );
+        return new RequestFingerprint(sha256(String.join("|",
+                fingerprintField(trimToNull(command.purchaseOrderId)),
+                fingerprintField(confirmationType),
+                fingerprintField(trimToNull(command.sourcePartyName)),
+                fingerprintField(trimToNull(command.remark)),
+                fingerprintField(String.join(",", lines))
+        )));
     }
 
     protected DispatchPlanView lockAndReplayDispatchPlan(
+            BusinessAccessContext access,
             Long ownerUserId,
             String clientRequestId,
             RequestFingerprint requestFingerprint
@@ -98,6 +92,7 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
         if (existing == null) {
             return null;
         }
+        requireDispatchPlanAggregateAccess(access, existing);
         requireMatchingRequestFingerprint(
                 existing.requestFingerprint,
                 requestFingerprint,
@@ -111,10 +106,15 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
             RequestFingerprint requestedFingerprint,
             String conflictMessage
     ) {
-        if (StringUtils.hasText(persistedFingerprint)
-                && !requestedFingerprint.matches(persistedFingerprint)) {
+        if (!isValidPersistedFingerprint(persistedFingerprint)
+                || !requestedFingerprint.matches(persistedFingerprint)) {
             throw new WarehouseRequestConflictException(conflictMessage);
         }
+    }
+
+    private boolean isValidPersistedFingerprint(String persistedFingerprint) {
+        return persistedFingerprint != null
+                && persistedFingerprint.matches("[0-9a-f]{64}");
     }
 
     protected void requireRequestOwnerLock(Long ownerUserId) {
@@ -165,54 +165,6 @@ abstract class WarehouseRequestIdempotencySupport extends WarehouseDispatchValue
                 fingerprintField(line.overReceivedQuantity),
                 fingerprintField(trimToNull(line.keeperSnapshotJson)),
                 fingerprintField(trimToNull(line.exceptionReason))
-        );
-    }
-
-    private String legacyDispatchRequestFingerprint(CreateDispatchPlanCommand command) {
-        List<String> sources = emptyIfNull(command.sources).stream()
-                .filter(source -> source != null)
-                .map(source -> String.valueOf(source.fulfillmentBalanceId) + "|"
-                        + nonNull(source.quantity) + "|"
-                        + defaultText(normalizedFingerprintToken(source.targetSiteCode), "") + "|"
-                        + defaultText(normalizedFingerprintToken(source.actualTransportMode), ""))
-                .sorted()
-                .collect(Collectors.toList());
-        return sha256(String.join(";", sources));
-    }
-
-    private String legacyConfirmationRequestFingerprint(
-            ConfirmationCommand command,
-            String confirmationType
-    ) {
-        List<String> lines = emptyIfNull(command.lines).stream()
-                .filter(line -> line != null)
-                .map(this::legacyConfirmationLineFingerprint)
-                .sorted()
-                .collect(Collectors.toList());
-        return sha256(String.join(";",
-                defaultText(trim(command.purchaseOrderId), ""),
-                confirmationType,
-                defaultText(trim(command.sourcePartyName), ""),
-                defaultText(trim(command.remark), ""),
-                String.join(",", lines)
-        ));
-    }
-
-    private String legacyConfirmationLineFingerprint(ConfirmationLineCommand line) {
-        return String.join("|",
-                defaultText(trim(line.purchaseOrderItemId), ""),
-                String.valueOf(line.purchaseOrderItemSiteId),
-                String.valueOf(line.fulfillmentBalanceId),
-                String.valueOf(line.confirmedQuantity),
-                String.valueOf(line.abnormalQuantity),
-                String.valueOf(line.normalReceivedQuantity),
-                String.valueOf(line.replenishmentQuantity),
-                defaultText(trim(line.replenishmentReason), ""),
-                String.valueOf(line.returnQuantity),
-                String.valueOf(line.damageQuantity),
-                String.valueOf(line.overReceivedQuantity),
-                defaultText(trim(line.keeperSnapshotJson), ""),
-                defaultText(trim(line.exceptionReason), "")
         );
     }
 

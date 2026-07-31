@@ -119,6 +119,7 @@ public class WarehouseProcurementRecords {
 
     public static class PurchaseReceiptRow {
         public Long receiptSourceId;
+        public Long ownerUserId;
         public String receiptSourceNo;
         public String receiptSourceTitle;
         public String receiptSourceStoreName;
@@ -191,6 +192,9 @@ public class WarehouseProcurementRecords {
 
     public static class BalanceQuantityDelta {
         public Long balanceId;
+        public Long purchaseOrderItemId;
+        public Long purchaseOrderId;
+        public Long ownerUserId;
         public Integer confirmedDelta;
         public Integer abnormalDelta;
         public Long operatorUserId;
@@ -198,8 +202,19 @@ public class WarehouseProcurementRecords {
         public BalanceQuantityDelta() {
         }
 
-        public BalanceQuantityDelta(Long balanceId, Integer confirmedDelta, Integer abnormalDelta, Long operatorUserId) {
+        public BalanceQuantityDelta(
+                Long balanceId,
+                Long purchaseOrderItemId,
+                Long purchaseOrderId,
+                Long ownerUserId,
+                Integer confirmedDelta,
+                Integer abnormalDelta,
+                Long operatorUserId
+        ) {
             this.balanceId = balanceId;
+            this.purchaseOrderItemId = purchaseOrderItemId;
+            this.purchaseOrderId = purchaseOrderId;
+            this.ownerUserId = ownerUserId;
             this.confirmedDelta = confirmedDelta;
             this.abnormalDelta = abnormalDelta;
             this.operatorUserId = operatorUserId;

@@ -35,6 +35,17 @@ import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseSequenceMapper {
 
+String OWNER_USER_IDS_SCOPE = ""
+            + "<choose>"
+            + "<when test='ownerUserIds != null and ownerUserIds.size() &gt; 0'>"
+            + " AND owner_user_id IN"
+            + " <foreach collection='ownerUserIds' item='ownerUserId' open='(' separator=',' close=')'>"
+            + "   #{ownerUserId}"
+            + " </foreach>"
+            + "</when>"
+            + "<otherwise> AND 1 = 0 </otherwise>"
+            + "</choose>";
+
 String BALANCE_SELECT = ""
             + "SELECT balance.id, balance.owner_user_id AS ownerUserId, balance.logical_store_id AS logicalStoreId, "
             + "balance.source_store_code AS sourceStoreCode, balance.source_store_name AS sourceStoreName, "

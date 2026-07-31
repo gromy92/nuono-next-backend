@@ -6,11 +6,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateDispatchPlanCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateFulfillmentCommand;
 import javax.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -113,6 +115,57 @@ class WarehouseDispatchControllerTest {
 
         assertEquals(HttpStatus.CONFLICT, receiptError.getStatus());
         assertEquals(HttpStatus.CONFLICT, dispatchError.getStatus());
+    }
+
+    @Test
+    void purchaseOrderScopeDenialsMapToForbidden() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(401L)
+                .businessOwnerUserId(307L)
+                .build();
+        ConfirmationCommand confirmation = new ConfirmationCommand();
+        UpdateFulfillmentCommand fulfillment = new UpdateFulfillmentCommand();
+        BusinessAccessDeniedException denied =
+                new BusinessAccessDeniedException("当前账号不能操作该采购单。");
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.updateItemFulfillment(access, "200001", "210001", fulfillment))
+                .thenThrow(denied);
+        when(service.createConfirmation(access, confirmation)).thenThrow(denied);
+
+        ResponseStatusException fulfillmentError = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.updateItemFulfillment("200001", "210001", fulfillment, request)
+        );
+        ResponseStatusException confirmationError = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.createConfirmation(confirmation, request)
+        );
+
+        assertEquals(HttpStatus.FORBIDDEN, fulfillmentError.getStatus());
+        assertEquals(HttpStatus.FORBIDDEN, confirmationError.getStatus());
+    }
+
+    @Test
+    void fulfillmentStateConflictMapsToConflict() {
+        BusinessAccessContext access = BusinessAccessContext.builder()
+                .sessionUserId(401L)
+                .businessOwnerUserId(307L)
+                .build();
+        UpdateFulfillmentCommand fulfillment = new UpdateFulfillmentCommand();
+        when(serviceProvider.getIfAvailable()).thenReturn(service);
+        when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
+                .thenReturn(access);
+        when(service.updateItemFulfillment(access, "200001", "210001", fulfillment))
+                .thenThrow(new WarehouseInventoryStateConflictException("采购单商品状态已变化。"));
+
+        ResponseStatusException error = assertThrows(
+                ResponseStatusException.class,
+                () -> controller.updateItemFulfillment("200001", "210001", fulfillment, request)
+        );
+
+        assertEquals(HttpStatus.CONFLICT, error.getStatus());
     }
 
     @Test

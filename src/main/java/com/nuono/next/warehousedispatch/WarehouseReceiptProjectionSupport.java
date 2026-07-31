@@ -54,12 +54,20 @@ protected ConfirmationView toConfirmationView(
     }
 
 protected void ensureItemBalances(PurchaseOrderItemRecord item, String fulfillmentType, Long operatorUserId) {
-        List<PurchaseOrderItemSiteRecord> sites = mapper.listItemSitesForBalance(item.id);
+        List<PurchaseOrderItemSiteRecord> sites =
+                mapper.listItemSitesForBalance(item.id, item.purchaseOrderId, item.ownerUserId);
         if (sites.isEmpty()) {
             throw new IllegalArgumentException("采购单商品缺少站点计划，不能进入仓库发运。");
         }
         for (PurchaseOrderItemSiteRecord site : sites) {
-            mapper.upsertBalanceFromItemSite(site.id, fulfillmentType, operatorUserId);
+            mapper.upsertBalanceFromItemSite(
+                    site.id,
+                    item.id,
+                    item.purchaseOrderId,
+                    item.ownerUserId,
+                    fulfillmentType,
+                    operatorUserId
+            );
         }
     }
 
@@ -107,6 +115,7 @@ protected Map<Long, Integer> allocateByPlannedQuantity(List<FulfillmentBalanceRe
 
 protected ReadySourceView toReadySourceView(FulfillmentBalanceRecord balance) {
         ReadySourceView source = new ReadySourceView();
+        source.ownerUserId = balance.ownerUserId;
         source.fulfillmentBalanceId = balance.id;
         source.sourceStoreCode = balance.sourceStoreCode;
         source.sourceStoreName = balance.sourceStoreName;

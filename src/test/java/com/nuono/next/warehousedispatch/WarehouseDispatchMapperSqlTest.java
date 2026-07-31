@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
 import java.lang.reflect.Method;
-import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -56,8 +56,7 @@ class WarehouseDispatchMapperSqlTest {
 
         Method listMethod = WarehouseDispatchMapper.class.getMethod(
                 "listReadyBalances",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class,
                 String.class
         );
@@ -96,8 +95,7 @@ class WarehouseDispatchMapperSqlTest {
     void appReceiptSpecStatusReadsWarehouseSourceOnly() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listReceiptRows",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class
         );
 
@@ -195,8 +193,12 @@ class WarehouseDispatchMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("balance.logical_store_id AS logicalStoreId");
-        assertThat(sql).contains("COALESCE(batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode");
-        assertThat(sql).contains("COALESCE(batch_source.source_store_name, balance.source_store_name) AS sourceStoreName");
+        assertThat(sql).contains(
+                "COALESCE(source.source_store_code, batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode"
+        );
+        assertThat(sql).contains(
+                "COALESCE(source.source_store_name, batch_source.source_store_name, balance.source_store_name) AS sourceStoreName"
+        );
         assertThat(sql).contains("LEFT JOIN warehouse_shipping_batch_source batch_source");
         assertThat(sql).contains("LEFT JOIN procurement_fulfillment_balance balance");
     }
@@ -205,8 +207,7 @@ class WarehouseDispatchMapperSqlTest {
     void receiptOrdersOnlyExposeSubmittedShippingOrders() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listReceiptRows",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class
         );
 
@@ -222,7 +223,7 @@ class WarehouseDispatchMapperSqlTest {
     void shippingBatchStatusFollowsOutboundExecutionProgress() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listShippingBatches",
-                Long.class
+                Map.class
         );
 
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
@@ -240,7 +241,7 @@ class WarehouseDispatchMapperSqlTest {
     void shippingBatchListIncludesPackingExecutionSummary() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listShippingBatches",
-                Long.class
+                Map.class
         );
 
         String sql = String.join(" ", method.getAnnotation(Select.class).value())

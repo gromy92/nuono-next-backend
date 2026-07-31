@@ -1,6 +1,7 @@
 package com.nuono.next.warehousedispatch;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import javax.servlet.http.HttpServletRequest;
@@ -35,6 +36,10 @@ abstract class WarehouseDispatchEndpointSupport {
 
     protected ResponseStatusException badRequest(IllegalArgumentException exception) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+    }
+
+    protected ResponseStatusException forbidden(BusinessAccessDeniedException exception) {
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
     }
 
     protected ResponseStatusException conflict(WarehouseInventoryStateConflictException exception) {

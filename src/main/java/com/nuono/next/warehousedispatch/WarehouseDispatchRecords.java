@@ -24,8 +24,24 @@ public final class WarehouseDispatchRecords extends WarehousePackingRecords {
             super();
         }
 
-        public BalanceQuantityDelta(Long balanceId, Integer confirmedDelta, Integer abnormalDelta, Long operatorUserId) {
-            super(balanceId, confirmedDelta, abnormalDelta, operatorUserId);
+        public BalanceQuantityDelta(
+                Long balanceId,
+                Long purchaseOrderItemId,
+                Long purchaseOrderId,
+                Long ownerUserId,
+                Integer confirmedDelta,
+                Integer abnormalDelta,
+                Long operatorUserId
+        ) {
+            super(
+                    balanceId,
+                    purchaseOrderItemId,
+                    purchaseOrderId,
+                    ownerUserId,
+                    confirmedDelta,
+                    abnormalDelta,
+                    operatorUserId
+            );
         }
     }
 

@@ -6,6 +6,7 @@ import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchLifecycleMapper;
 import com.nuono.next.infrastructure.mapper.WarehouseShippingQueryMapper;
 import java.lang.reflect.Method;
+import java.util.Map;
 import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.Test;
 
@@ -20,11 +21,11 @@ class WarehouseHistoricalListSqlTest {
         ));
         assertHasNoLimit(WarehouseDispatchLifecycleMapper.class.getMethod(
                 "listDispatchPlans",
-                Long.class
+                Map.class
         ));
         assertHasNoLimit(WarehouseShippingQueryMapper.class.getMethod(
                 "listShippingBatches",
-                Long.class
+                Map.class
         ));
     }
 

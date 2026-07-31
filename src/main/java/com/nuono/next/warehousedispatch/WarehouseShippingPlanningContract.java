@@ -59,8 +59,6 @@ protected abstract String mergedShippingSubmitStatus(String current, String next
 
 protected abstract boolean canAccessSourceStore(BusinessAccessContext access, String storeCode);
 
-protected abstract Long ownerUserId(BusinessAccessContext access);
-
 protected abstract boolean matchesKeyword(FulfillmentBalanceRecord balance, String keyword);
 
 protected abstract boolean contains(String value, String normalizedKeyword);

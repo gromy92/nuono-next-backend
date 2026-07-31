@@ -68,7 +68,10 @@ abstract class WarehousePackingOperations extends WarehouseShippingBatchOperatio
                 access,
                 parseLongId(outboundOrderId, "出库单不存在或已删除。")
         );
-        return mapper.listPackingListsByOutboundOrder(outboundOrder.id).stream()
+        return mapper.listPackingListsByOutboundOrder(
+                outboundOrder.id,
+                warehouseBusinessScope(access).storeOwnerUserIds()
+        ).stream()
                 .map(this::toPackingListDetail)
                 .collect(Collectors.toList());
     }

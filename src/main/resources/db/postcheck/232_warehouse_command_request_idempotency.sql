@@ -124,6 +124,26 @@ SELECT IF(
         WHERE `client_request_id` IS NOT NULL
         GROUP BY `owner_user_id`, `client_request_id`
         HAVING COUNT(*) > 1
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM `procurement_dispatch_plan`
+        WHERE (`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)
+           OR (`client_request_id` IS NOT NULL AND (
+                TRIM(`client_request_id`) = ''
+                OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+           ))
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM `procurement_fulfillment_confirmation`
+        WHERE (`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)
+           OR (`client_request_id` IS NOT NULL AND (
+                TRIM(`client_request_id`) = ''
+                OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+           ))
     ),
     1,
     0

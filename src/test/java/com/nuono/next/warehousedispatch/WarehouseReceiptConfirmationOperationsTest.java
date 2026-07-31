@@ -3,6 +3,8 @@ package com.nuono.next.warehousedispatch;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,7 +35,7 @@ class WarehouseReceiptConfirmationOperationsTest extends WarehouseDispatchServic
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同一采购单商品不能重复确认");
 
-        verify(mapper, never()).selectPurchaseOrderItem(anyLong());
+        verify(mapper, never()).selectPurchaseOrderItem(anyLong(), anyLong(), anyLong());
         verify(mapper, never()).updateBalanceQuantities(any(BalanceQuantityDelta.class));
     }
 
@@ -42,10 +44,10 @@ class WarehouseReceiptConfirmationOperationsTest extends WarehouseDispatchServic
         PurchaseOrderItemRecord item = purchaseOrderItem();
         PurchaseOrderItemSiteRecord site = purchaseOrderItemSite();
         FulfillmentBalanceRecord balance = fulfillmentBalance();
-        when(mapper.selectOrderAccess(200001L)).thenReturn(purchaseOrder());
-        when(mapper.selectPurchaseOrderItem(210001L)).thenReturn(item);
-        when(mapper.listItemSitesForBalance(210001L)).thenReturn(List.of(site));
-        when(mapper.listBalancesForItemForUpdate(210001L)).thenReturn(List.of(balance));
+        when(mapper.selectOrderAccess(eq(200001L), anyMap())).thenReturn(purchaseOrder());
+        when(mapper.selectPurchaseOrderItem(210001L, 200001L, 307L)).thenReturn(item);
+        when(mapper.listItemSitesForBalance(210001L, 200001L, 307L)).thenReturn(List.of(site));
+        when(mapper.listBalancesForItemForUpdate(210001L, 200001L, 307L)).thenReturn(List.of(balance));
         when(mapper.nextConfirmationId()).thenReturn(370001L);
         when(mapper.nextConfirmationLineId()).thenReturn(380001L);
         when(mapper.updateBalanceQuantities(any(BalanceQuantityDelta.class))).thenReturn(0);

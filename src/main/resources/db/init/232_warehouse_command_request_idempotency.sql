@@ -260,14 +260,42 @@ SET @warehouse_idempotency_duplicate_group_count := (
         )
 );
 
+SET @warehouse_idempotency_invalid_request_row_count := (
+    SELECT
+        (
+            SELECT COUNT(*)
+            FROM `procurement_dispatch_plan`
+            WHERE (`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)
+               OR (`client_request_id` IS NOT NULL AND (
+                    TRIM(`client_request_id`) = ''
+                    OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                    OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+               ))
+        )
+        +
+        (
+            SELECT COUNT(*)
+            FROM `procurement_fulfillment_confirmation`
+            WHERE (`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)
+               OR (`client_request_id` IS NOT NULL AND (
+                    TRIM(`client_request_id`) = ''
+                    OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
+                    OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+               ))
+        )
+);
+
 DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_data_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_data_guard` (
-    `duplicate_group_count` BIGINT NOT NULL,
+    `invalid_row_count` BIGINT NOT NULL,
     CONSTRAINT `chk_232_warehouse_idempotency_data`
-        CHECK (`duplicate_group_count` = 0)
+        CHECK (`invalid_row_count` = 0)
 ) ENGINE=MEMORY;
 INSERT INTO `nuono_232_warehouse_idempotency_data_guard`
-VALUES (@warehouse_idempotency_duplicate_group_count);
+VALUES (
+    @warehouse_idempotency_duplicate_group_count
+    + @warehouse_idempotency_invalid_request_row_count
+);
 DROP TEMPORARY TABLE `nuono_232_warehouse_idempotency_data_guard`;
 
 SET @dispatch_request_key_sql := IF(

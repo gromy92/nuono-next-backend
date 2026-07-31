@@ -23,101 +23,15 @@ import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingOperations {
+abstract class WarehouseShippingBatchOperations extends WarehouseShippingBatchCreationOperations {
 
     protected WarehouseShippingBatchOperations(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);
     }
 
-@Transactional
-    public ShippingBatchView createShippingBatch(BusinessAccessContext access, CreateShippingBatchCommand command) {
-        if (command == null || command.sources == null || command.sources.isEmpty()) {
-            throw new IllegalArgumentException("请选择可发运商品。");
-        }
-        LinkedHashMap<Long, Integer> requested = new LinkedHashMap<>();
-        for (ShippingBatchSourceCommand source : command.sources) {
-            if (source == null || source.fulfillmentBalanceId == null || nonNull(source.quantity) <= 0) {
-                continue;
-            }
-            requested.merge(source.fulfillmentBalanceId, nonNull(source.quantity), Integer::sum);
-        }
-        if (requested.isEmpty()) {
-            throw new IllegalArgumentException("请选择可发运商品。");
-        }
-
-        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(new ArrayList<>(requested.keySet()));
-        if (balances.size() != requested.size()) {
-            throw new IllegalArgumentException("可发运来源不存在或已被占用。");
-        }
-        for (FulfillmentBalanceRecord balance : balances) {
-            if (!canUseBalance(access, balance)) {
-                throw new IllegalArgumentException("当前账号不能发运所选来源。");
-            }
-            int quantity = requested.getOrDefault(balance.id, 0);
-            if (quantity <= 0 || quantity > nonNull(balance.availableQuantity)) {
-                throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足。");
-            }
-        }
-        requireSingleLogisticsPartition(balances.stream()
-                .map(balance -> logisticsPartitionKey(
-                        effectiveSiteCode(balance),
-                        effectiveTransportMode(balance)
-                ))
-                .collect(Collectors.toList()));
-
-        Long operatorUserId = access.getSessionUserId();
-        Long ownerUserId = ownerUserId(access);
-        Long batchId = mapper.nextShippingBatchId();
-
-        List<ShippingBatchSourceRecord> sourceRows = new ArrayList<>();
-        for (FulfillmentBalanceRecord balance : balances) {
-            int quantity = requested.getOrDefault(balance.id, 0);
-            int reserved = mapper.reserveBalance(balance.id, quantity, operatorUserId);
-            if (reserved != 1) {
-                throw new IllegalArgumentException(balance.partnerSku + " 可发运数量不足或已被占用。");
-            }
-            sourceRows.add(toShippingBatchSourceRecord(
-                    batchId,
-                    ownerUserId,
-                    mapper.nextShippingBatchSourceId(),
-                    balance,
-                    quantity
-            ));
-        }
-        String batchNo = shippingBatchNo(batchId, sourceRows);
-
-        ShippingBatchRecord batch = new ShippingBatchRecord();
-        batch.id = batchId;
-        batch.ownerUserId = ownerUserId;
-        batch.batchNo = batchNo;
-        batch.status = "DRAFT";
-        batch.sourceCount = sourceRows.size();
-        batch.skuCount = shippingSkuCount(sourceRows);
-        batch.totalQuantity = sourceRows.stream().mapToInt(source -> nonNull(source.reservedQuantity)).sum();
-        batch.storeSummaryJson = writeJson(shippingStoreSummary(sourceRows));
-        batch.siteSummaryJson = writeJson(shippingSiteSummary(sourceRows));
-        batch.transportSummaryJson = writeJson(shippingPlannedTransportSummary(sourceRows));
-        batch.originSummaryJson = writeJson(shippingOriginSummary(sourceRows));
-        batch.remark = trimToNull(command.remark);
-        mapper.insertShippingBatch(batch, operatorUserId);
-        for (ShippingBatchSourceRecord sourceRow : sourceRows) {
-            mapper.insertShippingBatchSource(sourceRow, operatorUserId);
-        }
-
-        List<ShippingBatchSourceRecord> currentSources = emptyIfNull(mapper.listShippingBatchSources(batch.id));
-        ShippingBatchView view = toShippingBatchView(batch);
-        for (ShippingBatchSourceRecord sourceRow : currentSources) {
-            view.sources.add(toShippingBatchSourceView(sourceRow));
-        }
-        view.options.addAll(createDefaultShippingSuggestionOptions(batch, currentSources, operatorUserId));
-        log(null, "CREATE_SHIPPING_BATCH", operatorUserId, null, "DRAFT", batchNo);
-        return view;
-    }
-
 @Transactional(readOnly = true)
     public List<ShippingBatchView> listShippingBatches(BusinessAccessContext access) {
-        Long ownerUserId = ownerUserId(access);
-        return mapper.listShippingBatches(ownerUserId).stream()
+        return mapper.listShippingBatches(warehouseBusinessScope(access).storeOwnerUserIds()).stream()
                 .map(this::toShippingBatchView)
                 .collect(Collectors.toList());
     }
@@ -293,7 +207,10 @@ abstract class WarehouseShippingBatchOperations extends WarehouseMobileShippingO
                 access,
                 parseLongId(shippingBatchId, "发货批次不存在或已删除。")
         );
-        return mapper.listOutboundOrdersByBatch(batch.id).stream()
+        return mapper.listOutboundOrdersByBatch(
+                batch.id,
+                warehouseBusinessScope(access).storeOwnerUserIds()
+        ).stream()
                 .map(this::toOutboundOrderDetail)
                 .collect(Collectors.toList());
     }

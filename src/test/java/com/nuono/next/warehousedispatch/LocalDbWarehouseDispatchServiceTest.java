@@ -51,7 +51,14 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
 @Test
     void createDispatchPlanRejectsBalanceBeforeLogisticsQuoteIsConfirmedAndShippingSubmitted() {
         FulfillmentBalanceRecord balance = balance("PENDING_QUOTE", "NOT_SUBMITTED");
-        when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
+        when(mapper.selectBalanceScopes(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
         command.clientRequestId = "dispatch-pending-quote-test";
@@ -64,7 +71,7 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         assertThatThrownBy(() -> service.createDispatchPlan(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("物流报价未确认");
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
 @Test
@@ -76,9 +83,16 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         rebuilt.purchaseOrderItemSiteId = 220003L;
         rebuilt.productVariantId = 329999L;
         rebuilt.availableQuantity = 20;
-        when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(first, rebuilt));
-        when(mapper.reserveBalance(900001L, 5, 307L)).thenReturn(1);
-        when(mapper.reserveBalance(900002L, 7, 307L)).thenReturn(1);
+        when(mapper.selectBalanceScopes(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(first, rebuilt));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(first, rebuilt));
+        when(mapper.reserveBalance(900001L, 307L, 5, 307L)).thenReturn(1);
+        when(mapper.reserveBalance(900002L, 307L, 7, 307L)).thenReturn(1);
         when(mapper.nextDispatchPlanId()).thenReturn(340001L);
         when(mapper.nextDispatchLineId()).thenReturn(350001L);
         when(mapper.nextDispatchSourceId()).thenReturn(360001L, 360002L);
@@ -129,7 +143,10 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
 @Test
     void previewMobileShippingDecisionDoesNotBlockOnProcurementQuoteSubmitStatus() {
         FulfillmentBalanceRecord balance = balance("CONFIRMED", "NOT_SUBMITTED");
-        when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
+        when(mapper.selectAuthorizedBalances(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
 
         MobileShippingDecisionPreviewCommand command = new MobileShippingDecisionPreviewCommand();
         command.siteCode = "SA";

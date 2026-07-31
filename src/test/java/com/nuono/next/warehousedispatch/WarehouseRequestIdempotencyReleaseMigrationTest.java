@@ -30,6 +30,10 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
                 .contains("request_fingerprint")
                 .contains("client_request_id` IS NOT NULL")
                 .contains("HAVING COUNT(*) > 1")
+                .contains("(`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)")
+                .contains("TRIM(`client_request_id`) = ''")
+                .contains("BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)")
+                .contains("BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$'")
                 .contains("uk_dispatch_plan_owner_client_request")
                 .contains("uk_fulfillment_confirmation_owner_client_request")
                 .doesNotContain("UPDATE `procurement_")
@@ -37,6 +41,10 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
         assertThat(postcheck)
                 .contains("uk_dispatch_plan_owner_client_request")
                 .contains("uk_fulfillment_confirmation_owner_client_request")
-                .contains("HAVING COUNT(*) > 1");
+                .contains("HAVING COUNT(*) > 1")
+                .contains("(`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)")
+                .contains("TRIM(`client_request_id`) = ''")
+                .contains("BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)")
+                .contains("BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$'");
     }
 }

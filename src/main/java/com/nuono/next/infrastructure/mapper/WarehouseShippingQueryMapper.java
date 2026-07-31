@@ -1,24 +1,6 @@
 package com.nuono.next.infrastructure.mapper;
 
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.BalanceQuantityDelta;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineSourceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ForwarderRouteQuoteRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentConfirmationInsertRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentConfirmationLineInsertRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineSourceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingBoxItemRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingBoxRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingListRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderAccessRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderItemRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderItemSiteRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseReceiptRow;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSourceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
@@ -26,11 +8,9 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
-import org.apache.ibatis.annotations.Insert;
+import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapper {
@@ -52,6 +32,7 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             + "ELSE batch.status END AS status,";
 
 @Select({
+            "<script>",
             "SELECT batch.id, batch.owner_user_id AS ownerUserId, batch.batch_no AS batchNo,",
             SHIPPING_BATCH_EXECUTION_STATUS,
             "       batch.selected_option_id AS selectedOptionId,",
@@ -74,11 +55,14 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "           FROM warehouse_outbound_order outbound",
             "           LEFT JOIN warehouse_packing_list list ON list.outbound_order_id = outbound.id AND list.is_deleted = b'0'",
             "           WHERE outbound.is_deleted = b'0' GROUP BY outbound.batch_id) packing ON packing.batch_id = batch.id",
-            "WHERE batch.owner_user_id = #{ownerUserId}",
-            "  AND batch.is_deleted = b'0'",
-            "ORDER BY batch.gmt_updated DESC, batch.id DESC"
+            "WHERE batch.is_deleted = b'0'",
+            WarehouseAggregateSourceScopeMapper.SHIPPING_BATCH_SOURCE_SCOPE,
+            "ORDER BY batch.gmt_updated DESC, batch.id DESC",
+            "</script>"
     })
-    List<ShippingBatchRecord> listShippingBatches(@Param("ownerUserId") Long ownerUserId);
+    List<ShippingBatchRecord> listShippingBatches(
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
             "SELECT id, owner_user_id AS ownerUserId, batch_no AS batchNo,",

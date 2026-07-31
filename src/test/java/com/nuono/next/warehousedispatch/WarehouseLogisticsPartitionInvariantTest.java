@@ -17,6 +17,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSo
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineSourceRecord;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,7 +31,14 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         FulfillmentBalanceRecord sea = balance("CONFIRMED", "SUBMITTED");
         sea.id = 900002L;
         sea.plannedTransportMode = "SEA";
-        when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(air, sea));
+        when(mapper.selectBalanceScopes(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(air, sea));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(air, sea));
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
         command.clientRequestId = "dispatch-mixed-partition-test";
@@ -39,7 +47,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         assertThatThrownBy(() -> service.createDispatchPlan(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同一物流分区");
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
     @Test
@@ -48,7 +56,14 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         FulfillmentBalanceRecord ae = balance("CONFIRMED", "SUBMITTED");
         ae.id = 900002L;
         ae.siteCode = "AE";
-        when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(sa, ae));
+        when(mapper.selectBalanceScopes(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(sa, ae));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(sa, ae));
 
         CreateShippingBatchCommand command = new CreateShippingBatchCommand();
         command.sources = List.of(shippingSource(900001L), shippingSource(900002L));
@@ -56,7 +71,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         assertThatThrownBy(() -> service.createShippingBatch(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同一物流分区");
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
     @Test

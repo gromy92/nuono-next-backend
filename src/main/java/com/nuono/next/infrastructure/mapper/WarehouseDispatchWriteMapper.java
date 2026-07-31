@@ -26,6 +26,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -34,6 +35,53 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseDispatchWriteMapper extends WarehouseReceiptMapper {
+
+@Select({
+            "<script>",
+            "SELECT balance.id, balance.owner_user_id AS ownerUserId,",
+            "       balance.source_store_code AS sourceStoreCode",
+            "FROM procurement_fulfillment_balance balance",
+            "WHERE balance.id IN",
+            "<foreach collection='balanceIds' item='balanceId' open='(' separator=',' close=')'>#{balanceId}</foreach>",
+            BALANCE_STORE_OWNER_SCOPE,
+            "ORDER BY balance.id ASC",
+            "</script>"
+    })
+    List<FulfillmentBalanceRecord> selectBalanceScopes(
+            @Param("balanceIds") List<Long> balanceIds,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
+
+@Select({
+            "<script>",
+            BALANCE_SELECT,
+            "WHERE balance.id IN",
+            "<foreach collection='balanceIds' item='balanceId' open='(' separator=',' close=')'>#{balanceId}</foreach>",
+            "  AND balance.is_deleted = b'0'",
+            BALANCE_STORE_OWNER_SCOPE,
+            "ORDER BY balance.id ASC",
+            "</script>"
+    })
+    List<FulfillmentBalanceRecord> selectAuthorizedBalances(
+            @Param("balanceIds") List<Long> balanceIds,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
+
+@Select({
+            "<script>",
+            BALANCE_SELECT,
+            "WHERE balance.id IN",
+            "<foreach collection='balanceIds' item='balanceId' open='(' separator=',' close=')'>#{balanceId}</foreach>",
+            "  AND balance.is_deleted = b'0'",
+            BALANCE_STORE_OWNER_SCOPE,
+            "ORDER BY balance.id ASC",
+            "FOR UPDATE",
+            "</script>"
+    })
+    List<FulfillmentBalanceRecord> selectAuthorizedBalancesForUpdate(
+            @Param("balanceIds") List<Long> balanceIds,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
             "<script>",
@@ -121,11 +169,13 @@ public interface WarehouseDispatchWriteMapper extends WarehouseReceiptMapper {
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{balanceId}",
+            "  AND owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'",
             "  AND available_quantity >= #{quantity}"
     })
     int reserveBalance(
             @Param("balanceId") Long balanceId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("quantity") Integer quantity,
             @Param("operatorUserId") Long operatorUserId
     );

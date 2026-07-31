@@ -126,7 +126,10 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
                 + "\"quoteCargoCategoryCode\":\"YT-CAT-020\",\"quoteCargoCategoryName\":\"普货报价\"}";
         OutboundOrderLineSourceRecord source = outboundOrderLineSource();
         when(mapper.selectShippingBatchById(700001L)).thenReturn(batch);
-        when(mapper.listOutboundOrdersByBatch(700001L)).thenReturn(List.of(outboundOrder()));
+        when(mapper.listOutboundOrdersByBatch(
+                700001L,
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(outboundOrder()));
         when(mapper.listOutboundOrderLineSources(800001L)).thenReturn(List.of(source));
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundLine));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(suggestionLine));

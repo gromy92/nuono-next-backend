@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -57,6 +58,14 @@ abstract class WarehouseDispatchServiceTestSupport {
         service = new LocalDbWarehouseDispatchService(mapper, new ObjectMapper());
         lenient().when(mapper.lockDispatchOwner(anyLong()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(mapper.isDispatchPlanSourceScopeAuthorized(anyLong(), anyMap()))
+                .thenReturn(true);
+        lenient().when(mapper.isShippingBatchSourceScopeAuthorized(anyLong(), anyMap()))
+                .thenReturn(true);
+        lenient().when(mapper.isOutboundOrderSourceScopeAuthorized(anyLong(), anyMap()))
+                .thenReturn(true);
+        lenient().when(mapper.isPackingListSourceScopeAuthorized(anyLong(), anyMap()))
+                .thenReturn(true);
     }
 
 protected BusinessAccessContext access() {

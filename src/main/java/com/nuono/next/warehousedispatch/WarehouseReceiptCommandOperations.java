@@ -46,14 +46,39 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempot
         String fulfillmentType = normalizeFulfillmentType(command.fulfillmentType);
         String sourceName = trimToNull(command.sourceName);
 
-        ensureItemBalances(item, fulfillmentType, access.getSessionUserId());
-        if (mapper.countItemFulfillmentActivity(item.id) > 0) {
-            throw new IllegalArgumentException("该商品已经收货、预留或交接物流，不能修改履约方式。");
+        boolean fulfillmentChanged = !fulfillmentType.equals(normalizeFulfillmentType(item.fulfillmentType))
+                || !java.util.Objects.equals(sourceName, trimToNull(item.fulfillmentSourceName));
+        if (fulfillmentChanged) {
+            List<FulfillmentBalanceRecord> balances =
+                    mapper.listBalancesForItemForUpdate(item.id, order.id, order.ownerUserId);
+            if (balances.stream().anyMatch(this::hasFulfillmentActivity)) {
+                throw new IllegalArgumentException("该商品已经收货、预留或交接物流，不能修改履约方式。");
+            }
+            if (mapper.updatePurchaseOrderItemFulfillment(
+                        item.id,
+                        order.id,
+                        order.ownerUserId,
+                        fulfillmentType,
+                        sourceName,
+                        access.getSessionUserId()
+                ) != 1) {
+                throw new WarehouseInventoryStateConflictException("采购单商品状态已变化，请刷新后重试。");
+            }
+            long expectedBalanceUpdates = balances.stream()
+                    .filter(balance -> !fulfillmentType.equals(balance.fulfillmentType))
+                    .count();
+            if (expectedBalanceUpdates > 0 && mapper.updateActiveBalancesFulfillment(
+                    item.id,
+                    order.id,
+                    order.ownerUserId,
+                    fulfillmentType,
+                    access.getSessionUserId()
+            ) != expectedBalanceUpdates) {
+                throw new WarehouseInventoryStateConflictException("采购单商品库存状态已变化，请刷新后重试。");
+            }
+            ensureItemBalances(item, fulfillmentType, access.getSessionUserId());
+            log(null, "UPDATE_ITEM_FULFILLMENT", access.getSessionUserId(), null, null, item.partnerSku);
         }
-
-        mapper.updatePurchaseOrderItemFulfillment(item.id, fulfillmentType, sourceName, access.getSessionUserId());
-        mapper.updateActiveBalancesFulfillment(item.id, fulfillmentType, access.getSessionUserId());
-        log(null, "UPDATE_ITEM_FULFILLMENT", access.getSessionUserId(), null, null, item.partnerSku);
 
         FulfillmentItemView view = new FulfillmentItemView();
         view.purchaseOrderId = String.valueOf(order.id);
@@ -61,6 +86,14 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempot
         view.fulfillmentType = fulfillmentType;
         view.sourceName = sourceName;
         return view;
+    }
+
+private boolean hasFulfillmentActivity(FulfillmentBalanceRecord balance) {
+        return balance != null
+                && (nonNull(balance.confirmedQuantity) != 0
+                || nonNull(balance.abnormalQuantity) != 0
+                || nonNull(balance.reservedQuantity) != 0
+                || nonNull(balance.logisticsHandoffQuantity) != 0);
     }
 
 @Transactional
@@ -128,7 +161,8 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempot
             }
 
             ensureItemBalances(item, normalizeFulfillmentType(item.fulfillmentType), access.getSessionUserId());
-            List<FulfillmentBalanceRecord> balances = mapper.listBalancesForItemForUpdate(item.id);
+            List<FulfillmentBalanceRecord> balances =
+                    mapper.listBalancesForItemForUpdate(item.id, order.id, order.ownerUserId);
             if (balances.isEmpty()) {
                 throw new IllegalArgumentException("采购单商品缺少站点计划，不能确认收货。");
             }
@@ -156,6 +190,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempot
                 if (allocatedConfirmed != 0 || allocatedAbnormal != 0) {
                     balanceDeltas.add(new BalanceQuantityDelta(
                             balance.id,
+                            item.id,
+                            order.id,
+                            order.ownerUserId,
                             allocatedConfirmed,
                             allocatedAbnormal,
                             access.getSessionUserId()
