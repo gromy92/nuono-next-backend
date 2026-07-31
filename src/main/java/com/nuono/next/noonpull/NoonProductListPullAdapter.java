@@ -9,7 +9,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,8 +142,8 @@ public class NoonProductListPullAdapter {
         seed.setFinalPriceSource(seed.getFinalPrice() == null ? null : "offer_list");
         seed.setLiveStatus(firstNonBlank(text(item, "live_status"), text(item, "seller_status")));
         seed.setStatusCode(text(item, "status_code"));
-        Boolean statusCodeActive = resolveActive(seed.getStatusCode());
-        Boolean liveStatusActive = resolveActive(seed.getLiveStatus());
+        Boolean statusCodeActive = NoonProductListActiveStateSupport.resolve(seed.getStatusCode());
+        Boolean liveStatusActive = NoonProductListActiveStateSupport.resolve(seed.getLiveStatus());
         Boolean resolvedActive = statusCodeActive != null ? statusCodeActive : liveStatusActive;
         seed.setIsActive(resolvedActive);
         if (resolvedActive != null) {
@@ -197,28 +196,6 @@ public class NoonProductListPullAdapter {
         } catch (NumberFormatException exception) {
             return null;
         }
-    }
-
-    private Boolean resolveActive(String liveStatus) {
-        if (!StringUtils.hasText(liveStatus)) {
-            return null;
-        }
-        String normalized = liveStatus.trim().toLowerCase(Locale.ROOT);
-        if ("active".equals(normalized)
-                || "true".equals(normalized)
-                || "1".equals(normalized)
-                || "yes".equals(normalized)
-                || "enabled".equals(normalized)) {
-            return true;
-        }
-        if ("inactive".equals(normalized)
-                || "false".equals(normalized)
-                || "0".equals(normalized)
-                || "no".equals(normalized)
-                || "disabled".equals(normalized)) {
-            return false;
-        }
-        return null;
     }
 
     private String resolveImageUrl(String image) {
