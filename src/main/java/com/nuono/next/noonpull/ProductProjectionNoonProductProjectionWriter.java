@@ -2,7 +2,6 @@ package com.nuono.next.noonpull;
 
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 @Component
 public class ProductProjectionNoonProductProjectionWriter implements NoonProductProjectionWriter {
@@ -18,8 +17,8 @@ public class ProductProjectionNoonProductProjectionWriter implements NoonProduct
     }
 
     @Override
-    @Transactional
     public void write(NoonProductProjectionWriteCommand command) {
+        activeStateReconciler.reconcile(command);
         persistenceService.persistInitializationProjection(
                 command.getOwnerUserId(),
                 command.getProjectCode(),
@@ -31,6 +30,5 @@ public class ProductProjectionNoonProductProjectionWriter implements NoonProduct
                 command.isPreserveDrafts(),
                 command.isCompleteSiteScope()
         );
-        activeStateReconciler.reconcile(command);
     }
 }

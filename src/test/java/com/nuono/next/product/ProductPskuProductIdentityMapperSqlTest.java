@@ -123,6 +123,23 @@ class ProductPskuProductIdentityMapperSqlTest {
     }
 
     @Test
+    void unclaimedZCodeResolverCannotTakeAProductOwnedByAnotherPartnerSku() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "selectUnclaimedProductMasterIdBySkuParent",
+                Long.class,
+                String.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("logical_store_id = #{logicalStoreId}")
+                .contains("sku_parent = #{skuParent}")
+                .contains("NULLIF(TRIM(partner_sku), '') IS NULL")
+                .contains("is_deleted = 0");
+    }
+
+    @Test
     void listPublishTaskResolverUsesStableProductMasterPskuWithoutVariantJoin() throws Exception {
         Method method = ProductManagementMapper.class.getMethod(
                 "selectLatestProductPublishTasksByStorePartnerSkus",

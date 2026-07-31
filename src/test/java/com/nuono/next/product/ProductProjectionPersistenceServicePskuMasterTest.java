@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
@@ -168,6 +169,62 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 logicalStoreId,
                 "SGGRB113",
                 307L
+        );
+    }
+
+    @Test
+    void initializationProjectionClaimsUnassignedZCodeMasterInsteadOfCreatingDuplicate() {
+        Long logicalStoreId = 50003L;
+        Long orphanMasterId = 54013L;
+        ProductProjectionPersistenceService.ProductMasterSeed seed =
+                new ProductProjectionPersistenceService.ProductMasterSeed();
+        seed.setSkuParent("ZC9FC3C3B7475EFDAF4AAZ");
+        seed.setPartnerSku("PAPERSAYSB446");
+        seed.setChildSku("ZC9FC3C3B7475EFDAF4AAZ-1");
+        seed.setReferenceStoreCode("STR108065-NAE");
+
+        when(productManagementMapper.selectLogicalStoreId(307L, "PRJ108065")).thenReturn(logicalStoreId);
+        when(productManagementMapper.selectLogicalStoreIdBySiteStoreCode("STR108065-NAE"))
+                .thenReturn(logicalStoreId);
+        when(productManagementMapper.selectLogicalStoreSiteIdInLogicalStore(logicalStoreId, "STR108065-NAE"))
+                .thenReturn(51003L);
+        when(productManagementMapper.selectProductMasterIdByStorePartnerSku(logicalStoreId, "PAPERSAYSB446"))
+                .thenReturn(null, orphanMasterId);
+        when(productManagementMapper.selectUnclaimedProductMasterIdBySkuParent(
+                logicalStoreId,
+                "ZC9FC3C3B7475EFDAF4AAZ"
+        )).thenReturn(orphanMasterId);
+        when(productManagementMapper.selectProductVariantIdByStorePartnerSku(logicalStoreId, "PAPERSAYSB446"))
+                .thenReturn(null, 53001L);
+        when(productManagementMapper.nextProductVariantId()).thenReturn(53001L);
+        when(productManagementMapper.selectProductSiteOfferIdByStorePartnerSkuSite(
+                logicalStoreId,
+                "PAPERSAYSB446",
+                "AE"
+        )).thenReturn(null);
+        when(productManagementMapper.nextProductSiteOfferId()).thenReturn(55001L);
+
+        service.persistInitializationProjection(
+                307L,
+                "PRJ108065",
+                "canman",
+                "STR108065-NAE",
+                List.of(new ProductProjectionPersistenceService.SiteSeed("STR108065-NAE", "AE", "ACTIVE", true)),
+                List.of(seed),
+                new ArrayList<>(),
+                true,
+                false
+        );
+
+        verify(productManagementMapper, never()).nextProductMasterId();
+        verify(productManagementMapper).upsertProductMaster(
+                eq(orphanMasterId),
+                eq(logicalStoreId),
+                eq("PAPERSAYSB446"),
+                eq("ZC9FC3C3B7475EFDAF4AAZ"),
+                eq("ZC9FC3C3B7475EFDAF4AAZ"),
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                eq(307L)
         );
     }
 

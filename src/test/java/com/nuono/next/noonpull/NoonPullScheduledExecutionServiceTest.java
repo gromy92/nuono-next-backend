@@ -1,6 +1,7 @@
 package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.nuono.next.noonads.NoonAdvertisingCampaignFact;
 import com.nuono.next.noonads.NoonAdvertisingImportRepository;
@@ -37,6 +38,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DuplicateKeyException;
 
 class NoonPullScheduledExecutionServiceTest {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
@@ -817,6 +819,69 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals("PRJ245027", productWriter.command.getProjectCode());
         assertEquals("STR245027-NAE", productWriter.command.getReferenceStoreCode());
         assertEquals(List.of("PARTNER-BARCODE-1", "PARTNER-BARCODE-2"), productWriter.command.getProductSeeds().get(0).getBarcodes());
+    }
+
+    @Test
+    void productProjectionFailureMustReplacePrematureSuccessWithFailedTaskEvidence() {
+        Clock clock = Clock.fixed(Instant.parse("2026-05-24T00:30:00Z"), SHANGHAI);
+        repository = new InMemoryNoonPullRepository();
+        foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
+        NoonProductProjectionWriter failingWriter = command -> {
+            throw new DuplicateKeyException(
+                    "projection duplicate",
+                    new IllegalStateException("Duplicate entry for key uk_product_master_store_sku_parent")
+            );
+        };
+        service = new NoonPullScheduledExecutionService(
+                new NoonPullScheduler(
+                        foundationService,
+                        clock,
+                        new NoonOrderReportSchedulePolicy(clock),
+                        new NoonOrderBackfillPlanner(),
+                        new NoonSalesRetentionPolicy(clock),
+                        (plan) -> true
+                ),
+                foundationService,
+                new NoonReportPuller(foundationService),
+                new NoonInterfacePuller(foundationService),
+                new NoonProductListPullAdapter(failingWriter),
+                new NoonSalesReportAdapter(writer),
+                new NoonOrderReportAdapter((fact) -> {
+                }, clock),
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonReportProvider>) () -> null,
+                (Supplier<NoonSalesPageQueryProvider>) () -> null,
+                (Supplier<NoonProductInterfaceSmokeProvider>) () -> (request, pageNumber) -> NoonInterfacePullPage.builder()
+                        .items(List.of(Map.of(
+                                "sku_parent", "ZC9FC3C3B7475EFDAF4AAZ",
+                                "partner_sku", "PAPERSAYSB446",
+                                "status_code", "ACTIVE"
+                        )))
+                        .pageNumber(pageNumber)
+                        .totalItems(1)
+                        .requestCount(1)
+                        .hasNextPage(false)
+                        .build(),
+                true
+        );
+        foundationService.createPlan(NoonPullPlanDraft.builder()
+                .ownerUserId(307L)
+                .storeCode("STR108065-NAE")
+                .siteCode("AE")
+                .pullType(NoonPullType.INTERFACE)
+                .dataDomain(NoonPullDataDomain.PRODUCT)
+                .triggerMode(NoonPullTriggerMode.SCHEDULED_DAILY)
+                .scheduleExpression("daily product offer list")
+                .build());
+
+        NoonPullScheduledExecutionResult result = service.runOnce();
+
+        NoonPullTaskRecord task = repository.listTasks().get(0);
+        assertEquals(1, result.getFailedTaskCount());
+        assertEquals(0, result.getExecutedTaskCount());
+        assertEquals(NoonPullTaskStatus.FAILED, task.getStatus());
+        assertEquals("product_projection_failed", task.getFailureType());
+        assertTrue(task.getDiagnosticSummary().contains("uk_product_master_store_sku_parent"));
     }
 
     @Test

@@ -16,17 +16,19 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnExpo
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnReceivedImportResultView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.InventorySyncResultView;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.util.Comparator;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +37,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class NoonPullScheduledExecutionService {
+    private static final Logger log = LoggerFactory.getLogger(NoonPullScheduledExecutionService.class);
     private static final int REPORT_MAX_POLL_ATTEMPTS = 18;
     private static final int DEFAULT_SALES_REPORT_EXECUTIONS_PER_TICK = 4;
     private static final int DEFAULT_PRODUCT_INTERFACE_EXECUTIONS_PER_TICK = 2;
@@ -934,15 +937,29 @@ public class NoonPullScheduledExecutionService {
         );
         if (pullResult.getStatus() == NoonPullTaskStatus.SUCCEEDED) {
             if (productListAdapter != null) {
-                productListAdapter.apply(NoonProductListApplyCommand.builder()
-                        .ownerUserId(task.getOwnerUserId())
-                        .projectCode(NoonPullScheduledExecutionSupport.deriveProjectCode(task.getStoreCode()))
-                        .storeCode(task.getStoreCode())
-                        .siteCode(task.getSiteCode())
-                        .sourceBatchId(pullResult.getSourceBatchId())
-                        .automaticDetailBackfill(task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
-                        .items(pullResult.getItems())
-                        .build());
+                try {
+                    productListAdapter.apply(NoonProductListApplyCommand.builder()
+                            .ownerUserId(task.getOwnerUserId())
+                            .projectCode(NoonPullScheduledExecutionSupport.deriveProjectCode(task.getStoreCode()))
+                            .storeCode(task.getStoreCode())
+                            .siteCode(task.getSiteCode())
+                            .sourceBatchId(pullResult.getSourceBatchId())
+                            .automaticDetailBackfill(task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
+                            .items(pullResult.getItems())
+                            .build());
+                } catch (RuntimeException exception) {
+                    String diagnostic = productProjectionFailureDiagnostic(exception);
+                    foundationService.markFailed(task.getId(), "product_projection_failed", diagnostic);
+                    log.warn(
+                            "product list projection failed taskId={} store={} site={}",
+                            task.getId(),
+                            task.getStoreCode(),
+                            task.getSiteCode(),
+                            exception
+                    );
+                    result.failed();
+                    return;
+                }
             }
             result.executed();
             return;
@@ -953,6 +970,18 @@ public class NoonPullScheduledExecutionService {
         } else {
             result.failed();
         }
+    }
+
+    private String productProjectionFailureDiagnostic(RuntimeException exception) {
+        Throwable root = exception;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String rootMessage = StringUtils.hasText(root.getMessage()) ? root.getMessage().trim() : "no detail";
+        return "product list fetched but projection failed: "
+                + exception.getClass().getSimpleName()
+                + "; root=" + root.getClass().getSimpleName()
+                + ": " + rootMessage;
     }
 
     private boolean isSalesReportTask(NoonPullTaskRecord task) {

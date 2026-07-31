@@ -914,6 +914,21 @@ public interface ProductManagementMapper extends ProductPublishRetryMapper, Prod
             @Param("partnerSku") String partnerSku
     );
 
+    @Select({
+            "SELECT id",
+            "FROM product_master",
+            "WHERE logical_store_id = #{logicalStoreId}",
+            "  AND sku_parent = #{skuParent}",
+            "  AND NULLIF(TRIM(partner_sku), '') IS NULL",
+            "  AND is_deleted = 0",
+            "ORDER BY gmt_updated DESC, id DESC",
+            "LIMIT 1"
+    })
+    Long selectUnclaimedProductMasterIdBySkuParent(
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("skuParent") String skuParent
+    );
+
     default Long selectProductMasterIdByStoreCode(Long ownerUserId, String storeCode, String skuParent) {
         if (ownerUserId == null || storeCode == null || storeCode.trim().isEmpty()
                 || skuParent == null || skuParent.trim().isEmpty()) {
