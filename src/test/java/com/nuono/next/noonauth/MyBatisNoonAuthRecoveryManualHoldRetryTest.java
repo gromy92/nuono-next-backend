@@ -17,6 +17,97 @@ import org.mockito.Mockito;
 class MyBatisNoonAuthRecoveryManualHoldRetryTest {
 
     @Test
+    void expiredSingleSendRateLimitHoldReopensWithoutResettingItsBudget() {
+        NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
+        MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
+        LocalDateTime now = LocalDateTime.of(2026, 7, 31, 2, 30);
+        LocalDateTime cooldownCutoff = now.minusMinutes(30);
+        NoonAuthIdentityRecoveryRecord held = recovery(
+                351L,
+                NoonAuthRecoveryStatus.MANUAL_HOLD,
+                9L,
+                "identity-hash"
+        );
+        held.setFailureCode("SEND_RATE_LIMITED");
+        held.setConfigFingerprint("config-v1");
+        held.setSendAttemptCount(1);
+        held.setFirstSendAt(LocalDateTime.of(2026, 7, 29, 9, 0, 27));
+
+        when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
+        when(mapper.releaseEligibleRateLimitedManualHold(
+                351L,
+                9L,
+                "identity-hash",
+                "config-v1",
+                cooldownCutoff,
+                now,
+                now
+        )).thenReturn(1);
+
+        assertThat(repository.releaseEligibleRateLimitedManualHold(
+                "identity-hash",
+                "config-v1",
+                cooldownCutoff,
+                now,
+                now
+        )).isTrue();
+
+        InOrder ordered = Mockito.inOrder(mapper);
+        ordered.verify(mapper).selectActiveRecoveryForUpdate("identity-hash");
+        ordered.verify(mapper).releaseEligibleRateLimitedManualHold(
+                351L,
+                9L,
+                "identity-hash",
+                "config-v1",
+                cooldownCutoff,
+                now,
+                now
+        );
+        ordered.verify(mapper).releaseRateLimitedProjectHolds(351L, now);
+        verify(mapper, never()).reopenFailedRecoveryItems(351L, now);
+    }
+
+    @Test
+    void differentManualHoldFailureNeverReopensAutomatically() {
+        NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
+        MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
+        LocalDateTime now = LocalDateTime.of(2026, 7, 31, 2, 30);
+        NoonAuthIdentityRecoveryRecord held = recovery(
+                352L,
+                NoonAuthRecoveryStatus.MANUAL_HOLD,
+                3L,
+                "identity-hash"
+        );
+        held.setFailureCode("SEND_RISK_BLOCKED");
+        held.setConfigFingerprint("config-v1");
+        held.setSendAttemptCount(1);
+        held.setFirstSendAt(now.minusHours(2));
+        when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
+
+        assertThat(repository.releaseEligibleRateLimitedManualHold(
+                "identity-hash",
+                "config-v1",
+                now.minusMinutes(30),
+                now,
+                now
+        )).isFalse();
+
+        verify(mapper, never()).releaseEligibleRateLimitedManualHold(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
+        verify(mapper, never()).releaseRateLimitedProjectHolds(
+                org.mockito.ArgumentMatchers.anyLong(),
+                org.mockito.ArgumentMatchers.any()
+        );
+    }
+
+    @Test
     void explicitRetryReopensAnOtherwiseIdenticalManualHoldBindingEpoch() {
         NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
         MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);

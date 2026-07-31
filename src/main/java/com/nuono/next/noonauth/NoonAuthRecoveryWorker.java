@@ -168,6 +168,13 @@ public class NoonAuthRecoveryWorker {
                     configuredFingerprint,
                     now
             );
+            repository.releaseEligibleRateLimitedManualHold(
+                    configuredIdentityKey,
+                    configuredFingerprint,
+                    now.minus(properties.rateLimitRetryDelay()),
+                    now,
+                    now
+            );
         }
         reopenChangedManualHolds(now);
         repository.promoteReadySuccessors(now.plus(properties.coalesceDuration()), now);
@@ -473,6 +480,15 @@ public class NoonAuthRecoveryWorker {
             return;
         }
         if (code == NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED) {
+            if (sendAttemptCount < properties.getMaxSendAttemptsPerRecovery()) {
+                cooldown(
+                        fence,
+                        code.name(),
+                        safeDiagnostic(result.getSafeDiagnostic()),
+                        now().plus(properties.rateLimitRetryDelay())
+                );
+                return;
+            }
             holdIdentityAndItems(candidate, fence, pending, code, result.getSafeDiagnostic());
             return;
         }

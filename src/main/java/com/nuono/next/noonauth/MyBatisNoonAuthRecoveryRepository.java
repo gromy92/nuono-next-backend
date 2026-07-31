@@ -268,6 +268,73 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
 
     @Override
     @Transactional
+    public boolean releaseEligibleRateLimitedManualHold(
+            String identityKey,
+            String expectedConfigFingerprint,
+            LocalDateTime cooldownCutoff,
+            LocalDateTime nextAttemptAt,
+            LocalDateTime now
+    ) {
+        if (identityKey == null
+                || identityKey.trim().isEmpty()
+                || expectedConfigFingerprint == null
+                || expectedConfigFingerprint.trim().isEmpty()
+                || cooldownCutoff == null
+                || nextAttemptAt == null
+                || now == null) {
+            return false;
+        }
+        NoonAuthIdentityRecoveryRecord active = mapper.selectActiveRecoveryForUpdate(identityKey);
+        if (!isEligibleRateLimitedManualHold(
+                active,
+                identityKey,
+                expectedConfigFingerprint,
+                cooldownCutoff
+        )) {
+            return false;
+        }
+        int released = mapper.releaseEligibleRateLimitedManualHold(
+                active.getId(),
+                active.getVersionNo(),
+                identityKey,
+                expectedConfigFingerprint,
+                cooldownCutoff,
+                nextAttemptAt,
+                now
+        );
+        if (released != 1) {
+            return false;
+        }
+        mapper.releaseRateLimitedProjectHolds(active.getId(), now);
+        return true;
+    }
+
+    private boolean isEligibleRateLimitedManualHold(
+            NoonAuthIdentityRecoveryRecord active,
+            String identityKey,
+            String expectedConfigFingerprint,
+            LocalDateTime cooldownCutoff
+    ) {
+        if (active == null
+                || active.getId() == null
+                || active.getVersionNo() == null
+                || active.getStatus() != NoonAuthRecoveryStatus.MANUAL_HOLD
+                || !"SEND_RATE_LIMITED".equals(active.getFailureCode())
+                || !Objects.equals(identityKey, active.getIdentityKey())
+                || !Objects.equals(expectedConfigFingerprint, active.getConfigFingerprint())
+                || active.getSendAttemptCount() == null
+                || active.getSendAttemptCount() != 1
+                || active.getSecondSendAt() != null) {
+            return false;
+        }
+        LocalDateTime latestSendAt = active.getSecondSendAt() == null
+                ? active.getFirstSendAt()
+                : active.getSecondSendAt();
+        return latestSendAt != null && !latestSendAt.isAfter(cooldownCutoff);
+    }
+
+    @Override
+    @Transactional
     public int releaseTerminalProjectHoldsOnConfigChange(
             String identityKey,
             String newConfigFingerprint,
