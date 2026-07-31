@@ -19,6 +19,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class NoonProductListPullAdapter {
     private static final Logger log = LoggerFactory.getLogger(NoonProductListPullAdapter.class);
+    static final String ABSENT_STATUS_STATE_SOURCE = "NOON_PRODUCT_LIST_STATUS_ABSENT";
     private final NoonProductProjectionWriter projectionWriter;
     private ProductDetailBaselineDailyBackfillService detailBaselineDailyBackfillService;
 
@@ -145,11 +146,19 @@ public class NoonProductListPullAdapter {
         Boolean statusCodeActive = NoonProductListActiveStateSupport.resolve(seed.getStatusCode());
         Boolean liveStatusActive = NoonProductListActiveStateSupport.resolve(seed.getLiveStatus());
         Boolean resolvedActive = statusCodeActive != null ? statusCodeActive : liveStatusActive;
+        String activeStateSource = statusCodeActive != null
+                ? "NOON_PRODUCT_LIST_STATUS_CODE"
+                : liveStatusActive != null ? "NOON_PRODUCT_LIST_LIVE_STATUS" : null;
+        // Noon keeps non-live offers in the complete list with both status fields absent.
+        if (resolvedActive == null
+                && !StringUtils.hasText(seed.getStatusCode())
+                && !StringUtils.hasText(seed.getLiveStatus())) {
+            resolvedActive = false;
+            activeStateSource = ABSENT_STATUS_STATE_SOURCE;
+        }
         seed.setIsActive(resolvedActive);
         if (resolvedActive != null) {
-            seed.setActiveStateSource(statusCodeActive != null
-                    ? "NOON_PRODUCT_LIST_STATUS_CODE"
-                    : "NOON_PRODUCT_LIST_LIVE_STATUS");
+            seed.setActiveStateSource(activeStateSource);
             seed.setActiveStateSyncedAt(LocalDateTime.now().toString());
         }
         seed.setFbnStock(intValue(item.get("fbn_stock")));

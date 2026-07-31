@@ -42,6 +42,13 @@ class NoonProductActiveStateProjectionTest {
                                 "sku", "ZUNKNOWN-1",
                                 "partner_sku", "PAPERSAYS-UNKNOWN",
                                 "status_code", "PENDING_REVIEW"
+                        ),
+                        Map.of(
+                                "sku_parent", "ZABSENT",
+                                "sku", "ZABSENT-1",
+                                "partner_sku", "PAPERSAYS-ABSENT",
+                                "fbn_stock", 0,
+                                "fbp_stock", 0
                         )
                 ))
                 .build();
@@ -73,6 +80,17 @@ class NoonProductActiveStateProjectionTest {
         assertNull(unknown.getActiveStateSource());
         assertNull(unknown.getActiveStateSyncedAt());
         assertNull(unknown.getSiteOffers().get(0).getIsActive());
+
+        ProductProjectionPersistenceService.ProductMasterSeed absent =
+                written.get().getProductSeeds().get(3);
+        assertEquals(Boolean.FALSE, absent.getIsActive());
+        assertEquals(NoonProductListPullAdapter.ABSENT_STATUS_STATE_SOURCE, absent.getActiveStateSource());
+        assertNotNull(absent.getActiveStateSyncedAt());
+        assertEquals(Boolean.FALSE, absent.getSiteOffers().get(0).getIsActive());
+        assertEquals(
+                NoonProductListPullAdapter.ABSENT_STATUS_STATE_SOURCE,
+                absent.getSiteOffers().get(0).getActiveStateSource()
+        );
     }
 
     @Test
