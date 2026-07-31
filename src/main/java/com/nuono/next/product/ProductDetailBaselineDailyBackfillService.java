@@ -2,8 +2,6 @@ package com.nuono.next.product;
 
 import com.nuono.next.infrastructure.mapper.ProductDetailBaselineCandidateMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
-import com.nuono.next.noonpull.NoonPullFailurePolicy;
-import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import com.nuono.next.system.task.OperationalTask;
 import com.nuono.next.system.task.OperationalTaskService;
 import java.util.ArrayList;
@@ -30,7 +28,8 @@ public class ProductDetailBaselineDailyBackfillService {
     private static final int DEFAULT_MAX_ITEMS_PER_STORE_SITE = 10;
 
     private final ProductDetailBaselineCandidateMapper candidateMapper;
-    private final ProductDetailBaselineBatchExecutor batchExecutor;
+    private final ProductDetailBaselineBackfillService backfillService;
+    private final LocalDbProductMasterService productMasterService;
     private final OperationalTaskService operationalTaskService;
     private final BatchSubmitter batchSubmitter;
     private final boolean enabled;
@@ -45,8 +44,6 @@ public class ProductDetailBaselineDailyBackfillService {
             LocalDbProductMasterService productMasterService,
             OperationalTaskService operationalTaskService,
             NoonAccountTaskQueue noonAccountTaskQueue,
-            NoonRiskBackoffGuard riskBackoffGuard,
-            NoonPullFailurePolicy failurePolicy,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.enabled:false}") boolean enabled,
             @Value("${nuono.product-management.detail-baseline-daily-backfill.stale-after-minutes:360}")
             int staleAfterMinutes,
@@ -62,9 +59,7 @@ public class ProductDetailBaselineDailyBackfillService {
                 enabled,
                 staleAfterMinutes,
                 maxItemsPerStoreSite,
-                Clock.systemUTC(),
-                riskBackoffGuard,
-                failurePolicy
+                Clock.systemUTC()
         );
     }
 
@@ -86,9 +81,7 @@ public class ProductDetailBaselineDailyBackfillService {
                 enabled,
                 staleAfterMinutes,
                 DEFAULT_MAX_ITEMS_PER_STORE_SITE,
-                clock,
-                NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy(clock)
+                clock
         );
     }
 
@@ -103,98 +96,52 @@ public class ProductDetailBaselineDailyBackfillService {
             int maxItemsPerStoreSite,
             Clock clock
     ) {
-        this(
-                candidateMapper,
-                backfillService,
-                productMasterService,
-                operationalTaskService,
-                batchSubmitter,
-                enabled,
-                staleAfterMinutes,
-                maxItemsPerStoreSite,
-                clock,
-                NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy(clock)
-        );
-    }
-
-    ProductDetailBaselineDailyBackfillService(
-            ProductDetailBaselineCandidateMapper candidateMapper,
-            ProductDetailBaselineBackfillService backfillService,
-            LocalDbProductMasterService productMasterService,
-            OperationalTaskService operationalTaskService,
-            BatchSubmitter batchSubmitter,
-            boolean enabled,
-            int staleAfterMinutes,
-            int maxItemsPerStoreSite,
-            Clock clock,
-            NoonRiskBackoffGuard riskBackoffGuard,
-            NoonPullFailurePolicy failurePolicy
-    ) {
         this.candidateMapper = candidateMapper;
+        this.backfillService = backfillService;
+        this.productMasterService = productMasterService;
         this.operationalTaskService = operationalTaskService;
         this.batchSubmitter = batchSubmitter == null ? (accountKey, task) -> task.run() : batchSubmitter;
         this.enabled = enabled;
         this.staleAfterMinutes = Math.max(1, staleAfterMinutes);
         this.maxItemsPerStoreSite = Math.max(1, maxItemsPerStoreSite);
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.batchExecutor = new ProductDetailBaselineBatchExecutor(
-                backfillService,
-                productMasterService,
-                new ProductActiveStateReconciliationGuard(riskBackoffGuard, failurePolicy)
-        );
     }
 
-    public ProductDetailBaselineEnqueueResult enqueueMissingAfterDailyList(Long ownerUserId, String storeCode, String siteCode) {
+    public EnqueueResult enqueueMissingAfterDailyList(Long ownerUserId, String storeCode, String siteCode) {
         if (!enabled) {
-            return ProductDetailBaselineEnqueueResult.disabled();
+            return EnqueueResult.disabled();
         }
         if (ownerUserId == null || !StringUtils.hasText(storeCode) || !StringUtils.hasText(siteCode)) {
-            return ProductDetailBaselineEnqueueResult.enabled(0, 0, 0, 0);
+            return EnqueueResult.enabled(0, 0, 0, 0);
         }
 
         int recovered = recoverStaleTasks(ownerUserId, storeCode);
-        String normalizedSiteCode = siteCode.trim().toUpperCase(Locale.ROOT);
         List<ProductDetailBaselineCandidate> candidates = candidateMapper.listMissingMaintainedCandidates(
                 ownerUserId,
                 storeCode.trim(),
-                normalizedSiteCode
+                siteCode.trim().toUpperCase(Locale.ROOT)
         );
-        if (batchExecutor.isHeld(ownerUserId, storeCode, normalizedSiteCode)) {
-            log.info(
-                    "daily product detail baseline audit paused by Noon risk backoff owner={} store={} site={} candidates={}",
-                    ownerUserId,
-                    storeCode,
-                    normalizedSiteCode,
-                    candidates == null ? 0 : candidates.size()
-            );
-            return ProductDetailBaselineEnqueueResult.enabled(candidates == null ? 0 : candidates.size(), 0, 0, recovered);
-        }
         Set<String> scheduledProducts = new HashSet<>();
-        List<ProductDetailBaselineBatchExecutor.Request> requests = new ArrayList<>();
+        List<ProductMasterFetchCommand> commands = new ArrayList<>();
         for (ProductDetailBaselineCandidate candidate : safeCandidates(candidates)) {
             String productKey = productKey(candidate);
             if (!StringUtils.hasText(productKey) || !scheduledProducts.add(productKey)) {
                 continue;
             }
-            requests.add(new ProductDetailBaselineBatchExecutor.Request(
-                    toFetchCommand(ownerUserId, storeCode, candidate),
-                    REASON,
-                    normalizedSiteCode
-            ));
-            if (requests.size() >= maxItemsPerStoreSite) {
+            commands.add(toFetchCommand(ownerUserId, storeCode, candidate));
+            if (commands.size() >= maxItemsPerStoreSite) {
                 break;
             }
         }
-        if (!requests.isEmpty()) {
+        if (!commands.isEmpty()) {
             batchSubmitter.submit(
                     ownerUserId + "::" + storeCode.trim().toLowerCase(Locale.ROOT),
-                    () -> batchExecutor.run(requests)
+                    () -> runBatch(commands)
             );
         }
-        ProductDetailBaselineEnqueueResult result = ProductDetailBaselineEnqueueResult.enabled(
+        EnqueueResult result = EnqueueResult.enabled(
                 candidates == null ? 0 : candidates.size(),
-                requests.size(),
+                commands.size(),
                 0,
                 recovered
         );
@@ -209,6 +156,27 @@ public class ProductDetailBaselineDailyBackfillService {
                 result.getStaleRecoveredCount()
         );
         return result;
+    }
+
+    private void runBatch(List<ProductMasterFetchCommand> commands) {
+        for (ProductMasterFetchCommand command : commands) {
+            try {
+                backfillService.enqueueInline(
+                        command,
+                        REASON,
+                        (fetchCommand, ignoredReason) -> productMasterService.fetchSnapshot(fetchCommand)
+                );
+            } catch (RuntimeException exception) {
+                log.warn(
+                        "daily product detail baseline execution failed owner={} store={} skuParent={} error={}",
+                        command.getOwnerUserId(),
+                        command.getStoreCode(),
+                        command.getSkuParent(),
+                        exception.getMessage(),
+                        exception
+                );
+            }
+        }
     }
 
     private int recoverStaleTasks(Long ownerUserId, String storeCode) {
@@ -267,4 +235,53 @@ public class ProductDetailBaselineDailyBackfillService {
         void submit(String accountKey, Runnable task);
     }
 
+    public static final class EnqueueResult {
+        private final boolean enabled;
+        private final int candidateCount;
+        private final int enqueuedCount;
+        private final int failedCount;
+        private final int staleRecoveredCount;
+
+        private EnqueueResult(
+                boolean enabled,
+                int candidateCount,
+                int enqueuedCount,
+                int failedCount,
+                int staleRecoveredCount
+        ) {
+            this.enabled = enabled;
+            this.candidateCount = candidateCount;
+            this.enqueuedCount = enqueuedCount;
+            this.failedCount = failedCount;
+            this.staleRecoveredCount = staleRecoveredCount;
+        }
+
+        static EnqueueResult disabled() {
+            return new EnqueueResult(false, 0, 0, 0, 0);
+        }
+
+        static EnqueueResult enabled(int candidates, int enqueued, int failed, int recovered) {
+            return new EnqueueResult(true, candidates, enqueued, failed, recovered);
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public int getCandidateCount() {
+            return candidateCount;
+        }
+
+        public int getEnqueuedCount() {
+            return enqueuedCount;
+        }
+
+        public int getFailedCount() {
+            return failedCount;
+        }
+
+        public int getStaleRecoveredCount() {
+            return staleRecoveredCount;
+        }
+    }
 }

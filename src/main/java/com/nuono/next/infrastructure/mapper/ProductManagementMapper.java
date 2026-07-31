@@ -32,7 +32,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductManagementMapper extends ProductPublishRetryMapper, ProductRebuildWorkflowMapper {
+public interface ProductManagementMapper extends ProductPublishRetryMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",

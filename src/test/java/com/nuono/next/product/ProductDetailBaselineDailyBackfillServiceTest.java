@@ -33,7 +33,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         ProductDetailBaselineCandidateMapper mapper = mock(ProductDetailBaselineCandidateMapper.class);
         ProductDetailBaselineDailyBackfillService service = service(mapper, false);
 
-        ProductDetailBaselineEnqueueResult result =
+        ProductDetailBaselineDailyBackfillService.EnqueueResult result =
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         assertFalse(result.isEnabled());
@@ -70,7 +70,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
                 CLOCK
         );
 
-        ProductDetailBaselineEnqueueResult result =
+        ProductDetailBaselineDailyBackfillService.EnqueueResult result =
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         assertEquals(12, result.getCandidateCount());
@@ -96,7 +96,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         ProductDetailBaselineDailyBackfillService service =
                 service(mapper, backfill, productMasterService, mock(OperationalTaskService.class), true);
 
-        ProductDetailBaselineEnqueueResult result =
+        ProductDetailBaselineDailyBackfillService.EnqueueResult result =
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         ArgumentCaptor<ProductMasterFetchCommand> commandCaptor =
@@ -134,7 +134,7 @@ class ProductDetailBaselineDailyBackfillServiceTest {
         ProductDetailBaselineDailyBackfillService service =
                 service(mapper, backfill, mock(LocalDbProductMasterService.class), taskService, true);
 
-        ProductDetailBaselineEnqueueResult result =
+        ProductDetailBaselineDailyBackfillService.EnqueueResult result =
                 service.enqueueMissingAfterDailyList(307L, "STR108065-NSA", "SA");
 
         verify(taskService).cancel(9001L, "每日详情基线巡检回收超时任务，允许后续重试。");

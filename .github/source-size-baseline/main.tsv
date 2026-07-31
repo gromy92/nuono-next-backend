@@ -81,7 +81,7 @@ src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344
 src/main/java/com/nuono/next/noon/ImapNoonEmailOtpReader.java	554
-src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3061
+src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3060
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
@@ -189,7 +189,7 @@ src/main/java/com/nuono/next/product/ProductPublishSharedZskuWriter.java	549
 src/main/java/com/nuono/next/product/ProductPublishTaskRecord.java	313
 src/main/java/com/nuono/next/product/ProductReadModelService.java	479
 src/main/java/com/nuono/next/product/ProductRebuildService.java	466
-src/main/java/com/nuono/next/product/ProductSiteOfferFetcher.java	410
+src/main/java/com/nuono/next/product/ProductSiteOfferFetcher.java	407
 src/main/java/com/nuono/next/product/ProductSnapshotSectionBuilder.java	648
 src/main/java/com/nuono/next/product/ProductSpecManagementController.java	349
 src/main/java/com/nuono/next/product/ProductVariantLogisticsProfileService.java	317

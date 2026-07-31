@@ -78,7 +78,7 @@ class ProductSiteOfferFetcher {
                         NoonProductGateway.PRICING_INFO_URL,
                         pricingBody,
                         true,
-                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 价格信息失败", warnings
+                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 价格信息失败"
                 );
                 log.info(
                         "product-management fetchSnapshot detail stage=pricing.info store={} site={} durationMs={}",
@@ -100,7 +100,7 @@ class ProductSiteOfferFetcher {
                         NoonProductGateway.STOCK_INFO_URL,
                         stockBody,
                         true,
-                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 库存摘要失败", warnings
+                        "读取站点 " + productProjectSiteResolver.describeSite(projectSite) + " 库存摘要失败"
                 );
                 log.info(
                         "product-management fetchSnapshot detail stage=stock.info store={} site={} durationMs={}",
@@ -294,16 +294,13 @@ class ProductSiteOfferFetcher {
             String url,
             JsonNode body,
             boolean withProject,
-            String warningPrefix,
-            List<String> warnings
+            String warningPrefix
     ) {
         try {
             return productNoonAdapter.postJson(session, url, body, withProject);
         } catch (IllegalStateException exception) {
             ProductWriteAuthRequiredException.rethrowIfPresent(exception);
-            String warning = warningPrefix + "：" + noonFailureMessage(exception);
-            log.warn("{}", warning);
-            if (warnings != null) warnings.add(warning);
+            log.warn("{}：{}", warningPrefix, noonFailureMessage(exception));
             return MissingNode.getInstance();
         }
     }

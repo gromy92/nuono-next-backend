@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class ProductActiveStateUpsertSqlTest {
@@ -77,5 +78,31 @@ class ProductActiveStateUpsertSqlTest {
                 .contains("active_state_source = CASE WHEN VALUES(is_active) IS NULL")
                 .contains("active_state_synced_at = CASE WHEN VALUES(is_active) IS NULL")
                 .contains("live_status = COALESCE(VALUES(live_status), live_status)");
+    }
+
+    @Test
+    void completeProductListMarksOnlyMissingProductsInactiveInExactScope() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "markProductOffersMissingFromCompleteListInactive",
+                Long.class,
+                String.class,
+                String.class,
+                java.util.List.class,
+                String.class,
+                java.time.LocalDateTime.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .contains("UPPER(lss.store_code) = UPPER(#{storeCode})")
+                .contains("UPPER(lss.site) = UPPER(#{siteCode})")
+                .contains("pso.maintenance_enabled = b'1'")
+                .contains("pso.is_active = b'0'")
+                .contains("pso.active_state_source = #{activeStateSource}")
+                .contains("UPPER(TRIM(pv.partner_sku)) NOT IN")
+                .contains("collection='presentPartnerSkus'");
     }
 }

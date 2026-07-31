@@ -46,7 +46,6 @@ import org.springframework.util.StringUtils;
 @Service
 @Profile("local-db")
 public class NoonSessionGateway {
-
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration SESSION_TTL = Duration.ofMinutes(15);
