@@ -46,7 +46,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("throttleMapper.release(");
         assertThat(service)
                 .contains("asnListRemoteExecutor.execute(")
-                .contains("openNoonSession(ownerUserId, binding)");
+                .contains("openNoonSession(ownerUserId, binding)").contains("loginWithPersistedCookiePinnedEgress(").contains("\"fbn.noon.partners\", 443");
         assertThat(service.indexOf("openNoonSession(ownerUserId, binding)"))
                 .isLessThan(service.indexOf("asnListRemoteExecutor.execute("));
     }

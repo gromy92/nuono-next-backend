@@ -2170,12 +2170,12 @@ public class LocalDbOfficialWarehouseService implements
     }
 
     private NoonSession openNoonSession(Long ownerUserId, NoonSalesReportBinding binding) {
-        return noonSessionGateway.loginWithPersistedCookie(
+        return noonSessionGateway.loginWithPersistedCookiePinnedEgress(
                 ownerUserId,
                 binding.getNoonUser(),
                 binding.getPersistedCookie(),
                 binding.getProjectCode(),
-                binding.getStoreCode()
+                binding.getStoreCode(), "fbn.noon.partners", 443
         );
     }
 

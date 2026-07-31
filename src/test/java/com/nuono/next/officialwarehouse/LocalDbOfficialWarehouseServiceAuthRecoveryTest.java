@@ -1,6 +1,7 @@
 package com.nuono.next.officialwarehouse;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -66,12 +67,14 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 eq("PRJ512183"),
                 eq("STR512183-NSA")
         )).thenReturn(Optional.of(139L));
-        when(sessionGateway.loginWithPersistedCookie(
+        when(sessionGateway.loginWithPersistedCookiePinnedEgress(
                 eq(308L),
                 eq("merchant@example.com"),
                 eq("expired-cookie"),
                 eq("PRJ512183"),
-                eq("STR512183-NSA")
+                eq("STR512183-NSA"),
+                eq("fbn.noon.partners"),
+                eq(443)
         )).thenThrow(new IllegalStateException(
                 "auth_required: Noon Cookie invalid or expired; HTTP 401"
         ));
@@ -97,8 +100,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
         service.runAppointmentOnce(access(), "611402");
 
-        verify(sessionGateway, never()).loginWithPersistedCookie(
-                any(), any(), any(), any(), any()
+        verify(sessionGateway, never()).loginWithPersistedCookiePinnedEgress(
+                any(), any(), any(), any(), any(), any(), anyInt()
         );
         verify(recoveryQueue, never()).enqueueProject(
                 any(), any(), any()
@@ -118,8 +121,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         when(recoveryQueue.enqueueProject(
                 any(), any(), any()
         )).thenReturn(Optional.empty());
-        when(sessionGateway.loginWithPersistedCookie(
-                any(), any(), any(), any(), any()
+        when(sessionGateway.loginWithPersistedCookiePinnedEgress(
+                any(), any(), any(), any(), any(), any(), anyInt()
         )).thenThrow(new IllegalStateException(
                 "auth_required: Noon Cookie invalid or expired; HTTP 401"
         ));
@@ -137,8 +140,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
     @Test
     void projectAccessMismatchDoesNotQueueAutomaticRecovery() {
-        when(sessionGateway.loginWithPersistedCookie(
-                any(), any(), any(), any(), any()
+        when(sessionGateway.loginWithPersistedCookiePinnedEgress(
+                any(), any(), any(), any(), any(), any(), anyInt()
         )).thenThrow(new IllegalStateException(
                 "auth_required: account does not contain current project PRJ512183"
         ));
