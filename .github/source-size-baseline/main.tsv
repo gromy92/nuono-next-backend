@@ -232,7 +232,7 @@ src/main/java/com/nuono/next/sales/SalesAnalyticsService.java	712
 src/main/java/com/nuono/next/sales/SalesDataController.java	592
 src/main/java/com/nuono/next/sales/SalesProductRow.java	305
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastEngine.java	451
-src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1047
+src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1045
 src/main/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilder.java	484
 src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3518
 src/main/java/com/nuono/next/store/LocalDbStoreSyncService.java	570
