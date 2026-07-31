@@ -12,7 +12,7 @@
 - Historical files `000`–`206` are not a replayable production chain. They mix
   local bootstrap, fixtures, data repair, and managed cutover operations.
 - `release-migrations.tsv` is the immutable, forward-only production catalog
-  beginning at `210`. The exact filename is the migration identity.
+  beginning at `211`. The exact filename is the migration identity.
 - The release-side Database Migration Module owns schema DDL. Application
   startup and business requests are read-only with respect to schema.
 
