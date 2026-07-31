@@ -74,18 +74,18 @@ SET @finance_duplicate_group_count := (
     ) AS `duplicate_groups`
 );
 
-DROP TEMPORARY TABLE IF EXISTS `nuono_214_finance_duplicate_guard`;
+DROP TEMPORARY TABLE IF EXISTS `nuono_230_finance_duplicate_guard`;
 
-CREATE TEMPORARY TABLE `nuono_214_finance_duplicate_guard` (
+CREATE TEMPORARY TABLE `nuono_230_finance_duplicate_guard` (
     `duplicate_group_count` BIGINT NOT NULL,
-    CONSTRAINT `chk_214_no_finance_duplicate_groups`
+    CONSTRAINT `chk_230_no_finance_duplicate_groups`
         CHECK (`duplicate_group_count` = 0)
 ) ENGINE=MEMORY;
 
-INSERT INTO `nuono_214_finance_duplicate_guard` (`duplicate_group_count`)
+INSERT INTO `nuono_230_finance_duplicate_guard` (`duplicate_group_count`)
 VALUES (@finance_duplicate_group_count);
 
-DROP TEMPORARY TABLE `nuono_214_finance_duplicate_guard`;
+DROP TEMPORARY TABLE `nuono_230_finance_duplicate_guard`;
 
 SET @finance_key_exists := EXISTS (
     SELECT 1
@@ -130,7 +130,7 @@ SET @finance_shadow_key_exists := EXISTS (
     WHERE table_schema = DATABASE()
       AND table_name = 'noon_finance_transaction_fact'
       AND index_name =
-          'uk_noon_finance_transaction_fact_natural_shadow_214'
+          'uk_noon_finance_transaction_fact_natural_shadow_230'
 );
 
 SET @finance_shadow_key_is_exact := (
@@ -160,20 +160,20 @@ SET @finance_shadow_key_is_exact := (
     WHERE table_schema = DATABASE()
       AND table_name = 'noon_finance_transaction_fact'
       AND index_name =
-          'uk_noon_finance_transaction_fact_natural_shadow_214'
+          'uk_noon_finance_transaction_fact_natural_shadow_230'
 );
 
 -- The fixed shadow name is reserved by this migration. Never overwrite or drop
 -- an unexpected index using that name; require an operator to inspect it.
-DROP TEMPORARY TABLE IF EXISTS `nuono_214_finance_shadow_guard`;
+DROP TEMPORARY TABLE IF EXISTS `nuono_230_finance_shadow_guard`;
 
-CREATE TEMPORARY TABLE `nuono_214_finance_shadow_guard` (
+CREATE TEMPORARY TABLE `nuono_230_finance_shadow_guard` (
     `conflicting_shadow_index_count` BIGINT NOT NULL,
-    CONSTRAINT `chk_214_no_conflicting_finance_shadow_index`
+    CONSTRAINT `chk_230_no_conflicting_finance_shadow_index`
         CHECK (`conflicting_shadow_index_count` = 0)
 ) ENGINE=MEMORY;
 
-INSERT INTO `nuono_214_finance_shadow_guard`
+INSERT INTO `nuono_230_finance_shadow_guard`
     (`conflicting_shadow_index_count`)
 VALUES (
     IF(
@@ -184,7 +184,7 @@ VALUES (
     )
 );
 
-DROP TEMPORARY TABLE `nuono_214_finance_shadow_guard`;
+DROP TEMPORARY TABLE `nuono_230_finance_shadow_guard`;
 
 -- If the canonical name is free, either promote an exact shadow left by an
 -- interrupted run or add the canonical key directly.
@@ -192,7 +192,7 @@ SET @finance_promote_or_add_key_sql := IF(
     @finance_key_exists = 0,
     IF(
         @finance_shadow_key_exists = 1,
-        'ALTER TABLE `noon_finance_transaction_fact` RENAME INDEX `uk_noon_finance_transaction_fact_natural_shadow_214` TO `uk_noon_finance_transaction_fact_natural`',
+        'ALTER TABLE `noon_finance_transaction_fact` RENAME INDEX `uk_noon_finance_transaction_fact_natural_shadow_230` TO `uk_noon_finance_transaction_fact_natural`',
         'ALTER TABLE `noon_finance_transaction_fact` ADD UNIQUE KEY `uk_noon_finance_transaction_fact_natural` (`source_system`, `owner_user_id`, `store_code`, `site_code`, `row_hash`)'
     ),
     'DO 0'
@@ -208,7 +208,7 @@ SET @finance_add_shadow_key_sql := IF(
     @finance_key_exists = 1
         AND @finance_key_is_exact = 0
         AND @finance_shadow_key_exists = 0,
-    'ALTER TABLE `noon_finance_transaction_fact` ADD UNIQUE KEY `uk_noon_finance_transaction_fact_natural_shadow_214` (`source_system`, `owner_user_id`, `store_code`, `site_code`, `row_hash`)',
+    'ALTER TABLE `noon_finance_transaction_fact` ADD UNIQUE KEY `uk_noon_finance_transaction_fact_natural_shadow_230` (`source_system`, `owner_user_id`, `store_code`, `site_code`, `row_hash`)',
     'DO 0'
 );
 PREPARE finance_add_shadow_key_stmt FROM @finance_add_shadow_key_sql;
@@ -219,7 +219,7 @@ DEALLOCATE PREPARE finance_add_shadow_key_stmt;
 -- statement back, so the pre-existing canonical index is not weakened.
 SET @finance_swap_key_sql := IF(
     @finance_key_exists = 1 AND @finance_key_is_exact = 0,
-    'ALTER TABLE `noon_finance_transaction_fact` DROP INDEX `uk_noon_finance_transaction_fact_natural`, RENAME INDEX `uk_noon_finance_transaction_fact_natural_shadow_214` TO `uk_noon_finance_transaction_fact_natural`',
+    'ALTER TABLE `noon_finance_transaction_fact` DROP INDEX `uk_noon_finance_transaction_fact_natural`, RENAME INDEX `uk_noon_finance_transaction_fact_natural_shadow_230` TO `uk_noon_finance_transaction_fact_natural`',
     'DO 0'
 );
 PREPARE finance_swap_key_stmt FROM @finance_swap_key_sql;

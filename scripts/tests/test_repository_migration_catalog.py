@@ -21,11 +21,11 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
 
         self.assertEqual(
             [
-                "211_database_migration_history.sql",
-                "212_noon_pull_runtime_schema_convergence.sql",
-                "213_noon_fact_runtime_schema_convergence.sql",
-                "214_noon_finance_runtime_schema_convergence.sql",
-                "215_procurement_fulfillment_balance_quantity_invariant.sql",
+                "227_database_migration_history.sql",
+                "228_noon_pull_runtime_schema_convergence.sql",
+                "229_noon_fact_runtime_schema_convergence.sql",
+                "230_noon_finance_runtime_schema_convergence.sql",
+                "231_procurement_fulfillment_balance_quantity_invariant.sql",
             ],
             [migration.key for migration in migrations],
         )

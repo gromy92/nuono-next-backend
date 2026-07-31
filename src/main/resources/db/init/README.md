@@ -9,10 +9,13 @@
 - New migration numbers are unique. Registered historical collisions remain in
   `migration-governance.tsv`; do not add another collision.
 - `DbInitMigrationRegistry` validates the complete init-script inventory.
-- Historical files `000`–`206` are not a replayable production chain. They mix
+- Pre-catalog files below `227` are not a replayable production chain. They mix
   local bootstrap, fixtures, data repair, and managed cutover operations.
 - `release-migrations.tsv` is the immutable, forward-only production catalog
-  beginning at `211`. The exact filename is the migration identity.
+  beginning at `227`. The exact filename is the migration identity. Published
+  migration `223_product_site_offer_active_state_evidence.sql` predates this
+  catalog and remains immutable historical evidence; it is not back-inserted
+  into the new continuous history prefix.
 - The release-side Database Migration Module owns schema DDL. Application
   startup and business requests are read-only with respect to schema.
 

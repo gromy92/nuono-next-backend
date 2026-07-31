@@ -37,16 +37,16 @@ SET @fulfillment_balance_quantity_column_count := (
 );
 
 DROP TEMPORARY TABLE IF EXISTS
-    `nuono_215_fulfillment_balance_schema_guard`;
+    `nuono_231_fulfillment_balance_schema_guard`;
 
 CREATE TEMPORARY TABLE
-    `nuono_215_fulfillment_balance_schema_guard` (
+    `nuono_231_fulfillment_balance_schema_guard` (
         `invalid_schema_count` BIGINT NOT NULL,
-        CONSTRAINT `chk_215_fulfillment_balance_schema`
+        CONSTRAINT `chk_231_fulfillment_balance_schema`
             CHECK (`invalid_schema_count` = 0)
     ) ENGINE=MEMORY;
 
-INSERT INTO `nuono_215_fulfillment_balance_schema_guard`
+INSERT INTO `nuono_231_fulfillment_balance_schema_guard`
     (`invalid_schema_count`)
 VALUES (
     IF(
@@ -57,7 +57,7 @@ VALUES (
     )
 );
 
-DROP TEMPORARY TABLE `nuono_215_fulfillment_balance_schema_guard`;
+DROP TEMPORARY TABLE `nuono_231_fulfillment_balance_schema_guard`;
 
 SET @fulfillment_balance_invalid_row_count := (
     SELECT COUNT(*)
@@ -77,20 +77,20 @@ SET @fulfillment_balance_invalid_row_count := (
 );
 
 DROP TEMPORARY TABLE IF EXISTS
-    `nuono_215_fulfillment_balance_data_guard`;
+    `nuono_231_fulfillment_balance_data_guard`;
 
 CREATE TEMPORARY TABLE
-    `nuono_215_fulfillment_balance_data_guard` (
+    `nuono_231_fulfillment_balance_data_guard` (
         `invalid_row_count` BIGINT NOT NULL,
-        CONSTRAINT `chk_215_fulfillment_balance_data`
+        CONSTRAINT `chk_231_fulfillment_balance_data`
             CHECK (`invalid_row_count` = 0)
     ) ENGINE=MEMORY;
 
-INSERT INTO `nuono_215_fulfillment_balance_data_guard`
+INSERT INTO `nuono_231_fulfillment_balance_data_guard`
     (`invalid_row_count`)
 VALUES (@fulfillment_balance_invalid_row_count);
 
-DROP TEMPORARY TABLE `nuono_215_fulfillment_balance_data_guard`;
+DROP TEMPORARY TABLE `nuono_231_fulfillment_balance_data_guard`;
 
 SET @fulfillment_balance_constraint_symbol_count := (
     SELECT COUNT(*)
@@ -198,16 +198,16 @@ SET @fulfillment_balance_constraint_is_exact := (
 );
 
 DROP TEMPORARY TABLE IF EXISTS
-    `nuono_215_fulfillment_balance_constraint_guard`;
+    `nuono_231_fulfillment_balance_constraint_guard`;
 
 CREATE TEMPORARY TABLE
-    `nuono_215_fulfillment_balance_constraint_guard` (
+    `nuono_231_fulfillment_balance_constraint_guard` (
         `conflicting_constraint_count` BIGINT NOT NULL,
-        CONSTRAINT `chk_215_fulfillment_balance_constraint`
+        CONSTRAINT `chk_231_fulfillment_balance_constraint`
             CHECK (`conflicting_constraint_count` = 0)
     ) ENGINE=MEMORY;
 
-INSERT INTO `nuono_215_fulfillment_balance_constraint_guard`
+INSERT INTO `nuono_231_fulfillment_balance_constraint_guard`
     (`conflicting_constraint_count`)
 VALUES (
     IF(
@@ -219,7 +219,7 @@ VALUES (
 );
 
 DROP TEMPORARY TABLE
-    `nuono_215_fulfillment_balance_constraint_guard`;
+    `nuono_231_fulfillment_balance_constraint_guard`;
 
 SET @fulfillment_balance_add_constraint_sql := IF(
     @fulfillment_balance_constraint_symbol_count = 0,

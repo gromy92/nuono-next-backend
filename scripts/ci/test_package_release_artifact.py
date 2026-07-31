@@ -50,15 +50,15 @@ class PackageReleaseArtifactTest(unittest.TestCase):
             for name in names:
                 (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
             forward = [
-                ("211_database_migration_history.sql", "BOOTSTRAP"),
-                ("212_noon_pull_runtime_schema_convergence.sql", "AUTO_ADDITIVE"),
+                ("227_database_migration_history.sql", "BOOTSTRAP"),
+                ("228_noon_pull_runtime_schema_convergence.sql", "AUTO_ADDITIVE"),
             ]
             postcheck_dir = root / "db" / "postcheck"
             postcheck_dir.mkdir()
             catalog_lines = [
                 "order\tmigration_key\tkind\tscript_path\tpostcheck_path"
             ]
-            for order, (name, kind) in enumerate(forward, start=211):
+            for order, (name, kind) in enumerate(forward, start=227):
                 (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
                 (postcheck_dir / name).write_text("SELECT 1;\n", encoding="utf-8")
                 catalog_lines.append(
