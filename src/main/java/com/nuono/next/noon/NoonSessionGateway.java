@@ -958,7 +958,7 @@ public class NoonSessionGateway {
         return selector.select(
                 proxyMode, projectCode, storeCode, targetHost, targetPort,
                 route -> createCookieOnlyState(noonUser, cookieFingerprint, persistedCookie, projectCode, storeCode, route),
-                this::shouldRefreshAfterTransientTransportFailure
+                NoonSessionProbeFailurePolicy::classify
         );
     }
 

@@ -1,5 +1,6 @@
 package com.nuono.next.officialwarehouse;
 
+import com.nuono.next.noon.NoonEgressUnavailableException;
 import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import java.time.LocalDate;
@@ -53,6 +54,12 @@ final class OfficialWarehouseAppointmentRetryPolicy {
         if ("NOON_NO_CAPACITY".equalsIgnoreCase(normalize(failureType))) {
             return "NO_CAPACITY";
         }
+        if (NoonEgressUnavailableException.BLOCKED_FAILURE_CODE.equalsIgnoreCase(normalize(failureType))) {
+            return "NOON_ACCESS_BLOCKED";
+        }
+        if (NoonEgressUnavailableException.FAILURE_CODE.equalsIgnoreCase(normalize(failureType))) {
+            return "NOON_ACCESS_FAILURE";
+        }
         if (isAccessBlocked(errorStage, failureType, errorMessage)) {
             return "NOON_ACCESS_BLOCKED";
         }
@@ -77,6 +84,9 @@ final class OfficialWarehouseAppointmentRetryPolicy {
         if (exception instanceof NoonOperationException) {
             return ((NoonOperationException) exception).getClassification().getCode();
         }
+        if (exception instanceof NoonEgressUnavailableException) {
+            return ((NoonEgressUnavailableException) exception).getFailureCode();
+        }
         return exception == null ? "UNKNOWN" : exception.getClass().getSimpleName();
     }
 
@@ -86,7 +96,8 @@ final class OfficialWarehouseAppointmentRetryPolicy {
 
     private static boolean isAccessBlocked(String errorStage, String failureType, String errorMessage) {
         String combined = retryText(errorStage, failureType, errorMessage);
-        return combined.contains("http 407")
+        return combined.contains("noon_egress_blocked")
+                || combined.contains("http 407")
                 || combined.contains("proxy authentication")
                 || combined.contains("tunnel failed");
     }
@@ -96,7 +107,8 @@ final class OfficialWarehouseAppointmentRetryPolicy {
             return true;
         }
         String combined = retryText(errorStage, failureType, errorMessage);
-        return combined.contains("io_exception")
+        return combined.contains("noon_egress_unavailable")
+                || combined.contains("io_exception")
                 || combined.contains("connection reset")
                 || combined.contains("connection refused")
                 || combined.contains("connect timed out")

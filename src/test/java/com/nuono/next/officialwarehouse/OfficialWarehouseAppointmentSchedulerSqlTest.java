@@ -3,8 +3,10 @@ package com.nuono.next.officialwarehouse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
+import com.nuono.next.noon.NoonEgressUnavailableException;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
@@ -227,6 +229,45 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 .isEqualTo("NOON_ACCESS_FAILURE");
         assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("NOON_ACCESS_FAILURE"))
                 .isTrue();
+    }
+
+    @Test
+    void exhaustedEgressCandidatesRemainRetryableNoonAccessFailure() {
+        String failureType = LocalDbOfficialWarehouseService.appointmentRetryFailureType(
+                "NOON_CALL",
+                "NOON_EGRESS_UNAVAILABLE",
+                "NOON_EGRESS_UNAVAILABLE attempts=3 stages=[CONNECT_STATUS_407]"
+        );
+
+        assertThat(failureType).isEqualTo("NOON_ACCESS_FAILURE");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure(failureType)).isTrue();
+    }
+
+    @Test
+    void typedEgressFailurePreservesBlockedAndUnavailableRetryClassification() {
+        NoonEgressUnavailableException blocked = new NoonEgressUnavailableException(
+                3,
+                List.of("CONNECT_STATUS_407", "CONNECT_STATUS_407", "CONNECT_STATUS_407")
+        );
+        NoonEgressUnavailableException unavailable = new NoonEgressUnavailableException(
+                3,
+                List.of("CONNECT_REFUSED", "CONNECT_IO", "SESSION_TIMEOUT")
+        );
+
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.noonFailureType(blocked))
+                .isEqualTo("NOON_EGRESS_BLOCKED");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.failureType(
+                "NOON_CALL",
+                OfficialWarehouseAppointmentRetryPolicy.noonFailureType(blocked),
+                blocked.getMessage()
+        )).isEqualTo("NOON_ACCESS_BLOCKED");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.noonFailureType(unavailable))
+                .isEqualTo("NOON_EGRESS_UNAVAILABLE");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.failureType(
+                "NOON_CALL",
+                OfficialWarehouseAppointmentRetryPolicy.noonFailureType(unavailable),
+                unavailable.getMessage()
+        )).isEqualTo("NOON_ACCESS_FAILURE");
     }
 
     @Test
