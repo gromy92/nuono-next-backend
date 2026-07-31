@@ -80,6 +80,7 @@ public class ProductProjectionPersistenceService {
 
     private final ProductManagementMapper productManagementMapper;
     private final ProductBarcodeProjectionWriter productBarcodeProjectionWriter;
+    private final ProductMasterIdentityRecovery productMasterIdentityRecovery;
     private final CoreTableStatusMapper coreTableStatusMapper;
     private final BootstrapProperties bootstrapProperties;
     private final ObjectMapper objectMapper;
@@ -98,6 +99,7 @@ public class ProductProjectionPersistenceService {
     ) {
         this.productManagementMapper = productManagementMapper;
         this.productBarcodeProjectionWriter = new ProductBarcodeProjectionWriter(productManagementMapper);
+        this.productMasterIdentityRecovery = new ProductMasterIdentityRecovery(productManagementMapper);
         this.coreTableStatusMapper = coreTableStatusMapper;
         this.bootstrapProperties = bootstrapProperties;
         this.objectMapper = objectMapper;
@@ -1670,19 +1672,8 @@ public class ProductProjectionPersistenceService {
         ProductIdentity productIdentity = new ProductIdentity(logicalStoreId, seed.getPartnerSku());
         String partnerSku = productIdentity.partnerSku();
         String currentZCode = normalize(seed.getSkuParent());
-        Long existingId;
-        if (productIdentity.isComplete()) {
-            existingId = selectProductMasterId(productIdentity);
-            if (!isPersistedId(existingId) && StringUtils.hasText(currentZCode)) {
-                existingId = productManagementMapper.selectUnclaimedProductMasterIdBySkuParent(
-                        logicalStoreId,
-                        currentZCode
-                );
-            }
-        } else {
-            existingId = productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
-        }
-        Long id = isPersistedId(existingId) ? existingId : productManagementMapper.nextProductMasterId();
+        Long existingId = productMasterIdentityRecovery.resolve(logicalStoreId, productIdentity, currentZCode);
+        Long id = existingId != null ? existingId : productManagementMapper.nextProductMasterId();
         productManagementMapper.upsertProductMaster(
                 id,
                 logicalStoreId,
@@ -1709,10 +1700,6 @@ public class ProductProjectionPersistenceService {
         return productIdentity.isComplete()
                 ? selectProductMasterId(productIdentity)
                 : productManagementMapper.selectProductMasterId(logicalStoreId, currentZCode);
-    }
-
-    private boolean isPersistedId(Long id) {
-        return id != null && id > 0;
     }
 
     private void upsertClassificationDictionaries(

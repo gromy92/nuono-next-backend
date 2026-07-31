@@ -32,7 +32,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductManagementMapper extends ProductPublishRetryMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper {
+public interface ProductManagementMapper extends ProductPublishRetryMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper, ProductProjectionIdentityRecoveryMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -912,21 +912,6 @@ public interface ProductManagementMapper extends ProductPublishRetryMapper, Prod
     Long selectProductMasterIdByStorePartnerSku(
             @Param("logicalStoreId") Long logicalStoreId,
             @Param("partnerSku") String partnerSku
-    );
-
-    @Select({
-            "SELECT id",
-            "FROM product_master",
-            "WHERE logical_store_id = #{logicalStoreId}",
-            "  AND sku_parent = #{skuParent}",
-            "  AND NULLIF(TRIM(partner_sku), '') IS NULL",
-            "  AND is_deleted = 0",
-            "ORDER BY gmt_updated DESC, id DESC",
-            "LIMIT 1"
-    })
-    Long selectUnclaimedProductMasterIdBySkuParent(
-            @Param("logicalStoreId") Long logicalStoreId,
-            @Param("skuParent") String skuParent
     );
 
     default Long selectProductMasterIdByStoreCode(Long ownerUserId, String storeCode, String skuParent) {
