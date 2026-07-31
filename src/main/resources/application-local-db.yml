@@ -52,6 +52,10 @@ nuono:
       host:
       port: 0
       provider-url:
+      preflight:
+        max-attempts: ${NUONO_NOON_PROXY_PREFLIGHT_MAX_ATTEMPTS:3}
+        connect-timeout-ms: ${NUONO_NOON_PROXY_PREFLIGHT_CONNECT_TIMEOUT_MS:3000}
+        read-timeout-ms: ${NUONO_NOON_PROXY_PREFLIGHT_READ_TIMEOUT_MS:4000}
   procurement:
     ali-ai-bulk-inquiry:
       create-enabled: ${NUONO_PROCUREMENT_ALI_AI_CREATE_ENABLED:false}
