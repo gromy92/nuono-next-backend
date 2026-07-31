@@ -61,8 +61,8 @@ class NoonSessionGatewayPinnedEgressTest {
                 ScriptedProxy second = ScriptedProxy.connectStatus(407);
                 ScriptedProxy third = ScriptedProxy.connectStatus(407);
                 ProxyProvider provider = new ProxyProvider(first.port(), second.port(), third.port())) {
-            IllegalStateException failure = assertThrows(
-                    IllegalStateException.class,
+            NoonEgressUnavailableException failure = assertThrows(
+                    NoonEgressUnavailableException.class,
                     () -> gateway(provider.url()).loginWithPersistedCookiePinnedEgress(
                             307L,
                             "merchant@example.com",
@@ -76,6 +76,7 @@ class NoonSessionGatewayPinnedEgressTest {
 
             assertEquals(3, provider.requestCount());
             assertEquals(0, first.httpCount() + second.httpCount() + third.httpCount());
+            assertEquals(NoonEgressUnavailableException.BLOCKED_FAILURE_CODE, failure.getFailureCode());
             assertTrue(failure.getMessage().contains("3"));
             assertTrue(failure.getMessage().contains("CONNECT_STATUS_407"));
             assertFalse(failure.getMessage().contains("127.0.0.1"));

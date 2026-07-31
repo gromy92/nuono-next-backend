@@ -3,7 +3,6 @@ package com.nuono.next.noon;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
-import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,11 +33,11 @@ final class NoonPinnedEgressSelector {
             String targetHost,
             int targetPort,
             Function<NoonProxyRouteFactory.Route, T> sessionOpener,
-            Predicate<IllegalStateException> transientFailurePolicy
+            Function<IllegalStateException, String> transientFailureClassifier
     ) {
         NoonProxyMode mode = routeFactory.resolveMode(configuredMode);
         int attempts = mode == NoonProxyMode.PROVIDER ? maxAttempts : 1;
-        List<String> failures = new ArrayList<>();
+        List<String> evidenceCodes = new ArrayList<>();
         for (int attempt = 1; attempt <= attempts; attempt++) {
             NoonProxyRouteFactory.Route route;
             try {
@@ -50,7 +49,7 @@ final class NoonPinnedEgressSelector {
                         readTimeoutMillis
                 );
             } catch (NoonProxyConnectPreflight.PreflightFailure failure) {
-                failures.add(failure.fingerprint() + ":" + failure.evidenceCode());
+                evidenceCodes.add(failure.evidenceCode());
                 LOGGER.warn(
                         "Noon egress preflight rejected project={} store={} fingerprint={} stage={} attempt={}/{}",
                         projectCode, storeCode, failure.fingerprint(), failure.evidenceCode(), attempt, attempts
@@ -60,7 +59,7 @@ final class NoonPinnedEgressSelector {
                 if (mode != NoonProxyMode.PROVIDER) {
                     throw failure;
                 }
-                failures.add("provider-fetch:" + failure.getClass().getSimpleName());
+                evidenceCodes.add("PROVIDER_FETCH");
                 LOGGER.warn(
                         "Noon egress provider selection failed project={} store={} stage=PROVIDER_FETCH attempt={}/{}",
                         projectCode, storeCode, attempt, attempts
@@ -77,18 +76,17 @@ final class NoonPinnedEgressSelector {
             } catch (NoonSessionGateway.NoonCookieAuthRequiredException failure) {
                 throw failure;
             } catch (IllegalStateException failure) {
-                if (mode != NoonProxyMode.PROVIDER || !transientFailurePolicy.test(failure)) {
+                String evidenceCode = transientFailureClassifier.apply(failure);
+                if (mode != NoonProxyMode.PROVIDER || evidenceCode == null) {
                     throw failure;
                 }
-                failures.add(route.fingerprint() + ":SESSION_PROBE");
+                evidenceCodes.add(evidenceCode);
                 LOGGER.warn(
-                        "Noon egress session probe rejected project={} store={} fingerprint={} stage=SESSION_PROBE attempt={}/{}",
-                        projectCode, storeCode, route.fingerprint(), attempt, attempts
+                        "Noon egress session probe rejected project={} store={} fingerprint={} stage={} attempt={}/{}",
+                        projectCode, storeCode, route.fingerprint(), evidenceCode, attempt, attempts
                 );
             }
         }
-        throw new IllegalStateException(
-                "Noon 出口预检失败：attempts=" + attempts + " failures=" + failures
-        );
+        throw new NoonEgressUnavailableException(attempts, evidenceCodes);
     }
 }

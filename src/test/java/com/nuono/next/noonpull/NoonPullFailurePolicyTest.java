@@ -33,6 +33,9 @@ class NoonPullFailurePolicyTest {
                         + "projectCode=PRJ108065 siteCode=AE dateWindow=2026-07-06..2026-07-06; "
                         + "verify Ad Manager Overview coverage before treating as zero business data"
         ));
+        assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, policy.classify(
+                "NOON_EGRESS_UNAVAILABLE attempts=3 stages=[CONNECT_STATUS_407, CONNECT_TIMEOUT]"
+        ));
         assertEquals(NoonPullFailureType.PROVIDER_NOT_CONFIGURED, policy.classify("provider is not configured"));
         assertEquals(NoonPullFailureType.INVALID_PROJECT_CODE, policy.classify(
                 "provider unavailable: report export create failed: HTTP 400 {\"error\":\"Invalid project code\"}"
@@ -80,6 +83,20 @@ class NoonPullFailurePolicyTest {
         assertTrue(Duration.between(now(), timeout.getNextRetryAt()).toMinutes() >= 10);
         assertTrue(Duration.between(now(), timeout.getNextRetryAt()).toHours() <= 2);
         assertTrue(Duration.between(now(), unavailable.getNextRetryAt()).toMinutes() >= 5);
+    }
+
+    @Test
+    void exhaustedEgressCandidatesRemainDurablyRetryable() {
+        NoonPullFailureType failureType = policy.classify(
+                "NOON_EGRESS_BLOCKED attempts=3 stages=[CONNECT_STATUS_407]"
+        );
+        NoonPullFailureDecision decision = policy.decide(failureType, 1);
+
+        assertEquals(NoonPullFailureType.PROVIDER_UNAVAILABLE, failureType);
+        assertEquals(NoonPullRetryAction.RETRY, decision.getAction());
+        assertTrue(decision.isRetryable());
+        assertFalse(decision.requiresManualAction());
+        assertTrue(decision.getNextRetryAt().isAfter(now()));
     }
 
     @Test
