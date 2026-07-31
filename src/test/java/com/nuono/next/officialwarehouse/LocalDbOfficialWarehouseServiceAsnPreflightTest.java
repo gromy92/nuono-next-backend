@@ -1,0 +1,276 @@
+package com.nuono.next.officialwarehouse;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
+import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.noonlog.NoonHttpCallLogService;
+import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonRiskBackoffGuard;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDetail;
+import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineCommand;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchSourceAllocationRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord;
+import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccountType;
+import com.nuono.next.sales.NoonSalesReportBinding;
+import com.nuono.next.sales.NoonSalesReportBindingResolver;
+import com.nuono.next.web.ApiProblemException;
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
+
+class LocalDbOfficialWarehouseServiceAsnPreflightTest {
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private OfficialWarehouseMapper mapper;
+    private NoonSessionGateway gateway;
+    private NoonSalesReportBindingResolver bindingResolver;
+    private OfficialWarehouseNoonInboundClient inboundClient;
+    private NoonSession session;
+    private LocalDbOfficialWarehouseService service;
+
+    @BeforeEach
+    void setUp() {
+        mapper = mock(OfficialWarehouseMapper.class);
+        gateway = mock(NoonSessionGateway.class);
+        bindingResolver = mock(NoonSalesReportBindingResolver.class);
+        inboundClient = mock(OfficialWarehouseNoonInboundClient.class);
+        session = null;
+        service = new LocalDbOfficialWarehouseService(
+                mapper, gateway, bindingResolver, mock(NoonHttpCallLogService.class), inboundClient,
+                objectMapper, NoonRiskBackoffGuard.disabled(), new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled());
+        when(mapper.selectStoreSite(307L, "STR108065-NSA", "SA")).thenReturn(site());
+        when(bindingResolver.resolve(any())).thenReturn(binding());
+        when(gateway.loginWithPersistedCookiePinnedEgress(
+                307L, "merchant@example.com", "persisted-cookie", "PRJ108065",
+                "STR108065-NSA", "fbn.noon.partners", 443)).thenReturn(session);
+    }
+
+    @Test
+    void sggrb329MissingPbarcodeBlocksAtTheRealCreateAsnCallSeam() {
+        stubCandidates(List.of(candidate("SGGRB329", "PSKU-329", "N329", 329L)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
+                .thenReturn(offerPage("SGGRB329", "PSKU-329"));
+
+        assertThatThrownBy(() -> service.createAsn(access(), command(line("SGGRB329", 20))))
+                .isInstanceOfSatisfying(ApiProblemException.class, problem -> {
+                    assertThat(problem.getCode())
+                            .isEqualTo("OFFICIAL_WAREHOUSE_ASN_PRODUCT_PREFLIGHT_FAILED");
+                    assertThat(problem.isPartialSuccess()).isFalse();
+                });
+
+        verify(inboundClient).searchProductOffersPage(any(), any(), any(), any());
+        verify(inboundClient, never()).createAsn(any(), any(), any(), any());
+        verify(mapper, never()).insertAsn(any());
+        verify(mapper, never()).insertAsnLine(any());
+    }
+
+    @Test
+    void changedBatchQuantityBlocksBeforeSessionOrProviderRequest() {
+        stubCandidates(List.of(candidate("SGGRB329", "PSKU-329", "N329", 329L)));
+        ShippingBatchSourceAllocationRecord fresh = allocation(20);
+        ShippingBatchSourceAllocationRecord stale = allocation(10);
+        when(mapper.listShippingBatchSourceAllocations(
+                anyLong(), anyString(), anyString(), anyCollection(), anyCollection(), anyCollection()))
+                .thenReturn(new ArrayList<>(List.of(fresh)), new ArrayList<>(List.of(stale)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        CreateAsnCommand command = command(line("SGGRB329", 20));
+        command.shippingBatchIds = List.of("53023");
+
+        assertThatThrownBy(() -> service.createAsn(access(), command))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("批次可用 10");
+
+        verify(bindingResolver, never()).resolve(any());
+        verify(inboundClient, never()).searchProductOffersPage(any(), any(), any(), any());
+        verify(inboundClient, never()).createAsn(any(), any(), any(), any());
+        verify(mapper, never()).insertAsn(any());
+    }
+
+    @Test
+    void validMultiLineProofPreservesTheExistingProviderWriteOrder() {
+        stubCandidates(List.of(
+                candidate("SGGRB329", "PSKU-329", "N329", 329L),
+                candidate("PAPERSAYSB014", "PSKU-014", "N014", 14L)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L, 510002L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    String search = invocation.<JsonNode>getArgument(3).path("search").asText();
+                    return "SGGRB329".equals(search)
+                            ? offerPage(search, "PSKU-329", "PB-329")
+                            : offerPage(search, "PSKU-014", "PB-014");
+                });
+        when(inboundClient.createAsn(any(), any(), any(), any())).thenReturn(createResponse());
+        when(inboundClient.routeWarehouse(any(), any(), any(), anyString(), any()))
+                .thenReturn(routingResponse());
+        when(inboundClient.createLines(any(), any(), any(), anyString(), any()))
+                .thenReturn(objectMapper.createObjectNode());
+        when(inboundClient.queryAsnDetail(any(), any(), any(), anyString()))
+                .thenReturn(new AsnDetail("SEALED"));
+        when(mapper.selectAsn(307L, 500001L)).thenReturn(asnRecord());
+        when(mapper.listAsnShippingBatchLinks(500001L)).thenReturn(List.of());
+        when(mapper.listAsnLines(500001L)).thenReturn(List.of());
+        when(mapper.listAsnInboundReceipts(anyLong(), any())).thenReturn(List.of());
+
+        assertThat(service.createAsn(access(), command(
+                line("SGGRB329", 2), line("PAPERSAYSB014", 3))).noonAsnNr)
+                .isEqualTo("A05834999PN");
+
+        InOrder order = inOrder(inboundClient);
+        order.verify(inboundClient, times(2))
+                .searchProductOffersPage(any(), any(), any(), any());
+        order.verify(inboundClient).createAsn(any(), any(), any(), any());
+        order.verify(inboundClient).routeWarehouse(any(), any(), any(), anyString(), any());
+        order.verify(inboundClient).createLines(any(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    void timeoutAfterCreateKeepsTheExistingReconciliationStateWithoutReplay() {
+        stubCandidates(List.of(candidate("SGGRB329", "PSKU-329", "N329", 329L)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
+                .thenReturn(offerPage("SGGRB329", "PSKU-329", "PB-329"));
+        when(inboundClient.createAsn(any(), any(), any(), any())).thenReturn(createResponse());
+        when(inboundClient.routeWarehouse(any(), any(), any(), anyString(), any()))
+                .thenThrow(new IllegalStateException("provider timeout"));
+
+        assertThatThrownBy(() -> service.createAsn(access(), command(line("SGGRB329", 5))))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("provider timeout");
+
+        verify(inboundClient).createAsn(any(), any(), any(), any());
+        verify(inboundClient, never()).createLines(any(), any(), any(), anyString(), any());
+        verify(mapper, never()).softDeleteAsnShippingBatchLinks(anyLong(), anyLong());
+        verify(mapper, never()).softDeleteAsnLines(anyLong(), anyLong());
+        verify(mapper, never()).softDeletePreSubmitAsn(anyLong(), anyLong());
+    }
+
+    private void stubCandidates(List<ProductCandidateRecord> candidates) {
+        when(mapper.listProductCandidates(
+                anyLong(), anyString(), anyString(), isNull(), anyCollection(), anyCollection(), anyInt()))
+                .thenReturn(candidates);
+    }
+
+    private ProductCandidateRecord candidate(String partnerSku, String psku, String noonSku, long id) {
+        ProductCandidateRecord row = new ProductCandidateRecord();
+        row.ownerUserId = 307L;
+        row.logicalStoreId = 108065L;
+        row.logicalStoreSiteId = 1080651L;
+        row.storeCode = "STR108065-NSA";
+        row.siteCode = "SA";
+        row.productMasterId = id + 1000;
+        row.productVariantId = id;
+        row.productSiteOfferId = id + 2000;
+        row.partnerSku = partnerSku;
+        row.pskuCode = psku;
+        row.noonSku = noonSku;
+        row.titleCache = partnerSku;
+        row.productLengthCm = BigDecimal.TEN;
+        row.productWidthCm = BigDecimal.TEN;
+        row.productHeightCm = BigDecimal.TEN;
+        return row;
+    }
+
+    private ShippingBatchSourceAllocationRecord allocation(int quantity) {
+        ShippingBatchSourceAllocationRecord row = new ShippingBatchSourceAllocationRecord();
+        row.inTransitBatchId = 53023L;
+        row.shippingBatchNo = "XGGEKSA04075";
+        row.inTransitGoodsLineId = 54282L;
+        row.partnerSku = "SGGRB329";
+        row.quantity = quantity;
+        return row;
+    }
+
+    private CreateAsnCommand command(CreateAsnLineCommand... lines) {
+        CreateAsnCommand command = new CreateAsnCommand();
+        command.storeCode = "STR108065-NSA";
+        command.siteCode = "SA";
+        command.lines = List.of(lines);
+        return command;
+    }
+
+    private CreateAsnLineCommand line(String partnerSku, int quantity) {
+        CreateAsnLineCommand line = new CreateAsnLineCommand();
+        line.partnerSku = partnerSku;
+        line.quantity = quantity;
+        return line;
+    }
+
+    private ObjectNode offerPage(String partnerSku, String psku, String... pbarcodes) {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode data = root.putObject("data");
+        data.put("total", 1);
+        ObjectNode hit = data.putArray("hits").addObject()
+                .put("partner_sku", partnerSku).put("psku_code", psku);
+        for (String pbarcode : pbarcodes) hit.withArray("partner_barcodes").add(pbarcode);
+        return root;
+    }
+
+    private ObjectNode createResponse() {
+        ObjectNode root = objectMapper.createObjectNode();
+        ObjectNode data = root.putObject("data");
+        data.put("asn_nr", "A05834999PN").put("id_partner_asn", 9001).put("total_qty", 5);
+        return root;
+    }
+
+    private ObjectNode routingResponse() {
+        ObjectNode root = objectMapper.createObjectNode();
+        root.putArray("data").addObject().put("partner_code", "RUH01S").put("code", "W00105371A");
+        return root;
+    }
+
+    private BusinessAccessContext access() {
+        return BusinessAccessContext.builder().sessionUserId(901L).businessOwnerUserId(307L)
+                .accountType(BusinessAccountType.BOSS).storeCodes(Set.of("STR108065-NSA")).build();
+    }
+
+    private StoreSiteRecord site() {
+        StoreSiteRecord row = new StoreSiteRecord();
+        row.ownerUserId = 307L; row.logicalStoreId = 108065L; row.storeCode = "STR108065-NSA";
+        row.storeName = "Canman"; row.siteCode = "SA"; row.projectCode = "PRJ108065";
+        return row;
+    }
+
+    private NoonSalesReportBinding binding() {
+        return new NoonSalesReportBinding(307L, 108065L, "PRJ108065", "STR108065-NSA", "SA",
+                "108065", "merchant@example.com", null, null, "persisted-cookie");
+    }
+
+    private AsnRecord asnRecord() {
+        AsnRecord row = new AsnRecord();
+        row.id = 500001L; row.ownerUserId = 307L; row.logicalStoreId = 108065L;
+        row.storeCode = "STR108065-NSA"; row.siteCode = "SA"; row.localAsnNo = "OWA-500001";
+        row.noonAsnNr = "A05834999PN"; row.status = "LINES_CREATED"; row.totalQuantity = 5;
+        return row;
+    }
+}

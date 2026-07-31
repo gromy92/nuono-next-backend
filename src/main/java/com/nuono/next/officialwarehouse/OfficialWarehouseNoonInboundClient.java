@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.noon.NoonResponseClassifier;
@@ -14,6 +15,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDe
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.NoonAppointmentClient;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightModule.Proof;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -56,14 +58,44 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
-            int totalQuantity
+            Proof proof
     ) {
+        requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("totalQty", totalQuantity);
+        body.put("totalQty", proof.totalQuantity());
         return postNoonJson(session, binding, context.withOperation("CREATE_ASN"), CREATE_ASN_URL, body);
     }
 
+    JsonNode searchProductOffersPage(NoonSession session, NoonSalesReportBinding binding,
+                                     NoonCallContext context, JsonNode body) {
+        return postNoonJson(
+                session, binding, context.withOperation("PREFLIGHT_ASN_PRODUCT_IDENTITY"),
+                NoonCatalogApiRoutes.OFFER_LIST_NOON, body
+        );
+    }
+
     JsonNode routeWarehouse(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            NoonCallContext context,
+            String asnNr,
+            Proof proof
+    ) {
+        requireAuthorizedProof(proof, binding, context);
+        return routeWarehouseRequest(session, binding, context, asnNr, proof.requestLineRows());
+    }
+
+    JsonNode routeWarehouseForExistingAsn(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            NoonCallContext context,
+            String asnNr,
+            List<AsnLineInsertRecord> lineRows
+    ) {
+        return routeWarehouseRequest(session, binding, context, asnNr, lineRows);
+    }
+
+    private JsonNode routeWarehouseRequest(
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
@@ -87,12 +119,13 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSalesReportBinding binding,
             NoonCallContext context,
             String asnNr,
-            List<AsnLineInsertRecord> lineRows
+            Proof proof
     ) {
+        requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
         body.put("asnNr", asnNr);
         ArrayNode lines = body.putArray("partnerAsnLineList");
-        for (AsnLineInsertRecord line : lineRows) {
+        for (AsnLineInsertRecord line : proof.requestLineRows()) {
             ObjectNode lineNode = lines.addObject();
             lineNode.put("psku_code", line.pskuCode);
             lineNode.put("qty", line.quantity == null ? 0 : line.quantity);
@@ -101,6 +134,17 @@ public class OfficialWarehouseNoonInboundClient {
             lineNode.put("sku", line.noonSku);
         }
         return postNoonJson(session, binding, context.withOperation("CREATE_ASN_LINES"), CREATE_LINES_URL, body);
+    }
+
+    private void requireAuthorizedProof(
+            Proof proof,
+            NoonSalesReportBinding binding,
+            NoonCallContext context
+    ) {
+        if (proof == null || proof.lines().isEmpty() || proof.totalQuantity() <= 0) {
+            throw new IllegalArgumentException("官方仓商品身份尚未完成写前预检。");
+        }
+        proof.assertAuthorizes(binding, context);
     }
 
     AsnDetail queryAsnDetail(
@@ -303,43 +347,7 @@ public class OfficialWarehouseNoonInboundClient {
     }
 
     static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
-        if (detail == null) {
-            return List.of();
-        }
-        JsonNode lines = detail.path("lines");
-        if (!lines.isArray()) {
-            lines = detail.path("partnerAsnLineList");
-        }
-        if (!lines.isArray()) {
-            return List.of();
-        }
-        List<AsnLineInsertRecord> result = new ArrayList<>();
-        for (JsonNode line : lines) {
-            String noonSku = firstText(line, "sku", "noon_sku", "noonSku");
-            Integer quantity = firstPositiveInt(
-                    line,
-                    "qty",
-                    "quantity",
-                    "total_qty",
-                    "totalQty",
-                    "expected_qty",
-                    "expectedQty",
-                    "qty_expected",
-                    "qtyExpected"
-            );
-            if (!StringUtils.hasText(noonSku) || quantity == null) {
-                continue;
-            }
-            AsnLineInsertRecord record = new AsnLineInsertRecord();
-            record.noonSku = noonSku;
-            record.quantity = quantity;
-            record.storageTypeCode = firstNonBlank(
-                    firstText(line, "storage_type_code", "storageTypeCode"),
-                    "standard"
-            );
-            result.add(record);
-        }
-        return result;
+        return OfficialWarehouseRoutingLineParser.parse(detail);
     }
 
     private JsonNode postNoonJson(
@@ -378,7 +386,8 @@ public class OfficialWarehouseNoonInboundClient {
         return "QUERY_ASN_DETAIL".equals(operation)
                 || "QUERY_DAY_CAPACITY".equals(operation)
                 || "QUERY_SLOT_CAPACITY".equals(operation)
-                || "SYNC_ASN_LIST".equals(operation);
+                || "SYNC_ASN_LIST".equals(operation)
+                || "PREFLIGHT_ASN_PRODUCT_IDENTITY".equals(operation);
     }
 
     private Map<String, String> noonHeaders(NoonSalesReportBinding binding) {
@@ -478,19 +487,6 @@ public class OfficialWarehouseNoonInboundClient {
     private static Integer intValue(JsonNode node, String fieldName) {
         Long value = longValue(node, fieldName);
         return value == null ? null : value.intValue();
-    }
-
-    private static Integer firstPositiveInt(JsonNode node, String... fieldNames) {
-        if (fieldNames == null) {
-            return null;
-        }
-        for (String fieldName : fieldNames) {
-            Integer value = intValue(node, fieldName);
-            if (value != null && value > 0) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private static Long longValue(JsonNode node, String fieldName) {
