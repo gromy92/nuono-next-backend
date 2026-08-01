@@ -1632,10 +1632,8 @@ public class LocalDbOfficialWarehouseService implements
         );
     }
 
-    @Scheduled(
-            initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:5000}",
-            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:5000}"
-    )
+    @Scheduled(initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:5000}",
+            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:5000}")
     public void runAppointmentScheduler() {
         if (!appointmentSchedulerEnabled) {
             return;
@@ -1655,7 +1653,7 @@ public class LocalDbOfficialWarehouseService implements
             try {
                 runClaimedAppointmentRecord(claim, operatorId, true);
             } catch (Exception ignored) {
-                // Individual appointment failures are persisted in runClaimedAppointmentRecord.
+                // Continue with the next claimed appointment.
             }
         }
     }
@@ -2260,7 +2258,6 @@ public class LocalDbOfficialWarehouseService implements
             throw new IllegalStateException("等待 Noon ASN sealed 被中断。", exception);
         }
     }
-
 
     private void applyNoonLineResponse(Long asnId, JsonNode linesResponse, Long operatorUserId) {
         JsonNode data = linesResponse == null ? null : linesResponse.path("data");

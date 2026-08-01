@@ -100,7 +100,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	817
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3021
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3018
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1157
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	385
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
