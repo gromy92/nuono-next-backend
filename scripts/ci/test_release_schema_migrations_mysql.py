@@ -150,45 +150,10 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             integrity.key, rerun=True, approved_managed=integrity_approval
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
-        try:
-            applied = runner.apply(approved_managed=approvals)
-        except MigrationError as error:
-            if appointment.key in str(error):
-                print(
-                    "[DEBUG-234-columns]\n"
-                    + database.client.execute(
-                        "SELECT CONCAT_WS('~',column_name,data_type,column_type,"
-                        "COALESCE(character_set_name,'NULL'),"
-                        "COALESCE(collation_name,'NULL'),is_nullable,"
-                        "COALESCE(column_default,'NULL'),extra,"
-                        "COALESCE(generation_expression,'')) "
-                        "FROM information_schema.columns "
-                        "WHERE table_schema=DATABASE() "
-                        "AND table_name='official_warehouse_appointment' "
-                        "AND column_name IN ('is_deleted','execution_version',"
-                        "'active_asn_slot','active_remote_slot') "
-                        "ORDER BY ordinal_position;"
-                    )
-                )
-                print(
-                    "[DEBUG-234-indexes]\n"
-                    + database.client.execute(
-                        "SELECT CONCAT_WS('~',index_name,seq_in_index,"
-                        "column_name,non_unique,COALESCE(collation,'NULL'),"
-                        "COALESCE(is_visible,'NULL'),COALESCE(expression,'')) "
-                        "FROM information_schema.statistics "
-                        "WHERE table_schema=DATABASE() "
-                        "AND table_name='official_warehouse_appointment' "
-                        "AND index_name LIKE "
-                        "'uk_official_warehouse_appointment_active_%' "
-                        "ORDER BY index_name,seq_in_index;"
-                    )
-                )
-            raise
         self.assertEqual(
             [request_idempotency.key, packing_index.key,
              appointment.key, shipping_batch.key, shipping_plan.key],
-            applied,
+            runner.apply(approved_managed=approvals),
         )
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
@@ -218,7 +183,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner,
         )
 
-        target = integrity
+        target = shipping_plan
         database.client.execute(
             "UPDATE nuono_schema_migration h "
             "JOIN nuono_schema_migration_attempt a "
