@@ -94,6 +94,15 @@ jobs:
             sudo apt-get update -qq
             sudo apt-get install -y mysql-client
           }
+          MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3306 \
+            --user=root \
+            --execute="SET GLOBAL log_bin_trust_function_creators=ON;"
+          trigger_trust="$(
+            MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3306 \
+              --user=root --batch --skip-column-names \
+              --execute="SELECT @@GLOBAL.log_bin_trust_function_creators;"
+          )"
+          test "$trigger_trust" = "1"
           umask 077
           printf '%s\n' \
             '[client]' \

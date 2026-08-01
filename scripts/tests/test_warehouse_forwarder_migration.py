@@ -23,6 +23,20 @@ from ci.release_schema_mysql_forwarder_source_contract import (  # noqa: E402
 
 
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_ci_matches_production_trigger_policy_without_elevating_migration_user(self):
+        workflow = (SCRIPT_DIR.parent / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        policy = "SET GLOBAL log_bin_trust_function_creators=ON;"
+        migration_test = (
+            "python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py"
+        )
+
+        self.assertIn(policy, workflow)
+        self.assertIn("SELECT @@GLOBAL.log_bin_trust_function_creators;", workflow)
+        self.assertLess(workflow.index(policy), workflow.index(migration_test))
+        self.assertIn("'user=migration_ci'", workflow)
+
     def test_group_concat_limit_is_set_in_the_same_mysql_invocation(self):
         statements = []
         client = type(
