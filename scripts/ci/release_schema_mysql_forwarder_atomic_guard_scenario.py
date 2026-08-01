@@ -245,7 +245,7 @@ def _full_state(database, include_eligibility=True):
         "tc.constraint_schema AND cc.constraint_name=tc.constraint_name WHERE "
         f"tc.constraint_schema=DATABASE() AND tc.table_name IN ({quoted});"
         "SELECT COALESCE(SHA2(GROUP_CONCAT(CONCAT_WS('|',table_name,index_name,"
-        "non_unique,seq_in_index,column_name,index_type,visible,COALESCE(sub_part,'-')) "
+        "non_unique,seq_in_index,column_name,index_type,is_visible,COALESCE(sub_part,'-')) "
         "ORDER BY table_name,index_name,seq_in_index SEPARATOR '\\n'),256),'<EMPTY>') "
         "FROM information_schema.statistics WHERE table_schema=DATABASE() "
         f"AND table_name IN ({quoted});"

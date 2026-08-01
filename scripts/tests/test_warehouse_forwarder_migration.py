@@ -260,10 +260,7 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             self.assertIn(digest, script)
             self.assertIn(digest, postcheck)
 
-        legacy_tables = (
-            "forwarder_quote_numeric_adjustment",
-            "forwarder_quote_numeric_adjustment_log",
-        )
+        legacy_tables = ("forwarder_quote_numeric_adjustment", "forwarder_quote_numeric_adjustment_log")
         for table in legacy_tables:
             self.assertNotRegex(
                 script,
@@ -273,8 +270,7 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
                     re.IGNORECASE,
                 ),
             )
-        self.assertNotIn("product_forwarder_channel_quote", script)
-        self.assertNotIn("product_logistics_current_cost", script)
+        self.assertNotIn("product_forwarder_channel_quote", script); self.assertNotIn("product_logistics_current_cost", script)
         self.assertNotRegex(
             script,
             re.compile(
@@ -285,15 +281,19 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
         )
         for sql in (script, postcheck):
             self.assertTrue(all(marker in sql for marker in ("event_object_table='product_forwarder_transport_eligibility'", "event_object_table='product_forwarder_eligibility_scope_anchor'")))
-            self.assertIn("COALESCE(adjustment.adjusted_value,price.unit_price)", sql)
-            self.assertIn("adjustment.id IS NULL", sql)
-            self.assertIn("uk_pfte_active_scope", sql)
-            self.assertIn("CONCAT(CHAR(92),CHAR(39)),CHAR(39)", sql)
+            self.assertIn("COALESCE(adjustment.adjusted_value,price.unit_price)", sql); self.assertIn("adjustment.id IS NULL", sql)
+            self.assertIn("uk_pfte_active_scope", sql); self.assertIn("CONCAT(CHAR(92),CHAR(39)),CHAR(39)", sql)
             self.assertIn("CONCAT(CHAR(92),'0'),'0'", sql)
             self.assertIn("[[:space:]]*=[[:space:]]*", sql)
             self.assertIn("'charcharsetbinary','binary'", sql)
             self.assertIn("'octet_length','length'", sql)
             self.assertIn("'charactersetutf8mb4',''", sql); self.assertIn("action_order=1", sql)
+
+    def test_mysql8_index_visibility_uses_information_schema_is_visible(self):
+        paths = ("src/main/resources/db/init/237_warehouse_forwarder_quote_and_transport_eligibility.sql", "src/main/resources/db/postcheck/237_warehouse_forwarder_quote_and_transport_eligibility.sql", "scripts/ci/release_schema_mysql_forwarder_shape_guard_scenario.py", "scripts/ci/release_schema_mysql_forwarder_atomic_guard_scenario.py")
+        for relative in paths:
+            content = (SCRIPT_DIR.parent / relative).read_text(encoding="utf-8")
+            with self.subTest(path=relative): self.assertNotRegex(content, r"(?<!is_)\bvisible\b"); self.assertIn("is_visible", content)
 
 
 if __name__ == "__main__":

@@ -78,7 +78,7 @@ PRE_DML_STATE_SQL = (
     "ORDER BY ordinal_position SEPARATOR '\\n'),256) FROM information_schema.columns "
     "WHERE table_schema=DATABASE() AND table_name='product_forwarder_transport_eligibility'),"
     "'<ABSENT>'),COALESCE((SELECT SHA2(GROUP_CONCAT(CONCAT_WS('|',index_name,"
-    "non_unique,seq_in_index,column_name,COALESCE(sub_part,'-'),index_type,visible,"
+    "non_unique,seq_in_index,column_name,COALESCE(sub_part,'-'),index_type,is_visible,"
     "COALESCE(expression,'-'),collation) ORDER BY index_name,seq_in_index "
     "SEPARATOR '\\n'),256) FROM information_schema.statistics "
     "WHERE table_schema=DATABASE() AND table_name='product_forwarder_transport_eligibility'),"
