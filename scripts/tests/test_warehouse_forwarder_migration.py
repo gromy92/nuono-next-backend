@@ -200,6 +200,9 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             self.assertIn("uk_pfte_active_scope", sql)
             self.assertIn("CONCAT(CHAR(92),CHAR(39)),CHAR(39)", sql)
             self.assertIn("CONCAT(CHAR(92),'0'),'0'", sql)
+            self.assertIn("[[:space:]]*=[[:space:]]*", sql)
+            self.assertIn("'charcharsetbinary','binary'", sql)
+            self.assertIn("'octet_length','length'", sql)
 
 
 if __name__ == "__main__":

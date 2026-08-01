@@ -72,8 +72,10 @@ def guard_metadata_diagnostics(database):
         "AND trigger_name LIKE 'trg_fq_numeric_adjustment%retired_b_';",
     )
     check_normalized = (
-        "REGEXP_REPLACE(REPLACE(REPLACE(LOWER(check_clause),'`',''),"
-        "'_utf8mb4',''),'[()[:space:]]+','')"
+        "REPLACE(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE("
+        "LOWER(check_clause),'`',''),CONCAT(CHAR(92),CHAR(39)),CHAR(39)),"
+        "'_utf8mb4',''),'[()[:space:]]+',''),'charcharsetbinary','binary'),"
+        "'octet_length','length')"
     )
     check_metadata = execute_group_concat(
         database,
