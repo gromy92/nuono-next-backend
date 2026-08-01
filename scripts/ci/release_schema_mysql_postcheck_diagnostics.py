@@ -23,6 +23,9 @@ def apply_with_diagnostics(runner, approvals, database, forwarder):
                 + eligibility_expression_diagnostic(database),
                 file=sys.stderr,
             )
+            trigger_metadata, check_metadata = guard_metadata_diagnostics(database)
+            print("forwarder trigger metadata: " + trigger_metadata, file=sys.stderr)
+            print("forwarder check metadata: " + check_metadata, file=sys.stderr)
         raise
 
 
@@ -55,6 +58,32 @@ def eligibility_expression_diagnostic(database):
         "AND table_name='product_forwarder_transport_eligibility' "
         "AND column_name='active_scope_slot';",
     )
+
+
+def guard_metadata_diagnostics(database):
+    trigger_normalized = (
+        "LOWER(REGEXP_REPLACE(action_statement,'[[:space:]]+',' '))"
+    )
+    trigger_metadata = execute_group_concat(
+        database,
+        "SELECT GROUP_CONCAT(CONCAT(trigger_name,'=',HEX(action_statement),"
+        f"':',HEX({trigger_normalized})) ORDER BY trigger_name SEPARATOR '|') "
+        "FROM information_schema.triggers WHERE trigger_schema=DATABASE() "
+        "AND trigger_name LIKE 'trg_fq_numeric_adjustment%retired_b_';",
+    )
+    check_normalized = (
+        "REGEXP_REPLACE(REPLACE(REPLACE(LOWER(check_clause),'`',''),"
+        "'_utf8mb4',''),'[()[:space:]]+','')"
+    )
+    check_metadata = execute_group_concat(
+        database,
+        "SELECT GROUP_CONCAT(CONCAT(constraint_name,'=',HEX(check_clause),"
+        f"':',HEX({check_normalized})) ORDER BY constraint_name SEPARATOR '|') "
+        "FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() "
+        "AND constraint_name IN ('chk_pfte_status','chk_pfte_scope_codes',"
+        "'chk_shipping_line_eligibility_snapshot');",
+    )
+    return trigger_metadata, check_metadata
 
 
 def outer_if_predicates(statement):
