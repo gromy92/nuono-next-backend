@@ -164,6 +164,8 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertIn("0o600", script)
         self.assertIn('--defaults-file="$MYSQL_CNF"', script)
         self.assertIn("--no-login-paths", script)
+        self.assertIn('MYSQL_LOGIN_PATH_ARGS=(--no-login-paths)', script)
+        self.assertIn('"${MYSQL_LOGIN_PATH_ARGS[@]}"', script)
         self.assertIn('rm -f -- "$MYSQL_CNF"', script)
         self.assertIn('FROZEN_JAR="$WORK_DIR/staged-backend.jar"', script)
         self.assertIn("freeze_staged_jar", script)

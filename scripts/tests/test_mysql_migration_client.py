@@ -63,6 +63,33 @@ class MySqlMigrationClientTest(unittest.TestCase):
         finally:
             client.close()
 
+    def test_mariadb_client_without_login_path_support_uses_the_frozen_defaults_only(self):
+        mysql_bin = self.root / "fake-mariadb.py"
+        mysql_bin.write_text(
+            "#!/usr/bin/env python3\n"
+            "import sys\n"
+            "if '--no-login-paths' in sys.argv:\n"
+            "    print(\"unknown option '--no-login-paths'\", file=sys.stderr)\n"
+            "    raise SystemExit(2)\n",
+            encoding="utf-8",
+        )
+        mysql_bin.chmod(0o700)
+
+        client = MySqlClient(
+            self.defaults_file,
+            expected_schema="nuono_test",
+            expected_host="db.internal",
+            expected_port=3307,
+            mysql_bin=str(mysql_bin),
+            execution_timeout_seconds=5,
+        )
+        try:
+            command = client.command()
+            self.assertTrue(command[1].startswith("--defaults-file="))
+            self.assertNotIn("--no-login-paths", command)
+        finally:
+            client.close()
+
     @unittest.skipIf(os.name == "nt", "symlink policy is POSIX-only")
     def test_defaults_file_must_not_be_a_symlink(self):
         link = self.root / "migration-link.cnf"

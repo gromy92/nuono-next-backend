@@ -56,6 +56,7 @@ class MySqlClient:
         self.defaults_file = Path(self._temporary.name) / "mysql.cnf"
         try:
             freeze_defaults_file(self.source_defaults_file, self.defaults_file)
+            self.no_login_paths_supported = self._detect_no_login_paths_support()
         except BaseException:
             self._temporary.cleanup()
             raise
@@ -173,10 +174,13 @@ class MySqlClient:
         self._temporary.cleanup()
 
     def command(self, *extra: str) -> list[str]:
+        login_path_option = (
+            ["--no-login-paths"] if self.no_login_paths_supported else []
+        )
         return [
             self.mysql_bin,
             f"--defaults-file={self.defaults_file}",
-            "--no-login-paths",
+            *login_path_option,
             "--skip-reconnect",
             "--protocol=TCP",
             f"--host={self.expected_host}",
@@ -189,6 +193,27 @@ class MySqlClient:
             "--connect-timeout=10",
             *extra,
         ]
+
+    def _detect_no_login_paths_support(self) -> bool:
+        try:
+            result = subprocess.run(
+                [self.mysql_bin, "--no-login-paths", "--version"],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=False,
+                timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            raise MigrationError("cannot inspect mysql client capabilities") from error
+        if result.returncode == 0:
+            return True
+        output = (result.stderr or result.stdout).lower()
+        if "unknown option" in output and "no-login-paths" in output:
+            return False
+        raise MigrationError(
+            "mysql client capability probe failed before opening a database connection"
+        )
 
     def _execute_once(self, sql: str, *, timeout_seconds: int) -> str:
         payload = (
