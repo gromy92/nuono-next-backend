@@ -145,11 +145,11 @@ final class WarehouseShippingQuoteChannelIdentity {
     }
 
     static boolean isZd(PurchaseOrderLogisticsQuoteLineRecord line) {
-        return line != null && isZd(line.forwarderCode, line.forwarderName, line.routeCode);
+        return line != null && isZd(line.forwarderCode, line.routeCode);
     }
 
     static boolean isZd(ShippingOrderSegmentRecord segment) {
-        return segment != null && isZd(segment.forwarderCode, segment.forwarderName, segment.routeCode);
+        return segment != null && isZd(segment.forwarderCode, segment.routeCode);
     }
 
     static String normalizeStatus(String value) {
@@ -164,14 +164,9 @@ final class WarehouseShippingQuoteChannelIdentity {
         return values == null ? List.of() : values;
     }
 
-    private static boolean isZd(String code, String name, String routeCode) {
-        String normalized = (defaultText(code, "") + " "
-                + defaultText(name, "") + " "
-                + defaultText(routeCode, "")).toUpperCase(Locale.ROOT);
+    private static boolean isZd(String code, String routeCode) {
         return "ZD".equalsIgnoreCase(defaultText(code, ""))
-                || defaultText(routeCode, "").toUpperCase(Locale.ROOT).startsWith("ZD-")
-                || normalized.contains("众鸫")
-                || normalized.contains("众东");
+                || defaultText(routeCode, "").toUpperCase(Locale.ROOT).startsWith("ZD-");
     }
 
     static boolean sameCode(String left, String right) {

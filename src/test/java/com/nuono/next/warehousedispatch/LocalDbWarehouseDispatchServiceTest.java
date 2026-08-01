@@ -48,6 +48,22 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSupport {
 
+    @Test
+    void submittedZdWithoutPriceUsesNonBlockingDatabaseProjection() {
+        FulfillmentBalanceRecord zd = balance("PENDING_QUOTE", "SUBMITTED");
+        zd.logisticsQuoteBlocking = false;
+
+        assertThat(service.logisticsQuoteBlocks(zd)).isFalse();
+    }
+
+    @Test
+    void missingProjectionFailsClosedEvenWhenDisplayStatusesLookReady() {
+        FulfillmentBalanceRecord unknown = balance("CONFIRMED", "SUBMITTED");
+        unknown.logisticsQuoteBlocking = null;
+
+        assertThat(service.logisticsQuoteBlocks(unknown)).isTrue();
+    }
+
 @Test
     void createDispatchPlanRejectsBalanceBeforeLogisticsQuoteIsConfirmedAndShippingSubmitted() {
         FulfillmentBalanceRecord balance = balance("PENDING_QUOTE", "NOT_SUBMITTED");
@@ -70,7 +86,7 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
 
         assertThatThrownBy(() -> service.createDispatchPlan(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("物流报价未确认");
+                .hasMessageContaining("物流单价缺失");
         verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
@@ -157,6 +173,6 @@ class LocalDbWarehouseDispatchServiceTest extends WarehouseDispatchServiceTestSu
         command.sources = List.of(source);
 
         assertThat(service.previewMobileShippingDecision(access(), command).blockers)
-                .noneMatch(reason -> reason.contains("物流报价未确认"));
+                .noneMatch(reason -> reason.contains("物流单价缺失"));
     }
 }

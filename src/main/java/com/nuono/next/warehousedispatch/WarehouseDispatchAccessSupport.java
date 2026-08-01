@@ -92,9 +92,9 @@ protected List<FulfillmentBalanceRecord> selectAuthorizedBalancesForUpdate(
 
 protected boolean logisticsQuoteBlocks(FulfillmentBalanceRecord balance) {
         return balance == null
-                || !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(balance.logisticsQuoteStatus))
-                || !SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(balance.logisticsShippingSubmitStatus));
-    }
+                || balance.logisticsQuoteBlocking == null
+                || Boolean.TRUE.equals(balance.logisticsQuoteBlocking);
+}
 
 protected String normalizeLogisticsQuoteStatus(String value) {
         String normalized = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "";

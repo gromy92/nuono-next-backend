@@ -193,7 +193,7 @@ public interface WarehouseOutboundMapper extends WarehouseLinkedShippingMapper {
             "  AND NOT EXISTS (",
             "      SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "      WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            "        AND quote.quote_status = 'CONFIRMED'",
+            ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE,
             "        AND quote.shipping_submit_status = 'SUBMITTED'",
             "        AND quote.is_deleted = b'0'",
             "  )"

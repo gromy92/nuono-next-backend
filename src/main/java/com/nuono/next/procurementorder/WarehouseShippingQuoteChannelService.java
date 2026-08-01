@@ -1,13 +1,15 @@
 package com.nuono.next.procurementorder;
 
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.applyChannel;
+import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.candidateFrom;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.isYite;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.isZd;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.matches;
-import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.normalizeStatus;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.normalizeSubmitStatus;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.safe;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.sameCode;
+import static com.nuono.next.procurementorder.WarehouseLogisticsQuoteAvailability.applyResolvedPrice;
+import static com.nuono.next.procurementorder.WarehouseLogisticsQuoteAvailability.hasUsablePrice;
 import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
@@ -25,9 +27,9 @@ import org.springframework.util.StringUtils;
 @Component
 public class WarehouseShippingQuoteChannelService {
 
-    private static final String CONFIRMED = "CONFIRMED";
     private static final String PENDING = "PENDING_QUOTE";
     private static final String NOT_SUBMITTED = "NOT_SUBMITTED";
+    private static final String SUBMITTED = "SUBMITTED";
 
     private final ProcurementPurchaseOrderMapper mapper;
     private final WarehouseLogisticsQuotePriceService priceService;
@@ -43,7 +45,7 @@ public class WarehouseShippingQuoteChannelService {
         this.quoteProjectionService = quoteProjectionService;
     }
 
-    Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> loadConfirmations(
+    Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> loadChannelSnapshots(
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
         return safe(lines).stream()
@@ -52,23 +54,24 @@ public class WarehouseShippingQuoteChannelService {
                 .distinct()
                 .collect(Collectors.toMap(
                         Function.identity(),
-                        shippingOrderId -> safe(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrderId))
+                        shippingOrderId -> safe(
+                                mapper.listLogisticsQuoteChannelSnapshotsByShippingOrder(shippingOrderId))
                 ));
     }
 
     PurchaseOrderLogisticsQuoteChannelLineView resolvePrice(
             PurchaseOrderLogisticsQuoteLineRecord line,
             ForwarderRouteRecommendationRecord candidate,
-            Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> confirmationsByShippingOrder
+            Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> usableQuotesByShippingOrder
     ) {
-        PurchaseOrderLogisticsQuoteLineRecord confirmation = safe(
-                confirmationsByShippingOrder.get(line.shippingOrderId)
+        PurchaseOrderLogisticsQuoteLineRecord ownChannel = safe(
+                usableQuotesByShippingOrder.get(line.shippingOrderId)
         ).stream()
                 .filter(row -> Objects.equals(row.purchaseOrderItemSiteId, line.purchaseOrderItemSiteId))
                 .filter(row -> matches(row, candidate))
                 .findFirst()
                 .orElse(line);
-        return priceService.resolve(line, candidate, confirmation);
+        return priceService.resolve(line, candidate, ownChannel);
     }
 
     PurchaseOrderLogisticsQuoteLineRecord requireChannelLine(
@@ -113,17 +116,22 @@ public class WarehouseShippingQuoteChannelService {
                     .findFirst()
                     .orElse(null);
             if (exact != null) {
-                resolved.add(WarehouseShippingQuoteSnapshotRefresher.rebind(exact, baseLine));
-                continue;
-            }
-            if (CONFIRMED.equals(normalizeStatus(baseLine.quoteStatus)) && matches(baseLine, segment)) {
-                resolved.add(baseLine);
+                PurchaseOrderLogisticsQuoteLineRecord selected =
+                        WarehouseShippingQuoteSnapshotRefresher.rebind(exact, baseLine);
+                selected.quoteStatus = WarehouseLogisticsQuoteAvailability.statusFor(selected.unitPrice);
+                if (segment != null && !SUBMITTED.equals(normalizeSubmitStatus(selected.shippingSubmitStatus))) {
+                    applyResolvedPrice(selected, priceService.resolve(baseLine, candidateFrom(segment), selected));
+                }
+                resolved.add(selected);
                 continue;
             }
             if (segment != null) {
+                PurchaseOrderLogisticsQuoteChannelLineView price =
+                        priceService.resolve(baseLine, candidateFrom(segment), baseLine);
                 applyChannel(baseLine, segment);
-                baseLine.quoteStatus = PENDING;
-                baseLine.unitPrice = null;
+                applyResolvedPrice(baseLine, price);
+            } else {
+                baseLine.quoteStatus = WarehouseLogisticsQuoteAvailability.statusFor(baseLine.unitPrice);
             }
             resolved.add(baseLine);
         }
@@ -150,7 +158,7 @@ public class WarehouseShippingQuoteChannelService {
                 return true;
             }
             boolean priceBlocking = segment == null ? !isZd(line) : !isZd(segment);
-            return priceBlocking && !CONFIRMED.equals(normalizeStatus(line.quoteStatus));
+            return priceBlocking && !hasUsablePrice(line);
         });
         if (missingQuote) {
             throw new IllegalArgumentException("仓库单还有物流报价缺失，不能提交。");
@@ -168,41 +176,16 @@ public class WarehouseShippingQuoteChannelService {
             List<ShippingOrderSegmentRecord> segments,
             Long operatorUserId
     ) {
-        Map<Long, ShippingOrderSegmentRecord> segmentById = safe(segments).stream()
-                .filter(segment -> segment.id != null)
-                .collect(Collectors.toMap(segment -> segment.id, Function.identity(), (left, ignored) -> left));
-        List<PurchaseOrderLogisticsQuoteLineRecord> materialized = new ArrayList<>();
-        for (PurchaseOrderLogisticsQuoteLineRecord line : safe(lines)) {
-            if (line.id != null) {
-                materialized.add(WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, line, line, operatorUserId));
-                continue;
-            }
-            ShippingOrderSegmentRecord segment = segmentById.get(line.shippingOrderSegmentId);
-            if (segment == null || !isZd(segment)) {
-                throw new IllegalArgumentException("仓库单还有物流报价缺失，不能提交。");
-            }
-            PurchaseOrderLogisticsQuoteLineRecord exact =
-                    mapper.selectLogisticsQuoteLineByShippingOrderChannelForUpdate(
-                            line.shippingOrderId,
-                            line.purchaseOrderItemSiteId,
-                            segment.forwarderCode,
-                            segment.routeCode,
-                            segment.serviceCode
-                    );
-            if (exact == null) {
-                exact = WarehouseLogisticsQuoteLineFactory.copyOf(line);
-                exact.id = mapper.nextLogisticsQuoteLineId();
-                exact.shippingSubmitStatus = NOT_SUBMITTED;
-                applyChannel(exact, segment);
-                mapper.insertLogisticsQuoteLine(exact, operatorUserId);
-            } else {
-                exact = WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, exact, line, operatorUserId);
-            }
-            exact.quoteStatus = CONFIRMED;
-            WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, exact, operatorUserId);
-            materialized.add(exact);
-        }
-        return materialized;
+        return WarehouseShippingQuoteSubmissionMaterializer.materialize(
+                mapper, lines, segments, operatorUserId);
+    }
+
+    void materializePurchaseSubmissionFacts(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            Long operatorUserId
+    ) {
+        WarehousePurchaseSubmissionMaterializer.materialize(
+                mapper, priceService, lines, operatorUserId);
     }
 
     void refreshSelectedSegmentStates(
@@ -221,7 +204,7 @@ public class WarehouseShippingQuoteChannelService {
             return;
         }
         if (selected.isEmpty()) {
-            safe(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrderId)).stream()
+            safe(mapper.listUsableLogisticsQuoteLinesByShippingOrder(shippingOrderId)).stream()
                     .findFirst()
                     .ifPresent(line -> mapper.refreshShippingOrderQuoteState(
                             shippingOrderId, line, operatorUserId));

@@ -31,7 +31,7 @@ abstract class WarehouseDispatchServiceState {
     protected static final String TRANSPORT_UNSPECIFIED = "UNSPECIFIED";
     protected static final String LOGISTICS_QUOTE_CONFIRMED = "CONFIRMED";
     protected static final String SHIPPING_SUBMITTED = "SUBMITTED";
-    protected static final String LOGISTICS_QUOTE_BLOCK_MESSAGE = "物流报价未确认或运营未提交发货，仓库暂不能装箱。";
+    protected static final String LOGISTICS_QUOTE_BLOCK_MESSAGE = "物流单价缺失或运营未提交发货，仓库暂不能装箱。";
     protected static final BigDecimal CUBIC_CM_PER_CBM = BigDecimal.valueOf(1_000_000L);
     protected static final BigDecimal GRAMS_PER_KG = BigDecimal.valueOf(1_000L);
     protected static final BigDecimal DEFAULT_AIR_VOLUME_DIVISOR = BigDecimal.valueOf(5000L);

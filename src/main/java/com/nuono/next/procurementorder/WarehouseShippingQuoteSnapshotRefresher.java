@@ -22,6 +22,17 @@ final class WarehouseShippingQuoteSnapshotRefresher {
         return rebound;
     }
 
+    static void refreshUnlessSubmitted(
+            ProcurementPurchaseOrderMapper mapper,
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            Long operatorUserId
+    ) {
+        if (line != null && "SUBMITTED".equalsIgnoreCase(line.shippingSubmitStatus)) {
+            return;
+        }
+        refresh(mapper, line, line, operatorUserId);
+    }
+
     static PurchaseOrderLogisticsQuoteLineRecord rebind(
             PurchaseOrderLogisticsQuoteLineRecord existing,
             PurchaseOrderLogisticsQuoteLineRecord currentBase

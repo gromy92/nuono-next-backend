@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -53,20 +54,47 @@ public class WarehouseProductLogisticsPriceBridge {
         if (!hasBusinessKey(line) || !StringUtils.hasText(forwarderCode)) {
             return null;
         }
+        String canonicalForwarderCode = normalizeForwarderCode(forwarderCode);
         List<CurrentCostRow> rows = mapper.listCurrentCosts(
                 line.ownerUserId,
                 line.logicalStoreId,
                 null,
                 line.partnerSku,
                 normalize(line.siteCode),
-                normalize(forwarderCode),
+                canonicalForwarderCode,
                 normalize(line.plannedTransportMode),
                 20
         );
+        CurrentCostRow exactStoreCurrent = findHeadhaul(rows);
+        if (exactStoreCurrent != null || !Boolean.TRUE.equals(mapper.selectLogicalStoreArchived(
+                line.ownerUserId, line.logicalStoreId))) {
+            return exactStoreCurrent;
+        }
+        return uniqueHeadhaul(mapper.listCurrentCostsFromActiveStores(
+                line.ownerUserId,
+                line.partnerSku,
+                normalize(line.siteCode),
+                canonicalForwarderCode,
+                normalize(line.plannedTransportMode)
+        ));
+    }
+
+    private CurrentCostRow findHeadhaul(List<CurrentCostRow> rows) {
         return rows == null ? null : rows.stream()
+                .filter(Objects::nonNull)
                 .filter(row -> HEADHAUL.equalsIgnoreCase(defaultText(row.feeType, HEADHAUL)))
+                .filter(row -> row.unitCostCny != null && row.unitCostCny.signum() > 0)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private CurrentCostRow uniqueHeadhaul(List<CurrentCostRow> rows) {
+        List<CurrentCostRow> current = rows == null ? List.of() : rows.stream()
+                .filter(Objects::nonNull)
+                .filter(row -> HEADHAUL.equalsIgnoreCase(defaultText(row.feeType, HEADHAUL)))
+                .filter(row -> row.unitCostCny != null && row.unitCostCny.signum() > 0)
+                .collect(java.util.stream.Collectors.toList());
+        return current.size() == 1 ? current.get(0) : null;
     }
 
     public void syncConfirmedQuote(
@@ -146,7 +174,7 @@ public class WarehouseProductLogisticsPriceBridge {
         row.partnerSku = line.partnerSku;
         row.barcode = line.barcode;
         row.siteCode = normalize(line.siteCode);
-        row.forwarderCode = normalize(line.forwarderCode);
+        row.forwarderCode = normalizeForwarderCode(line.forwarderCode);
         row.forwarderName = line.forwarderName;
         row.transportMode = normalize(line.plannedTransportMode);
         row.routeCode = line.routeCode;
@@ -175,7 +203,7 @@ public class WarehouseProductLogisticsPriceBridge {
         row.partnerSku = line.partnerSku;
         row.barcode = line.barcode;
         row.siteCode = normalize(line.siteCode);
-        row.forwarderCode = normalize(line.forwarderCode);
+        row.forwarderCode = normalizeForwarderCode(line.forwarderCode);
         row.forwarderName = line.forwarderName;
         row.transportMode = normalize(line.plannedTransportMode);
         row.routeCode = line.routeCode;
@@ -234,6 +262,20 @@ public class WarehouseProductLogisticsPriceBridge {
 
     private static String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
+    }
+
+    private static String normalizeForwarderCode(String value) {
+        String normalized = normalize(value);
+        if ("易通".equals(normalized) || "YITONG".equals(normalized)) {
+            return "ET";
+        }
+        if ("义特".equals(normalized) || "YT".equals(normalized)) {
+            return "YITE";
+        }
+        if ("CHIC".equals(normalized) || "启客".equals(normalized) || "奇克".equals(normalized)) {
+            return "QIKE";
+        }
+        return normalized;
     }
 
     private static String defaultText(String value, String fallback) {

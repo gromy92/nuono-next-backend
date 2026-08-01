@@ -107,14 +107,11 @@ class WarehouseForwarderEligibilityWorkflow {
 
     void requirePurchaseOrderSubmittable(
             Long ownerUserId,
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines
+        List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
         lockQuoteLineEligibilityScopes(ownerUserId, lines);
-        List<PurchaseOrderLogisticsQuoteLineRecord> confirmed = safe(lines).stream()
-                .filter(line -> "CONFIRMED".equals(normalized(line.quoteStatus)))
-                .collect(Collectors.toList());
-        eligibilityService.applyCurrentChannels(confirmed);
-        eligibilityService.requireSubmittable(confirmed);
+        eligibilityService.applyCurrentChannels(lines);
+        eligibilityService.requireSubmittable(lines);
     }
 
     ShippingOrderRecord lockNotSubmittedOrder(ShippingOrderRecord visibleOrder, String message) {

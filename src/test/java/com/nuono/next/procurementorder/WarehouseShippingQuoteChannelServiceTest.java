@@ -121,7 +121,7 @@ class WarehouseShippingQuoteChannelServiceTest {
 
         assertThat(facts).singleElement().satisfies(fact -> {
             assertThat(fact.id).isEqualTo(280003L);
-            assertThat(fact.quoteStatus).isEqualTo("CONFIRMED");
+            assertThat(fact.quoteStatus).isEqualTo("PENDING_QUOTE");
             assertThat(fact.forwarderCode).isEqualTo("CHIC");
             assertThat(fact.routeCode).isEqualTo("ZD-SAU-AIR-FBN-RUH");
         });

@@ -177,8 +177,10 @@ class WarehouseDispatchMapperSqlTest {
         assertThat(sql).contains("FROM warehouse_outbound_order_line_source source");
         assertThat(sql).contains("NOT EXISTS ( SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).contains("quote.purchase_order_item_site_id = source.purchase_order_item_site_id");
-        assertThat(sql).contains("quote.quote_status = 'CONFIRMED'");
+        assertThat(sql).contains("quote.unit_price > 0");
+        assertThat(sql).contains("UPPER(TRIM(COALESCE(quote.forwarder_code, ''))) = 'ZD'");
         assertThat(sql).contains("quote.shipping_submit_status = 'SUBMITTED'");
+        assertThat(sql).doesNotContain("quote.quote_status = 'CONFIRMED'");
         assertThat(sql).doesNotContain("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
     }
 

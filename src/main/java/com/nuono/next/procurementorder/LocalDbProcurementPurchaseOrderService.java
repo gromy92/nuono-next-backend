@@ -782,26 +782,25 @@ public class LocalDbProcurementPurchaseOrderService {
                 selectedForwarderCode,
                 selectedRouteCode
         );
-        List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = lines.stream()
-                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
-                .filter(line -> matchesLogisticsQuoteOption(line, selectedOption.candidate))
+        List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = logisticsQuoteReportLines(
+                lines, selectedOption.candidate).stream()
+                .filter(line -> !SHIPPING_SUBMITTED.equals(normalizeShippingSubmitStatus(line.shippingSubmitStatus)))
                 .collect(Collectors.toList());
         if (exportLines.isEmpty()) {
-            throw new IllegalArgumentException("当前采购单没有匹配该货代渠道的待报价商品。");
+            throw new IllegalArgumentException("当前采购单没有匹配该货代渠道的未提交商品。");
         }
+        applySelectedChannelQuoteCoverage(exportLines, selectedOption.lineQuotes);
         forwarderEligibilityService.requireExportable(exportLines, selectedOption.candidate);
-        refreshLogisticsQuoteLines(operatorUserId, lines);
-        for (PurchaseOrderLogisticsQuoteLineRecord line : exportLines) {
-            applyLogisticsQuoteChannel(line, selectedOption.candidate);
-            mapper.assignLogisticsQuoteLineChannel(line, operatorUserId);
-        }
+        refreshLogisticsQuoteLines(operatorUserId, exportLines);
+        WarehouseLogisticsQuoteSelectionPersistence.persist(
+                mapper, exportLines, selectedOption.candidate, operatorUserId);
 
         PurchaseOrderLogisticsQuoteReportExportView view = new PurchaseOrderLogisticsQuoteReportExportView();
         view.filename = logisticsQuoteReportFilename(order.orderNo, selectedOption);
         view.contentType = logisticsQuoteTemplateContentType(selectedOption.templateType);
         view.rowCount = exportLines.size();
         view.pendingCount = (int) exportLines.stream()
-                .filter(line -> LOGISTICS_QUOTE_PENDING.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .count();
         view.newProductCount = (int) exportLines.stream()
                 .filter(line -> Boolean.TRUE.equals(line.isNewProduct))
@@ -812,12 +811,12 @@ public class LocalDbProcurementPurchaseOrderService {
                 .filter(id -> id != null)
                 .collect(Collectors.toList());
         if (!lineIds.isEmpty()) {
-            mapper.markLogisticsQuoteLinesExported(order.id, lineIds, operatorUserId);
+            WarehouseLogisticsQuoteExportPersistence.markPurchaseOrderExported(
+                    mapper, order.id, lineIds, operatorUserId);
         }
         log(order.id, null, "EXPORT_LOGISTICS_QUOTE_REPORT", operatorUserId, order.status, order.status, view.filename);
         return view;
     }
-
     @Transactional(readOnly = true)
     public PurchaseOrderLogisticsQuoteOptionsView listLogisticsQuoteOptions(
             BusinessAccessContext access,
@@ -866,7 +865,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 }
             }
             if (!recognized) {
-                throw new IllegalArgumentException("未识别报价回传表模板，请使用采购单导出的义特、易通模板或通用报价确认表。");
+                throw new IllegalArgumentException("未识别报价回传表模板，请使用采购单导出的义特、易通模板或通用报价表。");
             }
         } catch (IOException exception) {
             throw new IllegalArgumentException("报价回传表读取失败，请确认文件格式为 xls 或 xlsx。", exception);
@@ -882,15 +881,16 @@ public class LocalDbProcurementPurchaseOrderService {
                 access, parseLongId(orderId, "采购单不存在或已删除。"));
         List<PurchaseOrderLogisticsQuoteLineRecord> lines =
                 emptyIfNull(mapper.listLogisticsQuoteCandidatesByOrder(order.id));
-        forwarderEligibilityWorkflow.requirePurchaseOrderSubmittable(order.ownerUserId, lines);
-        int blockingCount = mapper.countUnconfirmedLogisticsQuoteLines(order.id);
-        if (blockingCount > 0) {
-            throw new IllegalArgumentException("还有物流报价未确认，不能提交给仓库装箱。");
-        }
         Long operatorUserId = access.getSessionUserId();
+        shippingQuoteChannelService.materializePurchaseSubmissionFacts(lines, operatorUserId);
+        forwarderEligibilityWorkflow.requirePurchaseOrderSubmittable(order.ownerUserId, lines);
+        int blockingCount = mapper.countMissingLogisticsQuotePrices(order.id);
+        if (blockingCount > 0) {
+            throw new IllegalArgumentException("还有物流单价缺失，不能提交给仓库装箱。");
+        }
         int submitted = mapper.submitLogisticsQuoteLinesForShipping(order.id, operatorUserId);
-        if (submitted <= 0) {
-            throw new IllegalArgumentException("当前采购单没有可提交发货的报价行。");
+        if (submitted != lines.size()) {
+            throw new IllegalArgumentException("采购单提交状态已变化，请刷新后重试。");
         }
         log(order.id, null, "SUBMIT_SHIPPING", operatorUserId, order.status, order.status, String.valueOf(submitted));
         PurchaseOrderShippingSubmitView view = new PurchaseOrderShippingSubmitView();
@@ -1489,7 +1489,7 @@ public class LocalDbProcurementPurchaseOrderService {
         forwarderEligibilityService.requireExportable(matchingLines, selectedOption.candidate);
         List<PurchaseOrderLogisticsQuoteLineRecord> reportLines = missingOnly
                 ? matchingLines.stream()
-                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .collect(Collectors.toList())
                 : matchingLines;
         if (reportLines.isEmpty()) {
@@ -1501,14 +1501,15 @@ public class LocalDbProcurementPurchaseOrderService {
                     selectedOption.candidate,
                     operatorUserId
             );
-            mapper.assignLogisticsQuoteLineChannel(persisted, operatorUserId);
+            WarehouseLogisticsQuoteSelectionPersistence.persistExact(
+                    mapper, persisted, line, selectedOption.candidate, operatorUserId);
             line.id = persisted.id;
             applyLogisticsQuoteChannel(line, selectedOption.candidate);
         }
         mapper.refreshShippingOrderQuoteState(shippingOrder.id, reportLines.get(0), operatorUserId);
 
         List<PurchaseOrderLogisticsQuoteLineRecord> exportLines = reportLines.stream()
-                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .collect(Collectors.toList());
 
         PurchaseOrderRecord document = shippingOrderAsPurchaseOrder(shippingOrder);
@@ -1517,7 +1518,7 @@ public class LocalDbProcurementPurchaseOrderService {
         view.contentType = logisticsQuoteTemplateContentType(selectedOption.templateType);
         view.rowCount = reportLines.size();
         view.pendingCount = (int) reportLines.stream()
-                .filter(line -> LOGISTICS_QUOTE_PENDING.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .count();
         view.newProductCount = (int) reportLines.stream()
                 .filter(line -> Boolean.TRUE.equals(line.isNewProduct))
@@ -1525,7 +1526,8 @@ public class LocalDbProcurementPurchaseOrderService {
         view.content = buildLogisticsQuoteWorkbook(document, reportLines, selectedOption.templateType);
         List<Long> lineIds = exportLines.stream().map(line -> line.id).filter(id -> id != null).collect(Collectors.toList());
         if (!lineIds.isEmpty()) {
-            mapper.markShippingOrderLogisticsQuoteLinesExported(shippingOrder.id, lineIds, operatorUserId);
+            WarehouseLogisticsQuoteExportPersistence.markShippingOrderExported(
+                    mapper, shippingOrder.id, lineIds, operatorUserId);
         }
         List<Long> affectedSegmentIds = reportLines.stream()
                 .map(line -> line.shippingOrderSegmentId)
@@ -1597,7 +1599,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 }
             }
             if (!recognized) {
-                throw new IllegalArgumentException("未识别报价回传表模板，请使用发货单导出的义特、易通模板或通用报价确认表。");
+                throw new IllegalArgumentException("未识别报价回传表模板，请使用发货单导出的义特、易通模板或通用报价表。");
             }
         } catch (IOException exception) {
             throw new IllegalArgumentException("报价回传表读取失败，请确认文件格式为 xls 或 xlsx。", exception);
@@ -1633,10 +1635,11 @@ public class LocalDbProcurementPurchaseOrderService {
                 emptyIfNull(mapper.listShippingOrderSegments(shippingOrder.id));
         List<PurchaseOrderLogisticsQuoteLineRecord> baseLines =
                 emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id));
+        WarehouseCurrentRouteVerifier.requireShipping(mapper, baseLines, availableSegments);
         List<PurchaseOrderLogisticsQuoteLineRecord> lines = shippingQuoteChannelService.resolveSelectedLines(
                 baseLines,
                 availableSegments,
-                emptyIfNull(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrder.id))
+                emptyIfNull(mapper.listLogisticsQuoteChannelSnapshotsByShippingOrder(shippingOrder.id))
         );
         forwarderEligibilityService.applySelected(lines, availableSegments);
         forwarderEligibilityService.requireSubmittable(lines);
@@ -1657,11 +1660,8 @@ public class LocalDbProcurementPurchaseOrderService {
                 lines,
                 operatorUserId
         );
-        mapper.submitLogisticsQuoteLinesForShippingOrder(shippingOrder.id, operatorUserId);
-        if (!availableSegments.isEmpty()) {
-            mapper.markShippingOrderSegmentsSubmitted(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
-        }
-        mapper.markShippingOrderSubmitted(shippingOrder.id, shippingOrder.ownerUserId, operatorUserId);
+        WarehouseShippingSubmissionCompletion.markSubmitted(
+                mapper, shippingOrder, availableSegments, lines, operatorUserId);
         ShippingOrderSubmitView view = new ShippingOrderSubmitView();
         view.shippingOrderId = String.valueOf(shippingOrder.id);
         view.shippingOrderNo = shippingOrder.shippingOrderNo;
@@ -1746,20 +1746,20 @@ public class LocalDbProcurementPurchaseOrderService {
         List<PurchaseOrderLogisticsQuoteLineRecord> quoteLines = shippingQuoteChannelService.resolveSelectedLines(
                 baseQuoteLines,
                 billingSegments,
-                emptyIfNull(mapper.listConfirmedLogisticsQuoteLinesByShippingOrder(shippingOrder.id))
+                emptyIfNull(mapper.listLogisticsQuoteChannelSnapshotsByShippingOrder(shippingOrder.id))
         );
         if (quoteLines.isEmpty()) {
             throw new IllegalArgumentException("发货单没有可生成账单的报价行。");
         }
-        List<PurchaseOrderLogisticsQuoteLineRecord> confirmedLines = new ArrayList<>();
+        List<PurchaseOrderLogisticsQuoteLineRecord> pricedLines = new ArrayList<>();
         for (PurchaseOrderLogisticsQuoteLineRecord line : quoteLines) {
-            if (!LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus))) {
-                throw new IllegalArgumentException("发货单还有物流报价未确认，不能生成预估账单。");
+            if (!WarehouseLogisticsQuoteAvailability.hasUsablePrice(line)) {
+                throw new IllegalArgumentException("发货单还有物流单价缺失，不能生成预估账单。");
             }
-            confirmedLines.add(line);
+            pricedLines.add(line);
         }
 
-        PurchaseOrderLogisticsQuoteLineRecord sample = confirmedLines.get(0);
+        PurchaseOrderLogisticsQuoteLineRecord sample = pricedLines.get(0);
         Long billingSegmentId = requestedSegmentIds.isEmpty() ? null : sample.shippingOrderSegmentId;
         String billingSegmentNo = requestedSegmentIds.isEmpty() ? null : sample.shippingOrderSegmentNo;
         mapper.cancelOpenLogisticsExpectedBills(shippingOrder.ownerUserId, shippingOrder.id, billingSegmentId, operatorUserId);
@@ -1786,11 +1786,11 @@ public class LocalDbProcurementPurchaseOrderService {
         bill.exchangeRateToCny = exchangeRate;
         bill.billStatus = "GENERATED";
         bill.generatedFrom = "SHIPPING_ORDER_QUOTE";
-        bill.componentCount = confirmedLines.size();
+        bill.componentCount = pricedLines.size();
 
         List<LogisticsExpectedBillComponentRecord> components = new ArrayList<>();
         BigDecimal totalAmount = BigDecimal.ZERO;
-        for (PurchaseOrderLogisticsQuoteLineRecord line : confirmedLines) {
+        for (PurchaseOrderLogisticsQuoteLineRecord line : pricedLines) {
             BigDecimal expectedAmount = logisticsExpectedAmount(line);
             totalAmount = totalAmount.add(expectedAmount);
 
@@ -1824,7 +1824,7 @@ public class LocalDbProcurementPurchaseOrderService {
 
         bill.expectedTotalAmount = totalAmount;
         bill.expectedTotalCny = totalAmount.multiply(exchangeRate);
-        bill.rawSnapshotJson = logisticsExpectedBillSnapshot(shippingOrder, confirmedLines);
+        bill.rawSnapshotJson = logisticsExpectedBillSnapshot(shippingOrder, pricedLines);
         mapper.insertLogisticsExpectedBill(bill, operatorUserId);
         for (LogisticsExpectedBillComponentRecord component : components) {
             mapper.insertLogisticsExpectedBillComponent(component, operatorUserId);
@@ -1881,7 +1881,7 @@ public class LocalDbProcurementPurchaseOrderService {
     ) {
         List<PurchaseOrderLogisticsQuoteLineRecord> lines =
                 emptyIfNull(mapper.listLogisticsQuoteCandidatesByShippingOrder(shippingOrder.id));
-        applyYiteMaterialDefaults(lines);
+        applyYiteMaterialDefaults(WarehouseLogisticsQuoteMutationScope.mutableOnly(lines));
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
             line.shippingOrderId = shippingOrder.id;
             line.shippingOrderNo = shippingOrder.shippingOrderNo;
@@ -2060,7 +2060,7 @@ public class LocalDbProcurementPurchaseOrderService {
             Long operatorUserId,
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
-        applyYiteMaterialDefaults(lines);
+        applyYiteMaterialDefaults(WarehouseLogisticsQuoteMutationScope.mutableOnly(lines));
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
             line.quoteStatus = normalizeLogisticsQuoteStatus(line.quoteStatus);
             line.shippingSubmitStatus = normalizeShippingSubmitStatus(line.shippingSubmitStatus);
@@ -2072,7 +2072,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 line.shippingSubmitStatus = SHIPPING_NOT_SUBMITTED;
                 mapper.insertLogisticsQuoteLine(line, operatorUserId);
             } else {
-                mapper.refreshLogisticsQuoteLineSnapshot(line, operatorUserId);
+                WarehouseShippingQuoteSnapshotRefresher.refreshUnlessSubmitted(mapper, line, operatorUserId);
             }
         }
         return lines;
@@ -2340,7 +2340,7 @@ public class LocalDbProcurementPurchaseOrderService {
             List<PurchaseOrderLogisticsQuoteLineRecord> lines
     ) {
         return routableLogisticsQuoteLines(lines).stream()
-                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .collect(Collectors.toList());
     }
 
@@ -2358,7 +2358,7 @@ public class LocalDbProcurementPurchaseOrderService {
     ) {
         return routableLogisticsQuoteLines(lines).stream()
                 .filter(line -> matchesLogisticsQuoteOption(line, candidate))
-                .filter(line -> !missingOnly || !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !missingOnly || !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .collect(Collectors.toList());
     }
 
@@ -2374,7 +2374,7 @@ public class LocalDbProcurementPurchaseOrderService {
             return reportLines;
         }
         return reportLines.stream()
-                .filter(line -> !LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus)))
+                .filter(line -> !WarehouseLogisticsQuoteAvailability.hasUsablePrice(line))
                 .collect(Collectors.toList());
     }
 
@@ -2387,10 +2387,7 @@ public class LocalDbProcurementPurchaseOrderService {
             if (quote == null) {
                 continue;
             }
-            line.quoteStatus = normalizeLogisticsQuoteStatus(quote.quoteStatus);
-            line.unitPrice = quote.unitPrice;
-            line.currency = quote.currency;
-            line.billingUnit = quote.billingUnit;
+            WarehouseLogisticsQuoteAvailability.applyResolvedPrice(line, quote);
             line.eligibilityStatus = quote.eligibilityStatus;
             if (StringUtils.hasText(quote.yiteMaterial)) {
                 line.yiteMaterial = quote.yiteMaterial;
@@ -2454,8 +2451,10 @@ public class LocalDbProcurementPurchaseOrderService {
         line.routeName = candidate.routeName;
         line.serviceCode = candidate.serviceCode;
         line.serviceName = candidate.serviceName;
-        line.currency = defaultText(candidate.currency, "RMB");
-        line.billingUnit = candidate.billingUnit;
+        line.currency = WarehouseLogisticsQuoteAvailability.hasUsablePrice(line)
+                ? defaultText(line.currency, defaultText(candidate.currency, "RMB")) : null;
+        line.billingUnit = WarehouseLogisticsQuoteAvailability.hasUsablePrice(line)
+                ? defaultText(line.billingUnit, candidate.billingUnit) : null;
     }
 
     private String logisticsQuoteTemplateName(String templateType) {
@@ -2572,7 +2571,7 @@ public class LocalDbProcurementPurchaseOrderService {
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException exception) {
-            throw new IllegalStateException("物流报价确认表生成失败。", exception);
+            throw new IllegalStateException("物流报价表生成失败。", exception);
         }
     }
 
@@ -3142,7 +3141,7 @@ public class LocalDbProcurementPurchaseOrderService {
         writeNumericCell(row, 11, line.quantity);
         writeStringCell(row, 12, fulfillmentTypeLabel(normalizeFulfillmentType(line.fulfillmentType)));
         writeStringCell(row, 13, Boolean.TRUE.equals(line.isNewProduct) ? "是" : "否");
-        writeStringCell(row, 14, logisticsQuoteStatusLabel(line.quoteStatus));
+        writeStringCell(row, 14, logisticsQuoteStatusLabel(line.unitPrice));
         writeStringCell(row, 15, shippingSubmitStatusLabel(line.shippingSubmitStatus));
         writeStringCell(row, 16, line.forwarderCode);
         writeStringCell(row, 17, line.forwarderName);
@@ -5836,8 +5835,8 @@ public class LocalDbProcurementPurchaseOrderService {
         return LOGISTICS_QUOTE_PENDING;
     }
 
-    private String logisticsQuoteStatusLabel(String value) {
-        return LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(value)) ? "已确认" : "待报价";
+    private String logisticsQuoteStatusLabel(BigDecimal unitPrice) {
+        return WarehouseLogisticsQuoteAvailability.hasUsablePrice(unitPrice) ? "已有单价" : "缺单价";
     }
 
     private String normalizeShippingSubmitStatus(String value) {
@@ -5867,7 +5866,7 @@ public class LocalDbProcurementPurchaseOrderService {
             if (Boolean.TRUE.equals(line.isNewProduct)) {
                 summary.newProductLineCount += 1;
             }
-            if (LOGISTICS_QUOTE_CONFIRMED.equals(normalizeLogisticsQuoteStatus(line.quoteStatus))) {
+            if (WarehouseLogisticsQuoteAvailability.hasUsablePrice(line)) {
                 summary.confirmedLineCount += 1;
             } else {
                 summary.pendingLineCount += 1;

@@ -47,8 +47,8 @@ class WarehouseLogisticsQuoteOptionService {
                 .filter(line -> StringUtils.hasText(normalized(line.siteCode)))
                 .filter(line -> AIR.equals(line.plannedTransportMode) || SEA.equals(line.plannedTransportMode))
                 .collect(Collectors.toList());
-        Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> confirmations =
-                quoteChannelService.loadConfirmations(routableLines);
+        Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> usableQuotes =
+                quoteChannelService.loadChannelSnapshots(routableLines);
         Map<String, ProductForwarderTransportEligibilityRecord> eligibilityRules =
                 eligibilityService.loadCurrent(routableLines);
         Map<String, List<PurchaseOrderLogisticsQuoteLineRecord>> linesByRoute = routableLines.stream()
@@ -76,7 +76,7 @@ class WarehouseLogisticsQuoteOptionService {
                         Collections.emptyList()
                 );
                 if (!matching.isEmpty()) {
-                    options.add(buildOption(candidate, matching, confirmations, eligibilityRules));
+                    options.add(buildOption(candidate, matching, usableQuotes, eligibilityRules));
                 }
             }
         }
@@ -94,7 +94,7 @@ class WarehouseLogisticsQuoteOptionService {
     private LogisticsQuoteExportOption buildOption(
             ForwarderRouteRecommendationRecord candidate,
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> confirmations,
+            Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> usableQuotes,
             Map<String, ProductForwarderTransportEligibilityRecord> eligibilityRules
     ) {
         LogisticsQuoteExportOption option = new LogisticsQuoteExportOption();
@@ -102,7 +102,7 @@ class WarehouseLogisticsQuoteOptionService {
         option.templateType = templateType(candidate);
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
             PurchaseOrderLogisticsQuoteChannelLineView view = quoteChannelService.resolvePrice(
-                    line, candidate, confirmations
+                    line, candidate, usableQuotes
             );
             eligibilityService.apply(view, line, candidate, eligibilityRules);
             option.lineQuotes.add(view);

@@ -1267,65 +1267,6 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             @Param("operatorUserId") Long operatorUserId
     );
 
-    @Select({
-            "<script>",
-            "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
-            "       product_variant_id AS productVariantId, logical_store_id AS logicalStoreId,",
-            "       source_store_code AS sourceStoreCode, partner_sku AS partnerSku, barcode,",
-            "       forwarder_code AS forwarderCode, forwarder_name AS forwarderName,",
-            "       route_code AS routeCode, route_name AS routeName,",
-            "       service_code AS serviceCode, service_name AS serviceName,",
-            "       site_code AS siteCode, transport_mode AS transportMode,",
-            "       target_platform AS targetPlatform, delivery_city AS deliveryCity,",
-            "       currency, unit_price AS unitPrice, billing_unit AS billingUnit, estimated_amount AS estimatedAmount,",
-            "       source_type AS sourceType, source_shipping_order_id AS sourceShippingOrderId,",
-            "       source_shipping_order_line_id AS sourceShippingOrderLineId, source_quote_line_id AS sourceQuoteLineId,",
-            "       source_actual_bill_id AS sourceActualBillId, source_actual_component_id AS sourceActualComponentId,",
-            "       source_filename AS sourceFilename, effective_status AS effectiveStatus, raw_snapshot_json AS rawSnapshotJson",
-            "FROM product_forwarder_channel_quote",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND forwarder_code = #{forwarderCode}",
-            "<choose>",
-            "  <when test='partnerSku != null and partnerSku != \"\"'>",
-            "    AND UPPER(partner_sku) = UPPER(#{partnerSku})",
-            "    <if test='logicalStoreId != null'>",
-            "      AND (logical_store_id IS NULL OR logical_store_id = #{logicalStoreId})",
-            "    </if>",
-            "    <if test='sourceStoreCode != null and sourceStoreCode != \"\"'>",
-            "      AND (source_store_code IS NULL OR TRIM(source_store_code) = '' OR UPPER(source_store_code) = UPPER(#{sourceStoreCode}))",
-            "    </if>",
-            "  </when>",
-            "  <otherwise>",
-            "    AND product_variant_id = #{productVariantId}",
-            "  </otherwise>",
-            "</choose>",
-            "  AND COALESCE(site_code, '') = COALESCE(#{siteCode}, '')",
-            "  AND COALESCE(route_code, '') = COALESCE(#{routeCode}, '')",
-            "  AND COALESCE(service_code, '') = COALESCE(#{serviceCode}, '')",
-            "  AND effective_status = 'CURRENT'",
-            "  AND is_deleted = b'0'",
-            "ORDER BY CASE",
-            "           WHEN source_store_code IS NOT NULL",
-            "            AND TRIM(source_store_code) != ''",
-            "            AND UPPER(source_store_code) = UPPER(#{sourceStoreCode}) THEN 0",
-            "           ELSE 1",
-            "         END,",
-            "         confirmed_at DESC, id DESC",
-            "LIMIT 1",
-            "</script>"
-    })
-    ProductForwarderChannelQuoteRecord selectCurrentProductForwarderChannelQuote(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("sourceStoreCode") String sourceStoreCode,
-            @Param("logicalStoreId") Long logicalStoreId,
-            @Param("partnerSku") String partnerSku,
-            @Param("productVariantId") Long productVariantId,
-            @Param("forwarderCode") String forwarderCode,
-            @Param("siteCode") String siteCode,
-            @Param("routeCode") String routeCode,
-            @Param("serviceCode") String serviceCode
-    );
-
     @Update({
             "UPDATE logistics_expected_bill",
             "SET bill_status = 'CANCELLED',",
@@ -1635,7 +1576,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType, quote.id AS quoteLineId,",
             "       sol.eligibility_status_snapshot AS eligibilityStatus,",
             "       quote.currency AS currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
-            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       CASE WHEN quote.unit_price > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS quoteStatus,",
             "       COALESCE(segment.shipping_submit_status, quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
             "FROM procurement_shipping_order_line sol",
             "LEFT JOIN procurement_shipping_order_segment segment",
@@ -1694,7 +1635,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType, quote.id AS quoteLineId,",
             "       sol.eligibility_status_snapshot AS eligibilityStatus,",
             "       quote.currency AS currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
-            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       CASE WHEN quote.unit_price > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS quoteStatus,",
             "       COALESCE(segment.shipping_submit_status, quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
             "FROM procurement_shipping_order_line sol",
             "LEFT JOIN procurement_shipping_order_segment segment",
@@ -2232,7 +2173,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "       site.site_code AS siteCode, site.psku_code AS pskuCode, quote.yite_material AS yiteMaterial, site.transport_mode AS plannedTransportMode,",
             "       site.quantity, COALESCE(item.fulfillment_type, 'WAREHOUSE_RECEIPT') AS fulfillmentType,",
             "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
-            "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
+            "       CASE WHEN quote.unit_price > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS quoteStatus,",
             "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
             "       quote.forwarder_code AS forwarderCode, quote.forwarder_name AS forwarderName,",
             "       quote.route_code AS routeCode, quote.route_name AS routeName,",
@@ -2496,6 +2437,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{row.id}",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'"
     })
     int refreshLogisticsQuoteLineSnapshot(
@@ -2505,21 +2447,20 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
 
     @Update({
             "UPDATE procurement_purchase_order_logistics_quote_line",
-            "SET forwarder_code = #{row.forwarderCode},",
-            "    forwarder_name = #{row.forwarderName},",
-            "    route_code = #{row.routeCode},",
-            "    route_name = #{row.routeName},",
-            "    service_code = #{row.serviceCode},",
-            "    service_name = #{row.serviceName},",
-            "    currency = #{row.currency},",
-            "    billing_unit = #{row.billingUnit},",
-            "    updated_by = #{operatorUserId},",
-            "    gmt_updated = NOW()",
+            "SET quote_status = CASE WHEN #{row.unitPrice} > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END,",
+            "    forwarder_code = #{row.forwarderCode}, forwarder_name = #{row.forwarderName},",
+            "    route_code = #{row.routeCode}, route_name = #{row.routeName},",
+            "    service_code = #{row.serviceCode}, service_name = #{row.serviceName},",
+            "    currency = #{row.currency}, unit_price = #{row.unitPrice}, billing_unit = #{row.billingUnit},",
+            "    estimated_amount = #{row.estimatedAmount}, remark = #{row.remark},",
+            "    confirmed_at = CASE WHEN #{row.unitPrice} > 0 THEN NOW() ELSE NULL END,",
+            "    confirmed_by = CASE WHEN #{row.unitPrice} > 0 THEN #{operatorUserId} ELSE NULL END,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{row.id}",
-            "  AND is_deleted = b'0'",
-            "  AND quote_status != 'CONFIRMED'"
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
+            "  AND is_deleted = b'0'"
     })
-    int assignLogisticsQuoteLineChannel(
+    int persistLogisticsQuoteLineSelection(
             @Param("row") PurchaseOrderLogisticsQuoteLineRecord row,
             @Param("operatorUserId") Long operatorUserId
     );
@@ -2555,7 +2496,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
 
     @Update({
             "UPDATE procurement_purchase_order_logistics_quote_line",
-            "SET quote_status = 'CONFIRMED',",
+            "SET quote_status = CASE WHEN #{row.unitPrice} > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END,",
             "    shipping_submit_status = COALESCE(#{row.shippingSubmitStatus}, shipping_submit_status, 'NOT_SUBMITTED'),",
             "    forwarder_code = #{row.forwarderCode},",
             "    forwarder_name = #{row.forwarderName},",
@@ -2568,8 +2509,8 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    billing_unit = #{row.billingUnit},",
             "    estimated_amount = #{row.estimatedAmount},",
             "    remark = #{row.remark},",
-            "    confirmed_at = NOW(),",
-            "    confirmed_by = #{operatorUserId},",
+            "    confirmed_at = CASE WHEN #{row.unitPrice} > 0 THEN NOW() ELSE NULL END,",
+            "    confirmed_by = CASE WHEN #{row.unitPrice} > 0 THEN #{operatorUserId} ELSE NULL END,",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{row.id} AND shipping_submit_status = 'NOT_SUBMITTED'",
@@ -2590,6 +2531,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "WHERE purchase_order_id = #{orderId}",
             "  AND id IN",
             "  <foreach collection='lineIds' item='lineId' open='(' separator=',' close=')'>#{lineId}</foreach>",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'",
             "</script>"
     })
@@ -2609,6 +2551,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "WHERE shipping_order_id = #{shippingOrderId}",
             "  AND id IN",
             "  <foreach collection='lineIds' item='lineId' open='(' separator=',' close=')'>#{lineId}</foreach>",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'",
             "</script>"
     })
@@ -2628,9 +2571,13 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "WHERE site.purchase_order_id = #{orderId}",
             "  AND site.is_deleted = b'0'",
             "  AND (quote.id IS NULL",
-            "       OR quote.quote_status != 'CONFIRMED')"
+            "       OR NULLIF(TRIM(quote.forwarder_code), '') IS NULL",
+            "       OR NULLIF(TRIM(quote.route_code), '') IS NULL",
+            "       OR ((quote.unit_price IS NULL OR quote.unit_price <= 0)",
+            "           AND UPPER(TRIM(COALESCE(quote.forwarder_code, ''))) != 'ZD'",
+            "           AND UPPER(TRIM(COALESCE(quote.route_code, ''))) NOT LIKE 'ZD-%'))"
     })
-    int countUnconfirmedLogisticsQuoteLines(@Param("orderId") Long orderId);
+    int countMissingLogisticsQuotePrices(@Param("orderId") Long orderId);
 
     @Select({
             "SELECT COUNT(1)",
@@ -2644,12 +2591,12 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "      SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "      WHERE quote.shipping_order_id = sol.shipping_order_id",
             "        AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
-            "        AND quote.quote_status = 'CONFIRMED'",
+            SHIPPING_QUOTE_SUBMITTABLE,
             SHIPPING_QUOTE_CHANNEL_MATCH,
             "        AND quote.is_deleted = b'0'",
             "  )"
     })
-    int countUnconfirmedLogisticsQuoteLinesByShippingOrder(@Param("shippingOrderId") Long shippingOrderId);
+    int countMissingLogisticsQuotePricesByShippingOrder(@Param("shippingOrderId") Long shippingOrderId);
 
     @Select({
             "<script>",
@@ -2666,13 +2613,13 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "      SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "      WHERE quote.shipping_order_id = sol.shipping_order_id",
             "        AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
-            "        AND quote.quote_status = 'CONFIRMED'",
+            SHIPPING_QUOTE_SUBMITTABLE,
             SHIPPING_QUOTE_CHANNEL_MATCH,
             "        AND quote.is_deleted = b'0'",
             "  )",
             "</script>"
     })
-    int countUnconfirmedLogisticsQuoteLinesByShippingOrderSegments(
+    int countMissingLogisticsQuotePricesByShippingOrderSegments(
             @Param("shippingOrderId") Long shippingOrderId,
             @Param("segmentIds") List<Long> segmentIds
     );
@@ -2680,12 +2627,18 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
     @Update({
             "UPDATE procurement_purchase_order_logistics_quote_line",
             "SET shipping_submit_status = 'SUBMITTED',",
-            "    shipping_submitted_at = NOW(),",
-            "    shipping_submitted_by = #{operatorUserId},",
+            "    shipping_submitted_at = COALESCE(shipping_submitted_at, NOW()),",
+            "    shipping_submitted_by = COALESCE(shipping_submitted_by, #{operatorUserId}),",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE purchase_order_id = #{orderId}",
-            "  AND quote_status = 'CONFIRMED'",
+            "  AND shipping_order_id IS NULL",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
+            "  AND NULLIF(TRIM(forwarder_code), '') IS NOT NULL",
+            "  AND NULLIF(TRIM(route_code), '') IS NOT NULL",
+            "  AND (unit_price > 0",
+            "       OR UPPER(TRIM(COALESCE(forwarder_code, ''))) = 'ZD'",
+            "       OR UPPER(TRIM(COALESCE(route_code, ''))) LIKE 'ZD-%')",
             "  AND is_deleted = b'0'"
     })
     int submitLogisticsQuoteLinesForShipping(
@@ -2701,6 +2654,9 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE shipping_order_id = #{shippingOrderId}",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
+            "  AND NULLIF(TRIM(forwarder_code), '') IS NOT NULL",
+            "  AND NULLIF(TRIM(route_code), '') IS NOT NULL",
             "  AND EXISTS (",
             "      SELECT 1",
             "      FROM procurement_shipping_order_line sol",
@@ -2714,6 +2670,9 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "        AND UPPER(COALESCE(segment.route_code, '')) = UPPER(COALESCE(procurement_purchase_order_logistics_quote_line.route_code, ''))",
             "        AND UPPER(COALESCE(segment.service_code, '')) = UPPER(COALESCE(procurement_purchase_order_logistics_quote_line.service_code, ''))",
             "  )",
+            "  AND (unit_price > 0",
+            "       OR UPPER(TRIM(COALESCE(forwarder_code, ''))) = 'ZD'",
+            "       OR UPPER(TRIM(COALESCE(route_code, ''))) LIKE 'ZD-%')",
             "  AND is_deleted = b'0'"
     })
     int submitLogisticsQuoteLinesForShippingOrder(
@@ -2730,6 +2689,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    gmt_updated = NOW()",
             "WHERE id = #{shippingOrderId}",
             "  AND owner_user_id = #{ownerUserId}",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'"
     })
     int markShippingOrderSubmitted(
@@ -2747,6 +2707,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    gmt_updated = NOW()",
             "WHERE shipping_order_id = #{shippingOrderId}",
             "  AND owner_user_id = #{ownerUserId}",
+            "  AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'"
     })
     int markShippingOrderSegmentsSubmitted(
@@ -2767,7 +2728,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "            SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "            WHERE quote.shipping_order_id = sol.shipping_order_id",
             "              AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
-            "              AND quote.quote_status = 'CONFIRMED'",
+            SHIPPING_QUOTE_USABLE,
             "              AND UPPER(COALESCE(quote.forwarder_code, '')) = UPPER(COALESCE(#{row.forwarderCode}, ''))",
             "              AND UPPER(COALESCE(quote.route_code, '')) = UPPER(COALESCE(#{row.routeCode}, ''))",
             "              AND UPPER(COALESCE(quote.service_code, '')) = UPPER(COALESCE(#{row.serviceCode}, ''))",
@@ -2783,6 +2744,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "            WHERE quote.shipping_order_id = sol.shipping_order_id",
             "              AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
             "              AND quote.shipping_submit_status = 'SUBMITTED'",
+            SHIPPING_QUOTE_SUBMITTABLE,
             "              AND UPPER(COALESCE(quote.forwarder_code, '')) = UPPER(COALESCE(#{row.forwarderCode}, ''))",
             "              AND UPPER(COALESCE(quote.route_code, '')) = UPPER(COALESCE(#{row.routeCode}, ''))",
             "              AND UPPER(COALESCE(quote.service_code, '')) = UPPER(COALESCE(#{row.serviceCode}, ''))",
@@ -2867,7 +2829,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "            SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "            WHERE quote.shipping_order_id = sol.shipping_order_id",
             "              AND quote.purchase_order_item_site_id = sol.purchase_order_item_site_id",
-            "              AND quote.quote_status = 'CONFIRMED'",
+            SHIPPING_QUOTE_USABLE,
             "              AND UPPER(COALESCE(quote.forwarder_code, '')) = UPPER(COALESCE(#{row.forwarderCode}, ''))",
             "              AND UPPER(COALESCE(quote.route_code, '')) = UPPER(COALESCE(#{row.routeCode}, ''))",
             "              AND UPPER(COALESCE(quote.service_code, '')) = UPPER(COALESCE(#{row.serviceCode}, ''))",

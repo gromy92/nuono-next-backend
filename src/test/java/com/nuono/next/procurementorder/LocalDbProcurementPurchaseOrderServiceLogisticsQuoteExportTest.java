@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
 
     @Test
-    void reportLinesIncludeAlreadyConfirmedQuotesForSelectedRoute() {
+    void reportLinesIncludeAlreadyPricedLinesForSelectedRoute() {
         ForwarderRouteRecommendationRecord route = new ForwarderRouteRecommendationRecord();
         route.siteCode = "SA";
         route.transportMode = "SEA";
@@ -52,7 +52,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     }
 
     @Test
-    void reportLinesCanExportOnlyPendingQuotesForSelectedRoute() {
+    void reportLinesCanExportOnlyMissingPricesForSelectedRoute() {
         ForwarderRouteRecommendationRecord route = new ForwarderRouteRecommendationRecord();
         route.siteCode = "SA";
         route.transportMode = "SEA";
@@ -72,13 +72,14 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     }
 
     @Test
-    void reportLinesCanExportOnlyPendingQuotesForSelectedChannelCoverage() {
+    void reportLinesCanExportOnlyMissingPricesForSelectedChannelCoverage() {
         ForwarderRouteRecommendationRecord route = new ForwarderRouteRecommendationRecord();
         route.siteCode = "SA";
         route.transportMode = "SEA";
 
         PurchaseOrderLogisticsQuoteLineRecord missingForSelectedChannel = line("CONFIRMED", "SA", "SEA");
         missingForSelectedChannel.shippingOrderLineId = 101L;
+        missingForSelectedChannel.estimatedAmount = new BigDecimal("999.00");
         PurchaseOrderLogisticsQuoteLineRecord confirmedForSelectedChannel = line("CONFIRMED", "SA", "SEA");
         confirmedForSelectedChannel.shippingOrderLineId = 102L;
 
@@ -95,6 +96,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
 
         assertEquals(List.of(missingForSelectedChannel), reportLines);
         assertEquals("PENDING_QUOTE", missingForSelectedChannel.quoteStatus);
+        assertEquals(null, missingForSelectedChannel.estimatedAmount);
     }
 
     @Test
@@ -161,16 +163,16 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
 
         verify(mapper, never()).insertLogisticsQuoteLine(any(), anyLong());
         verify(mapper, never()).refreshLogisticsQuoteLineSnapshot(any(), anyLong());
-        verify(mapper, never()).assignLogisticsQuoteLineChannel(any(), anyLong());
+        verify(mapper, never()).persistLogisticsQuoteLineSelection(any(), anyLong());
         verify(mapper, never()).markLogisticsQuoteLinesExported(anyLong(), anyList(), anyLong());
     }
 
     @Test
-    void purchaseSubmitRechecksCurrentRuleAfterQuoteConfirmation() {
+    void purchaseSubmitRechecksEligibilityForPositivePriceWithLegacyPendingStatus() {
         ProcurementPurchaseOrderMapper mapper = mock(ProcurementPurchaseOrderMapper.class);
         LocalDbProcurementPurchaseOrderService service = service(
                 mapper, mock(WarehouseLogisticsQuotePriceService.class));
-        PurchaseOrderLogisticsQuoteLineRecord line = eligibilityLine("CONFIRMED");
+        PurchaseOrderLogisticsQuoteLineRecord line = eligibilityLine("PENDING_QUOTE");
         line.forwarderCode = "ET";
         line.routeCode = "ET-SAU-SEA-FBN-RUH";
         line.serviceCode = "ET-SAU-SEA-WH";
@@ -181,13 +183,21 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
                 .thenReturn(List.of(9001L));
         when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
                 .thenReturn(List.of(rule("INQUIRY_REQUIRED")));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA"))
+                .thenReturn(List.of(candidate()));
+        PurchaseOrderLogisticsQuoteChannelLineView current = new PurchaseOrderLogisticsQuoteChannelLineView();
+        current.unitPrice = new BigDecimal("1540.0000");
+        current.currency = "CNY";
+        current.billingUnit = "CBM";
+        when(priceService.resolve(any(), any(), any())).thenReturn(current);
+        when(mapper.confirmLogisticsQuoteLine(any(), anyLong())).thenReturn(1);
 
         assertThatThrownBy(() -> service.submitShipping(access(), "200001"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("询价确认");
 
         verify(mapper).lockProductVariantsForForwarderEligibility(307L, List.of(9001L));
-        verify(mapper, never()).countUnconfirmedLogisticsQuoteLines(anyLong());
+        verify(mapper, never()).countMissingLogisticsQuotePrices(anyLong());
         verify(mapper, never()).submitLogisticsQuoteLinesForShipping(anyLong(), anyLong());
     }
 
@@ -270,6 +280,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     private PurchaseOrderLogisticsQuoteLineRecord line(String quoteStatus, String siteCode, String transportMode) {
         PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
         line.quoteStatus = quoteStatus;
+        line.unitPrice = "CONFIRMED".equals(quoteStatus) ? BigDecimal.ONE : null;
         line.siteCode = siteCode;
         line.plannedTransportMode = transportMode;
         return line;
@@ -279,6 +290,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         PurchaseOrderLogisticsQuoteChannelLineView quote = new PurchaseOrderLogisticsQuoteChannelLineView();
         quote.shippingOrderLineId = shippingOrderLineId;
         quote.quoteStatus = quoteStatus;
+        quote.unitPrice = "CONFIRMED".equals(quoteStatus) ? BigDecimal.ONE : null;
         return quote;
     }
 }

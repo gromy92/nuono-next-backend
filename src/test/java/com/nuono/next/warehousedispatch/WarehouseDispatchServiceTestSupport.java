@@ -101,6 +101,8 @@ protected FulfillmentBalanceRecord balance(String quoteStatus, String shippingSu
         record.specStatus = "READY";
         record.logisticsQuoteStatus = quoteStatus;
         record.logisticsShippingSubmitStatus = shippingSubmitStatus;
+        record.logisticsQuoteBlocking = !("CONFIRMED".equals(quoteStatus)
+                && "SUBMITTED".equals(shippingSubmitStatus));
         return record;
     }
 

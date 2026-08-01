@@ -289,41 +289,6 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
-    void currentProductForwarderChannelQuoteLookupUsesCurrentActiveQuote() throws Exception {
-        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
-                "selectCurrentProductForwarderChannelQuote",
-                Long.class,
-                String.class,
-                Long.class,
-                String.class,
-                Long.class,
-                String.class,
-                String.class,
-                String.class,
-                String.class
-        );
-
-        String sql = String.join(" ", method.getAnnotation(Select.class).value())
-                .replaceAll("\\s+", " ");
-
-        assertThat(sql).contains("FROM product_forwarder_channel_quote");
-        assertThat(sql).contains("owner_user_id = #{ownerUserId}");
-        assertThat(sql).contains("UPPER(partner_sku) = UPPER(#{partnerSku})");
-        assertThat(sql).contains("logical_store_id IS NULL OR logical_store_id = #{logicalStoreId}");
-        assertThat(sql).contains("source_store_code IS NULL OR TRIM(source_store_code) = '' OR UPPER(source_store_code) = UPPER(#{sourceStoreCode})");
-        assertThat(sql).contains("product_variant_id = #{productVariantId}");
-        assertThat(sql).contains("forwarder_code = #{forwarderCode}");
-        assertThat(sql).contains("COALESCE(site_code, '') = COALESCE(#{siteCode}, '')");
-        assertThat(sql).contains("effective_status = 'CURRENT'");
-        assertThat(sql).contains("is_deleted = b'0'");
-        assertThat(sql).contains("ORDER BY CASE");
-        assertThat(sql).contains("TRIM(source_store_code) != ''");
-        assertThat(sql).contains("UPPER(source_store_code) = UPPER(#{sourceStoreCode}) THEN 0");
-        assertThat(sql).contains("confirmed_at DESC, id DESC");
-        assertThat(sql).doesNotContain("TRIM(source_store_code) <>");
-    }
-
-    @Test
     void historicalProductForwarderChannelQuoteTargetsTheDatabaseActiveSlot() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "markHistoricalProductForwarderChannelQuote",
@@ -525,37 +490,40 @@ class ProcurementPurchaseOrderMapperSqlTest {
     }
 
     @Test
-    void assignLogisticsQuoteLineChannelDoesNotConfirmQuoteOrSubmitShipping() throws Exception {
-        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
-                "assignLogisticsQuoteLineChannel",
-                com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord.class,
-                Long.class
-        );
-
-        String sql = String.join(" ", method.getAnnotation(Update.class).value())
-                .replaceAll("\\s+", " ");
-
-        assertThat(sql).contains("forwarder_code = #{row.forwarderCode}");
-        assertThat(sql).contains("route_code = #{row.routeCode}");
-        assertThat(sql).contains("service_code = #{row.serviceCode}");
-        assertThat(sql).contains("quote_status != 'CONFIRMED'");
-        assertThat(sql).doesNotContain("quote_status = 'CONFIRMED'");
-        assertThat(sql).doesNotContain("shipping_submit_status = 'SUBMITTED'");
+    void persistedQuoteSelectionOverwritesAllChannelFactsWithNotSubmittedCas() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("persistLogisticsQuoteLineSelection", PurchaseOrderLogisticsQuoteLineRecord.class, Long.class);
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+        assertThat(sql).contains(
+                "forwarder_code = #{row.forwarderCode}", "forwarder_name = #{row.forwarderName}", "route_code = #{row.routeCode}", "route_name = #{row.routeName}",
+                "service_code = #{row.serviceCode}", "service_name = #{row.serviceName}", "currency = #{row.currency}", "unit_price = #{row.unitPrice}", "billing_unit = #{row.billingUnit}",
+                "estimated_amount = #{row.estimatedAmount}", "remark = #{row.remark}", "confirmed_at = CASE WHEN #{row.unitPrice} > 0 THEN NOW() ELSE NULL END",
+                "WHERE id = #{row.id} AND shipping_submit_status = 'NOT_SUBMITTED' AND is_deleted = b'0'")
+                .doesNotContain("COALESCE(#{row.currency}", "COALESCE(#{row.unitPrice}");
     }
 
     @Test
-    void unconfirmedLogisticsQuoteCountRequiresConfirmedQuoteBeforeSubmittingShipping() throws Exception {
-        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
-                "countUnconfirmedLogisticsQuoteLines",
-                Long.class
-        );
+    void purchaseQuoteSubmissionUpdatesOnlyExactEligibleNotSubmittedRows() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("submitLogisticsQuoteLinesForShipping", Long.class, Long.class);
+        String sql = String.join(" ", method.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+        assertThat(sql).contains(
+                "SET shipping_submit_status = 'SUBMITTED'", "shipping_submitted_at = COALESCE(shipping_submitted_at, NOW())",
+                "shipping_submitted_by = COALESCE(shipping_submitted_by, #{operatorUserId})", "WHERE purchase_order_id = #{orderId}", "shipping_order_id IS NULL",
+                "shipping_submit_status = 'NOT_SUBMITTED'", "NULLIF(TRIM(forwarder_code), '') IS NOT NULL", "NULLIF(TRIM(route_code), '') IS NOT NULL", "unit_price > 0",
+                "UPPER(TRIM(COALESCE(forwarder_code, ''))) = 'ZD'",
+                "UPPER(TRIM(COALESCE(route_code, ''))) LIKE 'ZD-%'", "is_deleted = b'0'")
+                .doesNotContain("quote_status");
+    }
 
-        String sql = String.join(" ", method.getAnnotation(Select.class).value())
-                .replaceAll("\\s+", " ");
-
-        assertThat(sql).contains("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
-        assertThat(sql).contains("quote.id IS NULL");
-        assertThat(sql).contains("quote.quote_status != 'CONFIRMED'");
+    @Test
+    void missingLogisticsQuoteCountUsesPositivePriceWithZdSubmissionExemption() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod("countMissingLogisticsQuotePrices", Long.class);
+        String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
+        assertThat(sql).contains(
+                "LEFT JOIN procurement_purchase_order_logistics_quote_line quote", "quote.id IS NULL",
+                "quote.unit_price IS NULL OR quote.unit_price <= 0",
+                "UPPER(TRIM(COALESCE(quote.forwarder_code, ''))) != 'ZD'",
+                "UPPER(TRIM(COALESCE(quote.route_code, ''))) NOT LIKE 'ZD-%'")
+                .doesNotContain("quote.quote_status");
     }
 
     @Test

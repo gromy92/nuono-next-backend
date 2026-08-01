@@ -12,7 +12,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 
-public interface ProductLogisticsCostMapper {
+public interface ProductLogisticsCostMapper extends WarehouseProductLogisticsPriceMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
