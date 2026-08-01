@@ -165,7 +165,10 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
                 .thenReturn(objectMapper.createObjectNode());
         when(inboundClient.queryAsnDetail(any(), any(), any(), anyString()))
                 .thenReturn(new AsnDetail("SEALED"));
-        when(mapper.selectAsn(307L, 500001L)).thenReturn(asnRecord());
+        when(mapper.selectAuthorizedAsn(
+                Map.of("STR108065-NSA", 307L),
+                500001L
+        )).thenReturn(asnRecord());
         when(mapper.listAsnShippingBatchLinks(500001L)).thenReturn(List.of());
         when(mapper.listAsnLines(500001L)).thenReturn(List.of());
         when(mapper.listAsnInboundReceipts(anyLong(), any())).thenReturn(List.of());

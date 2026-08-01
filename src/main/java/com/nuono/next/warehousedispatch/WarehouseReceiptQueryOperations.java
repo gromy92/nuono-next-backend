@@ -11,7 +11,6 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchViews.*;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -31,12 +30,12 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
 
 @Transactional(readOnly = true)
     public List<PurchaseReceiptOrderView> listReceiptOrders(BusinessAccessContext access, String keyword) {
-        Long ownerUserId = ownerUserId(access);
-        Collection<String> storeCodes = access == null ? Set.of() : access.getStoreCodes();
-        List<PurchaseReceiptRow> rows = mapper.listReceiptRows(ownerUserId, storeCodes, trim(keyword));
+        WarehouseBusinessScope scope = warehouseBusinessScope(access);
+        List<PurchaseReceiptRow> rows = mapper.listReceiptRows(scope.storeOwnerUserIds(), trim(keyword));
         Map<Long, PurchaseReceiptOrderView> byOrder = new LinkedHashMap<>();
         for (PurchaseReceiptRow row : rows) {
-            if (!canAccessSourceStore(access, row.sourceStoreCode)) {
+            String receiptStoreCodes = defaultText(row.receiptSourceStoreCode, row.sourceStoreCode);
+            if (!scope.allowsAll(row.ownerUserId, receiptStoreCodes)) {
                 continue;
             }
             Long receiptSourceId = row.receiptSourceId == null ? row.orderId : row.receiptSourceId;
@@ -62,16 +61,14 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             String fulfillmentType,
             String keyword
     ) {
-        Long ownerUserId = ownerUserId(access);
-        Collection<String> storeCodes = access == null ? Set.of() : access.getStoreCodes();
+        WarehouseBusinessScope scope = warehouseBusinessScope(access);
         String normalizedSiteCode = normalizeSiteCode(siteCode);
         String normalizedFulfillmentType = StringUtils.hasText(fulfillmentType)
                 ? normalizeFulfillmentType(fulfillmentType)
                 : null;
         String normalizedKeyword = trim(keyword);
         List<FulfillmentBalanceRecord> balances = mapper.listReadyBalances(
-                ownerUserId,
-                storeCodes,
+                scope.storeOwnerUserIds(),
                 normalizedSiteCode,
                 normalizedFulfillmentType
         );
@@ -80,16 +77,18 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             if (!matchesKeyword(balance, normalizedKeyword)) {
                 continue;
             }
-            if (!canAccessSourceStore(access, balance.sourceStoreCode)) {
+            if (!scope.allows(balance.ownerUserId, balance.sourceStoreCode)) {
                 continue;
             }
             String targetSiteCode = resolvedSiteCode(balance);
             String targetTransportMode = resolvedTransportMode(balance);
-            String key = productIdentityKey(balance) + "|" + targetSiteCode + "|" + targetTransportMode + "|"
+            String key = balance.ownerUserId + "|" + productIdentityKey(balance)
+                    + "|" + targetSiteCode + "|" + targetTransportMode + "|"
                     + normalizeFulfillmentType(balance.fulfillmentType) + "|"
                     + defaultText(balance.specStatus, "READY");
             ReadyItemView view = grouped.computeIfAbsent(key, ignored -> {
                 ReadyItemView item = new ReadyItemView();
+                item.ownerUserId = balance.ownerUserId;
                 item.productVariantId = String.valueOf(balance.productVariantId);
                 item.partnerSku = balance.partnerSku;
                 item.skuParent = balance.skuParent;
@@ -128,12 +127,15 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             throw new IllegalArgumentException("缺少库存发货目标。");
         }
         Long balanceId = parseLongId(fulfillmentBalanceId, "可发运库存不存在或已删除。");
-        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(List.of(balanceId));
+        WarehouseBusinessScope scope = warehouseBusinessScope(access);
+        List<FulfillmentBalanceRecord> balances =
+                mapper.selectAuthorizedBalancesForUpdate(List.of(balanceId), scope.storeOwnerUserIds());
         if (balances.size() != 1) {
             throw new IllegalArgumentException("可发运库存不存在或已删除。");
         }
         FulfillmentBalanceRecord balance = balances.get(0);
-        if (!canUseBalance(access, balance) || nonNull(balance.availableQuantity) <= 0) {
+        if (!scope.allows(balance.ownerUserId, balance.sourceStoreCode)
+                || nonNull(balance.availableQuantity) <= 0) {
             throw new IllegalArgumentException("当前账号不能修改所选库存的发货目标。");
         }
         String targetSiteCode = requireLogisticsSiteCode(command.targetSiteCode);
@@ -158,11 +160,10 @@ abstract class WarehouseReceiptQueryOperations extends WarehouseReceiptCommandOp
             Integer limit
     ) {
         int normalizedLimit = Math.max(1, Math.min(limit == null ? 10 : limit, 50));
-        Long ownerUserId = ownerUserId(access);
-        Collection<String> storeCodes = access == null ? Set.of() : access.getStoreCodes();
-        List<FulfillmentBalanceRecord> balances = mapper.listPurchasePlanBalances(ownerUserId, storeCodes).stream()
+        WarehouseBusinessScope scope = warehouseBusinessScope(access);
+        List<FulfillmentBalanceRecord> balances = mapper.listPurchasePlanBalances(scope.storeOwnerUserIds()).stream()
                 .filter(balance -> balance.purchaseOrderId != null)
-                .filter(balance -> canAccessSourceStore(access, balance.sourceStoreCode))
+                .filter(balance -> scope.allows(balance.ownerUserId, balance.sourceStoreCode))
                 .filter(balance -> purchaseComparisonQuantity(balance) > 0)
                 .sorted(Comparator
                         .comparing((FulfillmentBalanceRecord balance) -> balance.purchaseOrderId, Comparator.nullsLast(Comparator.reverseOrder()))

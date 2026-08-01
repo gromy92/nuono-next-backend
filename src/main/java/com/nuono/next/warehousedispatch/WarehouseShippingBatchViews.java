@@ -23,6 +23,7 @@ public class WarehouseShippingBatchViews extends WarehouseShippingSuggestionView
     public static class ShippingBatchView {
         public String id;
         public Long ownerUserId;
+        public String dispatchPlanId;
         public String batchNo;
         public String status;
         public String selectedOptionId;
@@ -47,6 +48,7 @@ public class WarehouseShippingBatchViews extends WarehouseShippingSuggestionView
             ShippingBatchRecord record = new ShippingBatchRecord();
             record.id = id == null ? null : Long.valueOf(id);
             record.ownerUserId = ownerUserId;
+            record.dispatchPlanId = dispatchPlanId == null ? null : Long.valueOf(dispatchPlanId);
             record.batchNo = batchNo;
             record.status = status;
             record.selectedOptionId = selectedOptionId == null ? null : Long.valueOf(selectedOptionId);
@@ -64,6 +66,12 @@ public class WarehouseShippingBatchViews extends WarehouseShippingSuggestionView
             record.updatedAt = updatedAt;
             return record;
         }
+    }
+
+    public static class IssuedShippingBatchView {
+        public WarehouseDispatchViews.ShippingBatchView shippingBatch;
+        public List<WarehouseDispatchViews.OutboundOrderView> outboundOrders = new ArrayList<>();
+        public List<WarehouseDispatchViews.PackingListView> packingLists = new ArrayList<>();
     }
 
     public static class ShippingBatchSourceView {

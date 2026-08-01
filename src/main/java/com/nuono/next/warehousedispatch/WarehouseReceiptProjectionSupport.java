@@ -29,13 +29,45 @@ abstract class WarehouseReceiptProjectionSupport extends WarehouseDispatchCoreCo
         super(mapper, objectMapper);
     }
 
+protected ConfirmationView toConfirmationView(
+        FulfillmentConfirmationInsertRecord header,
+        List<FulfillmentConfirmationLineInsertRecord> lines
+) {
+        ConfirmationView view = new ConfirmationView();
+        view.id = String.valueOf(header.id);
+        view.confirmationNo = header.confirmationNo;
+        view.confirmationType = header.confirmationType;
+        view.status = header.status;
+        view.expectedQuantity = nonNull(header.expectedQuantity);
+        view.confirmedQuantity = nonNull(header.confirmedQuantityDelta);
+        view.abnormalQuantity = nonNull(header.abnormalQuantityDelta);
+        for (FulfillmentConfirmationLineInsertRecord line : emptyIfNull(lines)) {
+            ConfirmationLineView lineView = new ConfirmationLineView();
+            lineView.purchaseOrderItemId = String.valueOf(line.purchaseOrderItemId);
+            lineView.partnerSku = line.partnerSku;
+            lineView.expectedQuantity = nonNull(line.expectedQuantity);
+            lineView.confirmedQuantity = nonNull(line.confirmedQuantityDelta);
+            lineView.abnormalQuantity = nonNull(line.abnormalQuantityDelta);
+            view.lines.add(lineView);
+        }
+        return view;
+    }
+
 protected void ensureItemBalances(PurchaseOrderItemRecord item, String fulfillmentType, Long operatorUserId) {
-        List<PurchaseOrderItemSiteRecord> sites = mapper.listItemSitesForBalance(item.id);
+        List<PurchaseOrderItemSiteRecord> sites =
+                mapper.listItemSitesForBalance(item.id, item.purchaseOrderId, item.ownerUserId);
         if (sites.isEmpty()) {
             throw new IllegalArgumentException("采购单商品缺少站点计划，不能进入仓库发运。");
         }
         for (PurchaseOrderItemSiteRecord site : sites) {
-            mapper.upsertBalanceFromItemSite(site.id, fulfillmentType, operatorUserId);
+            mapper.upsertBalanceFromItemSite(
+                    site.id,
+                    item.id,
+                    item.purchaseOrderId,
+                    item.ownerUserId,
+                    fulfillmentType,
+                    operatorUserId
+            );
         }
     }
 
@@ -83,6 +115,7 @@ protected Map<Long, Integer> allocateByPlannedQuantity(List<FulfillmentBalanceRe
 
 protected ReadySourceView toReadySourceView(FulfillmentBalanceRecord balance) {
         ReadySourceView source = new ReadySourceView();
+        source.ownerUserId = balance.ownerUserId;
         source.fulfillmentBalanceId = balance.id;
         source.sourceStoreCode = balance.sourceStoreCode;
         source.sourceStoreName = balance.sourceStoreName;

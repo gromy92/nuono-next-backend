@@ -65,7 +65,8 @@ class ProcurementShippingQuoteChannelMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("NOT EXISTS (");
-        assertThat(sql).contains("quote.quote_status = 'CONFIRMED'");
+        assertThat(sql).contains("quote.unit_price > 0");
+        assertThat(sql).doesNotContain("quote.quote_status = 'CONFIRMED'");
         assertThat(sql).contains(
                 "UPPER(COALESCE(quote.forwarder_code, '')) = UPPER(COALESCE(#{row.forwarderCode}, ''))"
         );
@@ -76,5 +77,53 @@ class ProcurementShippingQuoteChannelMapperSqlTest {
                 "UPPER(COALESCE(quote.service_code, '')) = UPPER(COALESCE(#{row.serviceCode}, ''))"
         );
         assertThat(sql).doesNotContain("PARTIAL_SUBMITTED");
+    }
+
+    @Test
+    void usableQuoteLookupUsesStrictPositivePriceInsteadOfCompatibilityStatus() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listUsableLogisticsQuoteLinesByShippingOrder", Long.class);
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("unit_price > 0");
+        assertThat(sql).doesNotContain("AND quote_status");
+        assertThat(sql).doesNotContain("forwarder_code, '')) = 'ZD'");
+    }
+
+    @Test
+    void channelSnapshotLookupIncludesSubmittedMissingPricesForHistoricalFreeze() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "listLogisticsQuoteChannelSnapshotsByShippingOrder", Long.class);
+
+        String sql = String.join(" ", method.getAnnotation(Select.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("shipping_order_id = #{shippingOrderId}");
+        assertThat(sql).contains("is_deleted = b'0'");
+        assertThat(sql).doesNotContain("unit_price > 0");
+        assertThat(sql).doesNotContain("AND quote_status");
+    }
+
+    @Test
+    void snapshotRefreshAndAvailabilityProjectionBothFailClosedAfterSubmission() throws Exception {
+        Method refresh = ProcurementPurchaseOrderMapper.class.getMethod(
+                "refreshLogisticsQuoteLineSnapshot",
+                ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord.class,
+                Long.class
+        );
+        Method confirm = ProcurementPurchaseOrderMapper.class.getMethod(
+                "confirmLogisticsQuoteLine",
+                ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord.class,
+                Long.class
+        );
+
+        String refreshSql = String.join(" ", refresh.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+        String confirmSql = String.join(" ", confirm.getAnnotation(Update.class).value()).replaceAll("\\s+", " ");
+
+        assertThat(refreshSql).contains("shipping_submit_status = 'NOT_SUBMITTED'");
+        assertThat(confirmSql).contains("CASE WHEN #{row.unitPrice} > 0 THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END");
+        assertThat(confirmSql).contains("shipping_submit_status = 'NOT_SUBMITTED'");
     }
 }

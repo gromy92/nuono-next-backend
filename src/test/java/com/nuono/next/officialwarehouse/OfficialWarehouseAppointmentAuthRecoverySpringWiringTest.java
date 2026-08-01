@@ -45,6 +45,7 @@ class OfficialWarehouseAppointmentAuthRecoverySpringWiringTest {
     @Configuration
     @Import({
             OfficialWarehouseAppointmentAuthRecovery.class,
+            OfficialWarehouseAppointmentLifecycleModule.class,
             LocalDbOfficialWarehouseService.class
     })
     static class WiringConfig {

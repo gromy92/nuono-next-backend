@@ -12,6 +12,9 @@ class ProcurementPurchaseOrderControllerPermissionContractTest {
     private static final Path CONTROLLER = Path.of(
             "src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderController.java"
     );
+    private static final Path TRANSPORT_CONTROLLER = Path.of(
+            "src/main/java/com/nuono/next/procurementorder/ProcurementWarehouseTransportController.java"
+    );
 
     @Test
     void warehouseOrderCompatibilityApisUseWarehouseDispatchCapability() throws IOException {
@@ -38,6 +41,12 @@ class ProcurementPurchaseOrderControllerPermissionContractTest {
         assertThat(source).contains(
                 "getOrder(requireAccess(request, null), orderId)",
                 "createOrder(requireAccess(request, storeCode), command)"
+        );
+        String transportSource = Files.readString(TRANSPORT_CONTROLLER);
+        assertThat(transportSource).contains(
+                "requireAccess(request, BusinessCapability.LOGISTICS_QUOTE)",
+                "requireAccess(request, BusinessCapability.WAREHOUSE_DISPATCH)",
+                "accessResolver.requireBusinessContext(request, capability)"
         );
     }
 }

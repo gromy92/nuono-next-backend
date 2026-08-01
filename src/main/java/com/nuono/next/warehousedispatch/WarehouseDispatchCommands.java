@@ -57,6 +57,7 @@ public final class WarehouseDispatchCommands {
     }
 
     public static class CreateShippingBatchCommand {
+        public String clientRequestId;
         public String remark;
         public List<ShippingBatchSourceCommand> sources = new ArrayList<>();
     }

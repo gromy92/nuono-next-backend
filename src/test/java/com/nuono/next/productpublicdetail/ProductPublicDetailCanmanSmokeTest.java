@@ -27,7 +27,8 @@ import org.springframework.test.context.ActiveProfiles;
         classes = NuonoNextApplication.class,
         properties = {
                 "nuono.product-public-detail.scheduler.enabled=false",
-                "nuono.product-public-detail.scheduler.max-products-per-task=1"
+                "nuono.product-public-detail.scheduler.max-products-per-task=1",
+                "nuono.schema-release-gate.enabled=false"
         }
 )
 @ActiveProfiles("local-db")

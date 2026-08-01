@@ -5,9 +5,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.nuono.next.infrastructure.mapper.PublishedProductLogisticsRateCardMapper;
 import java.lang.reflect.Method;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class PublishedProductLogisticsRateCardMapperSqlTest {
+
+    @Test
+    void mapperDynamicSqlRegistersSuccessfully() {
+        Configuration configuration = new Configuration();
+        configuration.addMapper(PublishedProductLogisticsRateCardMapper.class);
+    }
 
     @Test
     void publishedRateCardReadUsesActivePurchaseRoutesAndPublishedNormalPrices() throws Exception {
@@ -27,13 +34,17 @@ class PublishedProductLogisticsRateCardMapperSqlTest {
         assertThat(sql).contains("segment.segment_role = 'HEADHAUL'");
         assertThat(sql).contains("JOIN forwarder_quote_version version");
         assertThat(sql).contains("version.status = 'PUBLISHED'");
+        assertThat(sql).contains("version.effective_from &lt;= CURRENT_DATE");
+        assertThat(sql).contains("version.effective_to IS NULL OR version.effective_to >= CURRENT_DATE");
         assertThat(sql).contains("JOIN forwarder_quote_base_price price");
         assertThat(sql).contains("price.price_status = 'NORMAL'");
+        assertThat(sql).contains("price.unit_price AS unitCostCny");
+        assertThat(sql).contains("price.unit_price > 0");
+        assertThat(sql).doesNotContain("forwarder_quote_numeric_adjustment");
         assertThat(sql).contains("LEFT JOIN forwarder_quote_cargo_category category");
         assertThat(sql).contains("category.product_examples");
         assertThat(sql).contains("AS cargoCategoryDescription");
-        assertThat(sql).contains("price.source_row_or_locator REGEXP '^自[0-9]{4}-[0-9]{2}-[0-9]{2}起$'");
-        assertThat(sql).contains("STR_TO_DATE(SUBSTRING(price.source_row_or_locator, 2, 10), '%Y-%m-%d')");
+        assertThat(sql).contains("version.effective_from AS effectiveAt");
         assertThat(sql).contains("route.active_for_purchase_order = b'1'");
         assertThat(sql).contains("route.site_code = #{siteCode}");
         assertThat(sql).contains("route.forwarder_code = #{forwarderCode}");

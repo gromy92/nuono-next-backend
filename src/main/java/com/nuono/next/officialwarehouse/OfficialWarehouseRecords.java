@@ -408,7 +408,7 @@ public final class OfficialWarehouseRecords {
         public String appointmentTime;
         public String gate;
         public String docks;
-        public Integer attemptCount;
+        public Integer attemptCount; public Long executionVersion;
         public String lastAttemptAt;
         public String nextAttemptAt;
         public String apSuccessTime;

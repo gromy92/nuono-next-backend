@@ -41,6 +41,7 @@ final class WarehouseLogisticsQuoteLineFactory {
         target.isNewProduct = source.isNewProduct;
         target.quoteStatus = source.quoteStatus;
         target.shippingSubmitStatus = source.shippingSubmitStatus;
+        target.eligibilityStatus = source.eligibilityStatus;
         target.currency = source.currency;
         target.unitPrice = source.unitPrice;
         target.billingUnit = source.billingUnit;

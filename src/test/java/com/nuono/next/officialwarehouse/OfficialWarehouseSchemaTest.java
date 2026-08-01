@@ -287,9 +287,9 @@ class OfficialWarehouseSchemaTest {
                 .contains("client.onWarehousesSet(task);")
                 .contains("default void onWarehousesSet(AppointmentTask task)");
         assertThat(mapper)
-                .contains("int updateAsnCurrentWarehouse(")
-                .contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
-                .contains("AND owner_user_id = #{ownerUserId}");
+                .contains("int updateAsnCurrentWarehouseForAppointment(").contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
+                .contains("AND owner_user_id = #{ownerUserId}")
+                .contains("appointment.status = 'RUNNING'").contains("appointment.execution_version = #{runExecutionVersion}");
         assertThat(service)
                 .contains("persistAsnCurrentWarehouse(")
                 .contains("task.warehouseToCode = appointment.warehouseToCode")

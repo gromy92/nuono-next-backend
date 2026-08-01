@@ -19,7 +19,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WarehousePackingBatchConfirmationTest extends WarehouseDispatchServiceTestSupport {
 
     @Test
-    void confirmsEveryPackingListInOneBatch() {
+    void confirmsEveryPackingListInStableLockOrder() {
         PackingListRecord firstList = packingList();
         PackingListRecord secondList = packingList();
         secondList.id = 830002L;
@@ -53,8 +53,10 @@ class WarehousePackingBatchConfirmationTest extends WarehouseDispatchServiceTest
 
         when(mapper.selectPackingListById(830001L)).thenReturn(firstList);
         when(mapper.selectPackingListById(830002L)).thenReturn(secondList);
-        when(mapper.selectOutboundOrderById(800001L)).thenReturn(firstOrder);
-        when(mapper.selectOutboundOrderById(800002L)).thenReturn(secondOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(firstOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800002L)).thenReturn(secondOrder);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(firstList);
+        when(mapper.selectPackingListByIdForUpdate(830002L)).thenReturn(secondList);
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(firstLine));
         when(mapper.listOutboundOrderLines(800002L)).thenReturn(List.of(secondLine));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(firstBox));
@@ -68,7 +70,7 @@ class WarehousePackingBatchConfirmationTest extends WarehouseDispatchServiceTest
 
         List<PackingListView> views = service.confirmPackingLists(
                 access(),
-                List.of("830001", "830002", "830001")
+                List.of("830002", "830001", "0830002")
         );
 
         assertThat(views).extracting(view -> view.id).containsExactly("830001", "830002");

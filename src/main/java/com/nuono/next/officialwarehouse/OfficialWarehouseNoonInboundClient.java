@@ -42,7 +42,6 @@ public class OfficialWarehouseNoonInboundClient {
     private static final String RESCHEDULE_ASN_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/re-schedule";
     private static final String SEAL_ASN_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/seal";
     private static final String SCHEDULE_APPOINTMENT_URL = "https://fbn.noon.partners/_svc/inbound-scheduler/slot/fbn/v1/schedule";
-
     private final ObjectMapper objectMapper;
     private final NoonResponseClassifier responseClassifier;
 
@@ -212,39 +211,37 @@ public class OfficialWarehouseNoonInboundClient {
     }
 
     NoonAppointmentClient appointmentClient(
-            NoonSession session,
-            NoonSalesReportBinding binding,
-            NoonCallContext context,
-            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
+            NoonSession session, NoonSalesReportBinding binding, NoonCallContext context,
+            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet,
+            Runnable executionGuard
     ) {
-        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet);
+        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet, executionGuard);
     }
-
     private class RealNoonAppointmentClient implements NoonAppointmentClient {
         private final NoonSession session;
         private final NoonSalesReportBinding binding;
         private final NoonCallContext context;
         private final Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet;
-
+        private final Runnable executionGuard;
         private RealNoonAppointmentClient(
-                NoonSession session,
-                NoonSalesReportBinding binding,
-                NoonCallContext context,
-                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
+                NoonSession session, NoonSalesReportBinding binding, NoonCallContext context,
+                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet,
+                Runnable executionGuard
         ) {
             this.session = session;
             this.binding = binding;
             this.context = context;
             this.onWarehousesSet = onWarehousesSet;
+            this.executionGuard = executionGuard;
         }
-
         @Override
         public AsnDetail queryAsnDetail(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             return OfficialWarehouseNoonInboundClient.this.queryAsnDetail(session, binding, context, task.noonAsnNr);
         }
-
         @Override
         public List<String> queryDayCapacity(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             JsonNode response = postNoonJson(
                     session,
                     binding,
@@ -254,9 +251,9 @@ public class OfficialWarehouseNoonInboundClient {
             );
             return readStringArray(response);
         }
-
         @Override
         public List<SlotCapacity> querySlotCapacity(OfficialWarehouseAppointmentRunner.AppointmentTask task, LocalDate capacityDate) {
+            guardExecution();
             JsonNode response = postNoonJson(
                     session,
                     binding,
@@ -273,9 +270,9 @@ public class OfficialWarehouseNoonInboundClient {
             }
             return slots;
         }
-
         @Override
         public boolean setWarehouses(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asnNr", task.noonAsnNr);
             body.put("warehouseTo", task.warehouseTo);
@@ -283,16 +280,15 @@ public class OfficialWarehouseNoonInboundClient {
             Integer status = intValue(response, "status");
             return "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
         }
-
         @Override
         public void onWarehousesSet(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
             if (onWarehousesSet != null) {
                 onWarehousesSet.accept(task);
             }
         }
-
         @Override
         public boolean reschedule(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asnNr", task.noonAsnNr);
             JsonNode response = postNoonJson(session, binding, context.withOperation("RESCHEDULE_ASN"), RESCHEDULE_ASN_URL, body);
@@ -300,9 +296,9 @@ public class OfficialWarehouseNoonInboundClient {
             String status = OfficialWarehouseStatusPolicy.normalizeNoonAsnStatus(firstText(detail, "asn_status", "status"));
             return "SEALED".equals(status) || StringUtils.hasText(text(detail, "asn_nr")) || StringUtils.hasText(text(detail, "asnNr"));
         }
-
         @Override
         public boolean schedule(OfficialWarehouseAppointmentRunner.AppointmentTask task, LocalDate capacityDate, SlotCapacity slot) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asn_nr", task.noonAsnNr);
             body.put("capacity_date", capacityDate.toString());
@@ -312,8 +308,12 @@ public class OfficialWarehouseNoonInboundClient {
             Integer status = intValue(response, "status");
             return status != null && status == 200 || "success".equalsIgnoreCase(text(response, "msg"));
         }
+        private void guardExecution() {
+            if (executionGuard != null) {
+                executionGuard.run();
+            }
+        }
     }
-
     private ObjectNode asnDetailBody(NoonSalesReportBinding binding, String asnNr) {
         ObjectNode body = objectMapper.createObjectNode();
         putPartnerId(body, "idPartnerSource", binding.getPartnerId());

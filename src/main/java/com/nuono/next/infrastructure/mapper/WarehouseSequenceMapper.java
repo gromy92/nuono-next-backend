@@ -35,6 +35,17 @@ import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseSequenceMapper {
 
+String OWNER_USER_IDS_SCOPE = ""
+            + "<choose>"
+            + "<when test='ownerUserIds != null and ownerUserIds.size() &gt; 0'>"
+            + " AND owner_user_id IN"
+            + " <foreach collection='ownerUserIds' item='ownerUserId' open='(' separator=',' close=')'>"
+            + "   #{ownerUserId}"
+            + " </foreach>"
+            + "</when>"
+            + "<otherwise> AND 1 = 0 </otherwise>"
+            + "</choose>";
+
 String BALANCE_SELECT = ""
             + "SELECT balance.id, balance.owner_user_id AS ownerUserId, balance.logical_store_id AS logicalStoreId, "
             + "balance.source_store_code AS sourceStoreCode, balance.source_store_name AS sourceStoreName, "
@@ -64,15 +75,18 @@ String BALANCE_SELECT = ""
             + "pvlp.sensitive_tags_json AS sensitiveTagsJson, pvlp.manual_confirm_required = b'1' AS manualConfirmRequired, "
             + "CASE WHEN EXISTS (SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote "
             + "  WHERE quote.purchase_order_item_site_id = balance.purchase_order_item_site_id "
-            + "    AND quote.quote_status = 'CONFIRMED' AND quote.is_deleted = b'0') "
+            + ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_USABLE
+            + "    AND quote.is_deleted = b'0') "
             + "  THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS logisticsQuoteStatus, "
             + "CASE WHEN EXISTS (SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote "
             + "  WHERE quote.purchase_order_item_site_id = balance.purchase_order_item_site_id "
-            + "    AND quote.quote_status = 'CONFIRMED' AND quote.shipping_submit_status = 'SUBMITTED' "
+            + ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE
+            + "    AND quote.shipping_submit_status = 'SUBMITTED' "
             + "    AND quote.is_deleted = b'0') THEN 'SUBMITTED' ELSE 'NOT_SUBMITTED' END AS logisticsShippingSubmitStatus, "
             + "NOT EXISTS (SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote "
             + "  WHERE quote.purchase_order_item_site_id = balance.purchase_order_item_site_id "
-            + "    AND quote.quote_status = 'CONFIRMED' AND quote.shipping_submit_status = 'SUBMITTED' "
+            + ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE
+            + "    AND quote.shipping_submit_status = 'SUBMITTED' "
             + "    AND quote.is_deleted = b'0') AS logisticsQuoteBlocking, "
             + "balance.status "
             + "FROM procurement_fulfillment_balance balance "
@@ -84,6 +98,15 @@ String BALANCE_SELECT = ""
             + "  ON pvlp.variant_id = balance.product_variant_id "
             + " AND pvlp.is_deleted = b'0' "
             ;
+
+@Select({
+            "SELECT id",
+            "FROM `user`",
+            "WHERE id = #{ownerUserId}",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    Long lockDispatchOwner(@Param("ownerUserId") Long ownerUserId);
 
 @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",

@@ -4,7 +4,6 @@ import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonProductionSchedulerEnablementMapper;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 
@@ -16,7 +15,6 @@ public class MyBatisNoonProductionSchedulerEnablementRepository
     private static final long INITIAL_ID = 142000L;
 
     private final NoonProductionSchedulerEnablementMapper mapper;
-    private final AtomicBoolean schemaEnsured = new AtomicBoolean(false);
 
     public MyBatisNoonProductionSchedulerEnablementRepository(NoonProductionSchedulerEnablementMapper mapper) {
         this.mapper = mapper;
@@ -24,7 +22,6 @@ public class MyBatisNoonProductionSchedulerEnablementRepository
 
     @Override
     public NoonProductionSchedulerEnablementRecord save(NoonProductionSchedulerEnablementRecord record) {
-        ensureSchema();
         NoonProductionSchedulerEnablementRecord copy = record.copy();
         LocalDateTime now = LocalDateTime.now();
         if (copy.getId() == null) {
@@ -40,7 +37,6 @@ public class MyBatisNoonProductionSchedulerEnablementRepository
 
     @Override
     public List<NoonProductionSchedulerEnablementRecord> listRecent(int limit) {
-        ensureSchema();
         return mapper.selectRecent(Math.max(1, Math.min(limit, 100)));
     }
 
@@ -54,11 +50,4 @@ public class MyBatisNoonProductionSchedulerEnablementRepository
         return allocatedId;
     }
 
-    private void ensureSchema() {
-        if (!schemaEnsured.compareAndSet(false, true)) {
-            return;
-        }
-        mapper.ensureNoonPullIdSequence();
-        mapper.ensureEnablementTable();
-    }
 }

@@ -9,6 +9,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreatePackingL
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingBatchCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.CreateShippingTargetOptionCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.IssueShippingBatchCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.PackingBoxCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ReplacePackingBoxesCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.UpdateFulfillmentCommand;
@@ -16,6 +17,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchViews.ConfirmationView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.DispatchPlanView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.FulfillmentItemView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.LogisticsHandoffView;
+import com.nuono.next.warehousedispatch.WarehouseDispatchViews.IssuedShippingBatchView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.OutboundOrderView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PackingListView;
 import com.nuono.next.warehousedispatch.WarehouseDispatchViews.PurchaseReceiptOrderView;
@@ -70,6 +72,8 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
     ) {
         try {
             return service().createShippingBatch(access(request), command);
+        } catch (WarehouseRequestConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -110,6 +114,8 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
             return service().selectShippingOption(access(request), shippingBatchId, optionId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -122,6 +128,23 @@ public class WarehouseShippingBatchController extends WarehouseDispatchEndpointS
             return service().createOutboundOrders(access(request), shippingBatchId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
+        }
+    }
+
+@PostMapping("/shipping-batches/{shippingBatchId}/issue")
+    public IssuedShippingBatchView issueShippingBatch(
+            @PathVariable String shippingBatchId,
+            @RequestBody IssueShippingBatchCommand command,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().issueShippingBatch(access(request), shippingBatchId, command);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 

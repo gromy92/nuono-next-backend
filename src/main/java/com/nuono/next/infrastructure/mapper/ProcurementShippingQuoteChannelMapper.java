@@ -11,6 +11,13 @@ public interface ProcurementShippingQuoteChannelMapper {
             + " AND UPPER(COALESCE(quote.forwarder_code, '')) = UPPER(COALESCE(segment.forwarder_code, ''))"
             + " AND UPPER(COALESCE(quote.route_code, '')) = UPPER(COALESCE(segment.route_code, ''))"
             + " AND UPPER(COALESCE(quote.service_code, '')) = UPPER(COALESCE(segment.service_code, ''))";
+    String SHIPPING_QUOTE_USABLE = " AND quote.unit_price > 0";
+    String SHIPPING_QUOTE_SUBMITTABLE = ""
+            + " AND NULLIF(TRIM(quote.forwarder_code), '') IS NOT NULL"
+            + " AND NULLIF(TRIM(quote.route_code), '') IS NOT NULL"
+            + " AND (quote.unit_price > 0"
+            + " OR UPPER(TRIM(COALESCE(quote.forwarder_code, ''))) = 'ZD'"
+            + " OR UPPER(TRIM(COALESCE(quote.route_code, ''))) LIKE 'ZD-%')";
 
     String CHANNEL_QUOTE_SELECT = ""
             + "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, "
@@ -61,9 +68,17 @@ public interface ProcurementShippingQuoteChannelMapper {
 
     @Select(CHANNEL_QUOTE_SELECT
             + "WHERE shipping_order_id = #{shippingOrderId} "
-            + "AND quote_status = 'CONFIRMED' AND is_deleted = b'0' "
+            + "AND is_deleted = b'0' "
             + "ORDER BY purchase_order_item_site_id ASC, confirmed_at DESC, id DESC")
-    List<PurchaseOrderLogisticsQuoteLineRecord> listConfirmedLogisticsQuoteLinesByShippingOrder(
+    List<PurchaseOrderLogisticsQuoteLineRecord> listLogisticsQuoteChannelSnapshotsByShippingOrder(
+            @Param("shippingOrderId") Long shippingOrderId
+    );
+
+    @Select(CHANNEL_QUOTE_SELECT
+            + "WHERE shipping_order_id = #{shippingOrderId} "
+            + "AND unit_price > 0 AND is_deleted = b'0' "
+            + "ORDER BY purchase_order_item_site_id ASC, confirmed_at DESC, id DESC")
+    List<PurchaseOrderLogisticsQuoteLineRecord> listUsableLogisticsQuoteLinesByShippingOrder(
             @Param("shippingOrderId") Long shippingOrderId
     );
 }

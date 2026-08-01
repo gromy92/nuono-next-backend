@@ -7,13 +7,12 @@ import java.util.List;
 import java.util.Locale;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
 public class LogisticsQuoteOperationService {
 
-    private static final int REQUIRED_OPERATION_TABLE_COUNT = 9;
+    private static final int REQUIRED_OPERATION_TABLE_COUNT = 7;
 
     private final ObjectProvider<LogisticsQuoteMapper> logisticsQuoteMapperProvider;
     private final ObjectProvider<LocalDbBootstrapStatusService> localDbBootstrapStatusServiceProvider;
@@ -45,7 +44,7 @@ public class LogisticsQuoteOperationService {
             );
             view.setMode("local-db");
             view.setReady(true);
-            view.setMessage("当前报价维护列表已从本地标准报价明细表回读；运营调整值只覆盖数值字段，不改管理员标准报价。");
+            view.setMessage("当前列表只读正式报价版本及报价明细；价格变更通过新报价版本生效。");
         } else {
             items = buildSampleItems();
             if (StringUtils.hasText(normalizedTransportMode)) {
@@ -64,88 +63,6 @@ public class LogisticsQuoteOperationService {
         return view;
     }
 
-    @Transactional
-    public LogisticsQuoteOperationPriceAdjustmentView savePriceAdjustment(
-            Long operatorUserId, LogisticsQuoteOperationPriceAdjustmentCommand command) {
-        if (operatorUserId == null || operatorUserId <= 0) {
-            throw new IllegalArgumentException("缺少有效的当前登录用户。");
-        }
-        LogisticsQuoteMapper mapper = requireOperationPersistence();
-        if (command == null) {
-            throw new IllegalArgumentException("请先选择要调整的报价明细。");
-        }
-
-        String targetType = requireText(command.getTargetType(), "调整对象类型不能为空。").toUpperCase(Locale.ROOT);
-        Long targetId = command.getTargetId();
-        if (targetId == null) {
-            throw new IllegalArgumentException("调整对象 ID 不能为空。");
-        }
-        String fieldName = requireText(command.getNumericField(), "调整字段不能为空。").toLowerCase(Locale.ROOT);
-        Double adjustedValue = command.getAdjustedValue();
-        if (adjustedValue == null || adjustedValue.isNaN() || adjustedValue.isInfinite()) {
-            throw new IllegalArgumentException("调整值必须是有效数字。");
-        }
-        if (adjustedValue < 0) {
-            throw new IllegalArgumentException("调整值不能小于 0。");
-        }
-        String reason = requireText(command.getReason(), "请填写调整原因，便于后续审计。");
-        if (reason.length() > 500) {
-            throw new IllegalArgumentException("调整原因不能超过 500 个字符。");
-        }
-
-        LogisticsQuoteOperationPriceItemView targetItem = mapper.listOperationPriceItems(null, null, null)
-                .stream()
-                .filter(item -> targetType.equals(item.getTargetType()))
-                .filter(item -> targetId.equals(item.getTargetId()))
-                .filter(item -> fieldName.equals(item.getNumericField()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("未找到可调整的报价数值，请刷新列表后重试。"));
-
-        String actionType = Boolean.TRUE.equals(targetItem.getHasAdjustment()) ? "UPDATE" : "CREATE";
-        Double beforeValue = targetItem.getEffectiveValue() == null
-                ? targetItem.getStandardValue()
-                : targetItem.getEffectiveValue();
-
-        mapper.upsertNumericAdjustment(
-                mapper.nextNumericAdjustmentId(),
-                targetItem.getQuoteVersionId(),
-                targetType,
-                targetId,
-                fieldName,
-                targetItem.getStandardValue(),
-                adjustedValue,
-                targetItem.getCurrency(),
-                reason,
-                operatorUserId
-        );
-        Long adjustmentId = mapper.selectActiveNumericAdjustmentId(targetType, targetId, fieldName);
-        if (adjustmentId == null) {
-            throw new IllegalStateException("调整记录保存后未能回读，请刷新后重试。");
-        }
-
-        Long logId = mapper.nextNumericAdjustmentLogId();
-        mapper.insertNumericAdjustmentLog(
-                logId,
-                adjustmentId,
-                targetItem.getQuoteVersionId(),
-                targetType,
-                targetId,
-                fieldName,
-                beforeValue,
-                adjustedValue,
-                actionType,
-                reason,
-                operatorUserId
-        );
-
-        LogisticsQuoteOperationPriceAdjustmentView view = new LogisticsQuoteOperationPriceAdjustmentView();
-        view.setReady(true);
-        view.setAdjustmentId(adjustmentId);
-        view.setLogId(logId);
-        view.setMessage("运营调整已保存，并已写入审计日志。管理员标准报价底稿未被修改。");
-        return view;
-    }
-
     private boolean isLocalDbOperationPersistenceReady() {
         LogisticsQuoteMapper mapper = logisticsQuoteMapperProvider.getIfAvailable();
         LocalDbBootstrapStatusService bootstrapStatusService = localDbBootstrapStatusServiceProvider.getIfAvailable();
@@ -158,21 +75,12 @@ public class LogisticsQuoteOperationService {
         return existingTableCount != null && existingTableCount >= REQUIRED_OPERATION_TABLE_COUNT;
     }
 
-    private LogisticsQuoteMapper requireOperationPersistence() {
-        LogisticsQuoteMapper mapper = logisticsQuoteMapperProvider.getIfAvailable();
-        if (mapper == null || !isLocalDbOperationPersistenceReady()) {
-            throw new IllegalArgumentException("当前本地库还没有准备好物流报价运营维护表，请先执行 030_logistics_quote_operations_v1.sql。");
-        }
-        return mapper;
-    }
-
     private LogisticsQuoteOperationPriceItemsSummaryView buildSummary(List<LogisticsQuoteOperationPriceItemView> items) {
         LogisticsQuoteOperationPriceItemsSummaryView summary = new LogisticsQuoteOperationPriceItemsSummaryView();
         summary.setTotalItems(items.size());
         summary.setAirItemCount((int) items.stream().filter(item -> "AIR".equals(item.getTransportMode())).count());
         summary.setSeaItemCount((int) items.stream().filter(item -> "SEA".equals(item.getTransportMode())).count());
         summary.setWarehouseItemCount((int) items.stream().filter(item -> "WAREHOUSE".equals(item.getTransportMode())).count());
-        summary.setAdjustedItemCount((int) items.stream().filter(item -> Boolean.TRUE.equals(item.getHasAdjustment())).count());
         return summary;
     }
 
@@ -181,14 +89,6 @@ public class LogisticsQuoteOperationService {
             return null;
         }
         return value.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private String requireText(String value, String message) {
-        String normalized = value == null ? null : value.trim();
-        if (!StringUtils.hasText(normalized)) {
-            throw new IllegalArgumentException(message);
-        }
-        return normalized;
     }
 
     private List<LogisticsQuoteOperationPriceItemView> buildSampleItems() {
@@ -227,14 +127,14 @@ public class LogisticsQuoteOperationService {
                 912020L,
                 "BASE_PRICE",
                 "unit_price",
-                "YT-SAU-UNDATED-001",
+                "YT-SAU-20260728",
                 "义特物流",
-                "YT-SAU-SEA-FBN-RUH",
-                "义特沙特海运双清包税 + FBN利雅得送仓",
+                "YT-SAU-SEA-FBN-RUH-20260728",
+                "义特沙特海运双清包税 + FBN利雅得送仓 20260728",
                 "SEA",
                 "普货",
                 "PER_CBM",
-                1190d,
+                1540d,
                 "CBM",
                 "NORMAL"
         ));
@@ -307,7 +207,6 @@ public class LogisticsQuoteOperationService {
         item.setPriceStatus(priceStatus);
         item.setSourceFileName("forwarder-standardized-saudi-fbn-riyadh-v3-20260507.xlsx");
         item.setSourceLocator("sample");
-        item.setHasAdjustment(false);
         item.setUpdatedAt("2026-05-07 00:00:00");
         return item;
     }
