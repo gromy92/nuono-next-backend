@@ -287,7 +287,7 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             self.assertIn("[[:space:]]*=[[:space:]]*", sql)
             self.assertIn("'charcharsetbinary','binary'", sql)
             self.assertIn("'octet_length','length'", sql)
-            self.assertIn("'charactersetutf8mb4',''", sql); self.assertIn("action_order=1", sql)
+            self.assertIn("'charactersetutf8mb4',''", sql); self.assertIn("action_order=1", sql); self.assertNotIn("thenconcatoctet_length", sql); self.assertNotIn("octet_lengthcast", sql); self.assertNotIn("octet_lengthupper", sql); self.assertIn("thenconcatlengthcast", sql)
 
     def test_mysql8_index_visibility_uses_information_schema_is_visible(self):
         paths = ("src/main/resources/db/init/237_warehouse_forwarder_quote_and_transport_eligibility.sql", "src/main/resources/db/postcheck/237_warehouse_forwarder_quote_and_transport_eligibility.sql", "scripts/ci/release_schema_mysql_forwarder_shape_guard_scenario.py", "scripts/ci/release_schema_mysql_forwarder_atomic_guard_scenario.py")
