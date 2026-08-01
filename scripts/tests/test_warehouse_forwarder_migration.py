@@ -9,9 +9,20 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from schema_migrations.catalog import load_catalog  # noqa: E402
+from ci.release_schema_mysql_forwarder_scenario import FIXTURE_MIGRATIONS  # noqa: E402
 
 
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_mysql_fixture_applies_reference_schema_before_route_cost_seed(self):
+        self.assertEqual(
+            (
+                "030_logistics_quote_operations_v1.sql",
+                "124_forwarder_quote_data_quality.sql",
+                "128_procurement_logistics_route_cost_components.sql",
+            ),
+            FIXTURE_MIGRATIONS,
+        )
+
     def test_materialization_is_managed_fail_closed_and_old_jar_compatible(self):
         resources = SCRIPT_DIR.parent / "src/main/resources"
         migration = next(

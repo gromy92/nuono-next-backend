@@ -7,6 +7,11 @@ from ci.release_schema_mysql_forwarder_source_contract import assert_source_cont
 
 
 MIGRATION_KEY = "237_warehouse_forwarder_quote_and_transport_eligibility.sql"
+FIXTURE_MIGRATIONS = (
+    "030_logistics_quote_operations_v1.sql",
+    "124_forwarder_quote_data_quality.sql",
+    "128_procurement_logistics_route_cost_components.sql",
+)
 ADJUSTMENT_HASH = "025a8cfa78920deaff035819431e45742a6ee2830f1c1e010ef36383f5c82db2"
 ADJUSTMENT_LOG_HASH = "83caf487c8953f0eff04ef719e5482a65158a4e3773f1176802838baf9e03245"
 LEGACY_SCHEMA_HASH = "9cf247aea2f146265c979b3467bcfb6e41a2a864f7da226ef4789171b82bd444"
@@ -62,16 +67,10 @@ def prepare_forwarder_fixture(database, resources):
     database.client.execute("\n".join(
         _create_table_statement(bootstrap, table) for table in core_tables
     ))
-    database.client.execute(
-        (resources / "db/init/030_logistics_quote_operations_v1.sql").read_text(
-            encoding="utf-8"
+    for migration_name in FIXTURE_MIGRATIONS:
+        database.client.execute(
+            (resources / f"db/init/{migration_name}").read_text(encoding="utf-8")
         )
-    )
-    database.client.execute(
-        (resources / "db/init/128_procurement_logistics_route_cost_components.sql").read_text(
-            encoding="utf-8"
-        )
-    )
     database.client.execute(
         "UPDATE forwarder_quote_route_template_segment "
         "SET display_name=CONVERT(0xC3A6C2B5C2B7C3A8C2BFC290C3A5C28FC592C3A6C2B8E280A6C3A5C592E280A6C3A7C2A8C5BDC3A5C290C2ABC3A9E282ACC281C3A4C2BBE2809C USING utf8mb4) "
