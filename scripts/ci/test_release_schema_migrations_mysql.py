@@ -84,7 +84,8 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             item for item in migrations
             if item.key == SHIPPING_PLAN_MIGRATION_KEY
         )
-        approvals = [integrity.key]
+        integrity_approval = (integrity.key,)
+        approvals = list(integrity_approval)
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
             runner.apply()
         self.assertNotIn(integrity.key, database.load_states())
@@ -139,14 +140,14 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.repair_forward(
-                integrity.key, rerun=True, approved_managed=approvals
+                integrity.key, rerun=True, approved_managed=integrity_approval
             )
         database.client.execute(
             "ALTER TABLE procurement_fulfillment_balance DROP CHECK "
             "chk_fulfillment_balance_planned_nonnegative;"
         )
         repair_result = runner.repair_forward(
-            integrity.key, rerun=True, approved_managed=approvals
+            integrity.key, rerun=True, approved_managed=integrity_approval
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
         self.assertEqual(
