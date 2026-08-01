@@ -39,6 +39,17 @@ class WarehouseLogisticsQuoteOptionService {
     }
 
     List<LogisticsQuoteExportOption> collect(List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
+        return collect(lines, false);
+    }
+
+    List<LogisticsQuoteExportOption> collectForDecision(List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
+        return collect(lines, true);
+    }
+
+    private List<LogisticsQuoteExportOption> collect(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            boolean forDecision
+    ) {
         List<PurchaseOrderLogisticsQuoteLineRecord> routableLines = safe(lines).stream()
                 .peek(line -> {
                     line.quoteStatus = quoteStatus(line.quoteStatus);
@@ -47,10 +58,12 @@ class WarehouseLogisticsQuoteOptionService {
                 .filter(line -> StringUtils.hasText(normalized(line.siteCode)))
                 .filter(line -> AIR.equals(line.plannedTransportMode) || SEA.equals(line.plannedTransportMode))
                 .collect(Collectors.toList());
+        Map<String, ProductForwarderTransportEligibilityRecord> eligibilityRules =
+                forDecision
+                        ? eligibilityService.loadCurrentForDecision(routableLines)
+                        : eligibilityService.loadCurrent(routableLines);
         Map<Long, List<PurchaseOrderLogisticsQuoteLineRecord>> usableQuotes =
                 quoteChannelService.loadChannelSnapshots(routableLines);
-        Map<String, ProductForwarderTransportEligibilityRecord> eligibilityRules =
-                eligibilityService.loadCurrent(routableLines);
         Map<String, List<PurchaseOrderLogisticsQuoteLineRecord>> linesByRoute = routableLines.stream()
                 .collect(Collectors.groupingBy(
                         line -> routeKey(line.siteCode, line.plannedTransportMode),

@@ -2,6 +2,7 @@ package com.nuono.next.procurementorder;
 
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -22,20 +23,32 @@ final class WarehouseForwarderEligibilityPolicy {
 
     static String key(
             Long ownerUserId,
-            Long productVariantId,
+            Long logicalStoreId,
+            String partnerSku,
             String siteCode,
             String forwarderCode,
             String transportMode
     ) {
-        return String.valueOf(ownerUserId)
-                + "|" + String.valueOf(productVariantId)
-                + "|" + normalized(siteCode)
-                + "|" + normalized(forwarderCode)
-                + "|" + normalized(transportMode);
+        return segment(String.valueOf(ownerUserId))
+                + segment(String.valueOf(logicalStoreId))
+                + segment(normalized(partnerSku))
+                + segment(normalized(siteCode))
+                + segment(normalized(forwarderCode))
+                + segment(normalized(transportMode));
     }
 
     static String key(ProductForwarderTransportEligibilityRecord rule) {
-        return key(rule.ownerUserId, rule.productVariantId, rule.siteCode, rule.forwarderCode, rule.transportMode);
+        if (rule == null || rule.ownerUserId == null || rule.ownerUserId <= 0
+                || rule.logicalStoreId == null || rule.logicalStoreId <= 0
+                || !StringUtils.hasText(rule.partnerSku)
+                || !StringUtils.hasText(rule.siteCode)
+                || !StringUtils.hasText(rule.forwarderCode)
+                || !("AIR".equals(normalized(rule.transportMode))
+                || "SEA".equals(normalized(rule.transportMode)))) {
+            throw new IllegalArgumentException("承运状态数据异常，请刷新后重试。");
+        }
+        return key(rule.ownerUserId, rule.logicalStoreId, rule.partnerSku,
+                rule.siteCode, rule.forwarderCode, rule.transportMode);
     }
 
     static String normalizeStatus(String value) {
@@ -54,7 +67,8 @@ final class WarehouseForwarderEligibilityPolicy {
     ) {
         if (line == null || candidate == null
                 || line.ownerUserId == null || line.ownerUserId <= 0
-                || line.productVariantId == null || line.productVariantId <= 0) {
+                || line.logicalStoreId == null || line.logicalStoreId <= 0
+                || !StringUtils.hasText(line.partnerSku)) {
             return UNKNOWN;
         }
         String lineSite = normalized(line.siteCode);
@@ -70,7 +84,7 @@ final class WarehouseForwarderEligibilityPolicy {
             return UNKNOWN;
         }
         ProductForwarderTransportEligibilityRecord rule = rules == null ? null : rules.get(
-                key(line.ownerUserId, line.productVariantId, lineSite, forwarder, lineMode)
+                key(line.ownerUserId, line.logicalStoreId, line.partnerSku, lineSite, forwarder, lineMode)
         );
         return rule == null ? SUPPORTED : normalizeStatus(rule.eligibilityStatus);
     }
@@ -88,6 +102,10 @@ final class WarehouseForwarderEligibilityPolicy {
 
     static String trim(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    private static String segment(String value) {
+        return value.getBytes(StandardCharsets.UTF_8).length + "#" + value;
     }
 
     static String firstText(String preferred, String fallback) {

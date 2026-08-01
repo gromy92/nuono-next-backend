@@ -49,8 +49,8 @@ class WarehousePurchaseQuoteExportContractTest {
         when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order());
         when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR"))
                 .thenReturn(List.of(candidate));
-        when(mapper.lockProductVariantsForForwarderEligibility(eq(307L), any()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(mapper.refreshLogisticsQuoteLineSnapshot(any(), eq(307L))).thenReturn(1);
         when(mapper.persistLogisticsQuoteLineSelection(any(), eq(307L))).thenReturn(1);
         when(mapper.markLogisticsQuoteLinesExported(eq(200001L), any(), eq(307L)))

@@ -16,9 +16,6 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Forwarder
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
 import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -34,36 +31,21 @@ public class WarehouseForwarderEligibilityService {
     public static final String INQUIRY_REQUIRED = WarehouseForwarderEligibilityPolicy.INQUIRY_REQUIRED;
     public static final String UNSUPPORTED = WarehouseForwarderEligibilityPolicy.UNSUPPORTED;
     private final ProcurementPurchaseOrderMapper mapper;
+    private final WarehouseForwarderEligibilityRuleReader ruleReader;
 
     public WarehouseForwarderEligibilityService(ProcurementPurchaseOrderMapper mapper) {
         this.mapper = mapper;
+        this.ruleReader = new WarehouseForwarderEligibilityRuleReader(mapper);
     }
 
     Map<String, ProductForwarderTransportEligibilityRecord> loadCurrent(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines
-    ) {
-        Map<String, ProductForwarderTransportEligibilityRecord> result = new LinkedHashMap<>();
-        Map<Long, List<Long>> variantsByOwner = safe(lines).stream()
-                .filter(line -> line.ownerUserId != null && line.productVariantId != null)
-                .collect(Collectors.groupingBy(
-                        line -> line.ownerUserId,
-                        LinkedHashMap::new,
-                        Collectors.mapping(
-                                line -> line.productVariantId,
-                                Collectors.collectingAndThen(
-                                        Collectors.toCollection(LinkedHashSet::new),
-                                        ArrayList::new
-                                )
-                        )
-                ));
-        for (Map.Entry<Long, List<Long>> entry : variantsByOwner.entrySet()) {
-            for (ProductForwarderTransportEligibilityRecord rule : safe(
-                    mapper.listCurrentProductForwarderTransportEligibilities(entry.getKey(), entry.getValue())
-            )) {
-                result.putIfAbsent(WarehouseForwarderEligibilityPolicy.key(rule), rule);
-            }
-        }
-        return result;
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
+        return ruleReader.load(lines);
+    }
+
+    Map<String, ProductForwarderTransportEligibilityRecord> loadCurrentForDecision(
+            List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
+        return ruleReader.loadForUpdate(lines);
     }
 
     void apply(
@@ -86,14 +68,22 @@ public class WarehouseForwarderEligibilityService {
         }
     }
 
-    void applySelected(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            List<ShippingOrderSegmentRecord> segments
-    ) {
+    void applySelected(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            List<ShippingOrderSegmentRecord> segments) {
+        applySelected(lines, segments, loadCurrent(lines));
+    }
+
+    void applySelectedForDecision(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            List<ShippingOrderSegmentRecord> segments) {
+        applySelected(lines, segments, loadCurrentForDecision(lines));
+    }
+
+    private void applySelected(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            List<ShippingOrderSegmentRecord> segments,
+            Map<String, ProductForwarderTransportEligibilityRecord> rules) {
         Map<Long, ShippingOrderSegmentRecord> segmentById = safe(segments).stream()
                 .filter(segment -> segment.id != null)
                 .collect(Collectors.toMap(segment -> segment.id, Function.identity(), (left, ignored) -> left));
-        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrent(lines);
         for (PurchaseOrderLogisticsQuoteLineRecord line : safe(lines)) {
             ShippingOrderSegmentRecord segment = segmentById.get(line.shippingOrderSegmentId);
             apply(line, WarehouseShippingQuoteChannelIdentity.candidateFrom(segment), rules);
@@ -101,7 +91,15 @@ public class WarehouseForwarderEligibilityService {
     }
 
     void applyCurrentChannels(List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
-        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrent(lines);
+        applyCurrentChannels(lines, loadCurrent(lines));
+    }
+
+    void applyCurrentChannelsForDecision(List<PurchaseOrderLogisticsQuoteLineRecord> lines) {
+        applyCurrentChannels(lines, loadCurrentForDecision(lines));
+    }
+
+    private void applyCurrentChannels(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            Map<String, ProductForwarderTransportEligibilityRecord> rules) {
         for (PurchaseOrderLogisticsQuoteLineRecord line : safe(lines)) {
             apply(line, WarehouseShippingQuoteChannelIdentity.candidateFrom(line), rules);
         }
@@ -128,21 +126,17 @@ public class WarehouseForwarderEligibilityService {
         }
     }
 
-    void requireQuotable(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            ForwarderRouteRecommendationRecord candidate
-    ) {
-        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrent(lines);
+    void requireQuotable(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            ForwarderRouteRecommendationRecord candidate) {
+        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrentForDecision(lines);
         requireRuleStatus(lines, candidate, rules, UNSUPPORTED, "该货代当前不接，不能保存报价。");
         requireRuleStatus(lines, candidate, rules, WarehouseForwarderEligibilityPolicy.UNKNOWN,
                 "承运状态异常，不能保存报价，请刷新后重试。");
     }
 
-    void requireExportable(
-            List<PurchaseOrderLogisticsQuoteLineRecord> lines,
-            ForwarderRouteRecommendationRecord candidate
-    ) {
-        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrent(lines);
+    void requireExportable(List<PurchaseOrderLogisticsQuoteLineRecord> lines,
+            ForwarderRouteRecommendationRecord candidate) {
+        Map<String, ProductForwarderTransportEligibilityRecord> rules = loadCurrentForDecision(lines);
         requireRuleStatus(lines, candidate, rules, UNSUPPORTED,
                 "该货代当前不接，审核单未导出。请换货代或拆分商品。");
         requireRuleStatus(lines, candidate, rules, WarehouseForwarderEligibilityPolicy.UNKNOWN,
@@ -170,21 +164,32 @@ public class WarehouseForwarderEligibilityService {
         if (!STATUSES.contains(status)) {
             throw new IllegalArgumentException("请选择有效的承运状态。");
         }
+        if (!hasStableScope(line)) {
+            throw new IllegalArgumentException("商品缺少稳定店铺或 PSKU 身份，不能维护承运状态。");
+        }
+        String partnerSkuNormalized = normalized(line.partnerSku);
+        String siteCode = requiredCode(line.siteCode, "商品缺少站点，不能维护承运状态。");
+        String transportMode = normalized(line.plannedTransportMode);
+        if (!("AIR".equals(transportMode) || "SEA".equals(transportMode))) {
+            throw new IllegalArgumentException("商品缺少有效运输方式，不能维护承运状态。");
+        }
         ProductForwarderTransportEligibilityRecord current =
                 mapper.selectActiveProductForwarderTransportEligibilityForUpdate(
                         line.ownerUserId,
-                        line.productVariantId,
-                        normalized(line.siteCode),
+                        line.logicalStoreId,
+                        partnerSkuNormalized,
+                        siteCode,
                         normalizedForwarder,
-                        normalized(line.plannedTransportMode)
+                        transportMode
                 );
         int currentVersion = nonNull(
                 mapper.selectLatestProductForwarderTransportEligibilityVersionForUpdate(
                         line.ownerUserId,
-                        line.productVariantId,
-                        normalized(line.siteCode),
+                        line.logicalStoreId,
+                        partnerSkuNormalized,
+                        siteCode,
                         normalizedForwarder,
-                        normalized(line.plannedTransportMode)
+                        transportMode
                 )
         );
         LocalDate today = LocalDate.now();
@@ -203,10 +208,10 @@ public class WarehouseForwarderEligibilityService {
         next.productVariantId = line.productVariantId;
         next.logicalStoreId = line.logicalStoreId;
         next.sourceStoreCode = trim(line.sourceStoreCode);
-        next.partnerSku = trim(line.partnerSku);
-        next.siteCode = normalized(line.siteCode);
+        next.partnerSku = partnerSkuNormalized;
+        next.siteCode = siteCode;
         next.forwarderCode = normalizedForwarder;
-        next.transportMode = normalized(line.plannedTransportMode);
+        next.transportMode = transportMode;
         next.eligibilityStatus = status;
         next.effectiveFrom = today;
         next.version = currentVersion + 1;
@@ -248,6 +253,12 @@ public class WarehouseForwarderEligibilityService {
         return new IllegalArgumentException("承运状态已被其他操作更新，请刷新后重试。");
     }
 
+    private static boolean hasStableScope(PurchaseOrderLogisticsQuoteLineRecord line) {
+        return line != null && line.ownerUserId != null && line.ownerUserId > 0
+                && line.logicalStoreId != null && line.logicalStoreId > 0
+                && !normalized(line.partnerSku).isEmpty();
+    }
+
     private void requireRuleStatus(
             List<PurchaseOrderLogisticsQuoteLineRecord> lines,
             ForwarderRouteRecommendationRecord candidate,
@@ -276,8 +287,10 @@ public class WarehouseForwarderEligibilityService {
         }
     }
 
-    static String key(Long owner, Long variant, String site, String forwarder, String mode) {
-        return WarehouseForwarderEligibilityPolicy.key(owner, variant, site, forwarder, mode);
+    static String key(Long owner, Long logicalStoreId, String partnerSku,
+            String site, String forwarder, String mode) {
+        return WarehouseForwarderEligibilityPolicy.key(
+                owner, logicalStoreId, partnerSku, site, forwarder, mode);
     }
 
     static String effectiveStatus(String value) {

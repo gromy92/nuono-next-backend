@@ -147,11 +147,11 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         ForwarderRouteRecommendationRecord candidate = candidate();
         when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order);
         when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(line));
-        when(mapper.lockProductVariantsForForwarderEligibility(307L, List.of(9001L)))
-                .thenReturn(List.of(9001L));
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(List.of(scope())))
+                .thenReturn(List.of(scope()));
         when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA"))
                 .thenReturn(List.of(candidate));
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope())))
                 .thenReturn(List.of(rule("UNSUPPORTED")));
         when(priceService.resolve(any(), any(), any()))
                 .thenReturn(new PurchaseOrderLogisticsQuoteChannelLineView());
@@ -179,9 +179,9 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         line.unitPrice = new BigDecimal("1540.0000");
         when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order());
         when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(line));
-        when(mapper.lockProductVariantsForForwarderEligibility(307L, List.of(9001L)))
-                .thenReturn(List.of(9001L));
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(List.of(scope())))
+                .thenReturn(List.of(scope()));
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope())))
                 .thenReturn(List.of(rule("INQUIRY_REQUIRED")));
         when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA"))
                 .thenReturn(List.of(candidate()));
@@ -196,7 +196,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("询价确认");
 
-        verify(mapper).lockProductVariantsForForwarderEligibility(307L, List.of(9001L));
+        verify(mapper).lockProductForwarderEligibilityScopeAnchors(List.of(scope()));
         verify(mapper, never()).countMissingLogisticsQuotePrices(anyLong());
         verify(mapper, never()).submitLogisticsQuoteLinesForShipping(anyLong(), anyLong());
     }
@@ -237,6 +237,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
         line.id = 280001L;
         line.ownerUserId = 307L;
+        line.logicalStoreId = 301L;
         line.productVariantId = 9001L;
         line.partnerSku = "PSKU-1";
         line.siteCode = "SA";
@@ -257,9 +258,10 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     }
 
     private ProductForwarderTransportEligibilityRecord rule(String status) {
-        ProductForwarderTransportEligibilityRecord rule =
-                new ProductForwarderTransportEligibilityRecord();
+        ProductForwarderTransportEligibilityRecord rule = new ProductForwarderTransportEligibilityRecord();
         rule.ownerUserId = 307L;
+        rule.logicalStoreId = 301L;
+        rule.partnerSku = "PSKU-1";
         rule.productVariantId = 9001L;
         rule.siteCode = "SA";
         rule.forwarderCode = "ET";
@@ -267,6 +269,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         rule.eligibilityStatus = status;
         return rule;
     }
+    private ProductForwarderEligibilityScopeAnchorRecord scope() { return new ProductForwarderEligibilityScopeAnchorRecord(307L, 301L, "PSKU-1"); }
 
     private int findHeaderColumn(Row header, String title) {
         for (int index = 0; index < header.getLastCellNum(); index++) {

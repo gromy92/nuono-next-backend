@@ -2,25 +2,18 @@ package com.nuono.next.procurementorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderCommands.UpdateShippingOrderLineEligibilityCommand;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
-import org.springframework.dao.DuplicateKeyException;
 
 class WarehouseForwarderEligibilityServiceTest {
 
@@ -31,7 +24,6 @@ class WarehouseForwarderEligibilityServiceTest {
     void setUp() {
         mapper = mock(ProcurementPurchaseOrderMapper.class);
         service = new WarehouseForwarderEligibilityService(mapper);
-        when(mapper.insertProductForwarderTransportEligibility(any(), eq(307L))).thenReturn(1);
     }
 
     @Test
@@ -44,9 +36,18 @@ class WarehouseForwarderEligibilityServiceTest {
     }
 
     @Test
+    void projectionAndMutationDecisionUseSeparateReadContracts() {
+        service.loadCurrent(List.of(line()));
+        service.loadCurrentForDecision(List.of(line()));
+
+        verify(mapper).listCurrentProductForwarderTransportEligibilities(List.of(scope()));
+        verify(mapper).listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope()));
+    }
+
+    @Test
     void incompleteBusinessScopeIsUnknownAndBlocksExport() {
         PurchaseOrderLogisticsQuoteLineRecord line = line();
-        line.productVariantId = null;
+        line.logicalStoreId = null;
         PurchaseOrderLogisticsQuoteChannelLineView view = new PurchaseOrderLogisticsQuoteChannelLineView();
 
         service.apply(view, line, candidate(), Map.of());
@@ -97,14 +98,15 @@ class WarehouseForwarderEligibilityServiceTest {
         view.unitPrice = new BigDecimal("65");
         view.currency = "CNY";
         view.billingUnit = "KG";
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope())))
                 .thenReturn(List.of(rule));
 
         service.apply(
                 view,
                 line,
                 candidate(),
-                Map.of(WarehouseForwarderEligibilityService.key(307L, 9001L, "SA", "ET", "AIR"), rule)
+                Map.of(WarehouseForwarderEligibilityService.key(
+                        307L, 108065L, "PSKU-001", "SA", "ET", "AIR"), rule)
         );
 
         assertThat(view.eligibilityStatus).isEqualTo("UNSUPPORTED");
@@ -139,7 +141,8 @@ class WarehouseForwarderEligibilityServiceTest {
                 line,
                 candidate(),
                 Map.of(
-                        WarehouseForwarderEligibilityService.key(307L, 9001L, "SA", "ET", "AIR"),
+                        WarehouseForwarderEligibilityService.key(
+                                307L, 108065L, "PSKU-001", "SA", "ET", "AIR"),
                         rule("UNSUPPORTED", 3)
                 )
         );
@@ -167,86 +170,12 @@ class WarehouseForwarderEligibilityServiceTest {
     void corruptedCurrentRuleFailsClosedBeforeExport() {
         PurchaseOrderLogisticsQuoteLineRecord line = line();
         ProductForwarderTransportEligibilityRecord rule = rule("FUTURE_STATUS", 3);
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope())))
                 .thenReturn(List.of(rule));
 
         assertThatThrownBy(() -> service.requireExportable(List.of(line), candidate()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("承运状态异常");
-    }
-
-    @Test
-    void storesSelectedStatusWithoutAdditionalBusinessFields() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line();
-        UpdateShippingOrderLineEligibilityCommand command = new UpdateShippingOrderLineEligibilityCommand();
-        command.eligibilityStatus = "UNSUPPORTED";
-        when(mapper.nextProductForwarderTransportEligibilityId()).thenReturn(370001L);
-
-        service.updateRule(line, "ET", command, 307L);
-
-        ArgumentCaptor<ProductForwarderTransportEligibilityRecord> inserted =
-                ArgumentCaptor.forClass(ProductForwarderTransportEligibilityRecord.class);
-        verify(mapper).insertProductForwarderTransportEligibility(inserted.capture(), eq(307L));
-        assertThat(inserted.getValue()).satisfies(rule -> {
-            assertThat(rule.id).isEqualTo(370001L);
-            assertThat(rule.productVariantId).isEqualTo(9001L);
-            assertThat(rule.forwarderCode).isEqualTo("ET");
-            assertThat(rule.transportMode).isEqualTo("AIR");
-            assertThat(rule.eligibilityStatus).isEqualTo("UNSUPPORTED");
-            assertThat(rule.version).isEqualTo(1);
-        });
-    }
-
-    @Test
-    void supportedStatusClosesExceptionWithoutPersistingDefaultRule() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line();
-        ProductForwarderTransportEligibilityRecord current = rule("UNSUPPORTED", 3);
-        current.effectiveFrom = LocalDate.of(2026, 7, 20);
-        UpdateShippingOrderLineEligibilityCommand command = new UpdateShippingOrderLineEligibilityCommand();
-        command.eligibilityStatus = "SUPPORTED";
-        when(mapper.selectActiveProductForwarderTransportEligibilityForUpdate(
-                307L, 9001L, "SA", "ET", "AIR"
-        )).thenReturn(current);
-        when(mapper.closeProductForwarderTransportEligibility(
-                current.id, current.version, LocalDate.now(), 307L
-        )).thenReturn(1);
-
-        service.updateRule(line, "ET", command, 307L);
-
-        verify(mapper).closeProductForwarderTransportEligibility(
-                current.id, current.version, LocalDate.now(), 307L
-        );
-        verify(mapper, never()).insertProductForwarderTransportEligibility(any(), eq(307L));
-    }
-
-    @Test
-    void newExceptionContinuesHistoricalVersionAfterSupportedGap() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line();
-        UpdateShippingOrderLineEligibilityCommand command = new UpdateShippingOrderLineEligibilityCommand();
-        command.eligibilityStatus = "UNSUPPORTED";
-        when(mapper.selectLatestProductForwarderTransportEligibilityVersionForUpdate(
-                307L, 9001L, "SA", "ET", "AIR"
-        )).thenReturn(3);
-        when(mapper.nextProductForwarderTransportEligibilityId()).thenReturn(370004L);
-
-        service.updateRule(line, "ET", command, 307L);
-
-        ArgumentCaptor<ProductForwarderTransportEligibilityRecord> inserted =
-                ArgumentCaptor.forClass(ProductForwarderTransportEligibilityRecord.class);
-        verify(mapper).insertProductForwarderTransportEligibility(inserted.capture(), eq(307L));
-        assertThat(inserted.getValue().version).isEqualTo(4);
-    }
-
-    @Test
-    void concurrentFirstInsertReturnsRefreshableBusinessError() {
-        UpdateShippingOrderLineEligibilityCommand command = new UpdateShippingOrderLineEligibilityCommand();
-        command.eligibilityStatus = "UNSUPPORTED";
-        when(mapper.insertProductForwarderTransportEligibility(any(), eq(307L)))
-                .thenThrow(new DuplicateKeyException("duplicate active rule"));
-
-        assertThatThrownBy(() -> service.updateRule(line(), "ET", command, 307L))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("承运状态已被其他操作更新，请刷新后重试。");
     }
 
     private static PurchaseOrderLogisticsQuoteLineRecord line() {
@@ -277,12 +206,18 @@ class WarehouseForwarderEligibilityServiceTest {
         rule.id = 370000L + version;
         rule.ownerUserId = 307L;
         rule.productVariantId = 9001L;
+        rule.logicalStoreId = 108065L;
+        rule.partnerSku = "PSKU-001";
         rule.siteCode = "SA";
         rule.forwarderCode = "ET";
         rule.transportMode = "AIR";
         rule.eligibilityStatus = status;
         rule.version = version;
         return rule;
+    }
+
+    private static ProductForwarderEligibilityScopeAnchorRecord scope() {
+        return new ProductForwarderEligibilityScopeAnchorRecord(307L, 108065L, "PSKU-001");
     }
 
     private String status(

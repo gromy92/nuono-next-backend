@@ -41,6 +41,7 @@ class LocalDbProcurementPurchaseOrderServiceEligibilityProjectionTest {
         line.id = 291001L;
         line.shippingOrderSegmentId = 292001L;
         line.ownerUserId = 307L;
+        line.logicalStoreId = 108065L;
         line.productVariantId = 9001L;
         line.partnerSku = "PSKU-1";
         line.siteCode = "SA";
@@ -53,6 +54,8 @@ class LocalDbProcurementPurchaseOrderServiceEligibilityProjectionTest {
         ProductForwarderTransportEligibilityRecord rule =
                 new ProductForwarderTransportEligibilityRecord();
         rule.ownerUserId = 307L;
+        rule.logicalStoreId = 108065L;
+        rule.partnerSku = "PSKU-1";
         rule.productVariantId = 9001L;
         rule.siteCode = "SA";
         rule.forwarderCode = "YT";
@@ -61,7 +64,8 @@ class LocalDbProcurementPurchaseOrderServiceEligibilityProjectionTest {
         when(mapper.selectShippingOrderById(290001L)).thenReturn(order);
         when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(segment));
         when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(line));
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.listCurrentProductForwarderTransportEligibilities(List.of(
+                new ProductForwarderEligibilityScopeAnchorRecord(307L, 108065L, "PSKU-1"))))
                 .thenReturn(List.of(rule));
 
         ShippingOrderView view = service.getShippingOrder(

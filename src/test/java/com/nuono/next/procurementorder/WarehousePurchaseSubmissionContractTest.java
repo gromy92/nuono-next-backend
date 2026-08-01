@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -25,6 +26,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 class WarehousePurchaseSubmissionContractTest {
 
@@ -44,8 +46,8 @@ class WarehousePurchaseSubmissionContractTest {
         when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order());
         when(mapper.listRouteRecommendationCandidates(List.of("SA"), "AIR"))
                 .thenReturn(List.of(candidate));
-        when(mapper.lockProductVariantsForForwarderEligibility(eq(307L), any()))
-                .thenAnswer(invocation -> invocation.getArgument(1));
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(any()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         when(mapper.confirmLogisticsQuoteLine(any(), eq(307L))).thenReturn(1);
         when(mapper.nextOperationLogId()).thenReturn(240001L);
     }
@@ -66,6 +68,12 @@ class WarehousePurchaseSubmissionContractTest {
         assertThat(line.unitPrice).isEqualByComparingTo("67");
         assertThat(line.estimatedAmount).isNull();
         verify(mapper).confirmLogisticsQuoteLine(line, 307L);
+        InOrder anchorBeforeQuoteWrite = inOrder(mapper);
+        List<ProductForwarderEligibilityScopeAnchorRecord> scopes = List.of(scope(9001L));
+        anchorBeforeQuoteWrite.verify(mapper).ensureProductForwarderEligibilityScopeAnchors(scopes);
+        anchorBeforeQuoteWrite.verify(mapper).lockProductForwarderEligibilityScopeAnchors(scopes);
+        anchorBeforeQuoteWrite.verify(mapper).listCurrentProductForwarderTransportEligibilitiesForUpdate(scopes);
+        anchorBeforeQuoteWrite.verify(mapper).confirmLogisticsQuoteLine(line, 307L);
     }
 
     @Test
@@ -150,12 +158,14 @@ class WarehousePurchaseSubmissionContractTest {
         when(priceService.resolve(line, candidate, line)).thenReturn(price(null));
         ProductForwarderTransportEligibilityRecord rule = new ProductForwarderTransportEligibilityRecord();
         rule.ownerUserId = 307L;
+        rule.logicalStoreId = 301L;
+        rule.partnerSku = "PSKU-9001";
         rule.productVariantId = 9001L;
         rule.siteCode = "SA";
         rule.forwarderCode = "ET";
         rule.transportMode = "AIR";
         rule.eligibilityStatus = "UNSUPPORTED";
-        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForUpdate(List.of(scope(9001L))))
                 .thenReturn(List.of(rule));
 
         assertThatThrownBy(() -> service.submitShipping(access(), "200001"))
@@ -216,6 +226,10 @@ class WarehousePurchaseSubmissionContractTest {
         candidate.routeCode = "ET-SA-AIR";
         candidate.serviceCode = "ET-SA-AIR-SVC";
         return candidate;
+    }
+
+    private ProductForwarderEligibilityScopeAnchorRecord scope(Long variantId) {
+        return new ProductForwarderEligibilityScopeAnchorRecord(307L, 301L, "PSKU-" + variantId);
     }
 
     private PurchaseOrderRecord order() {

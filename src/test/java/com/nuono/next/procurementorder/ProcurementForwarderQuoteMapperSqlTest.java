@@ -44,22 +44,6 @@ class ProcurementForwarderQuoteMapperSqlTest {
     }
 
     @Test
-    void eligibilityScopeLockIsOwnerScopedAndDeterministicallyOrdered() throws Exception {
-        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
-                "lockProductVariantsForForwarderEligibility",
-                Long.class,
-                java.util.List.class
-        );
-
-        String statement = sql(method);
-
-        assertThat(statement).contains("store.owner_user_id = #{ownerUserId}");
-        assertThat(statement).contains("pv.id IN");
-        assertThat(statement).contains("ORDER BY pv.id ASC");
-        assertThat(statement).contains("FOR UPDATE");
-    }
-
-    @Test
     void shippingOrderItemSiteLockIsOwnerScopedAndDeterministicallyOrdered() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod(
                 "lockPurchaseOrderItemSitesForShipping",
