@@ -186,16 +186,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             expected_applied,
             pre_forwarder_runner.apply(approved_managed=pre_forwarder_approvals),
         )
-        verify_shipping_batch_dispatch_plan_uniqueness_migration(
-            self, database, migrations, pre_forwarder_runner
-        )
-        verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
-        self.assertEqual(
-            [forwarder.key],
-            apply_with_diagnostics(runner, approvals, database, forwarder),
-        )
-        self.assertTrue(all(state.state == "APPLIED"
-                            for state in database.load_states().values()))
         verify_applied_schema(
             self,
             database,
@@ -206,6 +196,16 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         verify_appointment_concurrency_migration(self, database, migrations)
         verify_shipping_batch_idempotency_migration(self, database, migrations)
+        verify_shipping_batch_dispatch_plan_uniqueness_migration(
+            self, database, migrations, pre_forwarder_runner
+        )
+        verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
+        self.assertEqual(
+            [forwarder.key],
+            apply_with_diagnostics(runner, approvals, database, forwarder),
+        )
+        self.assertTrue(all(state.state == "APPLIED"
+                            for state in database.load_states().values()))
         verify_forwarder_migration(
             self, database, migrations, forwarder_fact_signature
         )
