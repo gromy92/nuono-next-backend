@@ -10,6 +10,28 @@ from pathlib import Path
 
 from schema_migrations.model import MigrationError
 
+
+def mysql_supports_no_login_paths(mysql_bin: str) -> bool:
+    try:
+        result = subprocess.run(
+            [mysql_bin, "--no-login-paths", "--version"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise MigrationError("cannot inspect mysql client capabilities") from error
+    if result.returncode == 0:
+        return True
+    output = (result.stderr or result.stdout).lower()
+    if "unknown option" in output and "no-login-paths" in output:
+        return False
+    raise MigrationError(
+        "mysql client capability probe failed before opening a database connection"
+    )
+
 MYSQL_ERROR = re.compile(
     r"ERROR (?P<code>[0-9]+) \((?P<sqlstate>[0-9A-Z]+)\)"
     r"(?: at line [0-9]+)?: (?P<message>.*)",

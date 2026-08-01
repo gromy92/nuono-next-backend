@@ -21,13 +21,6 @@ cleanup_additive_migrations() {
 }
 trap cleanup_additive_migrations EXIT INT TERM
 
-detect_mysql_login_path_option() {
-  MYSQL_LOGIN_PATH_ARGS=()
-  if mysql --no-login-paths --version >/dev/null 2>&1; then
-    MYSQL_LOGIN_PATH_ARGS=(--no-login-paths)
-  fi
-}
-
 extract_migration() {
   local filename="$1"
   local destination="$2"
@@ -283,7 +276,7 @@ postcheck_migration_205() {
 
 validate_additive_migrations() {
   command -v mysql >/dev/null
-  detect_mysql_login_path_option
+  if mysql --no-login-paths --version >/dev/null 2>&1; then MYSQL_LOGIN_PATH_ARGS=(--no-login-paths); fi
   command -v unzip >/dev/null
   command -v python3 >/dev/null
   [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
