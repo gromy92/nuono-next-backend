@@ -102,7 +102,10 @@ class ProductDeleteTaskSubmissionTest {
 
         assertEquals(true, sql.contains("product_master_id = #{productMasterId}"));
         assertEquals(true, sql.contains("ORDER BY id DESC LIMIT 1"));
-        assertEquals("ProductPublishTaskRecordMap", method.getAnnotation(ResultMap.class).value()[0]);
+        assertEquals(
+                "com.nuono.next.infrastructure.mapper.ProductManagementMapper.ProductPublishTaskRecordMap",
+                method.getAnnotation(ResultMap.class).value()[0]
+        );
     }
 
     private ProductPublishTaskCreateCommand command() {
