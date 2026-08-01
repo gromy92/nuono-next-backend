@@ -236,11 +236,13 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
             self.assertIn(marker, migration.script_sql + migration.postcheck_sql)
         for sql in (migration.script_sql, migration.postcheck_sql):
             self.assertIn(
-                "REPLACE(REGEXP_REPLACE(LOWER(REGEXP_REPLACE", sql
+                "REPLACE(REGEXP_REPLACE(LOWER(REPLACE(REPLACE", sql
             )
             self.assertNotIn(
-                "REGEXP_REPLACE(REPLACE(LOWER(REGEXP_REPLACE", sql
+                "LOWER(REGEXP_REPLACE(REPLACE", sql
             )
+            self.assertIn("'(_utf8mb4)?''canceled'''", sql)
+            self.assertNotIn("'(_utf8mb4)?''CANCELED'''", sql)
         for marker in ("column_name = 'id'", "column_name = 'owner_user_id'",
                        "column_name = 'store_code'", "column_name = 'attempt_count'"):
             self.assertIn(marker, migration.postcheck_sql)
