@@ -15,7 +15,7 @@ public interface ProductDeleteTaskSubmissionMapper extends ProductPublishRetryMa
             "ORDER BY id DESC",
             "LIMIT 1"
     })
-    @ResultMap("ProductPublishTaskRecordMap")
+    @ResultMap("com.nuono.next.infrastructure.mapper.ProductManagementMapper.ProductPublishTaskRecordMap")
     ProductPublishTaskRecord selectLatestProductPublishTask(
             @Param("productMasterId") Long productMasterId
     );
