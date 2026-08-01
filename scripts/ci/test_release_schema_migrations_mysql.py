@@ -170,13 +170,30 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             integrity.key, rerun=True, approved_managed=integrity_approval
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
-        verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
+        pre_forwarder_runner = MigrationRunner(
+            database,
+            migrations[:migrations.index(forwarder)],
+            release_commit="a" * 40,
+            installed_by="ci-mysql",
+            lock_timeout_seconds=5,
+        )
+        pre_forwarder_approvals = [key for key in approvals if key != forwarder.key]
         expected_applied = [
             request_idempotency.key, packing_index.key, appointment.key,
-            shipping_batch.key, shipping_plan.key, forwarder.key,
+            shipping_batch.key, shipping_plan.key,
         ]
-        applied = apply_with_diagnostics(runner, approvals, database, forwarder)
-        self.assertEqual(expected_applied, applied)
+        self.assertEqual(
+            expected_applied,
+            pre_forwarder_runner.apply(approved_managed=pre_forwarder_approvals),
+        )
+        verify_shipping_batch_dispatch_plan_uniqueness_migration(
+            self, database, migrations, pre_forwarder_runner
+        )
+        verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
+        self.assertEqual(
+            [forwarder.key],
+            apply_with_diagnostics(runner, approvals, database, forwarder),
+        )
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
         verify_applied_schema(
@@ -189,12 +206,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         verify_appointment_concurrency_migration(self, database, migrations)
         verify_shipping_batch_idempotency_migration(self, database, migrations)
-        verify_shipping_batch_dispatch_plan_uniqueness_migration(
-            self,
-            database,
-            migrations,
-            runner,
-        )
         verify_forwarder_migration(
             self, database, migrations, forwarder_fact_signature
         )
@@ -211,7 +222,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner,
         )
 
-        target = shipping_plan
+        target = forwarder
         database.client.execute(
             "UPDATE nuono_schema_migration h "
             "JOIN nuono_schema_migration_attempt a "
