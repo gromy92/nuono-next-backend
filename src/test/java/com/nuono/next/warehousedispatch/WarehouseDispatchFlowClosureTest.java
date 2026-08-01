@@ -140,6 +140,7 @@ class WarehouseDispatchFlowClosureTest extends WarehouseDispatchServiceTestSuppo
         when(mapper.listPackingListsByOutboundOrder(eq(800001L), anyMap()))
                 .thenReturn(List.of());
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
         when(mapper.nextPackingListId()).thenReturn(830001L);
         when(mapper.markOutboundOrderPacking(800001L, 307L, 307L)).thenReturn(1);
         when(mapper.selectShippingBatchById(700001L)).thenReturn(batch);
