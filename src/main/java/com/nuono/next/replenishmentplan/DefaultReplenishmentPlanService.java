@@ -114,7 +114,6 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                         record -> record,
                         (left, right) -> left
                 ));
-
         Map<String, List<ReplenishmentPlanRepository.InboundRow>> inboundByPartnerSku = listInboundRows(query).stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
                 .collect(Collectors.groupingBy(row -> skuKey(row.getPartnerSku())));
