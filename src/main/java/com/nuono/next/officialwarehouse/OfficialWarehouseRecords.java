@@ -5,10 +5,8 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 public final class OfficialWarehouseRecords {
-
     private OfficialWarehouseRecords() {
     }
-
     public static class StoreSiteRecord {
         public Long ownerUserId;
         public Long logicalStoreId;
@@ -109,10 +107,10 @@ public final class OfficialWarehouseRecords {
         public BigDecimal productWeightG;
         public BigDecimal cubicFeet;
         public String storageTypeCode;
+        public java.util.List<String> sourceBarcodes = new java.util.ArrayList<>();
         public String lineStatus;
         public Long operatorUserId;
     }
-
     public static class ShippingBatchCandidateRecord {
         public Long id;
         public String sourceKind;
@@ -154,6 +152,7 @@ public final class OfficialWarehouseRecords {
         public String transportMode;
         public String latestNodeStatus;
         public Long inTransitGoodsLineId;
+        public String sourceBarcode;
         public Long fulfillmentBalanceId;
         public String sourceStoreCode;
         public String sourceStoreName;
@@ -193,6 +192,7 @@ public final class OfficialWarehouseRecords {
         public String transportMode;
         public String latestNodeStatus;
         public Long inTransitGoodsLineId;
+        public String sourceBarcode;
         public Long fulfillmentBalanceId;
         public Long purchaseOrderId;
         public String purchaseOrderNo;

@@ -35,6 +35,10 @@ class InTransitProductMatchContractTest {
                 .contains("resolveProductMatchCandidate", "listProductLandingBatchIds")
                 .contains("excludeProductMatchCandidate", "match_status = 'EXCLUDED'")
                 .contains("product_barcode landingBarcode", "logical_store_site landingSite")
+                .contains("product_master landingMaster")
+                .contains("COUNT(DISTINCT identityBarcode.logical_store_id, BINARY identityBarcode.partner_sku)")
+                .contains("identityStore.owner_user_id = candidate.owner_user_id")
+                .contains("BINARY source_barcode = BINARY #{sourceBarcode}")
                 .contains("match_status = 'UNMATCHED'");
         assertThat(pluginSync)
                 .contains("productMatchService.saveCandidate")
@@ -61,8 +65,10 @@ class InTransitProductMatchContractTest {
         assertThat(mapper)
                 .contains("product_barcode scopeBarcode")
                 .contains("scopeBarcode.logical_store_id = ls.id")
-                .contains("COALESCE(pmScope.partner_sku, '')")
-                .contains("COALESCE(pm.partner_sku, '')");
+                .contains("scopeBarcode.barcode = line.sku")
+                .contains("BINARY scopeBarcode.barcode = BINARY line.sku")
+                .doesNotContain("scopeBarcode.partner_sku = line.psku")
+                .doesNotContain("scopeBarcode.barcode = line.psku");
     }
 
     @Test
@@ -74,7 +80,9 @@ class InTransitProductMatchContractTest {
 
         assertThat(sql)
                 .doesNotContain("&lt;", "&gt;")
-                .contains("!= 'PARTNER_SKU_ALIAS'");
+                .contains("!= 'PARTNER_SKU_ALIAS'")
+                .contains("COUNT(DISTINCT identityBarcode.logical_store_id, BINARY identityBarcode.partner_sku)")
+                .contains("BINARY identityBarcode.barcode = BINARY candidate.source_barcode");
     }
 
     private String read(String path) throws Exception {

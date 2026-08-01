@@ -201,6 +201,7 @@ class OfficialWarehouseBatchSummaryServiceTest {
         raw.batchId = BATCH_ID;
         raw.goodsLineId = lineId;
         raw.psku = sku;
+        raw.sku = sku;
         raw.quantity = quantity;
         fixture.rawLines.add(raw);
 
