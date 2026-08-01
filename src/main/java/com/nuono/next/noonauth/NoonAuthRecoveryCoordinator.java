@@ -128,7 +128,6 @@ public class NoonAuthRecoveryCoordinator implements
         ));
         return primaryRecovery;
     }
-
     @Override
     @Transactional
     public Optional<Long> enqueueProject(Long ownerUserId, String projectCode, String storeCode) {
@@ -136,16 +135,16 @@ public class NoonAuthRecoveryCoordinator implements
         if (!canQueueProject(ownerUserId, normalizedProjectCode)) {
             return Optional.empty();
         }
-        StoreSyncStoreRecord project = storeSyncMapper.selectOwnerProject(ownerUserId, normalizedProjectCode);
-        if (project == null
-                || !normalizedProjectCode.equals(normalize(project.getProjectCode()))) {
+        NoonAuthRecoveryProjectCandidate target = NoonAuthRecoveryStoreTargetResolver.resolve(
+                storeSyncMapper, ownerUserId, normalizedProjectCode, storeCode);
+        if (target == null) {
             return Optional.empty();
         }
         Optional<Long> primaryRecovery = enqueueTarget(
                 ownerUserId,
                 normalizedProjectCode,
-                firstNonBlank(storeCode, project.getStoreCode(), normalizedProjectCode),
-                project.getSite(),
+                target.getStoreCode(),
+                target.getSiteCode(),
                 null,
                 "BINDING_PENDING",
                 true,
@@ -173,8 +172,8 @@ public class NoonAuthRecoveryCoordinator implements
             enqueueTarget(
                     candidate.getOwnerUserId(),
                     projectCode,
-                    firstNonBlank(candidate.getStoreCode(), projectCode),
-                    null,
+                    candidate.getStoreCode(),
+                    candidate.getSiteCode(),
                     null,
                     "AUTH_REQUIRED_SHARED_IDENTITY",
                     false,
@@ -202,6 +201,18 @@ public class NoonAuthRecoveryCoordinator implements
             boolean explicitBinding,
             String sourceDomain
     ) {
+
+        projectCode = normalize(projectCode);
+        storeCode = normalize(storeCode);
+        siteCode = NoonAuthRecoveryTargetPolicy.normalizeSite(siteCode);
+        if (!NoonAuthRecoveryTargetPolicy.hasCompleteBusinessIdentity(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                siteCode
+        )) {
+            return Optional.empty();
+        }
 
         String identityKey = NoonAuthIdentityKey.fromEmail(configuredEmail);
         String configFingerprint = NoonAuthIdentityKey.configFingerprint(
@@ -422,6 +433,7 @@ public class NoonAuthRecoveryCoordinator implements
                 && task.getId() != null
                 && task.getOwnerUserId() != null
                 && StringUtils.hasText(task.getStoreCode())
+                && StringUtils.hasText(task.getSiteCode())
                 && StringUtils.hasText(configuredEmail)
                 && StringUtils.hasText(configuredMailboxAuthCode)
                 && !properties.normalizedTrustedSenderDomains().isEmpty()
@@ -468,18 +480,5 @@ public class NoonAuthRecoveryCoordinator implements
 
     private static String normalize(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
-    }
-
-    private static String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            String normalized = normalize(value);
-            if (StringUtils.hasText(normalized)) {
-                return normalized;
-            }
-        }
-        return null;
     }
 }

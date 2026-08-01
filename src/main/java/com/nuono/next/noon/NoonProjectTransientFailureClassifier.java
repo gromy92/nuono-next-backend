@@ -40,6 +40,8 @@ final class NoonProjectTransientFailureClassifier {
 
     private static NoonTransientErrorType classifyStatus(int statusCode) {
         switch (statusCode) {
+            case 407:
+                return NoonTransientErrorType.HTTP_407;
             case 408:
                 return NoonTransientErrorType.HTTP_408;
             case 500:

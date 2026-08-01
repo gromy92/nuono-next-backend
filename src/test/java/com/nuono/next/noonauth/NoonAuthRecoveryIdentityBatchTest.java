@@ -55,8 +55,8 @@ class NoonAuthRecoveryIdentityBatchTest {
     void firstExpiredProjectStagesEveryEligibleProjectInOneIdentityRecovery() {
         when(storeSyncMapper.selectOwnerProject(307L, "STORE-A")).thenReturn(project("PRJ-A"));
         when(batchCatalog.listEligibleProjects(Set.of("PRJ-A", "PRJ-B"))).thenReturn(List.of(
-                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "PRJ-A"),
-                new NoonAuthRecoveryProjectCandidate(308L, "PRJ-B", "PRJ-B")
+                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "STR-A-NAE", "AE"),
+                new NoonAuthRecoveryProjectCandidate(308L, "PRJ-B", "STR-B-NSA", "SA")
         ));
         NoonAuthIdentityRecoveryRecord active = recovery(91L, NoonAuthRecoveryStatus.COALESCING);
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
@@ -74,10 +74,10 @@ class NoonAuthRecoveryIdentityBatchTest {
 
         assertEquals(Optional.of(91L), recoveryId);
         verify(recoveryRepository).coalesceRecoveryItem(anyItem(
-                91L, 307L, "PRJ-A", 41L, "ORDER", 7L
+                91L, 307L, "PRJ-A", "STORE-A", "AE", 41L, "ORDER", 7L
         ));
         verify(recoveryRepository).coalesceRecoveryItem(anyItem(
-                91L, 308L, "PRJ-B", null, "IDENTITY_BATCH", 3L
+                91L, 308L, "PRJ-B", "STR-B-NSA", "SA", null, "IDENTITY_BATCH", 3L
         ));
         verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
     }
@@ -86,8 +86,8 @@ class NoonAuthRecoveryIdentityBatchTest {
     void unchangedManualHoldProjectIsNotPulledIntoProactiveIdentityBatch() {
         when(storeSyncMapper.selectOwnerProject(307L, "STORE-A")).thenReturn(project("PRJ-A"));
         when(batchCatalog.listEligibleProjects(Set.of("PRJ-A", "PRJ-B"))).thenReturn(List.of(
-                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "PRJ-A"),
-                new NoonAuthRecoveryProjectCandidate(308L, "PRJ-B", "PRJ-B")
+                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "STR-A-NAE", "AE"),
+                new NoonAuthRecoveryProjectCandidate(308L, "PRJ-B", "STR-B-NSA", "SA")
         ));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         when(recoveryRepository.selectActiveRecoveryForUpdate(anyString()))
@@ -114,11 +114,13 @@ class NoonAuthRecoveryIdentityBatchTest {
         NoonAuthRecoveryProjectBatchMapper mapper =
                 mock(NoonAuthRecoveryProjectBatchMapper.class);
         when(mapper.listEligibleIdentityProjects()).thenReturn(List.of(
-                new NoonAuthRecoveryProjectCandidate(307L, " PRJ-A ", null),
-                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "DUPLICATE"),
-                new NoonAuthRecoveryProjectCandidate(308L, "prj-b", "STORE-B"),
-                new NoonAuthRecoveryProjectCandidate(309L, "PRJ-C", "STORE-C"),
-                new NoonAuthRecoveryProjectCandidate(null, "PRJ-A", "INVALID")
+                new NoonAuthRecoveryProjectCandidate(307L, " PRJ-A ", null, null),
+                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "PRJ-A", "AE"),
+                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "STR-A-NAE", " ae "),
+                new NoonAuthRecoveryProjectCandidate(307L, "PRJ-A", "STR-A-NSA", "SA"),
+                new NoonAuthRecoveryProjectCandidate(308L, "prj-b", "STR-B-NSA", "SA"),
+                new NoonAuthRecoveryProjectCandidate(309L, "PRJ-C", "STR-C-NAE", "AE"),
+                new NoonAuthRecoveryProjectCandidate(null, "PRJ-A", "STR-A-NAE", "AE")
         ));
         MyBatisNoonAuthRecoveryProjectBatchCatalog catalog =
                 new MyBatisNoonAuthRecoveryProjectBatchCatalog(mapper);
@@ -129,9 +131,12 @@ class NoonAuthRecoveryIdentityBatchTest {
         assertEquals(2, selected.size());
         assertEquals(307L, selected.get(0).getOwnerUserId());
         assertEquals("PRJ-A", selected.get(0).getProjectCode());
-        assertEquals("PRJ-A", selected.get(0).getStoreCode());
+        assertEquals("STR-A-NAE", selected.get(0).getStoreCode());
+        assertEquals("AE", selected.get(0).getSiteCode());
         assertEquals(308L, selected.get(1).getOwnerUserId());
         assertEquals("prj-b", selected.get(1).getProjectCode());
+        assertEquals("STR-B-NSA", selected.get(1).getStoreCode());
+        assertEquals("SA", selected.get(1).getSiteCode());
         assertTrue(selected.stream().noneMatch(candidate ->
                 "PRJ-C".equals(candidate.getProjectCode())
         ));
@@ -150,6 +155,11 @@ class NoonAuthRecoveryIdentityBatchTest {
         assertTrue(sql.contains("up.is_authorized = 1"));
         assertTrue(sql.contains("up.user_id as owneruserid"));
         assertTrue(sql.contains("up.project_code as projectcode"));
+        assertTrue(sql.contains("left join user_store us"));
+        assertTrue(sql.contains("us.store_code as storecode"));
+        assertTrue(sql.contains("us.site as sitecode"));
+        assertTrue(sql.contains("lss.is_reference_site"));
+        assertTrue(!sql.contains("up.project_code as storecode"));
     }
 
     private NoonAuthRecoveryCoordinator coordinator() {
@@ -169,6 +179,8 @@ class NoonAuthRecoveryIdentityBatchTest {
             Long recoveryId,
             Long ownerUserId,
             String projectCode,
+            String storeCode,
+            String siteCode,
             Long taskId,
             String sourceDomain,
             Long authVersion
@@ -177,6 +189,8 @@ class NoonAuthRecoveryIdentityBatchTest {
                 recoveryId.equals(item.getRecoveryId())
                         && ownerUserId.equals(item.getOwnerUserId())
                         && projectCode.equals(item.getProjectCode())
+                        && storeCode.equals(item.getStoreCode())
+                        && siteCode.equals(item.getSiteCode())
                         && java.util.Objects.equals(taskId, item.getSourceTaskId())
                         && sourceDomain.equals(item.getSourceDomain())
                         && authVersion.equals(item.getExpectedAuthVersion())

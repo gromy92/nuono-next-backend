@@ -321,13 +321,15 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
         }
         return Optional.empty();
     }
-
     private NoonAuthRecoveryProjectResult createAndValidateProject(
             NoonSessionGateway.EmailIdentityGrant grant,
             NoonAuthRecoveryProjectTarget target,
             String expectedEmail,
             NoonAuthRecoveryAttemptCommand command
     ) {
+        if (!target.hasCompleteBusinessIdentity()) {
+            return NoonAuthRecoveryProjectResult.invalidTarget(target);
+        }
         command.heartbeatOrThrow();
         final NoonSessionGateway.ProjectSessionCookie projectSession;
         try {
@@ -620,10 +622,8 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
             throw new IllegalStateException("等待 Noon 验证码邮件时被中断。", exception);
         }
     }
-
     @FunctionalInterface
     interface Sleeper {
         void sleep(long millis) throws InterruptedException;
     }
-
 }

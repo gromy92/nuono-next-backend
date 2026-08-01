@@ -59,7 +59,7 @@ class NoonSessionGatewayAuthRecoveryGatewayTest
 
     @Test
     void exactTransientHttpStatusTakesPrecedenceOverAuthMarkersInResponseBody() {
-        for (int status : List.of(408, 500, 502, 503, 504)) {
+        for (int status : List.of(407, 408, 500, 502, 503, 504)) {
             assertFalse(NoonSessionResponseClassifier.isAuthExpiredResponse(
                     status,
                     "{\"error\":\"unauthorized invalid session signin\"}",
