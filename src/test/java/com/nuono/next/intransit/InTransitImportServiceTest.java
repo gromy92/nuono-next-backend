@@ -5,9 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -72,6 +75,18 @@ class InTransitImportServiceTest {
     @BeforeEach
     void setUp() {
         service = new InTransitImportService(mapper, forwarderService, batchService, auditService, accessScopeService, new ObjectMapper());
+        lenient().when(mapper.selectProductIdentityByBarcode(anyLong(), anyString()))
+                .thenAnswer(invocation -> {
+                    String barcode = invocation.getArgument(1);
+                    if ("SKU-AE-001".equals(barcode)) {
+                        return new BarcodeProductIdentity(50001L, "PSKU-001");
+                    }
+                    if ("SKU-AE-002".equals(barcode)) {
+                        return new BarcodeProductIdentity(50001L, "PSKU-002");
+                    }
+                    String partnerSku = barcode.startsWith("SKU-") ? "P" + barcode : barcode;
+                    return new BarcodeProductIdentity(50001L, partnerSku);
+                });
     }
 
     @Test
@@ -363,7 +378,7 @@ class InTransitImportServiceTest {
         ImportBatchRow row = importBatchRow(56013L, preview);
         when(mapper.selectImportBatchById(10002L, 56013L)).thenReturn(row);
         when(mapper.selectBatchByReferenceNo(10002L, "XGGEUAE04029")).thenReturn(existingBatch(53101L, "XGGEUAE04029"));
-        when(mapper.selectLineByBoxNoAndPsku(10002L, 53101L, "XGGEUAE04029-1", "PSKU-QIKE-001"))
+        when(mapper.selectLineByBoxNoAndBarcode(10002L, 53101L, "XGGEUAE04029-1", "SKU-QIKE-001"))
                 .thenReturn(existingLine(54101L, 53101L, "XGGEUAE04029-1", "SKU-QIKE-001", "PSKU-QIKE-001"));
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53101L);
@@ -384,9 +399,9 @@ class InTransitImportServiceTest {
                 eq(53101L),
                 eq(List.of("XGGEUAE04029-1", "XGGEUAE04029-2")),
                 eq(List.of(
-                        "XGGEUAE04029-1\nPSKU-QIKE-001",
-                        "XGGEUAE04029-1\nPSKU-QIKE-002",
-                        "XGGEUAE04029-2\nPSKU-QIKE-003"
+                        "XGGEUAE04029-1\nSKU-QIKE-001",
+                        "XGGEUAE04029-1\nSKU-QIKE-002",
+                        "XGGEUAE04029-2\nSKU-QIKE-003"
                 ))
         );
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
@@ -397,7 +412,7 @@ class InTransitImportServiceTest {
     }
 
     @Test
-    void shouldRejectImportRowsWithoutPskuBecausePskuIsProductKey() {
+    void shouldDerivePskuFromBarcodeWhenTheSourceFileOmitsPsku() {
         when(mapper.nextImportBatchId()).thenReturn(56014L);
         when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
         String csv = "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,箱号,SKU,发货数量,已入仓数量\n"
@@ -405,8 +420,9 @@ class InTransitImportServiceTest {
 
         ImportPreviewView result = service.preview(command("缺PSKU.csv", csv));
 
-        assertEquals("has_errors", result.getStatus());
-        assertTrue(result.getIssues().stream().anyMatch(issue -> "psku_missing".equals(issue.getCode())));
+        assertEquals("ready", result.getStatus());
+        assertEquals("SOURCE-SKU-001", result.getBatches().get(0).getLines().get(0).getPsku());
+        assertFalse(result.getIssues().stream().anyMatch(issue -> "psku_missing".equals(issue.getCode())));
     }
 
     @Test

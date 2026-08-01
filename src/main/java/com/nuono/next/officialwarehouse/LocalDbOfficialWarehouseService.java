@@ -1015,6 +1015,7 @@ public class LocalDbOfficialWarehouseService implements
                 link.transportMode = allocation.transportMode;
                 link.latestNodeStatus = allocation.latestNodeStatus;
                 link.inTransitGoodsLineId = allocation.inTransitGoodsLineId;
+                link.sourceBarcode = allocation.sourceBarcode;
                 link.fulfillmentBalanceId = allocation.fulfillmentBalanceId;
                 link.purchaseOrderId = allocation.purchaseOrderId;
                 link.purchaseOrderNo = allocation.purchaseOrderNo;
@@ -1031,6 +1032,10 @@ public class LocalDbOfficialWarehouseService implements
                         : "ASN_CREATE_SELECTED_IN_TRANSIT_BATCH";
                 link.operatorUserId = operatorUserId;
                 links.add(link);
+                if (StringUtils.hasText(allocation.sourceBarcode)
+                        && !lineRow.sourceBarcodes.contains(allocation.sourceBarcode.trim())) {
+                    lineRow.sourceBarcodes.add(allocation.sourceBarcode.trim());
+                }
                 remainingQuantity -= linkedQuantity;
                 remainingBySourceId.put(sourceId, sourceRemaining - linkedQuantity);
             }

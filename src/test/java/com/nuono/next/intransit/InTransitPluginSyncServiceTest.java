@@ -670,8 +670,7 @@ class InTransitPluginSyncServiceTest {
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53001L);
         when(mapper.selectBatchByReferenceNo(10002L, "XGGEKSA04075")).thenReturn(existingBatch);
-        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYS031")).thenReturn(null);
-        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYSB031")).thenReturn(legacyLine);
+        lenient().when(mapper.selectLineByBoxNoAndBarcode(10002L, 53001L, "NO1-1", "PAPERSAYSB031")).thenReturn(legacyLine);
         when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
 
         service.commit(command);
@@ -682,7 +681,7 @@ class InTransitPluginSyncServiceTest {
         assertNull(savedLine.getLineId());
         assertEquals("PAPERSAYSB031", savedLine.getSku());
         assertNull(savedLine.getPsku());
-        verify(mapper, never()).selectLineByBoxNoAndPsku(any(), any(), any(), any());
+        verify(mapper, never()).selectLineByBoxNoAndBarcode(any(), any(), any(), any());
     }
 
     @Test
@@ -765,6 +764,22 @@ class InTransitPluginSyncServiceTest {
         verify(mapper, never()).selectProductIdentityByBarcode(10002L, "REAL-PRODUCT-BARCODE");
         verify(mapper, never()).selectProductIdentityByBarcode(10002L, "OTHER-PRODUCT-VALID-BARCODE");
         verify(mapper, never()).selectProductIdentityByBarcode(10002L, "SYSTEM-PSKU");
+    }
+
+    @Test
+    void shouldTreatBarcodeCaseDifferenceAsAConflict() {
+        PluginSyncCommand command = sampleCommand();
+        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
+        line.setBarcode("SGGRB329");
+        line.setSku("sggrb329");
+
+        PluginSyncPreviewView preview = service.preview(command);
+
+        assertEquals(false, preview.isCommittable());
+        assertTrue(preview.getIssues().stream().anyMatch(issue ->
+                "barcode".equals(issue.getField())
+                        && issue.getMessage().contains("barcode 与旧字段 sku 不一致")
+        ));
     }
 
     @Test

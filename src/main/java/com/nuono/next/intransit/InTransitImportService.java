@@ -223,6 +223,7 @@ public class InTransitImportService {
             ImportPreviewBatchView batch = batches.computeIfAbsent(batchKey, key -> buildBatch(ownerUserId, row, key, issues));
             addRowBatchIssues(resolved.getAccessContext(), row, rowIssues);
             ImportPreviewLineView line = buildLine(row, rowIssues);
+            resolveProductIdentity(ownerUserId, line, row.rowNumber, rowIssues);
             if (rowIssues.stream().noneMatch(item -> "error".equals(item.getLevel()))) {
                 validRowCount++;
             }
@@ -358,10 +359,45 @@ public class InTransitImportService {
     }
 
     private LineRow findExistingLine(Long ownerUserId, Long batchId, ImportPreviewLineView line) {
-        if (batchId == null || line == null || !StringUtils.hasText(line.getBoxNo()) || !StringUtils.hasText(line.getPsku())) {
+        if (batchId == null || line == null || !StringUtils.hasText(line.getBoxNo()) || !StringUtils.hasText(line.getSku())) {
             return null;
         }
-        return mapper.selectLineByBoxNoAndPsku(ownerUserId, batchId, line.getBoxNo(), line.getPsku());
+        return mapper.selectLineByBoxNoAndBarcode(ownerUserId, batchId, line.getBoxNo(), line.getSku());
+    }
+
+    private void resolveProductIdentity(
+            Long ownerUserId,
+            ImportPreviewLineView line,
+            int rowNumber,
+            List<ImportPreviewIssueView> rowIssues
+    ) {
+        if (line == null || !StringUtils.hasText(line.getSku())) {
+            return;
+        }
+        String barcode = clean(line.getSku());
+        String sourcePsku = clean(line.getPsku());
+        BarcodeProductIdentity identity = mapper.selectProductIdentityByBarcode(ownerUserId, barcode);
+        if (identity == null || !StringUtils.hasText(identity.getPartnerSku())) {
+            rowIssues.add(issue(
+                    "error",
+                    "barcode_unmatched",
+                    "物流商品 barcode 未唯一匹配当前货主商品：" + barcode,
+                    rowNumber,
+                    "sku"
+            ));
+            return;
+        }
+        String matchedPartnerSku = clean(identity.getPartnerSku());
+        line.setPsku(matchedPartnerSku);
+        if (StringUtils.hasText(sourcePsku) && !sourcePsku.equals(matchedPartnerSku)) {
+            rowIssues.add(issue(
+                    "warning",
+                    "source_psku_ignored",
+                    "来源 PSKU 已忽略，系统按 barcode 匹配为 " + matchedPartnerSku + "。",
+                    rowNumber,
+                    "psku"
+            ));
+        }
     }
 
     private List<String> syncedBoxNos(ImportPreviewBatchView batch) {
@@ -379,9 +415,9 @@ public class InTransitImportService {
         LinkedHashMap<String, Boolean> values = new LinkedHashMap<>();
         for (ImportPreviewLineView line : batch.getLines()) {
             String boxNo = clean(line.getBoxNo());
-            String psku = clean(line.getPsku());
-            if (StringUtils.hasText(boxNo) && StringUtils.hasText(psku)) {
-                values.put(boxNo + "\n" + psku, Boolean.TRUE);
+            String barcode = clean(line.getSku());
+            if (StringUtils.hasText(boxNo) && StringUtils.hasText(barcode)) {
+                values.put(boxNo + "\n" + barcode, Boolean.TRUE);
             }
         }
         return new ArrayList<>(values.keySet());
@@ -525,8 +561,8 @@ public class InTransitImportService {
         if (!StringUtils.hasText(line.getBoxNo())) {
             rowIssues.add(issue("error", "box_no_missing", "缺少箱号。", row.rowNumber, "boxNo"));
         }
-        if (!StringUtils.hasText(line.getPsku())) {
-            rowIssues.add(issue("error", "psku_missing", "缺少 PSKU。", row.rowNumber, "psku"));
+        if (!StringUtils.hasText(line.getSku())) {
+            rowIssues.add(issue("error", "barcode_missing", "缺少物流商品 barcode。", row.rowNumber, "sku"));
         }
         if (!StringUtils.hasText(row.value("shippedQuantity"))) {
             rowIssues.add(issue("error", "shipped_quantity_missing", "缺少发货数量。", row.rowNumber, "shippedQuantity"));

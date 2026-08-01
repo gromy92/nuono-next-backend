@@ -106,6 +106,39 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
     }
 
     @Test
+    void rejectsWhenTheActualLogisticsBarcodeIsNotAnExactNoonPbarcode() {
+        when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
+                .thenReturn(offerPage("SGGRB290", "PSKU-290", "SGGRB290", "sggrb329"));
+
+        AsnLineInsertRecord selected = line("SGGRB290", "PSKU-290", "N290", 1);
+        selected.sourceBarcodes.add("SGGRB329");
+
+        assertThatThrownBy(() -> module.freeze(session, binding, context, List.of(selected)))
+                .isInstanceOfSatisfying(ApiProblemException.class, problem -> {
+                    List<?> invalidLines = (List<?>) problem.getDetails().get("invalidLines");
+                    Map<?, ?> issue = (Map<?, ?>) invalidLines.get(0);
+                    assertThat(issue.get("sourceBarcode")).isEqualTo("SGGRB329");
+                    assertThat(issue.get("reasonCode")).isEqualTo("BARCODE_PBARCODE_MISMATCH");
+                });
+    }
+
+    @Test
+    void freezesTheExactLogisticsBarcodeProvenByNoonPbarcode() {
+        when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
+                .thenReturn(offerPage("SGGRB290", "PSKU-290", "SGGRB329"));
+
+        AsnLineInsertRecord selected = line("SGGRB290", "PSKU-290", "N290", 1);
+        selected.sourceBarcodes.add("SGGRB329");
+
+        Proof proof = module.freeze(session, binding, context, List.of(selected));
+
+        assertThat(proof.lines()).singleElement().satisfies(line -> {
+            assertThat(line.sourceBarcodes()).containsExactly("SGGRB329");
+            assertThat(line.pbarcodes()).containsExactly("SGGRB329");
+        });
+    }
+
+    @Test
     void unrelatedUnselectedOfferWithoutPbarcodeDoesNotBlockTheSelectedLine() {
         ObjectNode page = offerPage("SGGRB329", "PSKU-329", "PB-329");
         ObjectNode data = (ObjectNode) page.path("data");

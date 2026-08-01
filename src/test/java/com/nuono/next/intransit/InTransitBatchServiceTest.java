@@ -5,7 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -60,6 +63,19 @@ class InTransitBatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new InTransitBatchService(mapper, forwarderService, auditService);
+        lenient().when(mapper.selectProductIdentityByBarcode(anyLong(), anyString()))
+                .thenAnswer(invocation -> {
+                    String barcode = invocation.getArgument(1);
+                    String partnerSku;
+                    if ("SOURCE-SKU-ONLY".equals(barcode)) {
+                        partnerSku = "PSKU-DERIVED";
+                    } else if (barcode.startsWith("SKU-")) {
+                        partnerSku = "P" + barcode;
+                    } else {
+                        partnerSku = barcode;
+                    }
+                    return new BarcodeProductIdentity(50001L, partnerSku);
+                });
     }
 
     @Test
@@ -807,7 +823,7 @@ class InTransitBatchServiceTest {
     }
 
     @Test
-    void shouldAllowSourceSkuToBeBlankWhenPskuIsProvided() {
+    void shouldRejectLineWhenLogisticsBarcodeIsBlankEvenIfPskuIsProvided() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);
         command.setOperatorUserId(90001L);
@@ -818,40 +834,64 @@ class InTransitBatchServiceTest {
         command.setReceivedQuantity(0);
 
         when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
-        when(mapper.nextLineId()).thenReturn(54004L);
-        LineRow persisted = line(54004L, 53001L, null, 4, 0, 4);
-        persisted.setPsku("PSKU-AE-ONLY");
-        when(mapper.selectLineById(10002L, 53001L, 54004L)).thenReturn(persisted);
-        when(mapper.aggregateLines(10002L, 53001L)).thenReturn(aggregate(1, 1, 4, 0, 4, null, null, null));
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveLine(command)
+        );
 
-        LineView result = service.saveLine(command);
-
-        assertEquals("PSKU-AE-ONLY", result.getPsku());
-        ArgumentCaptor<LineRow> lineCaptor = ArgumentCaptor.forClass(LineRow.class);
-        verify(mapper).insertLine(lineCaptor.capture());
-        assertEquals(null, lineCaptor.getValue().getSku());
-        assertEquals("PSKU-AE-ONLY", lineCaptor.getValue().getPsku());
+        assertEquals("物流商品 barcode 不能为空。", exception.getMessage());
+        verify(mapper, never()).insertLine(any(LineRow.class));
     }
 
     @Test
-    void shouldRejectLineWhenPskuIsMissing() {
+    void shouldDerivePskuFromBarcodeInsteadOfTrustingTheSourcePsku() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);
         command.setOperatorUserId(90001L);
         command.setBatchId(53001L);
         command.setBoxNo("BATCH-001-BOX-1");
         command.setSku("SOURCE-SKU-ONLY");
+        command.setPsku("STALE-SOURCE-PSKU");
         command.setShippedQuantity(5);
         command.setReceivedQuantity(0);
 
         when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.nextLineId()).thenReturn(54006L);
+        LineRow persisted = line(54006L, 53001L, "SOURCE-SKU-ONLY", 5, 0, 5);
+        persisted.setPsku("PSKU-DERIVED");
+        when(mapper.selectLineById(10002L, 53001L, 54006L)).thenReturn(persisted);
+        when(mapper.aggregateLines(10002L, 53001L)).thenReturn(aggregate(1, 1, 5, 0, 5, null, null, null));
+
+        LineView result = service.saveLine(command);
+
+        assertEquals("PSKU-DERIVED", result.getPsku());
+        ArgumentCaptor<LineRow> lineCaptor = ArgumentCaptor.forClass(LineRow.class);
+        verify(mapper).insertLine(lineCaptor.capture());
+        assertEquals("SOURCE-SKU-ONLY", lineCaptor.getValue().getSku());
+        assertEquals("PSKU-DERIVED", lineCaptor.getValue().getPsku());
+    }
+
+    @Test
+    void shouldRejectLineWhenBarcodeDoesNotUniquelyMatchAnOwnedProduct() {
+        SaveLineCommand command = new SaveLineCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setBoxNo("BATCH-001-BOX-1");
+        command.setSku("UNKNOWN-BARCODE");
+        command.setPsku("PSKU-FALLBACK-MUST-NOT-BE-USED");
+        command.setShippedQuantity(1);
+        command.setReceivedQuantity(0);
+        when(mapper.selectBatchById(10002L, 53001L))
+                .thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.selectProductIdentityByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.saveLine(command)
         );
 
-        assertEquals("PSKU不能为空。", exception.getMessage());
+        assertEquals("物流商品 barcode 未唯一匹配当前货主商品：UNKNOWN-BARCODE", exception.getMessage());
         verify(mapper, never()).insertLine(any(LineRow.class));
     }
 

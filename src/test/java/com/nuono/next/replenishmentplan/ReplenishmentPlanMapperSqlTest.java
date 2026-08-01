@@ -48,10 +48,12 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("line.id AS lineId"));
         assertTrue(sql.contains("pb.partner_sku AS partnerSku"));
         assertTrue(sql.contains("JOIN product_barcode pb ON pb.barcode = line.sku"));
+        assertTrue(sql.contains("BINARY pb.barcode = BINARY line.sku"));
         assertTrue(sql.contains("pb.logical_store_id IS NOT NULL"));
         assertTrue(sql.contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
         assertTrue(sql.contains("pm.logical_store_id = pb.logical_store_id"));
         assertTrue(sql.contains("BINARY pm.partner_sku = BINARY pb.partner_sku"));
+        assertTrue(sql.contains("COUNT(DISTINCT identity_pb.logical_store_id, BINARY identity_pb.partner_sku)"));
         assertTrue(sql.contains("requested_site.store_code = #{storeCode}"));
         assertTrue(sql.contains("requested_site.site = #{siteCode}"));
         assertTrue(sql.contains("batch.id AS batchId"));

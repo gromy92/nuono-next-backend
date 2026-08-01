@@ -182,7 +182,7 @@ final class OfficialWarehouseBatchSummaryAssembler {
     }
 
     private String rawSkuKey(ShippingBatchRawLineRecord line) {
-        return upper(firstText(line.psku, line.sku, line.msku, "LINE-" + line.goodsLineId));
+        return firstText(line.sku, "LINE-" + line.goodsLineId);
     }
 
     private String candidateSkuKey(ProductCandidateView candidate) {

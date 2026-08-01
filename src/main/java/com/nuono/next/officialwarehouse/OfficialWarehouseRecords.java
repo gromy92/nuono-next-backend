@@ -3,6 +3,8 @@ package com.nuono.next.officialwarehouse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class OfficialWarehouseRecords {
 
@@ -109,6 +111,7 @@ public final class OfficialWarehouseRecords {
         public BigDecimal productWeightG;
         public BigDecimal cubicFeet;
         public String storageTypeCode;
+        public List<String> sourceBarcodes = new ArrayList<>();
         public String lineStatus;
         public Long operatorUserId;
     }
@@ -154,6 +157,7 @@ public final class OfficialWarehouseRecords {
         public String transportMode;
         public String latestNodeStatus;
         public Long inTransitGoodsLineId;
+        public String sourceBarcode;
         public Long fulfillmentBalanceId;
         public String sourceStoreCode;
         public String sourceStoreName;
@@ -193,6 +197,7 @@ public final class OfficialWarehouseRecords {
         public String transportMode;
         public String latestNodeStatus;
         public Long inTransitGoodsLineId;
+        public String sourceBarcode;
         public Long fulfillmentBalanceId;
         public Long purchaseOrderId;
         public String purchaseOrderNo;

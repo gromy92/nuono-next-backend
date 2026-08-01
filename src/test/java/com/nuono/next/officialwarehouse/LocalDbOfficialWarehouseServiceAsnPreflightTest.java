@@ -39,6 +39,7 @@ import com.nuono.next.web.ApiProblemException;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -113,6 +114,33 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         verify(inboundClient, never()).searchProductOffersPage(any(), any(), any(), any());
         verify(inboundClient, never()).createAsn(any(), any(), any(), any());
         verify(mapper, never()).insertAsn(any());
+    }
+
+    @Test
+    void selectedLogisticsBarcodeMustEqualTheCurrentNoonPbarcode() {
+        stubCandidates(List.of(candidate("SGGRB290", "PSKU-290", "N290", 290L)));
+        ShippingBatchSourceAllocationRecord allocation = allocation("SGGRB290", "SGGRB329", 20);
+        when(mapper.listShippingBatchSourceAllocations(
+                anyLong(), anyString(), anyString(), anyCollection(), anyCollection(), anyCollection()))
+                .thenReturn(new ArrayList<>(List.of(allocation)), new ArrayList<>(List.of(allocation)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L);
+        when(mapper.nextAsnShippingBatchLinkId()).thenReturn(520001L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
+                .thenReturn(offerPage("SGGRB290", "PSKU-290", "SGGRB290"));
+        CreateAsnCommand command = command(line("SGGRB290", 20));
+        command.shippingBatchIds = List.of("53023");
+
+        assertThatThrownBy(() -> service.createAsn(access(), command))
+                .isInstanceOfSatisfying(ApiProblemException.class, problem -> {
+                    List<?> invalidLines = (List<?>) problem.getDetails().get("invalidLines");
+                    Map<?, ?> issue = (Map<?, ?>) invalidLines.get(0);
+                    assertThat(issue.get("sourceBarcode")).isEqualTo("SGGRB329");
+                    assertThat(issue.get("reasonCode")).isEqualTo("BARCODE_PBARCODE_MISMATCH");
+                });
+
+        verify(mapper, never()).insertAsn(any());
+        verify(inboundClient, never()).createAsn(any(), any(), any(), any());
     }
 
     @Test
@@ -202,11 +230,16 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
     }
 
     private ShippingBatchSourceAllocationRecord allocation(int quantity) {
+        return allocation("SGGRB329", "SGGRB329", quantity);
+    }
+
+    private ShippingBatchSourceAllocationRecord allocation(String partnerSku, String sourceBarcode, int quantity) {
         ShippingBatchSourceAllocationRecord row = new ShippingBatchSourceAllocationRecord();
         row.inTransitBatchId = 53023L;
         row.shippingBatchNo = "XGGEKSA04075";
         row.inTransitGoodsLineId = 54282L;
-        row.partnerSku = "SGGRB329";
+        row.partnerSku = partnerSku;
+        row.sourceBarcode = sourceBarcode;
         row.quantity = quantity;
         return row;
     }

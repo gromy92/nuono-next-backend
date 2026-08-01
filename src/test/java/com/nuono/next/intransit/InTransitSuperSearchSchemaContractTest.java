@@ -32,13 +32,13 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains("batch.batch_status NOT IN ('draft', 'warehouse_received', 'completed', 'cancelled')"));
         assertTrue(sql.contains("query.projectCode != null and query.projectCode != \"\""));
         assertTrue(sql.contains("exact_ls.project_code = #{query.projectCode}"));
-        assertTrue(sql.contains("fallback_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
-        assertFalse(sql.contains("exact_pso.psku_code = line.psku"));
-        assertTrue(sql.contains("fallback_pv.partner_sku IN (line.psku,"));
-        assertTrue(sql.contains("REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c')"));
-        assertTrue(sql.contains("REGEXP_SUBSTR(line.psku, '[0-9]+$')"));
-        assertTrue(sql.contains("CASE WHEN fallback_pv.partner_sku = line.psku THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("WHERE exact_pb.barcode = line.sku"));
+        assertTrue(sql.contains("BINARY exact_pb.barcode = BINARY line.sku"));
+        assertTrue(sql.contains("COALESCE(exact_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
+        assertTrue(sql.contains("HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1"));
+        assertFalse(sql.contains("partner_sku IN (line.psku"));
+        assertFalse(sql.contains("fallback_pv"));
         assertTrue(sql.contains("LIMIT #{query.limit}"));
     }
 
@@ -59,8 +59,10 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains(") matched LEFT JOIN product_master pm"));
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.indexOf("filter_ls.project_code = #{query.projectCode}") < sql.indexOf("LIMIT 500"));
-        assertFalse(sql.contains("exact_pso.psku_code = matched.psku"));
-        assertTrue(sql.contains("fallback_pv.partner_sku IN (matched.psku,"));
+        assertTrue(sql.contains("CASE WHEN COUNT(*) = COUNT(pm.id) AND COUNT(DISTINCT pm.id) = 1"));
+        assertTrue(sql.contains("WHERE exact_pb.barcode = line.sku"));
+        assertTrue(sql.contains("LEFT JOIN product_master pm ON pm.id = matched.matched_product_id"));
+        assertFalse(sql.contains("partner_sku IN (matched.psku"));
         assertTrue(sql.contains("WHERE (pm.id IS NOT NULL OR EXISTS"));
         assertTrue(sql.contains("ORDER BY COALESCE(matched.source_created_at, matched.gmt_create)"));
         assertTrue(sql.contains("LIMIT 500"));
@@ -76,12 +78,14 @@ class InTransitSuperSearchSchemaContractTest {
         String sql = Arrays.stream(search.getAnnotation(Select.class).value())
                 .reduce("", (left, right) -> left + " " + right);
 
-        assertTrue(sql.contains("FROM ( SELECT pv.partner_sku AS partner_sku"));
+        assertTrue(sql.contains("FROM ( SELECT DISTINCT title_pb.barcode AS barcode, title_pm.id AS product_master_id"));
         assertTrue(sql.contains("title_pm.title_cache LIKE CONCAT('%', #{query.keyword}, '%')"));
         assertTrue(sql.contains("title_pm.title_cn_cache LIKE CONCAT('%', #{query.keyword}, '%')"));
         assertTrue(sql.contains("JOIN in_transit_goods_line line"));
-        assertTrue(sql.contains("line.psku = title_match.partner_sku"));
-        assertTrue(sql.contains("line.psku = title_match.legacy_line_psku"));
+        assertTrue(sql.contains("line.sku = title_match.barcode"));
+        assertTrue(sql.contains("BINARY line.sku = BINARY title_match.barcode"));
+        assertTrue(sql.contains("COUNT(DISTINCT identity_pb.logical_store_id, BINARY identity_pb.partner_sku)"));
+        assertFalse(sql.contains("line.psku = title_match"));
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.indexOf("filter_ls.project_code = #{query.projectCode}") < sql.indexOf("GROUP BY batch.id, line.psku"));
         assertFalse(sql.contains("OR pm.title_cache LIKE CONCAT('%', #{query.keyword}, '%')"));
@@ -98,10 +102,13 @@ class InTransitSuperSearchSchemaContractTest {
     }
 
     @Test
-    void inTransitGoodsProductJoinTreatsPskuAsPartnerSku() throws Exception {
+    void inTransitGoodsProductJoinUsesExactUniqueBarcodeIdentityOnly() throws Exception {
         String source = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsSql.java"));
 
-        assertFalse(source.contains("exact_pso.psku_code = line.psku"));
-        assertTrue(source.contains("fallback_pv.partner_sku IN (line.psku,"));
+        assertTrue(source.contains("WHERE exact_pb.barcode = line.sku"));
+        assertTrue(source.contains("BINARY exact_pb.barcode = BINARY line.sku"));
+        assertTrue(source.contains("HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1"));
+        assertFalse(source.contains("partner_sku IN (line.psku"));
+        assertFalse(source.contains("LINE_LEGACY_PSKU_ALIAS"));
     }
 }

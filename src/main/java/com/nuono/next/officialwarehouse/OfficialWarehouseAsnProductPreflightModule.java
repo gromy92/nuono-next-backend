@@ -107,7 +107,32 @@ final class OfficialWarehouseAsnProductPreflightModule {
             issues.add(issue(partnerSku, pskuCode, "PBARCODE_UNMAPPED", "Noon 未给该 PSKU 建立有效 pbarcode 映射。"));
             return null;
         }
+        for (String sourceBarcode : sourceBarcodes(line)) {
+            if (!pbarcodes.contains(sourceBarcode)) {
+                issues.add(issue(
+                        partnerSku,
+                        pskuCode,
+                        sourceBarcode,
+                        "BARCODE_PBARCODE_MISMATCH",
+                        "物流 barcode 未出现在该 Noon PSKU 的 pbarcode 映射中。"
+                ));
+                return null;
+            }
+        }
         return FrozenLine.from(line, pbarcodes);
+    }
+
+    private static List<String> sourceBarcodes(AsnLineInsertRecord line) {
+        Set<String> values = new LinkedHashSet<>();
+        if (line != null && line.sourceBarcodes != null) {
+            for (String sourceBarcode : line.sourceBarcodes) {
+                String value = text(sourceBarcode);
+                if (value != null) {
+                    values.add(value);
+                }
+            }
+        }
+        return List.copyOf(values);
     }
 
     private List<String> partnerBarcodes(JsonNode offer) {
@@ -159,12 +184,25 @@ final class OfficialWarehouseAsnProductPreflightModule {
             String reasonCode,
             String message
     ) {
+        return issue(partnerSku, pskuCode, null, reasonCode, message);
+    }
+
+    private static Map<String, Object> issue(
+            String partnerSku,
+            String pskuCode,
+            String sourceBarcode,
+            String reasonCode,
+            String message
+    ) {
         Map<String, Object> issue = new LinkedHashMap<>();
         if (text(partnerSku) != null) {
             issue.put("partnerSku", text(partnerSku));
         }
         if (text(pskuCode) != null) {
             issue.put("pskuCode", text(pskuCode));
+        }
+        if (text(sourceBarcode) != null) {
+            issue.put("sourceBarcode", text(sourceBarcode));
         }
         issue.put("reasonCode", reasonCode);
         issue.put("message", message);
@@ -236,6 +274,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
         private final int quantity;
         private final java.math.BigDecimal cubicFeet;
         private final String storageTypeCode;
+        private final List<String> sourceBarcodes;
         private final List<String> pbarcodes;
 
         private FrozenLine(AsnLineInsertRecord line, List<String> pbarcodes) {
@@ -245,6 +284,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
             this.quantity = line.quantity;
             this.cubicFeet = line.cubicFeet;
             this.storageTypeCode = text(line.storageTypeCode);
+            this.sourceBarcodes = OfficialWarehouseAsnProductPreflightModule.sourceBarcodes(line);
             this.pbarcodes = List.copyOf(pbarcodes);
         }
 
@@ -258,6 +298,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
         int quantity() { return quantity; }
         java.math.BigDecimal cubicFeet() { return cubicFeet; }
         String storageTypeCode() { return storageTypeCode; }
+        List<String> sourceBarcodes() { return sourceBarcodes; }
         List<String> pbarcodes() { return pbarcodes; }
 
         private AsnLineInsertRecord requestLineRow() {
@@ -268,6 +309,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
             row.quantity = quantity;
             row.cubicFeet = cubicFeet;
             row.storageTypeCode = storageTypeCode;
+            row.sourceBarcodes.addAll(sourceBarcodes);
             return row;
         }
     }
