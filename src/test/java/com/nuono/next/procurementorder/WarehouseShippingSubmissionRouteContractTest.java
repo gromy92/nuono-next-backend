@@ -14,6 +14,7 @@ import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
+import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
 import com.nuono.next.productselection.LocalDbAli1688CollectionService;
@@ -37,11 +38,16 @@ class WarehouseShippingSubmissionRouteContractTest {
                 mapper, mock(ProductSelectionMapper.class), mock(LocalDbAli1688CollectionService.class),
                 new ObjectMapper(), priceService);
         ShippingOrderRecord order = order();
+        ShippingOrderLineRecord shippingLine = shippingLine();
         line = line();
         segment = segment();
         when(mapper.selectShippingOrderById(290001L)).thenReturn(order);
         when(mapper.selectShippingOrderByIdForUpdate(290001L, 307L)).thenReturn(order);
-        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of());
+        when(mapper.listShippingOrderLines(290001L)).thenReturn(List.of(shippingLine));
+        List<ProductForwarderEligibilityScopeAnchorRecord> scopes = List.of(
+                new ProductForwarderEligibilityScopeAnchorRecord(307L, 108065L, "PSKU-1")
+        );
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(scopes)).thenReturn(scopes);
         when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(segment));
         when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(line));
     }
@@ -97,11 +103,28 @@ class WarehouseShippingSubmissionRouteContractTest {
         return order;
     }
 
+    private ShippingOrderLineRecord shippingLine() {
+        ShippingOrderLineRecord line = new ShippingOrderLineRecord();
+        line.id = 291001L;
+        line.shippingOrderId = 290001L;
+        line.ownerUserId = 307L;
+        line.logicalStoreId = 108065L;
+        line.purchaseOrderItemSiteId = 220001L;
+        line.partnerSku = "PSKU-1";
+        line.shippingSubmitStatus = "NOT_SUBMITTED";
+        return line;
+    }
+
     private PurchaseOrderLogisticsQuoteLineRecord line() {
         PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
         line.id = 280001L;
+        line.ownerUserId = 307L;
+        line.logicalStoreId = 108065L;
         line.shippingOrderId = 290001L;
         line.shippingOrderSegmentId = 292001L;
+        line.shippingOrderLineId = 291001L;
+        line.purchaseOrderItemSiteId = 220001L;
+        line.partnerSku = "PSKU-1";
         line.siteCode = "SA";
         line.plannedTransportMode = "AIR";
         line.forwarderCode = "ET";
