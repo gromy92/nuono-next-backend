@@ -170,8 +170,8 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     @Test
     void purchaseSubmitRechecksEligibilityForPositivePriceWithLegacyPendingStatus() {
         ProcurementPurchaseOrderMapper mapper = mock(ProcurementPurchaseOrderMapper.class);
-        LocalDbProcurementPurchaseOrderService service = service(
-                mapper, mock(WarehouseLogisticsQuotePriceService.class));
+        WarehouseLogisticsQuotePriceService priceService = mock(WarehouseLogisticsQuotePriceService.class);
+        LocalDbProcurementPurchaseOrderService service = service(mapper, priceService);
         PurchaseOrderLogisticsQuoteLineRecord line = eligibilityLine("PENDING_QUOTE");
         line.forwarderCode = "ET";
         line.routeCode = "ET-SAU-SEA-FBN-RUH";
