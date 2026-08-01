@@ -13,6 +13,7 @@ public class ProductPublishTaskView {
     private List<String> changedDomains = new ArrayList<>();
     private Integer retryCount;
     private Integer verifyAttemptCount;
+    private Boolean retryAllowed;
     private LocalDateTime nextRunAt;
     private LocalDateTime finishedAt;
     private Long pollAfterMillis;
@@ -72,6 +73,14 @@ public class ProductPublishTaskView {
 
     public void setVerifyAttemptCount(Integer verifyAttemptCount) {
         this.verifyAttemptCount = verifyAttemptCount;
+    }
+
+    public Boolean getRetryAllowed() {
+        return retryAllowed;
+    }
+
+    public void setRetryAllowed(Boolean retryAllowed) {
+        this.retryAllowed = retryAllowed;
     }
 
     public LocalDateTime getNextRunAt() {

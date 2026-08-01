@@ -35,9 +35,25 @@ public interface ProductPublishRetryMapper {
             + SAFE_BASELINE_JSON
             + ", '$.mode')), ''))) = 'product-delete-task'"
             + ")";
-    String SAFE_MANUAL_RETRY_PREDICATE = "("
+    String SAFE_DELETE_RETRY_PREDICATE = "("
             + DELETE_TASK_PREDICATE
-            + " OR ("
+            + " AND JSON_VALID(target.result_json)"
+            + " AND JSON_TYPE(target.result_json) = 'OBJECT'"
+            + " AND ("
+            + "(LOWER(TRIM(COALESCE(target.error_code, ''))) != 'product_delete_result_unknown' AND ("
+            + "(JSON_TYPE(JSON_EXTRACT(target.result_json, '$.writeMayHaveOccurred')) = 'BOOLEAN'"
+            + " AND LOWER(JSON_UNQUOTE(JSON_EXTRACT(target.result_json, '$.writeMayHaveOccurred'))) = 'false')"
+            + " OR LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT("
+            + "target.result_json, '$.stage')), ''))) IN ("
+            + "'retry_scheduled', 'pre_delete_unavailable', 'pre_delete_captured'))"
+            + ") OR LOWER(TRIM(COALESCE(JSON_UNQUOTE(JSON_EXTRACT("
+            + "target.result_json, '$.stage')), ''))) IN ("
+            + "'unmap_submitted', 'delete_submitted', 'current_psku_delete_submitted')"
+            + ")"
+            + ")";
+    String SAFE_MANUAL_RETRY_PREDICATE = "("
+            + SAFE_DELETE_RETRY_PREDICATE
+            + " OR (NOT " + DELETE_TASK_PREDICATE + " AND ("
             + "LOWER(TRIM(COALESCE(target.error_code, ''))) NOT IN ("
             + "'product_write_outcome_unknown',"
             + "'group_partial_write_unknown',"
@@ -50,6 +66,7 @@ public interface ProductPublishRetryMapper {
             + " OR (JSON_TYPE(JSON_EXTRACT(target.result_json, '$.writeMayHaveOccurred')) = 'BOOLEAN'"
             + " AND LOWER(JSON_UNQUOTE(JSON_EXTRACT("
             + "target.result_json, '$.writeMayHaveOccurred'))) = 'false')))"
+            + ")"
             + ")"
             + ")"
             + ")";

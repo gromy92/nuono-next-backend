@@ -120,7 +120,7 @@ class LocalDbProductMasterServiceDeletionTest {
         assertEquals("ZNEWPSKU001", createCommand.getSkuParent());
         assertEquals("MILKYWAYA17", createCommand.getPartnerSku());
         assertEquals("PSKU-CURRENT", createCommand.getPskuCode());
-        assertTrue(createCommand.getIdempotencyKey().startsWith("delete:50001:MILKYWAYA17:"));
+        assertEquals("delete:64001:after:0", createCommand.getIdempotencyKey());
         assertTrue(createCommand.getRequestJson().contains("\"product-delete\""));
         assertTrue(createCommand.getDraftJson().contains("MILKYWAYA17"));
         assertEquals("商品删除已提交后台处理，请在发布状态和历史中查看进度。", actual.getMessage());
