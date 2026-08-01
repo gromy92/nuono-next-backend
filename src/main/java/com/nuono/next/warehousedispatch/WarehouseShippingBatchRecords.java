@@ -7,6 +7,7 @@ public class WarehouseShippingBatchRecords extends WarehouseDispatchPlanRecords 
     public static class ShippingBatchRecord {
         public Long id;
         public Long ownerUserId;
+        public Long dispatchPlanId;
         public String clientRequestId;
         public String requestFingerprint;
         public String batchNo;

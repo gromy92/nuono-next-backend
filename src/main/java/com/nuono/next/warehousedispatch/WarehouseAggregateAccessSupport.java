@@ -81,6 +81,16 @@ abstract class WarehouseAggregateAccessSupport extends WarehousePackingProjectio
         return requireOutboundOrderAggregateAccess(access, mapper.selectOutboundOrderById(outboundOrderId));
     }
 
+    protected OutboundOrderRecord requireOutboundOrderAccessForUpdate(
+            BusinessAccessContext access,
+            Long outboundOrderId
+    ) {
+        return requireOutboundOrderAggregateAccess(
+                access,
+                mapper.selectOutboundOrderByIdForUpdate(outboundOrderId)
+        );
+    }
+
     private OutboundOrderRecord requireOutboundOrderAggregateAccess(
             BusinessAccessContext access,
             OutboundOrderRecord outboundOrder

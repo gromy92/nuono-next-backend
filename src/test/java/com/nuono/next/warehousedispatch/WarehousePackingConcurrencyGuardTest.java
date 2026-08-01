@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.PackingBoxCommand;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ReplacePackingBoxesCommand;
+import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingListRecord;
 import java.math.BigDecimal;
 import java.util.List;
@@ -77,9 +78,12 @@ class WarehousePackingConcurrencyGuardTest extends WarehouseDispatchServiceTestS
     }
 
     @Test
-    void confirmLocksPackingListBeforeReadingStoredDetails() {
-        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
-        when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
+    void confirmLocksOutboundBeforePackingAndReadingStoredDetails() {
+        PackingListRecord packingList = packingList();
+        OutboundOrderRecord outboundOrder = outboundOrder();
+        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(packingBox(null)));
         when(mapper.listPackingBoxItems(830001L)).thenReturn(List.of(packingBoxItem()));
@@ -89,6 +93,8 @@ class WarehousePackingConcurrencyGuardTest extends WarehouseDispatchServiceTestS
         service.confirmPackingList(access(), "830001");
 
         InOrder order = inOrder(mapper);
+        order.verify(mapper).selectPackingListById(830001L);
+        order.verify(mapper).selectOutboundOrderByIdForUpdate(800001L);
         order.verify(mapper).selectPackingListByIdForUpdate(830001L);
         order.verify(mapper).listPackingBoxes(830001L);
         order.verify(mapper).listPackingBoxItems(830001L);

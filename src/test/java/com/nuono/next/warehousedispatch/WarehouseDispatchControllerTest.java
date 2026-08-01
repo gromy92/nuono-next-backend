@@ -3,6 +3,7 @@ package com.nuono.next.warehousedispatch;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -46,24 +47,22 @@ class WarehouseDispatchControllerTest {
     }
 
     @Test
-    void markHandoffSuccessMapsInventoryStateChangeToConflict() {
+    void legacyHandoffSuccessReturnsGoneWithoutCallingService() {
         BusinessAccessContext access = BusinessAccessContext.builder()
                 .sessionUserId(307L)
                 .businessOwnerUserId(307L)
                 .build();
-        when(serviceProvider.getIfAvailable()).thenReturn(service);
         when(accessResolver.requireBusinessContext(request, BusinessCapability.WAREHOUSE_DISPATCH))
                 .thenReturn(access);
-        when(service.markLogisticsHandoffSuccess(access, "HANDOFF-340001"))
-                .thenThrow(new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。"));
 
         ResponseStatusException error = assertThrows(
                 ResponseStatusException.class,
                 () -> controller.markHandoffSuccess("HANDOFF-340001", request)
         );
 
-        assertEquals(HttpStatus.CONFLICT, error.getStatus());
-        assertEquals("物流交接库存状态已变化，请刷新后重试。", error.getReason());
+        assertEquals(HttpStatus.GONE, error.getStatus());
+        assertEquals("该物流交接成功接口已停用，请在装箱单中确认已交货代。", error.getReason());
+        verifyNoInteractions(serviceProvider, service);
     }
 
     @Test

@@ -1,5 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 public interface WarehouseDispatchMapper
-        extends WarehouseDispatchLifecycleMapper, WarehouseAggregateSourceScopeMapper {
+        extends WarehouseDispatchLifecycleMapper,
+        WarehouseAggregateSourceScopeMapper,
+        WarehouseHandoffReceiptMapper {
 }

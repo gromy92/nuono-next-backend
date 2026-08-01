@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Profile("local-db")
-public class LocalDbWarehouseDispatchService extends WarehousePackingOperations {
+public class LocalDbWarehouseDispatchService extends WarehouseShippingIssueOperations {
 
     public LocalDbWarehouseDispatchService(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);

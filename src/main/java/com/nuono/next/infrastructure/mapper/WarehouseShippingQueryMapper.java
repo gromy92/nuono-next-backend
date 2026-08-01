@@ -33,7 +33,8 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
 
 @Select({
             "<script>",
-            "SELECT batch.id, batch.owner_user_id AS ownerUserId, batch.batch_no AS batchNo,",
+            "SELECT batch.id, batch.owner_user_id AS ownerUserId, batch.dispatch_plan_id AS dispatchPlanId,",
+            "       batch.batch_no AS batchNo,",
             SHIPPING_BATCH_EXECUTION_STATUS,
             "       batch.selected_option_id AS selectedOptionId,",
             "       batch.source_count AS sourceCount, batch.sku_count AS skuCount, batch.total_quantity AS totalQuantity,",
@@ -65,7 +66,7 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
     );
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, batch_no AS batchNo,",
+            "SELECT id, owner_user_id AS ownerUserId, dispatch_plan_id AS dispatchPlanId, batch_no AS batchNo,",
             SHIPPING_BATCH_EXECUTION_STATUS,
             "       selected_option_id AS selectedOptionId,",
             "       source_count AS sourceCount, sku_count AS skuCount, total_quantity AS totalQuantity,",
@@ -80,8 +81,8 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
     ShippingBatchRecord selectShippingBatchById(@Param("batchId") Long batchId);
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, batch_no AS batchNo, status,",
-            "       selected_option_id AS selectedOptionId",
+            "SELECT id, owner_user_id AS ownerUserId, dispatch_plan_id AS dispatchPlanId, batch_no AS batchNo, status,",
+            "       selected_option_id AS selectedOptionId, total_quantity AS totalQuantity",
             "FROM warehouse_shipping_batch",
             "WHERE id = #{batchId} AND is_deleted = b'0'",
             "LIMIT 1 FOR UPDATE"

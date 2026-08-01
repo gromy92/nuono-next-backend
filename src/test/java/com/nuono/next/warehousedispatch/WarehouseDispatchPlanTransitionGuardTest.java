@@ -101,46 +101,6 @@ class WarehouseDispatchPlanTransitionGuardTest extends WarehouseDispatchServiceT
         verifyNoOperationLog();
     }
 
-    @Test
-    void successfulHandoffReplayIsIdempotentWithoutMovingInventoryAgain() {
-        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001"))
-                .thenReturn(plan("LOGISTICS_REQUESTED"));
-
-        var view = service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001");
-
-        assertThat(view.status).isEqualTo("LOGISTICS_REQUESTED");
-        verify(mapper, never()).markDispatchPlanHandoffSuccess(anyString(), anyLong());
-        verify(mapper, never()).moveReservedToLogisticsHandoff(anyLong(), any(), anyLong());
-        verifyNoOperationLog();
-    }
-
-    @Test
-    void successfulHandoffCasMissIsConflictWithoutMovingInventoryOrAudit() {
-        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001"))
-                .thenReturn(plan("READY_FOR_LOGISTICS"));
-        when(mapper.markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L)).thenReturn(0);
-
-        assertThatThrownBy(() -> service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001"))
-                .isInstanceOf(WarehouseInventoryStateConflictException.class)
-                .hasMessage("物流交接状态已变化，请刷新后重试。");
-
-        verify(mapper, never()).moveReservedToLogisticsHandoff(anyLong(), any(), anyLong());
-        verifyNoOperationLog();
-    }
-
-    @Test
-    void successfulHandoffRejectsUnrelatedCurrentState() {
-        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001"))
-                .thenReturn(plan("DRAFT"));
-
-        assertThatThrownBy(() -> service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001"))
-                .isInstanceOf(WarehouseInventoryStateConflictException.class)
-                .hasMessage("物流交接状态已变化，请刷新后重试。");
-
-        verify(mapper, never()).markDispatchPlanHandoffSuccess(anyString(), anyLong());
-        verifyNoOperationLog();
-    }
-
     private HandoffFailureCommand failureCommand() {
         HandoffFailureCommand command = new HandoffFailureCommand();
         command.handoffRequestNo = "HANDOFF-340001";

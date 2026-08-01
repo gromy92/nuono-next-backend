@@ -211,8 +211,11 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
 
 @Test
     void confirmPackingListAllowsMissingGrossWeightWhenDimensionsAreComplete() {
-        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
-        when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
+        PackingListRecord packingList = packingList();
+        OutboundOrderRecord outboundOrder = outboundOrder();
+        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(packingBox(null)));
         when(mapper.listPackingBoxItems(830001L)).thenReturn(List.of(packingBoxItem()));
@@ -234,8 +237,11 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
     void confirmPackingListRejectsMissingDimensions() {
         PackingBoxRecord box = packingBox(null);
         box.heightCm = null;
-        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList());
-        when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder());
+        PackingListRecord packingList = packingList();
+        OutboundOrderRecord outboundOrder = outboundOrder();
+        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundOrderLine()));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(box));
         when(mapper.listPackingBoxItems(830001L)).thenReturn(List.of(packingBoxItem()));

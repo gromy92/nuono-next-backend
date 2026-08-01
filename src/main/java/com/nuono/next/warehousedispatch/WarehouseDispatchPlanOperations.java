@@ -223,6 +223,11 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         if (!"READY_FOR_LOGISTICS".equals(plan.status) && !"HANDOFF_FAILED".equals(plan.status)) {
             throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
         }
+        if (mapper.selectLatestShippingBatchByDispatchPlan(plan.id) != null) {
+            throw new WarehouseInventoryStateConflictException(
+                    "发运计划已生成物流批次，不能退回草稿。"
+            );
+        }
         if (mapper.reopenDispatchPlanDraft(plan.id, plan.ownerUserId, access.getSessionUserId()) != 1) {
             throw new WarehouseInventoryStateConflictException("发运计划状态已变化，请刷新后重试。");
         }
@@ -230,41 +235,6 @@ abstract class WarehouseDispatchPlanOperations extends WarehouseReceiptQueryOper
         DispatchPlanRecord updated = mapper.selectDispatchPlanById(plan.id);
         if (updated == null) {
             plan.status = "DRAFT";
-        }
-        return toDispatchPlanView(updated == null ? plan : updated);
-    }
-
-@Transactional
-    public DispatchPlanView markLogisticsHandoffSuccess(BusinessAccessContext access, String handoffRequestNo) {
-        String requestNo = requiredText(handoffRequestNo, "缺少物流交接编号。");
-        DispatchPlanRecord plan = requireHandoffAccessForUpdate(access, requestNo);
-        if ("LOGISTICS_REQUESTED".equals(plan.status)) {
-            return toDispatchPlanView(plan);
-        }
-        if (!"READY_FOR_LOGISTICS".equals(plan.status) && !"HANDOFF_FAILED".equals(plan.status)) {
-            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
-        }
-        if (mapper.markDispatchPlanHandoffSuccess(requestNo, access.getSessionUserId()) != 1) {
-            throw new WarehouseInventoryStateConflictException("物流交接状态已变化，请刷新后重试。");
-        }
-        List<DispatchPlanLineSourceRecord> sources = mapper.listDispatchLineSources(plan.id);
-        if (sources == null || sources.isEmpty()) {
-            throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
-        }
-        for (DispatchPlanLineSourceRecord source : sources) {
-            int moved = mapper.moveReservedToLogisticsHandoff(
-                    source.fulfillmentBalanceId,
-                    nonNull(source.quantity),
-                    access.getSessionUserId()
-            );
-            if (moved != 1) {
-                throw new WarehouseInventoryStateConflictException("物流交接库存状态已变化，请刷新后重试。");
-            }
-        }
-        log(plan.id, "HANDOFF_SUCCESS", access.getSessionUserId(), plan.status, "LOGISTICS_REQUESTED", requestNo);
-        DispatchPlanRecord updated = mapper.selectDispatchPlanByHandoffRequest(requestNo);
-        if (updated == null) {
-            plan.status = "LOGISTICS_REQUESTED";
         }
         return toDispatchPlanView(updated == null ? plan : updated);
     }

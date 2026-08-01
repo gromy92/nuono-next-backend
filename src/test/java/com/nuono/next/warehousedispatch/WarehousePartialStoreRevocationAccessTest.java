@@ -32,19 +32,17 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WarehousePartialStoreRevocationAccessTest extends WarehouseDispatchServiceTestSupport {
 
     @Test
-    void revokedPlanCannotTransitionOrCompleteHandoff() {
+    void revokedPlanCannotTransitionOrCreateLinkedShippingBatch() {
         DispatchPlanRecord plan = dispatchPlan("READY_FOR_LOGISTICS");
         when(mapper.selectDispatchPlanByIdForUpdate(340001L)).thenReturn(plan);
-        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("WDH-340001-1")).thenReturn(plan);
         when(mapper.isDispatchPlanSourceScopeAuthorized(340001L, authorizedStoreOwners()))
                 .thenReturn(false);
 
         assertThatThrownBy(() -> service.readyForLogistics(partiallyRevokedAccess(), "340001"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("不能操作");
-        assertThatThrownBy(() -> service.markLogisticsHandoffSuccess(
-                partiallyRevokedAccess(),
-                "WDH-340001-1"
+        assertThatThrownBy(() -> service.createShippingBatchFromDispatchPlan(
+                partiallyRevokedAccess(), "340001"
         ))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("不能操作");
@@ -52,7 +50,7 @@ class WarehousePartialStoreRevocationAccessTest extends WarehouseDispatchService
         verify(mapper, never()).updateDispatchPlanReady(
                 anyLong(), anyLong(), anyInt(), anyString(), anyLong()
         );
-        verify(mapper, never()).markDispatchPlanHandoffSuccess(anyString(), anyLong());
+        verify(mapper, never()).insertShippingBatch(any(), anyLong());
         verify(mapper, never()).moveReservedToLogisticsHandoff(
                 anyLong(), anyInt(), anyLong()
         );
@@ -106,7 +104,7 @@ class WarehousePartialStoreRevocationAccessTest extends WarehouseDispatchService
     @Test
     void revokedPackingListCannotBeConfirmedOrShipped() {
         PackingListRecord packingList = packingList();
-        when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(packingList);
+        when(mapper.selectPackingListById(830001L)).thenReturn(packingList);
         when(mapper.isPackingListSourceScopeAuthorized(830001L, authorizedStoreOwners()))
                 .thenReturn(false);
 

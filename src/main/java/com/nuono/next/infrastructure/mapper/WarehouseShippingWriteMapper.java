@@ -37,12 +37,12 @@ public interface WarehouseShippingWriteMapper extends WarehouseDispatchWriteMapp
 
 @Insert({
             "INSERT INTO warehouse_shipping_batch (",
-            "id, owner_user_id, client_request_id, request_fingerprint, batch_no, status,",
+            "id, owner_user_id, dispatch_plan_id, client_request_id, request_fingerprint, batch_no, status,",
             "selected_option_id, source_count, sku_count, total_quantity,",
             "store_summary_json, site_summary_json, transport_summary_json, origin_summary_json, remark,",
             "is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.clientRequestId}, #{row.requestFingerprint},",
+            "#{row.id}, #{row.ownerUserId}, #{row.dispatchPlanId}, #{row.clientRequestId}, #{row.requestFingerprint},",
             "#{row.batchNo}, #{row.status}, #{row.selectedOptionId},",
             "#{row.sourceCount}, #{row.skuCount}, #{row.totalQuantity}, #{row.storeSummaryJson},",
             "#{row.siteSummaryJson}, #{row.transportSummaryJson}, #{row.originSummaryJson}, #{row.remark},",
@@ -54,7 +54,7 @@ public interface WarehouseShippingWriteMapper extends WarehouseDispatchWriteMapp
     );
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "SELECT id, owner_user_id AS ownerUserId, dispatch_plan_id AS dispatchPlanId, client_request_id AS clientRequestId,",
             "       request_fingerprint AS requestFingerprint, batch_no AS batchNo, status,",
             "       selected_option_id AS selectedOptionId, source_count AS sourceCount,",
             "       sku_count AS skuCount, total_quantity AS totalQuantity,",

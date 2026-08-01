@@ -267,7 +267,7 @@ public interface WarehousePackingMapper extends WarehouseOutboundMapper {
             "    gmt_updated = NOW()",
             "WHERE id = #{outboundOrderId}",
             "  AND owner_user_id = #{ownerUserId}",
-            "  AND status IN ('PACKED', 'SHIPPED')",
+            "  AND status = 'PACKED'",
             "  AND is_deleted = b'0'"
     })
     int markOutboundOrderShipped(

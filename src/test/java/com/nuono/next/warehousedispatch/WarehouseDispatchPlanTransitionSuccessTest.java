@@ -9,9 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.HandoffFailureCommand;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineSourceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
@@ -95,33 +93,6 @@ class WarehouseDispatchPlanTransitionSuccessTest extends WarehouseDispatchServic
         order.verify(mapper).insertOperationLog(
                 eq(390001L), eq(340001L), eq("HANDOFF_FAILED"), eq(307L),
                 eq("READY_FOR_LOGISTICS"), eq("HANDOFF_FAILED"), anyString()
-        );
-    }
-
-    @Test
-    void successfulHandoffCanRecoverFailedAttemptBeforeAudit() {
-        DispatchPlanRecord requested = plan("LOGISTICS_REQUESTED");
-        DispatchPlanLineSourceRecord source = new DispatchPlanLineSourceRecord();
-        source.dispatchPlanLineId = 350001L;
-        source.fulfillmentBalanceId = 900001L;
-        source.quantity = 5;
-        when(mapper.selectDispatchPlanByHandoffRequestForUpdate("HANDOFF-340001"))
-                .thenReturn(plan("HANDOFF_FAILED"));
-        when(mapper.markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L)).thenReturn(1);
-        when(mapper.listDispatchLineSources(340001L)).thenReturn(List.of(source));
-        when(mapper.moveReservedToLogisticsHandoff(900001L, 5, 307L)).thenReturn(1);
-        when(mapper.nextOperationLogId()).thenReturn(390001L);
-        when(mapper.selectDispatchPlanByHandoffRequest("HANDOFF-340001")).thenReturn(requested);
-
-        var view = service.markLogisticsHandoffSuccess(access(), "HANDOFF-340001");
-
-        assertThat(view.status).isEqualTo("LOGISTICS_REQUESTED");
-        InOrder order = inOrder(mapper);
-        order.verify(mapper).markDispatchPlanHandoffSuccess("HANDOFF-340001", 307L);
-        order.verify(mapper).moveReservedToLogisticsHandoff(900001L, 5, 307L);
-        order.verify(mapper).insertOperationLog(
-                eq(390001L), eq(340001L), eq("HANDOFF_SUCCESS"), eq(307L),
-                eq("HANDOFF_FAILED"), eq("LOGISTICS_REQUESTED"), anyString()
         );
     }
 

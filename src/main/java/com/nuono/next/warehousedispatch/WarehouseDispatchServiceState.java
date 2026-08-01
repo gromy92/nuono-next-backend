@@ -51,9 +51,11 @@ abstract class WarehouseDispatchServiceState {
 
     protected final WarehouseDispatchMapper mapper;
     protected final ObjectMapper objectMapper;
+    protected final WarehouseLogisticsHandoffModule logisticsHandoff;
 
     protected WarehouseDispatchServiceState(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         this.mapper = mapper;
         this.objectMapper = objectMapper;
+        this.logisticsHandoff = new WarehouseLogisticsHandoffModule(mapper, objectMapper);
     }
 }

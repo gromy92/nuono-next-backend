@@ -167,11 +167,15 @@ public interface WarehouseDispatchLifecycleMapper extends WarehousePackingMapper
             "    handoff_confirmed_at = NOW(),",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
-            "WHERE handoff_request_no = #{handoffRequestNo}",
+            "WHERE id = #{dispatchPlanId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND handoff_request_no = #{handoffRequestNo}",
             "  AND status IN ('READY_FOR_LOGISTICS', 'HANDOFF_FAILED')",
             "  AND is_deleted = b'0'"
     })
     int markDispatchPlanHandoffSuccess(
+            @Param("dispatchPlanId") Long dispatchPlanId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("handoffRequestNo") String handoffRequestNo,
             @Param("operatorUserId") Long operatorUserId
     );

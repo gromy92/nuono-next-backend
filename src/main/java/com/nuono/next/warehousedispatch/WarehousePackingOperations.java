@@ -18,12 +18,11 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-abstract class WarehousePackingOperations extends WarehouseShippingBatchOperations {
+abstract class WarehousePackingOperations extends WarehouseLinkedShippingBatchOperations {
 
     protected WarehousePackingOperations(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);
@@ -227,14 +226,23 @@ private PackingListView replacePackingBoxesLocked(
 
 @Transactional
     public PackingListView confirmPackingList(BusinessAccessContext access, String packingListId) {
+        Long parsedPackingListId = parseLongId(packingListId, "装箱单不存在或已删除。");
+        PackingListRecord discovered = requirePackingListAccess(access, parsedPackingListId);
+        OutboundOrderRecord outboundOrder =
+                requireOutboundOrderAccessForUpdate(access, discovered.outboundOrderId);
         PackingListRecord packingList = requirePackingListAccessForUpdate(
                 access,
-                parseLongId(packingListId, "装箱单不存在或已删除。")
+                parsedPackingListId
         );
+        if (!outboundOrder.id.equals(packingList.outboundOrderId)
+                || !outboundOrder.ownerUserId.equals(packingList.ownerUserId)) {
+            throw new WarehouseInventoryStateConflictException(
+                    "装箱单与出库单关联已变化，请刷新后重试。"
+            );
+        }
         if (!"DRAFT".equals(packingList.status)) {
             throw new WarehouseInventoryStateConflictException("只有草稿装箱单可以确认。");
         }
-        OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(access, packingList.outboundOrderId);
         List<OutboundOrderLineRecord> outboundLines = mapper.listOutboundOrderLines(outboundOrder.id);
         List<PackingBoxRecord> boxes = mapper.listPackingBoxes(packingList.id);
         List<PackingBoxItemRecord> items = mapper.listPackingBoxItems(packingList.id);
@@ -270,29 +278,4 @@ private PackingListView replacePackingBoxesLocked(
         return view;
     }
 
-@Transactional
-    public PackingListView shipPackingList(BusinessAccessContext access, String packingListId) {
-        PackingListRecord packingList = requirePackingListAccessForUpdate(
-                access,
-                parseLongId(packingListId, "装箱单不存在或已删除。")
-        );
-        if (!"CONFIRMED".equals(packingList.status) && !"SEALED".equals(packingList.status)) {
-            throw new WarehouseInventoryStateConflictException("只有已封箱的装箱单可以发货。");
-        }
-        OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(access, packingList.outboundOrderId);
-
-        Long operatorUserId = access.getSessionUserId();
-        if (mapper.shipPackingList(packingList.id, packingList.ownerUserId, operatorUserId) != 1) {
-            throw new WarehouseInventoryStateConflictException("装箱单状态已变化，请刷新后重试。");
-        }
-        if (mapper.markOutboundOrderShipped(outboundOrder.id, outboundOrder.ownerUserId, operatorUserId) != 1) {
-            throw new WarehouseInventoryStateConflictException("出库单状态已变化，请刷新后重试。");
-        }
-        log(null, "SHIP_PACKING_LIST", operatorUserId, packingList.status, "SHIPPED", packingList.packingNo);
-
-        PackingListRecord updated = mapper.selectPackingListById(packingList.id);
-        PackingListView view = toPackingListDetail(updated == null ? packingList : updated);
-        view.status = "SHIPPED";
-        return view;
-    }
 }

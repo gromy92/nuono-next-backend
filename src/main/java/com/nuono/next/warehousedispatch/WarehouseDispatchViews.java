@@ -21,6 +21,7 @@ public final class WarehouseDispatchViews extends WarehousePackingViews {
     public static class ShippingSuggestionLineSourceView extends WarehouseShippingSuggestionViews.ShippingSuggestionLineSourceView {}
     public static class ShippingBatchView extends WarehouseShippingBatchViews.ShippingBatchView {}
     public static class ShippingBatchSourceView extends WarehouseShippingBatchViews.ShippingBatchSourceView {}
+    public static class IssuedShippingBatchView extends WarehouseShippingBatchViews.IssuedShippingBatchView {}
     public static class MobileShippingDecisionPreviewView extends WarehouseMobileShippingViews.MobileShippingDecisionPreviewView {}
     public static class MobileShippingDecisionConfirmView extends WarehouseMobileShippingViews.MobileShippingDecisionConfirmView {}
     public static class MobileShippingDecisionOptionView extends WarehouseMobileShippingViews.MobileShippingDecisionOptionView {}

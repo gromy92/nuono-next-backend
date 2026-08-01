@@ -34,6 +34,7 @@ public class WarehouseDispatchPlanViews extends WarehouseProcurementViews {
         public String handoffErrorMessage;
         public String createdAt;
         public String updatedAt;
+        public WarehouseDispatchViews.ShippingBatchView currentShippingBatch;
         public List<WarehouseDispatchViews.DispatchPlanLineView> lines = new ArrayList<>();
 
         public DispatchPlanRecord toRecord() {

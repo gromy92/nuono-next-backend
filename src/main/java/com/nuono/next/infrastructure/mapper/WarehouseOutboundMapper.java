@@ -34,7 +34,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
+public interface WarehouseOutboundMapper extends WarehouseLinkedShippingMapper {
 
 @Insert({
             "INSERT INTO warehouse_outbound_order (",
@@ -114,6 +114,19 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "LIMIT 1"
     })
     OutboundOrderRecord selectOutboundOrderById(@Param("outboundOrderId") Long outboundOrderId);
+
+@Select({
+            "SELECT id, batch_id AS batchId, option_id AS optionId, owner_user_id AS ownerUserId, outbound_no AS outboundNo,",
+            "       status, origin_type AS originType, origin_name AS originName, sku_count AS skuCount, total_quantity AS totalQuantity,",
+            "       site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson, remark,",
+            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM warehouse_outbound_order",
+            "WHERE id = #{outboundOrderId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    OutboundOrderRecord selectOutboundOrderByIdForUpdate(@Param("outboundOrderId") Long outboundOrderId);
 
 @Select({
             "<script>",

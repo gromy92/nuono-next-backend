@@ -174,6 +174,20 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
         }
     }
 
+@PostMapping("/dispatch-plans/{dispatchPlanId}/shipping-batch")
+    public ShippingBatchView createShippingBatchFromDispatchPlan(
+            @PathVariable String dispatchPlanId,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().createShippingBatchFromDispatchPlan(access(request), dispatchPlanId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
+        }
+    }
+
 @PostMapping("/dispatch-plans/{dispatchPlanId}/reopen-draft")
     public DispatchPlanView reopenDraft(
             @PathVariable String dispatchPlanId,
@@ -205,13 +219,11 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             @PathVariable String handoffRequestNo,
             HttpServletRequest request
     ) {
-        try {
-            return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        } catch (WarehouseInventoryStateConflictException exception) {
-            throw conflict(exception);
-        }
+        access(request);
+        throw new ResponseStatusException(
+                HttpStatus.GONE,
+                "该物流交接成功接口已停用，请在装箱单中确认已交货代。"
+        );
     }
 
 @PostMapping("/handoffs/failure")

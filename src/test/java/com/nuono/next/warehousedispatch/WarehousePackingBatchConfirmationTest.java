@@ -51,10 +51,12 @@ class WarehousePackingBatchConfirmationTest extends WarehouseDispatchServiceTest
         secondItem.outboundOrderId = 800002L;
         secondItem.outboundOrderLineId = 820002L;
 
+        when(mapper.selectPackingListById(830001L)).thenReturn(firstList);
+        when(mapper.selectPackingListById(830002L)).thenReturn(secondList);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(firstOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800002L)).thenReturn(secondOrder);
         when(mapper.selectPackingListByIdForUpdate(830001L)).thenReturn(firstList);
         when(mapper.selectPackingListByIdForUpdate(830002L)).thenReturn(secondList);
-        when(mapper.selectOutboundOrderById(800001L)).thenReturn(firstOrder);
-        when(mapper.selectOutboundOrderById(800002L)).thenReturn(secondOrder);
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(firstLine));
         when(mapper.listOutboundOrderLines(800002L)).thenReturn(List.of(secondLine));
         when(mapper.listPackingBoxes(830001L)).thenReturn(List.of(firstBox));
