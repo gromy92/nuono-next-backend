@@ -234,6 +234,13 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
             "NOT (parent_asn.owner_user_id <=> appointment.owner_user_id)",
         ):
             self.assertIn(marker, migration.script_sql + migration.postcheck_sql)
+        for sql in (migration.script_sql, migration.postcheck_sql):
+            self.assertIn(
+                "REPLACE(REGEXP_REPLACE(LOWER(REGEXP_REPLACE", sql
+            )
+            self.assertNotIn(
+                "REGEXP_REPLACE(REPLACE(LOWER(REGEXP_REPLACE", sql
+            )
         for marker in ("column_name = 'id'", "column_name = 'owner_user_id'",
                        "column_name = 'store_code'", "column_name = 'attempt_count'"):
             self.assertIn(marker, migration.postcheck_sql)
