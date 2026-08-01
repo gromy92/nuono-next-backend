@@ -1,8 +1,10 @@
 package com.nuono.next.procurementorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -10,7 +12,6 @@ import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -124,6 +125,49 @@ class WarehouseShippingQuoteChannelServiceTest {
         });
         verify(mapper).insertLogisticsQuoteLine(facts.get(0), 307L);
         verify(mapper).confirmLogisticsQuoteLine(facts.get(0), 307L);
+    }
+
+    @Test
+    void reassignThenSameChannelQuoteAndSubmitUseCurrentSegmentSnapshot() {
+        PurchaseOrderLogisticsQuoteLineRecord current = line(null, null, null, null);
+        current.shippingOrderSegmentId = 292002L;
+        current.siteCode = "SA";
+        current.plannedTransportMode = "SEA";
+        PurchaseOrderLogisticsQuoteLineRecord stale = line(
+                280001L,
+                "ET",
+                "ET-SAU-SEA-FBN-RUH",
+                "ET-SAU-SEA-FBN-RUH"
+        );
+        stale.shippingOrderSegmentId = 292001L;
+        stale.siteCode = "SA";
+        stale.plannedTransportMode = "AIR";
+        ForwarderRouteRecommendationRecord candidate = candidate(
+                "ET",
+                "ET-SAU-SEA-FBN-RUH",
+                "ET-SAU-SEA-FBN-RUH"
+        );
+        when(mapper.selectLogisticsQuoteLineByShippingOrderChannelForUpdate(
+                290001L, 220002L, candidate.forwarderCode, candidate.routeCode, candidate.serviceCode
+        )).thenReturn(stale);
+        when(mapper.refreshLogisticsQuoteLineSnapshot(any(), eq(307L))).thenReturn(1);
+
+        PurchaseOrderLogisticsQuoteLineRecord requoted = service.requireChannelLine(current, candidate, 307L);
+        List<PurchaseOrderLogisticsQuoteLineRecord> submitted =
+                service.materializeSubmissionFacts(List.of(requoted), List.of(), 307L);
+
+        assertThat(submitted).singleElement().satisfies(line -> {
+            assertThat(line.id).isEqualTo(280001L);
+            assertThat(line.shippingOrderLineId).isEqualTo(291001L);
+            assertThat(line.shippingOrderSegmentId).isEqualTo(292002L);
+            assertThat(line.siteCode).isEqualTo("SA");
+            assertThat(line.plannedTransportMode).isEqualTo("SEA");
+        });
+        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> snapshots =
+                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
+        verify(mapper, times(2)).refreshLogisticsQuoteLineSnapshot(snapshots.capture(), eq(307L));
+        assertThat(snapshots.getAllValues())
+                .allSatisfy(line -> assertThat(line.shippingOrderSegmentId).isEqualTo(292002L));
     }
 
     @Test

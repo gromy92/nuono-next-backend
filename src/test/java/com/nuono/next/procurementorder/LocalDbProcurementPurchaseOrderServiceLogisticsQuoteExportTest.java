@@ -1,16 +1,29 @@
 package com.nuono.next.procurementorder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
+import com.nuono.next.infrastructure.mapper.ProductSelectionMapper;
+import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
+import com.nuono.next.productselection.LocalDbAli1688CollectionService;
 import java.io.ByteArrayInputStream;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.apache.poi.hssf.usermodel.HSSFWorkbook;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.Row;
@@ -87,7 +100,9 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
     @Test
     void yiteTemplateExportsHistoryQuoteColumn() throws Exception {
         LocalDbProcurementPurchaseOrderService service =
-                new LocalDbProcurementPurchaseOrderService(null, null, null, new ObjectMapper(), null);
+                new LocalDbProcurementPurchaseOrderService(
+                        null, null, null, new ObjectMapper(), null, null, null, null
+                );
         Method method = LocalDbProcurementPurchaseOrderService.class.getDeclaredMethod(
                 "buildYiteLogisticsQuoteWorkbook",
                 PurchaseOrderRecord.class,
@@ -118,6 +133,128 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
             assertEquals(15, historyQuoteColumn);
             assertEquals("1390/CBM", data.getCell(historyQuoteColumn).getStringCellValue());
         }
+    }
+
+    @Test
+    void unsupportedPurchaseExportDoesNotMaterializeOrAssignQuoteRows() {
+        ProcurementPurchaseOrderMapper mapper = mock(ProcurementPurchaseOrderMapper.class);
+        WarehouseLogisticsQuotePriceService priceService = mock(WarehouseLogisticsQuotePriceService.class);
+        LocalDbProcurementPurchaseOrderService service = service(mapper, priceService);
+        PurchaseOrderRecord order = order();
+        PurchaseOrderLogisticsQuoteLineRecord line = eligibilityLine("PENDING_QUOTE");
+        ForwarderRouteRecommendationRecord candidate = candidate();
+        when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order);
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(line));
+        when(mapper.lockProductVariantsForForwarderEligibility(307L, List.of(9001L)))
+                .thenReturn(List.of(9001L));
+        when(mapper.listRouteRecommendationCandidates(List.of("SA"), "SEA"))
+                .thenReturn(List.of(candidate));
+        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+                .thenReturn(List.of(rule("UNSUPPORTED")));
+        when(priceService.resolve(any(), any(), any()))
+                .thenReturn(new PurchaseOrderLogisticsQuoteChannelLineView());
+
+        assertThatThrownBy(() -> service.exportLogisticsQuoteReport(
+                access(), "200001", "ET", "ET-SAU-SEA-FBN-RUH"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("当前不接");
+
+        verify(mapper, never()).insertLogisticsQuoteLine(any(), anyLong());
+        verify(mapper, never()).refreshLogisticsQuoteLineSnapshot(any(), anyLong());
+        verify(mapper, never()).assignLogisticsQuoteLineChannel(any(), anyLong());
+        verify(mapper, never()).markLogisticsQuoteLinesExported(anyLong(), anyList(), anyLong());
+    }
+
+    @Test
+    void purchaseSubmitRechecksCurrentRuleAfterQuoteConfirmation() {
+        ProcurementPurchaseOrderMapper mapper = mock(ProcurementPurchaseOrderMapper.class);
+        LocalDbProcurementPurchaseOrderService service = service(
+                mapper, mock(WarehouseLogisticsQuotePriceService.class));
+        PurchaseOrderLogisticsQuoteLineRecord line = eligibilityLine("CONFIRMED");
+        line.forwarderCode = "ET";
+        line.routeCode = "ET-SAU-SEA-FBN-RUH";
+        line.serviceCode = "ET-SAU-SEA-WH";
+        line.unitPrice = new BigDecimal("1540.0000");
+        when(mapper.selectOrderByIdForUpdate(200001L)).thenReturn(order());
+        when(mapper.listLogisticsQuoteCandidatesByOrder(200001L)).thenReturn(List.of(line));
+        when(mapper.lockProductVariantsForForwarderEligibility(307L, List.of(9001L)))
+                .thenReturn(List.of(9001L));
+        when(mapper.listCurrentProductForwarderTransportEligibilities(307L, List.of(9001L)))
+                .thenReturn(List.of(rule("INQUIRY_REQUIRED")));
+
+        assertThatThrownBy(() -> service.submitShipping(access(), "200001"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("询价确认");
+
+        verify(mapper).lockProductVariantsForForwarderEligibility(307L, List.of(9001L));
+        verify(mapper, never()).countUnconfirmedLogisticsQuoteLines(anyLong());
+        verify(mapper, never()).submitLogisticsQuoteLinesForShipping(anyLong(), anyLong());
+    }
+
+    private LocalDbProcurementPurchaseOrderService service(
+            ProcurementPurchaseOrderMapper mapper,
+            WarehouseLogisticsQuotePriceService priceService
+    ) {
+        return ProcurementPurchaseOrderServiceTestFactory.create(
+                mapper,
+                mock(ProductSelectionMapper.class),
+                mock(LocalDbAli1688CollectionService.class),
+                new ObjectMapper(),
+                priceService
+        );
+    }
+
+    private BusinessAccessContext access() {
+        return BusinessAccessContext.builder()
+                .sessionUserId(307L)
+                .businessOwnerUserId(307L)
+                .storeCodes(Set.of("STR69486-NSA"))
+                .storeOwnerUserIds(Map.of("STR69486-NSA", 307L))
+                .build();
+    }
+
+    private PurchaseOrderRecord order() {
+        PurchaseOrderRecord order = new PurchaseOrderRecord();
+        order.id = 200001L;
+        order.ownerUserId = 307L;
+        order.orderNo = "PO-200001";
+        order.status = "READY";
+        order.anchorStoreCodeCache = "STR69486-NSA";
+        return order;
+    }
+
+    private PurchaseOrderLogisticsQuoteLineRecord eligibilityLine(String quoteStatus) {
+        PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
+        line.id = 280001L;
+        line.ownerUserId = 307L;
+        line.productVariantId = 9001L;
+        line.partnerSku = "PSKU-1";
+        line.siteCode = "SA";
+        line.plannedTransportMode = "SEA";
+        line.quoteStatus = quoteStatus;
+        return line;
+    }
+
+    private ForwarderRouteRecommendationRecord candidate() {
+        ForwarderRouteRecommendationRecord candidate = new ForwarderRouteRecommendationRecord();
+        candidate.forwarderCode = "ET";
+        candidate.routeCode = "ET-SAU-SEA-FBN-RUH";
+        candidate.serviceCode = "ET-SAU-SEA-WH";
+        candidate.siteCode = "SA";
+        candidate.transportMode = "SEA";
+        return candidate;
+    }
+
+    private ProductForwarderTransportEligibilityRecord rule(String status) {
+        ProductForwarderTransportEligibilityRecord rule =
+                new ProductForwarderTransportEligibilityRecord();
+        rule.ownerUserId = 307L;
+        rule.productVariantId = 9001L;
+        rule.siteCode = "SA";
+        rule.forwarderCode = "ET";
+        rule.transportMode = "SEA";
+        rule.eligibilityStatus = status;
+        return rule;
     }
 
     private int findHeaderColumn(Row header, String title) {

@@ -8,12 +8,10 @@ import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdent
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.normalizeSubmitStatus;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.safe;
 import static com.nuono.next.procurementorder.WarehouseShippingQuoteChannelIdentity.sameCode;
-
 import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ShippingOrderSegmentRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,10 +85,7 @@ public class WarehouseShippingQuoteChannelService {
                         candidate.serviceCode
                 );
         if (existing != null) {
-            if (!StringUtils.hasText(existing.yiteMaterial)) {
-                existing.yiteMaterial = baseLine.yiteMaterial;
-            }
-            return existing;
+            return WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, existing, baseLine, operatorUserId);
         }
         PurchaseOrderLogisticsQuoteLineRecord created = WarehouseLogisticsQuoteLineFactory.copyOf(baseLine);
         created.id = mapper.nextLogisticsQuoteLineId();
@@ -118,9 +113,7 @@ public class WarehouseShippingQuoteChannelService {
                     .findFirst()
                     .orElse(null);
             if (exact != null) {
-                exact.shippingOrderSegmentId = baseLine.shippingOrderSegmentId;
-                exact.shippingOrderLineId = baseLine.shippingOrderLineId;
-                resolved.add(exact);
+                resolved.add(WarehouseShippingQuoteSnapshotRefresher.rebind(exact, baseLine));
                 continue;
             }
             if (CONFIRMED.equals(normalizeStatus(baseLine.quoteStatus)) && matches(baseLine, segment)) {
@@ -181,7 +174,7 @@ public class WarehouseShippingQuoteChannelService {
         List<PurchaseOrderLogisticsQuoteLineRecord> materialized = new ArrayList<>();
         for (PurchaseOrderLogisticsQuoteLineRecord line : safe(lines)) {
             if (line.id != null) {
-                materialized.add(line);
+                materialized.add(WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, line, line, operatorUserId));
                 continue;
             }
             ShippingOrderSegmentRecord segment = segmentById.get(line.shippingOrderSegmentId);
@@ -202,6 +195,8 @@ public class WarehouseShippingQuoteChannelService {
                 exact.shippingSubmitStatus = NOT_SUBMITTED;
                 applyChannel(exact, segment);
                 mapper.insertLogisticsQuoteLine(exact, operatorUserId);
+            } else {
+                exact = WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, exact, line, operatorUserId);
             }
             exact.quoteStatus = CONFIRMED;
             mapper.confirmLogisticsQuoteLine(exact, operatorUserId);
@@ -257,8 +252,12 @@ public class WarehouseShippingQuoteChannelService {
             String serviceName,
             Long operatorUserId
     ) {
-        if (!shippingOrder || selected == null || matches(selected, forwarderCode, routeCode, serviceCode)) {
+        if (!shippingOrder || selected == null) {
             return selected;
+        }
+        if (matches(selected, forwarderCode, routeCode, serviceCode)) {
+            return selected.id == null ? selected : WarehouseShippingQuoteSnapshotRefresher.refresh(
+                    mapper, selected, selected, operatorUserId);
         }
         PurchaseOrderLogisticsQuoteLineRecord exact =
                 mapper.selectLogisticsQuoteLineByShippingOrderChannelForUpdate(
@@ -269,9 +268,10 @@ public class WarehouseShippingQuoteChannelService {
                         serviceCode
                 );
         if (exact != null) {
-            return exact;
+            return WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, exact, selected, operatorUserId);
         }
-        if ((!StringUtils.hasText(selected.forwarderCode) && !StringUtils.hasText(selected.routeCode))
+        if (selected.id != null
+                && ((!StringUtils.hasText(selected.forwarderCode) && !StringUtils.hasText(selected.routeCode))
                 || (sameCode(selected.forwarderCode, forwarderCode) && !StringUtils.hasText(selected.routeCode))) {
             applyChannel(selected, forwarderCode, forwarderName, routeCode, routeName, serviceCode, serviceName);
             return selected;

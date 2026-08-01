@@ -4,7 +4,6 @@ import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.CurrentCostRow;
 import java.util.Locale;
 import org.springframework.stereotype.Component;

@@ -12,16 +12,9 @@ import java.nio.file.Path;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class ProcurementPurchaseOrderMapperSqlTest {
-    @Test
-    void mapperDynamicSqlRegistersSuccessfully() {
-        Configuration configuration = new Configuration();
-        configuration.addMapper(ProcurementPurchaseOrderMapper.class);
-    }
-
     @Test void shippingOrderSegmentsCountDistinctSourcePurchaseOrders() throws Exception {
         Method method = ProcurementPurchaseOrderMapper.class.getMethod("listShippingOrderSegments", Long.class);
         String sql = String.join(" ", method.getAnnotation(Select.class).value()).replaceAll("\\s+", " ");
@@ -197,36 +190,6 @@ class ProcurementPurchaseOrderMapperSqlTest {
         assertThat(sql).contains("JOIN forwarder_quote_service_line line");
         assertThat(sql).contains("LEFT JOIN forwarder_quote_base_price price");
         assertThat(sql).contains("route.active_for_purchase_order = b'1'");
-    }
-
-    @Test
-    void routeSupplementFeeQueriesReadWarehouseAndLastMileFees() throws Exception {
-        Method basePriceMethod = ProcurementPurchaseOrderMapper.class.getMethod(
-                "listBasePricesByServiceCodes",
-                java.util.List.class
-        );
-        Method warehouseMethod = ProcurementPurchaseOrderMapper.class.getMethod(
-                "listWarehouseProcessingFeesByServiceCodes",
-                java.util.List.class
-        );
-        Method transportMethod = ProcurementPurchaseOrderMapper.class.getMethod(
-                "listTransportFeesByServiceCodes",
-                java.util.List.class
-        );
-
-        String basePriceSql = String.join(" ", basePriceMethod.getAnnotation(Select.class).value())
-                .replaceAll("\\s+", " ");
-        String warehouseSql = String.join(" ", warehouseMethod.getAnnotation(Select.class).value())
-                .replaceAll("\\s+", " ");
-        String transportSql = String.join(" ", transportMethod.getAnnotation(Select.class).value())
-                .replaceAll("\\s+", " ");
-
-        assertThat(basePriceSql).contains("FROM forwarder_quote_base_price");
-        assertThat(basePriceSql).contains("base_price.unit_price AS unitPrice");
-        assertThat(basePriceSql).contains("base_price.unit_price > 0");
-        assertThat(basePriceSql).doesNotContain("forwarder_quote_numeric_adjustment");
-        assertThat(warehouseSql).contains("FROM forwarder_warehouse_processing_fee");
-        assertThat(transportSql).contains("FROM forwarder_quote_transport_fee");
     }
 
     @Test

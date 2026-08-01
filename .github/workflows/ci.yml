@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mysql:
-        image: mysql:8.4
+        image: mysql:8.0.36
         env:
           MYSQL_ROOT_PASSWORD: root
           MYSQL_DATABASE: nuono_schema_migration_ci
@@ -83,6 +83,7 @@ jobs:
           scripts/tests/test_mysql_migration_database.py
           scripts/tests/test_release_schema_jar_freeze.py
           scripts/tests/test_warehouse_shipping_plan_migration.py
+          scripts/tests/test_warehouse_forwarder_migration.py
 
       - name: Verify release schema migrations against MySQL
         env:

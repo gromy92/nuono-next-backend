@@ -85,6 +85,38 @@ final class WarehouseShippingQuoteChannelIdentity {
         );
     }
 
+    static ForwarderRouteRecommendationRecord candidateFrom(ShippingOrderSegmentRecord segment) {
+        if (segment == null) {
+            return null;
+        }
+        ForwarderRouteRecommendationRecord candidate = new ForwarderRouteRecommendationRecord();
+        candidate.forwarderCode = segment.forwarderCode;
+        candidate.forwarderName = segment.forwarderName;
+        candidate.routeCode = segment.routeCode;
+        candidate.routeName = segment.routeName;
+        candidate.serviceCode = segment.serviceCode;
+        candidate.serviceName = segment.serviceName;
+        candidate.siteCode = segment.siteCode;
+        candidate.transportMode = segment.transportMode;
+        return candidate;
+    }
+
+    static ForwarderRouteRecommendationRecord candidateFrom(PurchaseOrderLogisticsQuoteLineRecord line) {
+        if (line == null) {
+            return null;
+        }
+        ForwarderRouteRecommendationRecord candidate = new ForwarderRouteRecommendationRecord();
+        candidate.forwarderCode = line.forwarderCode;
+        candidate.forwarderName = line.forwarderName;
+        candidate.routeCode = line.routeCode;
+        candidate.routeName = line.routeName;
+        candidate.serviceCode = line.serviceCode;
+        candidate.serviceName = line.serviceName;
+        candidate.siteCode = line.siteCode;
+        candidate.transportMode = line.plannedTransportMode;
+        return candidate;
+    }
+
     static void applyChannel(
             PurchaseOrderLogisticsQuoteLineRecord line,
             String forwarderCode,

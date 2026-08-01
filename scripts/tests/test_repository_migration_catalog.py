@@ -49,6 +49,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "234_official_warehouse_appointment_concurrency.sql",
                 "235_warehouse_shipping_batch_request_idempotency.sql",
                 "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql",
+                "237_warehouse_forwarder_quote_and_transport_eligibility.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -63,6 +64,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "MANAGED",
                 "AUTO_ADDITIVE",
+                "MANAGED",
                 "MANAGED",
             ],
             [migration.kind for migration in migrations],

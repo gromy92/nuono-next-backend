@@ -21,7 +21,7 @@ src/test/java/com/nuono/next/intransit/autosync/LogisticsAutoSyncSchedulerTest.j
 src/test/java/com/nuono/next/intransit/autosync/YiteLogisticsProviderAdapterTest.java	593
 src/test/java/com/nuono/next/intransit/autosync/ZdLogisticsProviderAdapterTest.java	324
 src/test/java/com/nuono/next/logisticsquote/LogisticsQuoteFactLandingStateTest.java	421
-src/test/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchServiceTest.java	1783
+src/test/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchServiceTest.java	1733
 src/test/java/com/nuono/next/masterdata/LocalDbMasterDataServiceTest.java	589
 src/test/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGatewayTest.java	883
 src/test/java/com/nuono/next/noon/NoonSessionGatewayTest.java	1217
@@ -62,8 +62,8 @@ src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderControll
 src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderMapperSqlTest.java	580
 src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderSyncServiceTest.java	567
 src/test/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderServiceTest.java	3545
-src/test/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderServiceTest.java	3355
-src/test/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderMapperSqlTest.java	668
+src/test/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderServiceTest.java	3354
+src/test/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderMapperSqlTest.java	641
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceDeletionTest.java	1127
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceSharedOnlySkipTest.java	421
 src/test/java/com/nuono/next/product/ProductImageProfileControllerTest.java	344

@@ -6,7 +6,7 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Forwarder
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteSegmentRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderSeaRecommendationRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderTransportFeeRecord;
+import com.nuono.next.procurementorder.ForwarderTransportFeeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderWarehouseProcessingFeeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsBillReconciliationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.LogisticsCostComponentInsertRecord;
@@ -35,7 +35,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuoteChannelMapper {
+public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTransportMapper {
 
     String ORDER_SELECT = ""
             + "SELECT po.id, po.owner_user_id, po.logical_store_id, po.order_no, po.title, po.remark, "
@@ -201,6 +201,10 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
 
     default Long nextLogisticsBillReconciliationId() {
         return nextId("logistics_bill_reconciliation", 360000L);
+    }
+
+    default Long nextProductForwarderTransportEligibilityId() {
+        return nextId("product_forwarder_transport_eligibility", 370000L);
     }
 
     @Select({
@@ -978,17 +982,6 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
     );
 
     @Select({
-            "<script>",
-            "SELECT COUNT(1)",
-            "FROM procurement_shipping_order_line",
-            "WHERE purchase_order_item_site_id IN",
-            "  <foreach collection='itemSiteIds' item='itemSiteId' open='(' separator=',' close=')'>#{itemSiteId}</foreach>",
-            "  AND is_deleted = b'0'",
-            "</script>"
-    })
-    int countActiveShippingOrderLinesByItemSites(@Param("itemSiteIds") List<Long> itemSiteIds);
-
-    @Select({
             "SELECT DISTINCT sol.purchase_order_id",
             "FROM procurement_shipping_order_line sol",
             "JOIN procurement_shipping_order shipping_order",
@@ -1067,22 +1060,6 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
     })
     int insertShippingOrderLine(
             @Param("row") ShippingOrderLineRecord row,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
-    @Update({
-            "UPDATE procurement_shipping_order_line",
-            "SET quote_line_id = #{quoteLineId},",
-            "    updated_by = #{operatorUserId},",
-            "    gmt_updated = NOW()",
-            "WHERE shipping_order_id = #{shippingOrderId}",
-            "  AND purchase_order_item_site_id = #{itemSiteId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateShippingOrderLineQuoteLine(
-            @Param("shippingOrderId") Long shippingOrderId,
-            @Param("itemSiteId") Long itemSiteId,
-            @Param("quoteLineId") Long quoteLineId,
             @Param("operatorUserId") Long operatorUserId
     );
 
@@ -1656,9 +1633,10 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
             "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, sol.yite_material AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType, quote.id AS quoteLineId,",
+            "       sol.eligibility_status_snapshot AS eligibilityStatus,",
             "       quote.currency AS currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
             "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
-            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
+            "       COALESCE(segment.shipping_submit_status, quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
             "FROM procurement_shipping_order_line sol",
             "LEFT JOIN procurement_shipping_order_segment segment",
             "  ON segment.id = sol.shipping_order_segment_id",
@@ -1714,9 +1692,10 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       COALESCE(NULLIF(public_detail.main_image_url, ''), NULLIF(pm.cover_image_url, ''), NULLIF(sol.image_url_cache, '')) AS imageUrlCache,",
             "       sol.site_code AS siteCode, sol.psku_code AS pskuCode, sol.yite_material AS yiteMaterial, sol.planned_transport_mode AS plannedTransportMode,",
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType, quote.id AS quoteLineId,",
+            "       sol.eligibility_status_snapshot AS eligibilityStatus,",
             "       quote.currency AS currency, quote.unit_price AS unitPrice, quote.billing_unit AS billingUnit,",
             "       COALESCE(quote.quote_status, 'PENDING_QUOTE') AS quoteStatus,",
-            "       COALESCE(quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
+            "       COALESCE(segment.shipping_submit_status, quote.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus",
             "FROM procurement_shipping_order_line sol",
             "LEFT JOIN procurement_shipping_order_segment segment",
             "  ON segment.id = sol.shipping_order_segment_id",
@@ -2332,7 +2311,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType,",
             "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
             "       'PENDING_QUOTE' AS quoteStatus,",
-            "       'NOT_SUBMITTED' AS shippingSubmitStatus,",
+            "       COALESCE(segment.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
             "       NULL AS forwarderCode, NULL AS forwarderName,",
             "       NULL AS routeCode, NULL AS routeName,",
             "       NULL AS serviceCode, NULL AS serviceName,",
@@ -2347,7 +2326,8 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       " + CARTON_HEIGHT_EXPR + " AS cartonHeightCm,",
             "       " + CARTON_WEIGHT_EXPR + " AS cartonWeightKg,",
             "       " + CARTON_QUANTITY_EXPR + " AS cartonQuantity,",
-            "       NULL AS exportedAt, NULL AS confirmedAt, NULL AS shippingSubmittedAt",
+            "       NULL AS exportedAt, NULL AS confirmedAt, NULL AS shippingSubmittedAt,",
+            "       sol.eligibility_status_snapshot AS eligibilityStatus",
             "FROM procurement_shipping_order_line sol",
             "JOIN procurement_shipping_order so",
             "  ON so.id = sol.shipping_order_id",
@@ -2410,7 +2390,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       sol.quantity, sol.fulfillment_type AS fulfillmentType,",
             "       COALESCE(balance.is_new_product, b'0') = b'1' AS isNewProduct,",
             "       'PENDING_QUOTE' AS quoteStatus,",
-            "       'NOT_SUBMITTED' AS shippingSubmitStatus,",
+            "       COALESCE(segment.shipping_submit_status, 'NOT_SUBMITTED') AS shippingSubmitStatus,",
             "       NULL AS forwarderCode, NULL AS forwarderName,",
             "       NULL AS routeCode, NULL AS routeName,",
             "       NULL AS serviceCode, NULL AS serviceName,",
@@ -2425,7 +2405,8 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementShippingQuote
             "       " + CARTON_HEIGHT_EXPR + " AS cartonHeightCm,",
             "       " + CARTON_WEIGHT_EXPR + " AS cartonWeightKg,",
             "       " + CARTON_QUANTITY_EXPR + " AS cartonQuantity,",
-            "       NULL AS exportedAt, NULL AS confirmedAt, NULL AS shippingSubmittedAt",
+            "       NULL AS exportedAt, NULL AS confirmedAt, NULL AS shippingSubmittedAt,",
+            "       sol.eligibility_status_snapshot AS eligibilityStatus",
             "FROM procurement_shipping_order_line sol",
             "JOIN procurement_shipping_order so",
             "  ON so.id = sol.shipping_order_id",

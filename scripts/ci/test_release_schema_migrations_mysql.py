@@ -27,6 +27,17 @@ from ci.release_schema_mysql_official_warehouse_scenario import verify_appointme
 from ci.release_schema_mysql_pre_catalog_scenario import verify_pre_catalog_bootstrap  # noqa: E402
 from ci.release_schema_mysql_shipping_batch_scenario import verify_shipping_batch_idempotency_migration  # noqa: E402
 from ci.release_schema_mysql_shipping_plan_scenario import verify_shipping_batch_dispatch_plan_uniqueness_migration  # noqa: E402
+from ci.release_schema_mysql_forwarder_scenario import (  # noqa: E402
+    MIGRATION_KEY as FORWARDER_MIGRATION_KEY,
+    prepare_forwarder_fixture,
+    verify_forwarder_migration,
+)
+from ci.release_schema_mysql_forwarder_trigger_scenario import (  # noqa: E402
+    verify_forwarder_trigger_repair,
+)
+from ci.release_schema_mysql_forwarder_source_guard_scenario import verify_forwarder_source_drift_guard  # noqa: E402
+from ci.release_schema_mysql_forwarder_eligibility_guard_scenario import verify_forwarder_eligibility_binary_guards  # noqa: E402
+from ci.release_schema_mysql_forwarder_shape_guard_scenario import verify_forwarder_wrong_shape_fail_before_writes  # noqa: E402
 
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
@@ -69,6 +80,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
 
         self.assertEqual({}, database.load_states())
         prepare_current_release_fixture(database)
+        forwarder_fact_signature = prepare_forwarder_fixture(database, resources)
         integrity = next(item for item in migrations if item.key == INTEGRITY_MIGRATION_KEY)
         request_idempotency = next(
             item
@@ -83,6 +95,9 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         shipping_plan = next(
             item for item in migrations
             if item.key == SHIPPING_PLAN_MIGRATION_KEY
+        )
+        forwarder = next(
+            item for item in migrations if item.key == FORWARDER_MIGRATION_KEY
         )
         integrity_approval = (integrity.key,)
         approvals = list(integrity_approval)
@@ -99,6 +114,10 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner.apply(approved_managed=approvals)
         self.assertNotIn(shipping_plan.key, database.load_states())
         approvals.append(shipping_plan.key)
+        with self.assertRaisesRegex(MigrationError, "missing " + forwarder.key):
+            runner.apply(approved_managed=approvals)
+        self.assertNotIn(forwarder.key, database.load_states())
+        approvals.append(forwarder.key)
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.apply(approved_managed=approvals)
         states = database.load_states()
@@ -150,9 +169,10 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             integrity.key, rerun=True, approved_managed=integrity_approval
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
+        verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
         self.assertEqual(
             [request_idempotency.key, packing_index.key,
-             appointment.key, shipping_batch.key, shipping_plan.key],
+             appointment.key, shipping_batch.key, shipping_plan.key, forwarder.key],
             runner.apply(approved_managed=approvals),
         )
         self.assertTrue(all(state.state == "APPLIED"
@@ -173,6 +193,12 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             migrations,
             runner,
         )
+        verify_forwarder_migration(
+            self, database, migrations, forwarder_fact_signature
+        )
+        verify_forwarder_source_drift_guard(self, database, forwarder)
+        verify_forwarder_eligibility_binary_guards(self, database)
+        verify_forwarder_trigger_repair(self, database, forwarder)
         verify_lock_contention(self, defaults_file, expected_schema)
 
         verify_pre_catalog_bootstrap(

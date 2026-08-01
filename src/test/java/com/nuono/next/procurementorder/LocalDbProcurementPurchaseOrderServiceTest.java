@@ -33,7 +33,6 @@ import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.Forwarder
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteSegmentRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderSeaRecommendationRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderTransportFeeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderWarehouseProcessingFeeRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688HistoryRow;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderAli1688PurchaseBatchRow;
@@ -110,12 +109,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
                 new WarehouseLogisticsQuotePriceService(mapper, productLogisticsPriceBridge)
         );
         ObjectMapper objectMapper = new ObjectMapper();
-        WarehouseShippingQuoteProjectionService quoteProjectionService = new WarehouseShippingQuoteProjectionService(
-                mapper, logisticsQuotePriceService, objectMapper);
-        WarehouseShippingQuoteChannelService shippingQuoteChannelService =
-                new WarehouseShippingQuoteChannelService(mapper, logisticsQuotePriceService, quoteProjectionService);
-        service = new LocalDbProcurementPurchaseOrderService(mapper, productSelectionMapper, ali1688CollectionService,
-                objectMapper, shippingQuoteChannelService);
+        service = ProcurementPurchaseOrderServiceTestFactory.create(
+                mapper, productSelectionMapper, ali1688CollectionService, objectMapper, logisticsQuotePriceService);
         lenient().when(mapper.nextOperationLogId()).thenReturn(240001L);
         lenient().when(mapper.nextProductForwarderChannelQuoteId()).thenReturn(320001L);
         lenient().when(mapper.nextLogisticsExpectedBillId()).thenReturn(330001L);
@@ -124,6 +119,10 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         lenient().when(mapper.listRouteSegments(any())).thenReturn(List.of());
         lenient().when(mapper.selectOrderByIdForUpdate(anyLong()))
                 .thenAnswer(invocation -> mapper.selectOrderById(invocation.getArgument(0)));
+        lenient().when(mapper.selectShippingOrderByIdForUpdate(anyLong(), anyLong()))
+                .thenAnswer(invocation -> mapper.selectShippingOrderById(invocation.getArgument(0)));
+        lenient().when(mapper.snapshotShippingOrderLineEligibility(anyLong(), anyLong(), any(), anyLong()))
+                .thenReturn(1);
     }
 
     @Test

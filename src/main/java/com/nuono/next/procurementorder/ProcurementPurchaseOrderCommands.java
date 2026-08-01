@@ -68,6 +68,17 @@ public final class ProcurementPurchaseOrderCommands {
         public List<String> segmentIds = new ArrayList<>();
     }
 
+    public static class UpdateShippingOrderLineEligibilityCommand {
+        public String forwarderCode;
+        public String eligibilityStatus;
+    }
+
+    public static class ReassignShippingOrderLinesCommand {
+        public List<String> lineIds = new ArrayList<>();
+        public String targetSegmentId;
+        public String targetTransportMode;
+    }
+
     public static class ItemCommand {
         public String psku;
         public String site;
