@@ -16,6 +16,18 @@ import org.junit.jupiter.api.Test;
 class InTransitSuperSearchSchemaContractTest {
 
     @Test
+    void scriptedSqlEscapesXmlInequalityOperators() {
+        for (Method method : InTransitSuperSearchMapper.class.getDeclaredMethods()) {
+            Select select = method.getAnnotation(Select.class);
+            if (select == null) {
+                continue;
+            }
+            String sql = String.join(" ", select.value());
+            assertFalse(sql.contains(" <> "), method.getName() + " contains an unescaped XML operator");
+        }
+    }
+
+    @Test
     void superSearchSqlMatchesPskuProductNameAndProductTitlesOnly() throws NoSuchMethodException {
         Method search = InTransitSuperSearchMapper.class.getMethod(
                 "searchInTransitProducts",
@@ -35,7 +47,7 @@ class InTransitSuperSearchSchemaContractTest {
         assertTrue(sql.contains("filter_ls.project_code = #{query.projectCode}"));
         assertTrue(sql.contains("WHERE exact_pb.barcode = line.sku"));
         assertTrue(sql.contains("BINARY exact_pb.barcode = BINARY line.sku"));
-        assertTrue(sql.contains("COALESCE(exact_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
+        assertTrue(sql.contains("COALESCE(exact_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'"));
         assertTrue(sql.contains("HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1"));
         assertFalse(sql.contains("partner_sku IN (line.psku"));
         assertFalse(sql.contains("fallback_pv"));

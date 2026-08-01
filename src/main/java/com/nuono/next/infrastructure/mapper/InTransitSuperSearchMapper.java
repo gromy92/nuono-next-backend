@@ -224,7 +224,7 @@ public interface InTransitSuperSearchMapper {
             "AND title_pb.logical_store_id = title_pm.logical_store_id",
             "AND BINARY title_pb.partner_sku = BINARY title_pm.partner_sku",
             "AND title_pb.is_deleted = b'0'",
-            "AND COALESCE(title_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
+            "AND COALESCE(title_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
             "WHERE title_ls.owner_user_id = #{query.ownerUserId} AND title_ls.is_deleted = b'0'",
             "<if test='query.projectCode != null and query.projectCode != \"\"'>",
             "AND title_ls.project_code = #{query.projectCode}",
@@ -243,7 +243,7 @@ public interface InTransitSuperSearchMapper {
             "WHERE identity_pb.barcode = title_pb.barcode",
             "AND BINARY identity_pb.barcode = BINARY title_pb.barcode",
             "AND identity_pb.is_deleted = b'0'",
-            "AND COALESCE(identity_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'",
+            "AND COALESCE(identity_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
             ")",
             "LIMIT 500",
             ") title_match",
@@ -326,7 +326,7 @@ public interface InTransitSuperSearchMapper {
             + "WHERE exact_pb.barcode = line.sku "
             + "AND BINARY exact_pb.barcode = BINARY line.sku "
             + "AND exact_pb.is_deleted = b'0' "
-            + "AND COALESCE(exact_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS' "
+            + "AND COALESCE(exact_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS' "
             + "HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1) "
             + "AND pm.is_deleted = b'0' ";
 
