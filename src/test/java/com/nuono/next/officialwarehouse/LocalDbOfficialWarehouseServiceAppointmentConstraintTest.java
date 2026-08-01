@@ -15,6 +15,7 @@ import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import java.lang.reflect.Method;
+import java.time.LocalDate;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -37,6 +38,45 @@ class LocalDbOfficialWarehouseServiceAppointmentConstraintTest {
                 .contains("status IN ('PENDING', 'FAILED')")
                 .contains("#{allowScheduled} = TRUE AND status = 'SCHEDULED'")
                 .doesNotContain("'RUNNING'");
+    }
+
+    @Test
+    void appointmentRequestUpdatePreservesConfirmedScheduleProjection() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "updateAppointmentRequest",
+                AppointmentInsertRecord.class,
+                Long.class,
+                boolean.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .doesNotContain("appointment_date = NULL")
+                .doesNotContain("appointment_slot_id = NULL")
+                .doesNotContain("appointment_time = NULL")
+                .doesNotContain("ap_success_time = NULL");
+    }
+
+    @Test
+    void scheduledPersistenceDoesNotReplaceConfirmedResultWithNullRemoteFields() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "markAppointmentScheduled",
+                Long.class,
+                Long.class,
+                Long.class,
+                LocalDate.class,
+                Integer.class,
+                String.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("appointment_date = COALESCE(#{appointmentDate}, appointment_date)")
+                .contains("appointment_slot_id = COALESCE(#{slotId}, appointment_slot_id)")
+                .contains("appointment_time = COALESCE(#{appointmentTime}, appointment_time)");
     }
 
     @Test

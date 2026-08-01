@@ -341,11 +341,10 @@ public class OfficialWarehouseNoonInboundClient {
         body.put("total_units", task.totalUnits == null ? 0 : task.totalUnits);
         return body;
     }
-
-    private AsnDetail parseAsnDetail(JsonNode detail) {
-        return new AsnDetail(firstText(detail, "asn_status", "status"));
+    static AsnDetail parseAsnDetail(JsonNode detail) {
+        OfficialWarehouseAsnListSyncSupport.NoonAsnListRow row = OfficialWarehouseAsnListSyncSupport.parseRow(detail);
+        return new AsnDetail(row.remoteStatus, row.appointmentDate, row.appointmentTime);
     }
-
     static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
         return OfficialWarehouseRoutingLineParser.parse(detail);
     }

@@ -966,8 +966,7 @@ public interface OfficialWarehouseMapper {
             "SET warehouse_to_partner_code = #{row.warehouseToPartnerCode}, warehouse_to_code = #{row.warehouseToCode},",
             "    ap_start_date = #{row.apStartDate}, ap_end_date = #{row.apEndDate},",
             "    ap_time_range = #{row.apTimeRange}, is_available_today = #{row.availableToday}, status = #{row.status},",
-            "    appointment_date = NULL, appointment_slot_id = NULL, appointment_time = NULL, gate = NULL, docks = NULL,",
-            "    next_attempt_at = NULL, ap_success_time = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
+            "    next_attempt_at = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
             "    execution_version = execution_version + 1, updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{row.id}",
             "  AND owner_user_id = #{row.ownerUserId}",
@@ -1009,8 +1008,8 @@ public interface OfficialWarehouseMapper {
             @Param("runExecutionVersion") Long runExecutionVersion, @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
-            "SET status = 'SCHEDULED', appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
-            "    appointment_time = #{appointmentTime}, ap_success_time = NOW(), next_attempt_at = NULL, attempt_count = 0,",
+            "SET status = 'SCHEDULED', appointment_date = COALESCE(#{appointmentDate}, appointment_date), appointment_slot_id = COALESCE(#{slotId}, appointment_slot_id),",
+            "    appointment_time = COALESCE(#{appointmentTime}, appointment_time), ap_success_time = COALESCE(ap_success_time, NOW()), next_attempt_at = NULL, attempt_count = 0,",
             "    error_stage = NULL, failure_type = NULL, error_message = NULL,",
             "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",

@@ -51,6 +51,8 @@ class OfficialWarehouseAppointmentRunnerTest {
     void alreadyScheduledNoonAsnStopsAutomaticRunWithoutRescheduling() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+        client.appointmentTime = "11am-2pm";
         client.dayCapacity = List.of("2026-06-16");
         client.slotsByDate.add(new DatedSlots("2026-06-16", List.of(new SlotCapacity(9, "9am-10am"))));
 
@@ -58,6 +60,8 @@ class OfficialWarehouseAppointmentRunnerTest {
 
         assertThat(result.status).isEqualTo("SCHEDULED");
         assertThat(result.alreadyScheduled).isTrue();
+        assertThat(result.appointmentDate).isEqualTo(LocalDate.parse("2026-08-01"));
+        assertThat(result.appointmentTime).isEqualTo("11am-2pm");
         assertThat(result.failureType).isNull();
         assertThat(client.calls).containsExactly("detail");
     }
@@ -219,6 +223,7 @@ class OfficialWarehouseAppointmentRunnerTest {
     private static class FakeNoonAppointmentClient implements NoonAppointmentClient {
         private String asnStatus;
         private String asnStatusAfterSchedule = "scheduled";
+        private LocalDate appointmentDate; private String appointmentTime;
         private boolean setWarehousesAccepted = true;
         private boolean scheduleAccepted = true;
         private boolean recordWarehouseConfirmation;
@@ -229,7 +234,7 @@ class OfficialWarehouseAppointmentRunnerTest {
         @Override
         public AsnDetail queryAsnDetail(AppointmentTask task) {
             calls.add("detail");
-            return new AsnDetail(asnStatus);
+            return new AsnDetail(asnStatus, appointmentDate, appointmentTime);
         }
 
         @Override

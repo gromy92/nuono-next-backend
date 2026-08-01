@@ -33,7 +33,7 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
         if (isNoonScheduledStatus(status)) {
-            return RunResult.alreadyScheduled();
+            return RunResult.alreadyScheduled(detail);
         }
         boolean warehousesChanged = !isNoonReadyForScheduleStatus(status);
         RunResult readiness = warehousesChanged ? setWarehousesAndWaitUntilReady(task, client, false) : null;
@@ -156,7 +156,7 @@ public class OfficialWarehouseAppointmentRunner {
                 return selectedSlot
                         ? RunResult.reconciliationRequired("NOON_ALREADY_SCHEDULED_DURING_PREPARATION",
                             "等待 Noon 仓库准备期间 ASN 已被约仓，请核对后再显式改约。")
-                        : RunResult.alreadyScheduled();
+                        : RunResult.alreadyScheduled(detail);
             }
             if (attempt + 1 < MAX_SEALED_CHECK_ATTEMPTS) {
                 sleepBeforeNextSealedCheck();
@@ -289,12 +289,9 @@ public class OfficialWarehouseAppointmentRunner {
     }
 
     private static boolean isNoonScheduledStatus(String status) {
-        return "SCHEDULED".equals(status)
-                || "HANDED_OVER".equals(status)
-                || "RECEIVING".equals(status)
-                || "GRN_COMPLETED".equals(status);
+        return "SCHEDULED".equals(status) || "HANDED_OVER".equals(status)
+                || "RECEIVING".equals(status) || "GRN_COMPLETED".equals(status);
     }
-
     private static boolean isNoonReadyForScheduleStatus(String status) {
         return "SEALED".equals(status);
     }
@@ -337,8 +334,11 @@ public class OfficialWarehouseAppointmentRunner {
     }
 
     public static class AsnDetail {
-        public final String status;
-        public AsnDetail(String status) { this.status = status; }
+        public final String status; public final LocalDate appointmentDate; public final String appointmentTime;
+        public AsnDetail(String status) { this(status, null, null); }
+        public AsnDetail(String status, LocalDate appointmentDate, String appointmentTime) {
+            this.status = status; this.appointmentDate = appointmentDate; this.appointmentTime = appointmentTime;
+        }
     }
 
     public static class SlotCapacity {
@@ -367,8 +367,8 @@ public class OfficialWarehouseAppointmentRunner {
             result.slotId = slotId; result.appointmentTime = appointmentTime;
             return result;
         }
-        private static RunResult alreadyScheduled() {
-            RunResult result = scheduled(null, null, null);
+        private static RunResult alreadyScheduled(AsnDetail detail) {
+            RunResult result = scheduled(detail.appointmentDate, null, detail.appointmentTime);
             result.alreadyScheduled = true; return result;
         }
         private static RunResult failed(String failureType, String errorMessage) {

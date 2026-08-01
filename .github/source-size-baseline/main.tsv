@@ -34,7 +34,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1061
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1346
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	449
-src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1218
+src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1217
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1367
 src/main/java/com/nuono/next/infrastructure/mapper/OperationsSkinMapper.java	463
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	450
@@ -107,7 +107,7 @@ src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnExportProvider.java	567
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnInventoryProvider.java	531
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnReceivedReportImportService.java	575
-src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseNoonInboundClient.java	553
+src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseNoonInboundClient.java	552
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseRecords.java	421
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseScheduledDeliveryAccuracyImportService.java	488
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseStatisticsController.java	333
