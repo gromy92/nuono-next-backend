@@ -32,9 +32,8 @@ from ci.release_schema_mysql_forwarder_scenario import (  # noqa: E402
     prepare_forwarder_fixture,
     verify_forwarder_migration,
 )
-from ci.release_schema_mysql_forwarder_trigger_scenario import (  # noqa: E402
-    verify_forwarder_trigger_repair,
-)
+from ci.release_schema_mysql_forwarder_trigger_scenario import verify_forwarder_trigger_repair  # noqa: E402
+from ci.release_schema_mysql_forwarder_atomic_guard_scenario import verify_forwarder_atomic_guards  # noqa: E402
 from ci.release_schema_mysql_forwarder_source_guard_scenario import verify_forwarder_source_drift_guard  # noqa: E402
 from ci.release_schema_mysql_forwarder_eligibility_guard_scenario import verify_forwarder_eligibility_binary_guards  # noqa: E402
 from ci.release_schema_mysql_forwarder_shape_guard_scenario import verify_forwarder_wrong_shape_fail_before_writes  # noqa: E402
@@ -210,8 +209,9 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             self, database, migrations, forwarder_fact_signature
         )
         verify_forwarder_source_drift_guard(self, database, forwarder)
-        verify_forwarder_eligibility_binary_guards(self, database)
+        verify_forwarder_eligibility_binary_guards(self, database, forwarder)
         verify_forwarder_trigger_repair(self, database, forwarder)
+        verify_forwarder_atomic_guards(self, database, forwarder)
         verify_lock_contention(self, defaults_file, expected_schema)
 
         verify_pre_catalog_bootstrap(

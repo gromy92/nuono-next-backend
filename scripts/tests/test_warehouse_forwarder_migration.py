@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import re
 import sys
 import unittest
@@ -25,7 +26,68 @@ from ci.release_schema_mysql_postcheck_diagnostics import (  # noqa: E402
 )
 
 
+def stable_scope_slot(owner, store, partner_sku, site, forwarder, mode):
+    values = (
+        str(owner),
+        str(store),
+        partner_sku.strip().upper(),
+        site.strip().upper(),
+        forwarder.strip().upper(),
+        mode.strip().upper(),
+    )
+    return "".join(f"{len(value.encode('utf-8'))}#{value}" for value in values)
+
+
+def decode_scope_slot(slot):
+    encoded = slot.encode("utf-8")
+    values = []
+    offset = 0
+    for _ in range(6):
+        separator = encoded.index(b"#", offset)
+        length = int(encoded[offset:separator])
+        start = separator + 1
+        end = start + length
+        values.append(encoded[start:end].decode("utf-8"))
+        offset = end
+    if offset != len(encoded):
+        raise AssertionError("scope slot has trailing bytes")
+    return tuple(values)
+
+
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_stable_scope_slot_uses_utf8_byte_lengths_without_delimiters(self):
+        basic = stable_scope_slot(307, 108065, "SKU|#1", "SA", "ET", "AIR")
+        self.assertEqual("3#3076#1080656#SKU|#12#SA2#ET3#AIR", basic)
+        self.assertEqual(
+            ("307", "108065", "SKU|#1", "SA", "ET", "AIR"),
+            decode_scope_slot(basic),
+        )
+
+        injected = stable_scope_slot(
+            307, 108065, "货号#|一", "沙特", "承运|#商", "SEA"
+        )
+        self.assertEqual(
+            ("307", "108065", "货号#|一", "沙特", "承运|#商", "SEA"),
+            decode_scope_slot(injected),
+        )
+        self.assertIn("11#货号#|一", injected)
+        self.assertNotEqual(
+            stable_scope_slot(1, 23, "SKU", "SA", "ET", "AIR"),
+            stable_scope_slot(12, 3, "SKU", "SA", "ET", "AIR"),
+        )
+
+        maximum = stable_scope_slot(
+            9223372036854775807,
+            9223372036854775807,
+            "🧰" * 100,
+            "站" * 20,
+            "运" * 80,
+            "SEA",
+        )
+        self.assertEqual("🧰" * 100, decode_scope_slot(maximum)[2])
+        self.assertIn("400#" + "🧰" * 100, maximum)
+        self.assertLessEqual(len(maximum), 512)
+
     def test_postcheck_diagnostics_split_only_outer_contract_predicates(self):
         resources = SCRIPT_DIR.parent / "src/main/resources"
         migration = next(
@@ -124,8 +186,18 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
         )
         script = migration.script_sql
         postcheck = migration.postcheck_sql
+        migration_path = resources / migration.script_path
+        postcheck_path = resources / migration.postcheck_path
 
         self.assertEqual("MANAGED", migration.kind)
+        self.assertEqual(
+            hashlib.sha256(migration_path.read_bytes()).hexdigest(),
+            migration.checksum,
+        )
+        self.assertEqual(
+            hashlib.sha256(postcheck_path.read_bytes()).hexdigest(),
+            migration.postcheck_checksum,
+        )
         for marker in (
             "YT-SAU-20260728",
             "2026-07-28",
@@ -140,24 +212,41 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             "@source_fee_business_hash",
             "@target_fee_business_hash",
             "@adjustment_hash_locked",
-            "@fence_trigger_subset_exact",
+            "@fence_trigger_subset_exact", "action_order=1",
             "@eligibility_object_count",
-            "(@eligibility_object_count=0 OR @eligibility_existing_exact)",
+            "@eligibility_known_old_exact",
+            "@eligibility_target_exact",
+            "@eligibility_rebuild_known_old",
+            "@eligibility_locked_row_count",
+            "@eligibility_locked_drop_allowed",
+            "LOCK TABLES `product_forwarder_transport_eligibility` WRITE", "LOCK TABLES `product_forwarder_eligibility_scope_anchor` WRITE,`product_forwarder_transport_eligibility` WRITE",
+            "UNLOCK TABLES",
             "FOR UPDATE",
-            "@target_artifact_count=23",
+            "@target_artifact_count=23 AND (SELECT COUNT(*) FROM forwarder_quote_service_line WHERE quote_version_id=@new_version_id)=1",
             "product_forwarder_transport_eligibility",
+            "product_forwarder_eligibility_scope_anchor",
             "eligibility_status_snapshot",
             "chk_pfte_status",
+            "chk_pfte_product_scope",
             "chk_pfte_scope_codes",
             "CAST(`eligibility_status` AS BINARY)",
+            "OCTET_LENGTH(CAST(`owner_user_id` AS CHAR))",
+            "VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin",
+            "idx_pfte_scope_history",
             "UPPER(TRIM(`site_code`))",
-            "utf8mb4_unicode_ci",
+            "utf8mb4_unicode_ci", "@eligibility_object_count=0 AND @anchor_object_count=0", "@eligibility_final_locked_target_exact", "@target_category_business_hash_before", "@target_final_locked", "SELECT id FROM procurement_shipping_order_line WHERE id=-1 FOR UPDATE",
         ):
             self.assertIn(marker, script)
         self.assertLess(
             script.index("nuono_237_eligibility_state_guard"),
             script.index("CREATE TRIGGER IF NOT EXISTS"),
         )
+        self.assertLess(script.index("LOCK TABLES"), script.index("@eligibility_locked_row_count")); self.assertLess(script.index("@target_category_business_hash_before"), script.index("nuono_237_base_state_guard")); self.assertLess(script.index("@target_final_locked"), script.index("INSERT INTO forwarder_quote_version"))
+        self.assertLess(
+            script.index("@eligibility_locked_row_count"),
+            script.index("@eligibility_drop_sql"),
+        )
+        self.assertLess(script.index("@eligibility_drop_sql"), script.index("UNLOCK TABLES")); self.assertLess(script.index("@snapshot_sql"), script.index("START TRANSACTION")); self.assertLess(script.index("@snapshot_locked_exact"), script.index("INSERT INTO forwarder_quote_version"))
         for digest in (
             "9cf247aea2f146265c979b3467bcfb6e41a2a864f7da226ef4789171b82bd444",
             "025a8cfa78920deaff035819431e45742a6ee2830f1c1e010ef36383f5c82db2",
@@ -195,6 +284,7 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             ),
         )
         for sql in (script, postcheck):
+            self.assertTrue(all(marker in sql for marker in ("event_object_table='product_forwarder_transport_eligibility'", "event_object_table='product_forwarder_eligibility_scope_anchor'")))
             self.assertIn("COALESCE(adjustment.adjusted_value,price.unit_price)", sql)
             self.assertIn("adjustment.id IS NULL", sql)
             self.assertIn("uk_pfte_active_scope", sql)
@@ -203,6 +293,7 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             self.assertIn("[[:space:]]*=[[:space:]]*", sql)
             self.assertIn("'charcharsetbinary','binary'", sql)
             self.assertIn("'octet_length','length'", sql)
+            self.assertIn("'charactersetutf8mb4',''", sql); self.assertIn("action_order=1", sql)
 
 
 if __name__ == "__main__":

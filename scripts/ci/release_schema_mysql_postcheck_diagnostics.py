@@ -23,6 +23,10 @@ def apply_with_diagnostics(runner, approvals, database, forwarder):
                 + eligibility_expression_diagnostic(database),
                 file=sys.stderr,
             )
+            print(
+                "forwarder anchor metadata: " + anchor_metadata_diagnostic(database),
+                file=sys.stderr,
+            )
             trigger_metadata, check_metadata = guard_metadata_diagnostics(database)
             print("forwarder trigger metadata: " + trigger_metadata, file=sys.stderr)
             print("forwarder check metadata: " + check_metadata, file=sys.stderr)
@@ -44,11 +48,11 @@ def failing_predicate_indexes(database, postcheck_sql):
 
 def eligibility_expression_diagnostic(database):
     normalized = (
-        "REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
+        "REPLACE(REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE(REPLACE("
         "LOWER(generation_expression),'`',''),CONCAT(CHAR(92),CHAR(39)),"
         "CHAR(39)),CONCAT(CHAR(92),'0'),'0'),'_utf8mb4',''),"
         "'((_binary|b)?''0''|0x00|0b0)','0'),'[()[:space:]]+',''),"
-        "'charsetutf8mb4','')"
+        "'charsetutf8mb4',''),'charactersetutf8mb4','')"
     )
     return execute_group_concat(
         database,
@@ -60,16 +64,36 @@ def eligibility_expression_diagnostic(database):
     )
 
 
+def anchor_metadata_diagnostic(database):
+    return execute_group_concat(
+        database,
+        "SELECT CONCAT_WS(';',"
+        "(SELECT GROUP_CONCAT(CONCAT(column_name,':',column_type,':',is_nullable,"
+        "':',COALESCE(collation_name,'-')) ORDER BY ordinal_position) "
+        "FROM information_schema.columns WHERE table_schema=DATABASE() "
+        "AND table_name='product_forwarder_eligibility_scope_anchor'),"
+        "(SELECT GROUP_CONCAT(CONCAT(index_name,':',seq_in_index,':',column_name,"
+        "':',COALESCE(sub_part,'-'),':',COALESCE(expression,'-')) "
+        "ORDER BY index_name,seq_in_index) FROM information_schema.statistics "
+        "WHERE table_schema=DATABASE() "
+        "AND table_name='product_forwarder_eligibility_scope_anchor'));",
+    )
+
+
 def guard_metadata_diagnostics(database):
     trigger_normalized = (
         "LOWER(REGEXP_REPLACE(action_statement,'[[:space:]]+',' '))"
     )
     trigger_metadata = execute_group_concat(
         database,
-        "SELECT GROUP_CONCAT(CONCAT(trigger_name,'=',HEX(action_statement),"
+        "SELECT GROUP_CONCAT(CONCAT(trigger_name,'=',event_object_table,':',"
+        "event_manipulation,':',action_timing,':',action_order,':',HEX(action_statement),"
         f"':',HEX({trigger_normalized})) ORDER BY trigger_name SEPARATOR '|') "
         "FROM information_schema.triggers WHERE trigger_schema=DATABASE() "
-        "AND trigger_name LIKE 'trg_fq_numeric_adjustment%retired_b_';",
+        "AND event_object_table IN ('forwarder_quote_numeric_adjustment',"
+        "'forwarder_quote_numeric_adjustment_log',"
+        "'product_forwarder_transport_eligibility',"
+        "'product_forwarder_eligibility_scope_anchor');",
     )
     check_normalized = (
         "REPLACE(REPLACE(REGEXP_REPLACE(REPLACE(REPLACE(REPLACE("
@@ -82,7 +106,8 @@ def guard_metadata_diagnostics(database):
         "SELECT GROUP_CONCAT(CONCAT(constraint_name,'=',HEX(check_clause),"
         f"':',HEX({check_normalized})) ORDER BY constraint_name SEPARATOR '|') "
         "FROM information_schema.check_constraints WHERE constraint_schema=DATABASE() "
-        "AND constraint_name IN ('chk_pfte_status','chk_pfte_scope_codes',"
+        "AND constraint_name IN ('chk_pfte_status','chk_pfte_product_scope',"
+        "'chk_pfte_scope_codes','chk_pfea_normalized_scope',"
         "'chk_shipping_line_eligibility_snapshot');",
     )
     return trigger_metadata, check_metadata
