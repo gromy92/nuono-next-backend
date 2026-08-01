@@ -272,7 +272,7 @@ public class WarehouseShippingQuoteChannelService {
         }
         if (selected.id != null
                 && ((!StringUtils.hasText(selected.forwarderCode) && !StringUtils.hasText(selected.routeCode))
-                || (sameCode(selected.forwarderCode, forwarderCode) && !StringUtils.hasText(selected.routeCode))) {
+                || (sameCode(selected.forwarderCode, forwarderCode) && !StringUtils.hasText(selected.routeCode)))) {
             applyChannel(selected, forwarderCode, forwarderName, routeCode, routeName, serviceCode, serviceName);
             return selected;
         }
