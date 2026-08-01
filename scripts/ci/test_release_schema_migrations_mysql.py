@@ -10,7 +10,7 @@ SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from schema_migrations.catalog import load_catalog, sha256_bytes  # noqa: E402
+from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.core import (  # noqa: E402
     MigrationError,
     MigrationRunner,
@@ -24,7 +24,9 @@ from ci.release_schema_mysql_scenario import (  # noqa: E402
     verify_lock_contention,
 )
 from ci.release_schema_mysql_official_warehouse_scenario import verify_appointment_concurrency_migration  # noqa: E402
+from ci.release_schema_mysql_pre_catalog_scenario import verify_pre_catalog_bootstrap  # noqa: E402
 from ci.release_schema_mysql_shipping_batch_scenario import verify_shipping_batch_idempotency_migration  # noqa: E402
+from ci.release_schema_mysql_shipping_plan_scenario import verify_shipping_batch_dispatch_plan_uniqueness_migration  # noqa: E402
 
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
@@ -34,10 +36,8 @@ REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
 PACKING_INDEX_MIGRATION_KEY = "233_warehouse_packing_soft_delete_index.sql"
 APPOINTMENT_MIGRATION_KEY = "234_official_warehouse_appointment_concurrency.sql"
 SHIPPING_BATCH_MIGRATION_KEY = "235_warehouse_shipping_batch_request_idempotency.sql"
-
-
-PUBLISHED_PRE_CATALOG_223_SHA256 = (
-    "3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742"
+SHIPPING_PLAN_MIGRATION_KEY = (
+    "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql"
 )
 
 
@@ -80,6 +80,10 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         appointment = next(item for item in migrations if item.key == APPOINTMENT_MIGRATION_KEY)
         shipping_batch = next(item for item in migrations if item.key == SHIPPING_BATCH_MIGRATION_KEY)
+        shipping_plan = next(
+            item for item in migrations
+            if item.key == SHIPPING_PLAN_MIGRATION_KEY
+        )
         approvals = [integrity.key]
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
             runner.apply()
@@ -88,6 +92,12 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner.apply(approved_managed=approvals)
         self.assertNotIn(shipping_batch.key, database.load_states())
         approvals.append(appointment.key)
+        with self.assertRaisesRegex(
+                MigrationError, "missing " + shipping_plan.key
+        ):
+            runner.apply(approved_managed=approvals)
+        self.assertNotIn(shipping_plan.key, database.load_states())
+        approvals.append(shipping_plan.key)
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.apply(approved_managed=approvals)
         states = database.load_states()
@@ -141,7 +151,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         self.assertEqual("RERUN_APPLIED", repair_result)
         self.assertEqual(
             [request_idempotency.key, packing_index.key,
-             appointment.key, shipping_batch.key],
+             appointment.key, shipping_batch.key, shipping_plan.key],
             runner.apply(approved_managed=approvals),
         )
         self.assertTrue(all(state.state == "APPLIED"
@@ -156,65 +166,20 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         verify_appointment_concurrency_migration(self, database, migrations)
         verify_shipping_batch_idempotency_migration(self, database, migrations)
+        verify_shipping_batch_dispatch_plan_uniqueness_migration(
+            self,
+            database,
+            migrations,
+            runner,
+        )
         verify_lock_contention(self, defaults_file, expected_schema)
 
-        # Production already executed 223 before the forward catalog existed.
-        # Recreate that exact boundary: 223 is present in the schema, both
-        # history tables are absent, and the new 227+ catalog must bootstrap
-        # without trying to back-insert or undo the published migration.
-        database.client.execute(
-            "CREATE TABLE IF NOT EXISTS product_site_offer ("
-            "id BIGINT NOT NULL, logical_store_id BIGINT NOT NULL, "
-            "site_id BIGINT NOT NULL, maintenance_enabled BIT(1) NOT NULL, "
-            "is_active BIT(1) NOT NULL, PRIMARY KEY (id));"
-        )
-        published_223 = (
-            resources / "db/init/223_product_site_offer_active_state_evidence.sql"
-        ).read_bytes()
-        self.assertEqual(
-            PUBLISHED_PRE_CATALOG_223_SHA256,
-            sha256_bytes(published_223),
-            "published migration 223 no longer matches production evidence",
-        )
-        database.client.execute(published_223.decode("utf-8"))
-        database.client.execute(
-            "DROP TABLE nuono_schema_migration_attempt;"
-            "DROP TABLE nuono_schema_migration;"
-        )
-        self.assertEqual({}, database.load_states())
-        self.assertEqual(
-            [migration.key for migration in migrations[1:]],
-            runner.apply(
-                approved_managed=[
-                    migration.key
-                    for migration in migrations
-                    if migration.kind == "MANAGED"
-                ]
-            ),
-        )
-        self.assertEqual(
-            "2",
-            database.client.execute(
-                "SELECT COUNT(*) FROM information_schema.columns "
-                "WHERE table_schema=DATABASE() "
-                "AND table_name='product_site_offer' "
-                "AND column_name IN ('active_state_source', "
-                "'active_state_synced_at');"
-            ),
-        )
-        self.assertEqual(
-            "1",
-            database.client.execute(
-                "SELECT COUNT(*) FROM information_schema.statistics "
-                "WHERE table_schema=DATABASE() "
-                "AND table_name='product_site_offer' "
-                "AND index_name='idx_product_site_offer_replenishment_coverage' "
-                "AND seq_in_index=1;"
-            ),
-        )
-        self.assertEqual(
-            {migration.key for migration in migrations},
-            set(database.load_states()),
+        verify_pre_catalog_bootstrap(
+            self,
+            database,
+            resources,
+            migrations,
+            runner,
         )
 
         target = integrity

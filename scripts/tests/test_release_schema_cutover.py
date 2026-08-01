@@ -32,7 +32,7 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
             expected_204_sha256="3" * 64,
             expected_205_sha256="4" * 64,
             approved_managed_migrations=(
-                "215_procurement_fulfillment_balance_quantity_invariant.sql",
+                "231_procurement_fulfillment_balance_quantity_invariant.sql",
             ),
             app_dir="/app",
             release_name="schema-test",
@@ -186,7 +186,7 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
 
         self.assertIn(
             "APPROVED_MANAGED_MIGRATIONS="
-            "215_procurement_fulfillment_balance_quantity_invariant.sql",
+            "231_procurement_fulfillment_balance_quantity_invariant.sql",
             script,
         )
         self.assertIn(

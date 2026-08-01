@@ -3,7 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path, PurePosixPath
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
@@ -102,6 +102,41 @@ class MySqlMigrationDatabaseTest(unittest.TestCase):
         database = self.database(MissingTableClient())
 
         self.assertFalse(database.postcheck(self.migration()))
+
+    def test_empty_history_reruns_bootstrap_script_before_baselining(self):
+        database = self.database(FakeClient())
+        database.history = MagicMock()
+        database.history.table_count.return_value = 2
+        database.postcheck = MagicMock(return_value=True)
+        database.load_states = MagicMock(return_value={})
+        database.run_script = MagicMock()
+        migration = self.migration()
+
+        database.bootstrap(migration, "a" * 40, "release-operator")
+
+        database.run_script.assert_called_once_with(migration)
+        self.assertEqual(2, database.postcheck.call_count)
+        database.history.record_bootstrap.assert_called_once_with(
+            migration,
+            "BASELINED",
+            "a" * 40,
+            "release-operator",
+        )
+
+    def test_empty_history_rejects_failed_bootstrap_baseline_guard(self):
+        database = self.database(FakeClient())
+        database.history = MagicMock()
+        database.history.table_count.return_value = 2
+        database.postcheck = MagicMock(return_value=True)
+        database.load_states = MagicMock(return_value={})
+        database.run_script = MagicMock(
+            side_effect=MigrationError("pre-catalog baseline drift")
+        )
+
+        with self.assertRaisesRegex(MigrationError, "pre-catalog baseline drift"):
+            database.bootstrap(self.migration(), "a" * 40, "release-operator")
+
+        database.history.record_bootstrap.assert_not_called()
 
     @staticmethod
     def database(client):

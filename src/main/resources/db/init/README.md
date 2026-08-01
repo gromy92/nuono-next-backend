@@ -13,9 +13,13 @@
   local bootstrap, fixtures, data repair, and managed cutover operations.
 - `release-migrations.tsv` is the immutable, forward-only production catalog
   beginning at `227`. The exact filename is the migration identity. Published
-  migration `223_product_site_offer_active_state_evidence.sql` predates this
-  catalog and remains immutable historical evidence; it is not back-inserted
-  into the new continuous history prefix.
+  migrations `223_product_site_offer_active_state_evidence.sql` and
+  `224_product_master_psku_zcode_lookup.sql` predate this catalog and remain
+  immutable historical evidence; they are not catalog entries and are not
+  back-inserted into the new continuous history prefix. Their production byte
+  hashes are fixed as follows:
+  - `223`: `3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742`
+  - `224`: `feefcabb4fc3a352e9b59103fd9ca7a835ffce49023f90cfc12b0d0ce0d206e8`
 - The release-side Database Migration Module owns schema DDL. Application
   startup and business requests are read-only with respect to schema.
 

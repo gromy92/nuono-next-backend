@@ -31,7 +31,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             expected_190_sha256="c" * 64,
             expected_204_sha256="d" * 64,
             expected_205_sha256="e" * 64,
-            approved_managed_migrations=("215_procurement_fulfillment_balance_quantity_invariant.sql",),
+            approved_managed_migrations=("231_procurement_fulfillment_balance_quantity_invariant.sql",),
             app_dir="/app",
             release_name="schema-cutover-test",
         )

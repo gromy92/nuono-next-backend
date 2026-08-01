@@ -10,25 +10,26 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from schema_migrations.catalog import load_catalog, sha256_bytes  # noqa: E402
-
-
-PUBLISHED_PRE_CATALOG_223_SHA256 = (
-    "3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742"
+from ci.release_schema_mysql_pre_catalog_scenario import (  # noqa: E402
+    PUBLISHED_PRE_CATALOG_SHA256,
 )
 
 
 class RepositoryMigrationCatalogTest(unittest.TestCase):
-    def test_published_pre_catalog_223_is_immutable(self):
+    def test_published_pre_catalog_migrations_are_immutable_and_not_cataloged(self):
         resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        published = (
-            resource_root
-            / "db/init/223_product_site_offer_active_state_evidence.sql"
-        )
+        catalog_keys = {
+            migration.key for migration in load_catalog(resource_root)
+        }
 
-        self.assertEqual(
-            PUBLISHED_PRE_CATALOG_223_SHA256,
-            sha256_bytes(published.read_bytes()),
-        )
+        for key, expected_sha256 in PUBLISHED_PRE_CATALOG_SHA256.items():
+            with self.subTest(key=key):
+                published = resource_root / "db/init" / key
+                self.assertEqual(
+                    expected_sha256,
+                    sha256_bytes(published.read_bytes()),
+                )
+                self.assertNotIn(key, catalog_keys)
 
     def test_catalog_owns_history_and_every_removed_runtime_schema(self):
         resource_root = SCRIPT_DIR.parent / "src/main/resources"
@@ -47,6 +48,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "233_warehouse_packing_soft_delete_index.sql",
                 "234_official_warehouse_appointment_concurrency.sql",
                 "235_warehouse_shipping_batch_request_idempotency.sql",
+                "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -61,6 +63,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "MANAGED",
                 "AUTO_ADDITIVE",
+                "MANAGED",
             ],
             [migration.kind for migration in migrations],
         )
@@ -88,7 +91,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
         compact_script = self.compact(script)
 
         self.assertEqual(
-            "215_procurement_fulfillment_balance_quantity_invariant.sql",
+            "231_procurement_fulfillment_balance_quantity_invariant.sql",
             migration.key,
         )
         self.assertEqual("MANAGED", migration.kind)

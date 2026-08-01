@@ -71,6 +71,12 @@ class MySqlMigrationDatabase:
                 raise MigrationError(
                     "migration history is missing its BOOTSTRAP record"
                 )
+            # Empty, pre-created history tables are another first-adoption
+            # path. Re-run the idempotent bootstrap script so its one-time
+            # pre-catalog baseline guard cannot be bypassed.
+            self.run_script(migration)
+            if not self.postcheck(migration):
+                raise MigrationError("migration history bootstrap postcheck failed")
             state = "BASELINED"
         self.history.record_bootstrap(
             migration,
