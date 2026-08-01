@@ -1,9 +1,9 @@
 package com.nuono.next.sales;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
@@ -12,13 +12,12 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 
 class MyBatisSalesFactRepositoryListingStartedAtRefreshTest {
 
     @Test
-    void upsertRefreshesListingStartedAtForAffectedOffer() throws Exception {
+    void upsertPersistsSalesFactWithoutRefreshingListingStartedAt() throws Exception {
         SalesDataMapper salesDataMapper = mock(SalesDataMapper.class);
         ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
         when(salesDataMapper.nextDailySalesFactId()).thenReturn(123L);
@@ -57,14 +56,7 @@ class MyBatisSalesFactRepositoryListingStartedAtRefreshTest {
         repository.upsert(fact);
 
         verify(salesDataMapper).upsertDailySalesFact(123L, fact);
-        verifyRefreshCall(
-                productManagementMapper,
-                307L,
-                "STR245027-NAE",
-                "AE",
-                "MILKYWAYA01",
-                "MILKYWAYA01-BLACK"
-        );
+        verifyNoInteractions(productManagementMapper);
     }
 
     @Test
@@ -95,33 +87,4 @@ class MyBatisSalesFactRepositoryListingStartedAtRefreshTest {
         );
     }
 
-    private void verifyRefreshCall(
-            ProductManagementMapper productManagementMapper,
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            String partnerSku,
-            String sku
-    ) throws Exception {
-        Method method = ProductManagementMapper.class.getMethod(
-                "refreshProductSiteOfferListingStartedAtBySalesFact",
-                Long.class,
-                String.class,
-                String.class,
-                String.class,
-                String.class,
-                LocalDateTime.class,
-                Long.class
-        );
-        method.invoke(
-                verify(productManagementMapper),
-                eq(ownerUserId),
-                eq(storeCode),
-                eq(siteCode),
-                eq(partnerSku),
-                eq(sku),
-                any(LocalDateTime.class),
-                eq(ownerUserId)
-        );
-    }
 }
