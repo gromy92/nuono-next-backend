@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from schema_migrations.mysql_support import MySqlExecutionError
-from ci.release_schema_mysql_forwarder_source_contract import assert_source_contract
+from ci.release_schema_mysql_forwarder_source_contract import assert_source_contract, execute_group_concat
 
 
 MIGRATION_KEY = "237_warehouse_forwarder_quote_and_transport_eligibility.sql"
@@ -108,12 +108,11 @@ def prepare_forwarder_fixture(database, resources):
     )
     _insert_high_id_sentinels(database)
     _create_untouched_fact_fixture(database)
-    database.client.execute("SET SESSION group_concat_max_len=1048576;")
     assert_source_contract(database)
-    assert database.client.execute(ADJUSTMENT_HASH_SQL) == ADJUSTMENT_HASH
-    assert database.client.execute(ADJUSTMENT_LOG_HASH_SQL) == ADJUSTMENT_LOG_HASH
-    assert database.client.execute(LEGACY_SCHEMA_HASH_SQL) == LEGACY_SCHEMA_HASH
-    return database.client.execute(FACT_SIGNATURE_SQL)
+    assert execute_group_concat(database, ADJUSTMENT_HASH_SQL) == ADJUSTMENT_HASH
+    assert execute_group_concat(database, ADJUSTMENT_LOG_HASH_SQL) == ADJUSTMENT_LOG_HASH
+    assert execute_group_concat(database, LEGACY_SCHEMA_HASH_SQL) == LEGACY_SCHEMA_HASH
+    return execute_group_concat(database, FACT_SIGNATURE_SQL)
 
 
 def verify_forwarder_migration(test_case, database, migrations, fact_signature):
@@ -138,7 +137,8 @@ def verify_forwarder_migration(test_case, database, migrations, fact_signature):
     )
     test_case.assertEqual(
         "1540.0000,1900.0000,2040.0000,2290.0000",
-        database.client.execute(
+        execute_group_concat(
+            database,
             "SELECT GROUP_CONCAT(CAST(price.unit_price AS CHAR) "
             "ORDER BY price.cargo_category_code) "
             "FROM forwarder_quote_base_price price "
@@ -160,7 +160,8 @@ def verify_forwarder_migration(test_case, database, migrations, fact_signature):
     )
     test_case.assertEqual(
         "1540.0000,1900.0000,2040.0000,2290.0000",
-        database.client.execute(
+        execute_group_concat(
+            database,
             "SELECT GROUP_CONCAT(CAST(COALESCE(adjustment.adjusted_value,"
             "price.unit_price) AS CHAR) ORDER BY price.cargo_category_code) "
             "FROM forwarder_quote_base_price price "
@@ -190,14 +191,14 @@ def verify_forwarder_migration(test_case, database, migrations, fact_signature):
 
 
 def _assert_legacy_and_untouched(test_case, database, fact_signature):
-    test_case.assertEqual(ADJUSTMENT_HASH, database.client.execute(ADJUSTMENT_HASH_SQL))
-    test_case.assertEqual(
-        ADJUSTMENT_LOG_HASH, database.client.execute(ADJUSTMENT_LOG_HASH_SQL)
+    expected_hashes = (
+        (ADJUSTMENT_HASH, ADJUSTMENT_HASH_SQL),
+        (ADJUSTMENT_LOG_HASH, ADJUSTMENT_LOG_HASH_SQL),
+        (LEGACY_SCHEMA_HASH, LEGACY_SCHEMA_HASH_SQL),
+        (fact_signature, FACT_SIGNATURE_SQL),
     )
-    test_case.assertEqual(
-        LEGACY_SCHEMA_HASH, database.client.execute(LEGACY_SCHEMA_HASH_SQL)
-    )
-    test_case.assertEqual(fact_signature, database.client.execute(FACT_SIGNATURE_SQL))
+    for expected, statement in expected_hashes:
+        test_case.assertEqual(expected, execute_group_concat(database, statement))
 
 
 def _assert_legacy_write_fences(test_case, database):

@@ -6,6 +6,7 @@ SOURCE_RAW_PRICE_HASH = "2be8542906f265bc3cdcf60c763f0fe949b51e15c5f843064a77481
 SOURCE_CATEGORY_HASH = "088dff7da968d51e58fea26398acf661e329218397fba05faa657a4768930e30"
 SOURCE_PRICE_HASH = "902b6173f5ee366a03a79f282777a67579ab8262598bdab89e588533cfd19ff1"
 SOURCE_FEE_HASH = "74ff49fbd0863e298bbb9244a8db8c2429e12ce84d9dbf7dd7ac2a8df9e832f8"
+GROUP_CONCAT_SESSION_SQL = "SET SESSION group_concat_max_len=1048576;"
 
 SOURCE_RAW_CATEGORY_HASH_SQL = (
     "SELECT SHA2(GROUP_CONCAT(CAST(JSON_ARRAY(RIGHT(cargo_category_code,3),"
@@ -56,8 +57,13 @@ def assert_source_contract(database):
         ("business fee", SOURCE_FEE_HASH_SQL, SOURCE_FEE_HASH),
     )
     for label, statement, digest in expected:
-        actual = database.client.execute(statement)
+        actual = execute_group_concat(database, statement)
         if actual != digest:
             raise AssertionError(
                 f"forwarder source {label} digest mismatch: expected {digest}, actual {actual}"
             )
+
+
+def execute_group_concat(database, statement):
+    """Execute an aggregate without relying on state from an earlier connection."""
+    return database.client.execute(f"{GROUP_CONCAT_SESSION_SQL}\n{statement}")

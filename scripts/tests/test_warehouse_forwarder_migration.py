@@ -10,10 +10,61 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from ci.release_schema_mysql_forwarder_scenario import FIXTURE_MIGRATIONS  # noqa: E402
-from ci.release_schema_mysql_forwarder_source_contract import assert_source_contract  # noqa: E402
+from ci.release_schema_mysql_forwarder_source_contract import (  # noqa: E402
+    GROUP_CONCAT_SESSION_SQL,
+    SOURCE_CATEGORY_HASH,
+    SOURCE_FEE_HASH,
+    SOURCE_PRICE_HASH,
+    SOURCE_RAW_CATEGORY_HASH,
+    SOURCE_RAW_PRICE_HASH,
+    assert_source_contract,
+    execute_group_concat,
+)
 
 
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_group_concat_limit_is_set_in_the_same_mysql_invocation(self):
+        statements = []
+        client = type(
+            "Client",
+            (),
+            {"execute": lambda self, statement: statements.append(statement) or "digest"},
+        )()
+        database = type("Database", (), {"client": client})()
+
+        self.assertEqual("digest", execute_group_concat(database, "SELECT 'digest';"))
+        self.assertEqual(
+            f"{GROUP_CONCAT_SESSION_SQL}\nSELECT 'digest';",
+            statements[0],
+        )
+
+    def test_source_contract_sets_group_concat_limit_for_every_digest(self):
+        statements = []
+        digests = iter(
+            (
+                SOURCE_RAW_CATEGORY_HASH,
+                SOURCE_RAW_PRICE_HASH,
+                SOURCE_CATEGORY_HASH,
+                SOURCE_PRICE_HASH,
+                SOURCE_FEE_HASH,
+            )
+        )
+        client = type(
+            "Client",
+            (),
+            {
+                "execute": lambda self, statement: statements.append(statement)
+                or next(digests)
+            },
+        )()
+        database = type("Database", (), {"client": client})()
+
+        assert_source_contract(database)
+
+        self.assertEqual(5, len(statements))
+        for statement in statements:
+            self.assertTrue(statement.startswith(f"{GROUP_CONCAT_SESSION_SQL}\nSELECT"))
+
     def test_source_contract_failure_identifies_expected_and_actual_digest(self):
         client = type("Client", (), {"execute": lambda self, statement: "fixture-digest"})()
         database = type("Database", (), {"client": client})()
