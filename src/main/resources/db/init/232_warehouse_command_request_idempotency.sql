@@ -250,7 +250,7 @@ SET @warehouse_idempotency_invalid_request_row_count := (
                     TRIM(`client_request_id`) = ''
                     OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
                     OR `client_request_id` REGEXP '[[:cntrl:]]'
-                    OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+                    OR NOT (`request_fingerprint` COLLATE utf8mb4_bin REGEXP '^[0-9a-f]{64}$')
                ))
         )
         +
@@ -262,7 +262,7 @@ SET @warehouse_idempotency_invalid_request_row_count := (
                     TRIM(`client_request_id`) = ''
                     OR BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)
                     OR `client_request_id` REGEXP '[[:cntrl:]]'
-                    OR NOT (BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$')
+                    OR NOT (`request_fingerprint` COLLATE utf8mb4_bin REGEXP '^[0-9a-f]{64}$')
                ))
         )
 );

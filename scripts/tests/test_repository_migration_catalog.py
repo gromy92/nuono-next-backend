@@ -171,6 +171,13 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
             "1:owner_user_id,2:client_request_id",
             migration.postcheck_sql,
         )
+        for sql in (migration.script_sql, migration.postcheck_sql):
+            self.assertIn(
+                "`request_fingerprint` COLLATE utf8mb4_bin "
+                "REGEXP '^[0-9a-f]{64}$'",
+                sql,
+            )
+            self.assertNotIn("BINARY `request_fingerprint` REGEXP", sql)
         self.assertNotRegex(
             migration.script_sql,
             re.compile(

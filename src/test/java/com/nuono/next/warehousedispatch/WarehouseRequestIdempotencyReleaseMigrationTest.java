@@ -36,7 +36,7 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
                 .contains("TRIM(`client_request_id`) = ''")
                 .contains("BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)")
                 .contains("`client_request_id` REGEXP '[[:cntrl:]]'")
-                .contains("BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$'")
+                .contains("`request_fingerprint` COLLATE utf8mb4_bin REGEXP '^[0-9a-f]{64}$'")
                 .contains("uk_dispatch_plan_owner_client_request")
                 .contains("uk_fulfillment_confirmation_owner_client_request")
                 .doesNotContain("UPDATE `procurement_")
@@ -50,6 +50,6 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
                 .contains("TRIM(`client_request_id`) = ''")
                 .contains("BINARY `client_request_id` <> BINARY TRIM(`client_request_id`)")
                 .contains("`client_request_id` REGEXP '[[:cntrl:]]'")
-                .contains("BINARY `request_fingerprint` REGEXP '^[0-9a-f]{64}$'");
+                .contains("`request_fingerprint` COLLATE utf8mb4_bin REGEXP '^[0-9a-f]{64}$'");
     }
 }
