@@ -49,11 +49,15 @@ SOURCE_FEE_HASH_SQL = (
 
 def assert_source_contract(database):
     expected = (
-        (SOURCE_RAW_CATEGORY_HASH_SQL, SOURCE_RAW_CATEGORY_HASH),
-        (SOURCE_RAW_PRICE_HASH_SQL, SOURCE_RAW_PRICE_HASH),
-        (SOURCE_CATEGORY_HASH_SQL, SOURCE_CATEGORY_HASH),
-        (SOURCE_PRICE_HASH_SQL, SOURCE_PRICE_HASH),
-        (SOURCE_FEE_HASH_SQL, SOURCE_FEE_HASH),
+        ("raw category", SOURCE_RAW_CATEGORY_HASH_SQL, SOURCE_RAW_CATEGORY_HASH),
+        ("raw price", SOURCE_RAW_PRICE_HASH_SQL, SOURCE_RAW_PRICE_HASH),
+        ("business category", SOURCE_CATEGORY_HASH_SQL, SOURCE_CATEGORY_HASH),
+        ("business price", SOURCE_PRICE_HASH_SQL, SOURCE_PRICE_HASH),
+        ("business fee", SOURCE_FEE_HASH_SQL, SOURCE_FEE_HASH),
     )
-    for statement, digest in expected:
-        assert database.client.execute(statement) == digest
+    for label, statement, digest in expected:
+        actual = database.client.execute(statement)
+        if actual != digest:
+            raise AssertionError(
+                f"forwarder source {label} digest mismatch: expected {digest}, actual {actual}"
+            )

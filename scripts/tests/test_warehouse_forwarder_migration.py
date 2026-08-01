@@ -10,9 +10,20 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from ci.release_schema_mysql_forwarder_scenario import FIXTURE_MIGRATIONS  # noqa: E402
+from ci.release_schema_mysql_forwarder_source_contract import assert_source_contract  # noqa: E402
 
 
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_source_contract_failure_identifies_expected_and_actual_digest(self):
+        client = type("Client", (), {"execute": lambda self, statement: "fixture-digest"})()
+        database = type("Database", (), {"client": client})()
+
+        with self.assertRaisesRegex(
+            AssertionError,
+            "raw category digest mismatch: expected [0-9a-f]{64}, actual fixture-digest",
+        ):
+            assert_source_contract(database)
+
     def test_mysql_fixture_applies_reference_schema_before_route_cost_seed(self):
         self.assertEqual(
             (
