@@ -349,10 +349,7 @@ class NoonAuthRecoveryCoordinatorTest {
 
     @Test
     void bindingWithoutPullTaskEntersTheSameDurableQueue() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        project.setStoreCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(307L, "PRJ1")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(store("PRJ1", "STORE-1"));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
         active.setId(91L);
@@ -394,6 +391,7 @@ class NoonAuthRecoveryCoordinatorTest {
                         && Long.valueOf(307L).equals(item.getOwnerUserId())
                         && "PRJ1".equals(item.getProjectCode())
                         && "STORE-1".equals(item.getStoreCode())
+                        && "AE".equals(item.getSiteCode())
                         && item.getSourceTaskId() == null
                         && "STORE_BINDING".equals(item.getSourceDomain())
         ));
@@ -402,10 +400,7 @@ class NoonAuthRecoveryCoordinatorTest {
 
     @Test
     void explicitBindAfterCookieCommitRebasesRecoveredSlotZeroInTheSameActiveRecovery() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        project.setStoreCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(307L, "PRJ1")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(store("PRJ1", "STORE-1"));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
         active.setId(91L);
@@ -451,9 +446,7 @@ class NoonAuthRecoveryCoordinatorTest {
 
     @Test
     void explicitBindAlreadyBoundToWaitingSuccessorRebasesOnlyThatSuccessor() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(307L, "PRJ1")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(store("PRJ1", "STORE-1"));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
         active.setId(91L);
@@ -488,9 +481,7 @@ class NoonAuthRecoveryCoordinatorTest {
 
     @Test
     void explicitBindFromTerminalProjectStateUsesANewLiveRecovery() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(307L, "PRJ1")).thenReturn(project);
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(store("PRJ1", "STORE-1"));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
         active.setId(91L);
@@ -638,5 +629,13 @@ class NoonAuthRecoveryCoordinatorTest {
         task.setDataDomain(NoonPullDataDomain.ORDER);
         task.setStatus(NoonPullTaskStatus.RUNNING);
         return task;
+    }
+
+    private StoreSyncStoreRecord store(String projectCode, String storeCode) {
+        StoreSyncStoreRecord store = new StoreSyncStoreRecord();
+        store.setProjectCode(projectCode);
+        store.setStoreCode(storeCode);
+        store.setSite("AE");
+        return store;
     }
 }

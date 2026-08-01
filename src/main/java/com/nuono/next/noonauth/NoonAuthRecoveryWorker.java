@@ -602,12 +602,7 @@ public class NoonAuthRecoveryWorker {
             )) {
                 return;
             }
-            NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                    item.getOwnerUserId(),
-                    item.getProjectCode(),
-                    item.getStoreCode(),
-                    safeLong(item.getExpectedAuthVersion())
-            );
+            NoonAuthRecoveryProjectTarget target = NoonAuthRecoveryWorkerValues.target(item);
             if (!failSnapshotItemsTaskFirst(
                     pending,
                     target,
@@ -673,12 +668,8 @@ public class NoonAuthRecoveryWorker {
                 String diagnostic = StringUtils.hasText(state.getManualHoldReason())
                         ? state.getManualHoldReason()
                         : "project recovery is already held";
-                NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                        representative.getOwnerUserId(),
-                        representative.getProjectCode(),
-                        representative.getStoreCode(),
-                        safeLong(representative.getExpectedAuthVersion())
-                );
+                NoonAuthRecoveryProjectTarget target =
+                        NoonAuthRecoveryWorkerValues.target(representative);
                 if (!failSnapshotItemsTaskFirst(
                         pending,
                         target,
@@ -698,12 +689,7 @@ public class NoonAuthRecoveryWorker {
                     || safeLong(state.getAuthVersion()) <= safeLong(representative.getExpectedAuthVersion())) {
                 continue;
             }
-            NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                    representative.getOwnerUserId(),
-                    representative.getProjectCode(),
-                    representative.getStoreCode(),
-                    safeLong(representative.getExpectedAuthVersion())
-            );
+            NoonAuthRecoveryProjectTarget target = NoonAuthRecoveryWorkerValues.target(representative);
             try {
                 Long logicalStoreId = transientOrchestrator.resolveLogicalStoreId(target);
                 if (logicalStoreId != null

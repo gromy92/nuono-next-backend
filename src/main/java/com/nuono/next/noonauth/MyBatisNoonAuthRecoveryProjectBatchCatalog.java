@@ -7,14 +7,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
-import org.springframework.util.StringUtils;
 
 @Repository
 @Profile("local-db")
 public class MyBatisNoonAuthRecoveryProjectBatchCatalog
         implements NoonAuthRecoveryProjectBatchCatalog {
+    private static final Logger LOGGER =
+            LoggerFactory.getLogger(MyBatisNoonAuthRecoveryProjectBatchCatalog.class);
+
     private final NoonAuthRecoveryProjectBatchMapper mapper;
 
     public MyBatisNoonAuthRecoveryProjectBatchCatalog(
@@ -35,7 +39,19 @@ public class MyBatisNoonAuthRecoveryProjectBatchCatalog
         Set<String> allowlist = projectAllowlist == null ? Set.of() : projectAllowlist;
         Map<String, NoonAuthRecoveryProjectCandidate> unique = new LinkedHashMap<>();
         for (NoonAuthRecoveryProjectCandidate candidate : candidates) {
-            if (!valid(candidate) || !allowed(candidate.getProjectCode(), allowlist)) {
+            if (candidate != null
+                    && candidate.getProjectCode() != null
+                    && !candidate.getProjectCode().trim().isEmpty()
+                    && !allowed(candidate.getProjectCode(), allowlist)) {
+                continue;
+            }
+            if (!valid(candidate)) {
+                LOGGER.warn(
+                        "Skipping Noon auth identity-batch project with incomplete store/site mapping. "
+                                + "ownerUserId={} projectCode={}",
+                        candidate == null ? null : candidate.getOwnerUserId(),
+                        candidate == null ? null : candidate.getProjectCode()
+                );
                 continue;
             }
             unique.putIfAbsent(key(candidate), normalized(candidate));
@@ -44,9 +60,12 @@ public class MyBatisNoonAuthRecoveryProjectBatchCatalog
     }
 
     private boolean valid(NoonAuthRecoveryProjectCandidate candidate) {
-        return candidate != null
-                && candidate.getOwnerUserId() != null
-                && StringUtils.hasText(candidate.getProjectCode());
+        return candidate != null && NoonAuthRecoveryTargetPolicy.hasCompleteBusinessIdentity(
+                candidate.getOwnerUserId(),
+                candidate.getProjectCode(),
+                candidate.getStoreCode(),
+                candidate.getSiteCode()
+        );
     }
 
     private boolean allowed(String projectCode, Set<String> allowlist) {
@@ -55,20 +74,20 @@ public class MyBatisNoonAuthRecoveryProjectBatchCatalog
     }
 
     private String key(NoonAuthRecoveryProjectCandidate candidate) {
-        return candidate.getOwnerUserId() + ":" + candidate.getProjectCode().trim();
+        return candidate.getOwnerUserId()
+                + ":"
+                + candidate.getProjectCode().trim().toUpperCase(Locale.ROOT);
     }
 
     private NoonAuthRecoveryProjectCandidate normalized(
             NoonAuthRecoveryProjectCandidate candidate
     ) {
         String projectCode = candidate.getProjectCode().trim();
-        String storeCode = StringUtils.hasText(candidate.getStoreCode())
-                ? candidate.getStoreCode().trim()
-                : projectCode;
         return new NoonAuthRecoveryProjectCandidate(
                 candidate.getOwnerUserId(),
                 projectCode,
-                storeCode
+                candidate.getStoreCode().trim(),
+                NoonAuthRecoveryTargetPolicy.normalizeSite(candidate.getSiteCode())
         );
     }
 }

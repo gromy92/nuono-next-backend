@@ -590,8 +590,8 @@ class NoonSessionGatewayTest {
                     Instant.parse("2026-07-16T00:00:00Z"),
                     Set.of(),
                     List.of(
-                            new NoonAuthRecoveryProjectTarget(307L, "PRJ7001", "STR7001-NAE", 0L),
-                            new NoonAuthRecoveryProjectTarget(308L, "PRJ8001", "STR8001-NAE", 0L)
+                            new NoonAuthRecoveryProjectTarget(307L, "PRJ7001", "STR7001-NAE", "AE", 0L),
+                            new NoonAuthRecoveryProjectTarget(308L, "PRJ8001", "STR8001-NAE", "AE", 0L)
                     ),
                     () -> true,
                     () -> true
