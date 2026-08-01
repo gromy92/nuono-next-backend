@@ -15,7 +15,6 @@ final class ProductPublishAuthRetryGuard {
             "noon_effect_not_confirmed"
     );
     private final ObjectMapper objectMapper = new ObjectMapper();
-
     void requireSafeToRetry(
             ProductPublishTaskRecord task,
             ProductWriteAuthRecovery authRecovery
@@ -32,9 +31,15 @@ final class ProductPublishAuthRetryGuard {
                     task.getStoreCode()
             );
         }
-        if (!isDelete(task)
-                && (isUnsafeReplayError(errorCode)
-                || writeMayHaveOccurred(task.getResultJson()))) {
+        if (isDelete(task)) {
+            if (!ProductDeleteRetrySafety.canResume(task)) {
+                throw new IllegalStateException(
+                        "本次商品删除缺少可证明安全的恢复检查点，系统不会重复发送删除写入；请先在 Noon 后台核对。"
+                );
+            }
+            return;
+        }
+        if (isUnsafeReplayError(errorCode) || writeMayHaveOccurred(task.getResultJson())) {
             throw new IllegalStateException(
                     "本次发布已有部分写入或结果不确定，不能直接重放原任务。请先从 Noon 同步，核对后再创建新的发布任务。"
             );
@@ -50,9 +55,8 @@ final class ProductPublishAuthRetryGuard {
             if (result == null || !result.isObject()) {
                 return true;
             }
-            JsonNode writeMarker = result.get("writeMayHaveOccurred");
-            return writeMarker != null
-                    && (!writeMarker.isBoolean() || writeMarker.booleanValue());
+            JsonNode marker = result.get("writeMayHaveOccurred");
+            return marker != null && (!marker.isBoolean() || marker.booleanValue());
         } catch (Exception exception) {
             return true;
         }

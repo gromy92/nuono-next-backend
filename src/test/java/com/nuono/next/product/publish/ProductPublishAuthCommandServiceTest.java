@@ -179,6 +179,38 @@ class ProductPublishAuthCommandServiceTest {
         ProductPublishTaskView view =
                 service.buildTaskView(task, false, null, ignored -> java.util.List.of());
         assertTrue(view.getMessage().contains("删除"));
+        assertTrue(view.getRetryAllowed());
+    }
+
+    @Test
+    void deleteTaskWithoutSafeStageShouldFailClosed() {
+        ProductPublishTaskRecord task = authTask(true);
+        task.setTaskType(ProductPublishCommandService.TASK_TYPE_PRODUCT_DELETE);
+        task.setErrorCode("product_delete_result_unknown");
+        task.setResultJson("{\"stage\":\"garbled\",\"writeMayHaveOccurred\":true}");
+        when(mapper.selectProductPublishTaskById(1001L)).thenReturn(task);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> service.retryTask(1001L, 10002L, null, ignored -> java.util.List.of())
+        );
+
+        assertTrue(failure.getMessage().contains("安全的恢复检查点"));
+        verify(mapper, never()).retryProductPublishTask(1001L, 10002L);
+    }
+
+    @Test
+    void preWriteDeleteCheckpointShouldRemainManuallyRetryable() {
+        ProductPublishTaskRecord task = authTask(false);
+        task.setTaskType(ProductPublishCommandService.TASK_TYPE_PRODUCT_DELETE);
+        task.setErrorCode("product_delete_retry_exhausted");
+        task.setResultJson("{\"stage\":\"pre_delete_captured\"}");
+        when(mapper.selectProductPublishTaskById(1001L)).thenReturn(task);
+        when(mapper.retryProductPublishTask(1001L, 10002L)).thenReturn(1);
+
+        assertDoesNotThrow(() -> service.retryTask(1001L, 10002L, null, ignored -> java.util.List.of()));
+
+        verify(mapper).retryProductPublishTask(1001L, 10002L);
     }
 
     @Test
