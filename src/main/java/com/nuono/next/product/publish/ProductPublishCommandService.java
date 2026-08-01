@@ -38,7 +38,6 @@ public class ProductPublishCommandService {
     public static final String PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED = "product_delete_write_retry_scheduled";
     public static final String PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT = "product_delete_verify_timeout";
     public static final String ERROR_CODE_NOON_AUTH_RECOVERY_PENDING = "noon_auth_recovery_pending";
-
     private static final Set<String> ACTIVE_STATUSES = Set.of(
             "queued",
             PRODUCT_DELETE_STATUS_QUEUED,
@@ -83,14 +82,12 @@ public class ProductPublishCommandService {
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
     }
-
     @Autowired(required = false)
     public void setProductWriteAuthRecovery(ProductWriteAuthRecovery productWriteAuthRecovery) {
         if (productWriteAuthRecovery != null) {
             this.productWriteAuthRecovery = productWriteAuthRecovery;
         }
     }
-
     public ProductPublishTaskView loadTask(
             Long taskId,
             Long ownerUserId,
@@ -121,10 +118,13 @@ public class ProductPublishCommandService {
             throw new IllegalArgumentException("发布任务不存在或已删除。");
         }
         ensureOwner(task, ownerUserId);
-        authRetryGuard.requireSafeToRetry(task, productWriteAuthRecovery);
         ProductPublishTaskRecord activeTask = task.getProductMasterId() == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(task.getProductMasterId());
+                ? null : productManagementMapper.selectActiveProductPublishTask(task.getProductMasterId());
+        if (isActiveStatus(task.getStatus()) && activeTask != null
+                && Objects.equals(activeTask.getId(), taskId)) {
+            return buildTaskView(task, true, terminalWorkbenchBuilder, changedDomainsResolver);
+        }
+        authRetryGuard.requireSafeToRetry(task, productWriteAuthRecovery);
         if (activeTask != null && !Objects.equals(activeTask.getId(), taskId)) {
             throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。");
         }
@@ -436,6 +436,7 @@ public class ProductPublishCommandService {
         view.setChangedDomains(changedDomains);
         view.setRetryCount(task.getRetryCount());
         view.setVerifyAttemptCount(task.getVerifyAttemptCount());
+        view.setRetryAllowed(isProductDeleteTask(task) ? ProductDeleteRetrySafety.canResume(task) : null);
         view.setNextRunAt(task.getNextRunAt());
         view.setFinishedAt(task.getFinishedAt());
         view.setPollAfterMillis(pollAfterMillis(task));
@@ -448,7 +449,6 @@ public class ProductPublishCommandService {
         }
         return view;
     }
-
     public String message(ProductPublishTaskRecord task, Function<ProductPublishTaskRecord, List<String>> changedDomainsResolver) {
         return message(task, resolveChangedDomains(task, changedDomainsResolver));
     }

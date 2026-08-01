@@ -13,6 +13,8 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.product.noon.NoonProductGateway;
+import com.nuono.next.product.publish.ProductDeleteTaskSubmission;
+import com.nuono.next.product.publish.ProductDeleteTaskSubmissionResult;
 import com.nuono.next.product.publish.ProductPublishCommandService;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
@@ -941,13 +943,8 @@ public class LocalDbProductMasterService {
                 firstNonBlank(normalize(identity.getPartnerSku()), partnerSku),
                 "当前商品缺少系统 PSKU（partnerSku），暂时不能删除。"
         );
-
-        requirePublishCommandService().ensureNoForegroundBlockingActiveTask(
-                identity.getProductMasterId(),
-                "当前商品已有后台任务正在执行，请等待完成后再删除商品。"
-        );
-        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity);
-
+        ProductDeleteTaskSubmissionResult submission = queueProductDeleteTask(command, store, identity);
+        ProductPublishTaskRecord task = submission.getTask();
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
         reloadCommand.setStoreCode(storeCode);
@@ -955,7 +952,7 @@ public class LocalDbProductMasterService {
         reloadCommand.setNoonPassword(command.getNoonPassword());
         ProductListDatasetView view = loadListDataset(reloadCommand);
         attachProductDeleteTaskToListDataset(view, identity.getSkuParent(), identity.getPartnerSku(), task);
-        view.setMessage("商品删除已提交后台处理，请在发布状态和历史中查看进度。");
+        view.setMessage(submission.getMessage());
         return view;
     }
 
@@ -992,7 +989,7 @@ public class LocalDbProductMasterService {
                 "当前商品已有后台任务正在执行，请等待完成后再重建商品。"
         );
         ProductListingDraftCommand rebuildListingDraft = buildProductRebuildListingDraft(command, store, identity);
-        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity, rebuildListingDraft);
+        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity, rebuildListingDraft).getTask();
 
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
@@ -1390,15 +1387,14 @@ public class LocalDbProductMasterService {
         );
     }
 
-    private ProductPublishTaskRecord queueProductDeleteTask(
+    private ProductDeleteTaskSubmissionResult queueProductDeleteTask(
             ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
             ProductMasterIdentityRecord identity
     ) {
         return queueProductDeleteTask(command, store, identity, null);
     }
-
-    private ProductPublishTaskRecord queueProductDeleteTask(
+    private ProductDeleteTaskSubmissionResult queueProductDeleteTask(
             ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
             ProductMasterIdentityRecord identity,
@@ -1428,13 +1424,17 @@ public class LocalDbProductMasterService {
                 currentSiteCode,
                 rebuildListingDraft
         )));
+        if (rebuildListingDraft == null) {
+            return new ProductDeleteTaskSubmission(
+                    productManagementMapper, requirePublishCommandService()
+            ).submit(createCommand);
+        }
         createCommand.setIdempotencyKey(
                 "delete:" + productDeleteStoreIdentityKey(identity, createCommand.getStoreCode())
-                        + ":" + partnerSku
-                        + ":" + System.nanoTime()
+                        + ":" + partnerSku + ":" + System.nanoTime()
         );
-        ProductPublishTaskCreateResult createResult = requirePublishCommandService().createProductDeleteTask(createCommand);
-        return createResult.getTask();
+        return ProductDeleteTaskSubmissionResult.created(
+                requirePublishCommandService().createProductDeleteTask(createCommand).getTask());
     }
 
     private ProductListingDraftCommand buildProductRebuildListingDraft(
@@ -1599,6 +1599,7 @@ public class LocalDbProductMasterService {
         putIfNotNull(summary, "taskId", task.getId());
         putIfNotBlank(summary, "taskType", rebuildTask ? "product-rebuild" : normalize(task.getTaskType()));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
+        putIfNotNull(summary, "retryAllowed", com.nuono.next.product.publish.ProductDeleteRetrySafety.canResume(task));
         putIfNotBlank(summary, "statusLabel", rebuildTask
                 ? productRebuildDeleteListStatusLabel(task.getStatus())
                 : productDeleteListStatusLabel(task.getStatus()));
@@ -1611,7 +1612,6 @@ public class LocalDbProductMasterService {
         putIfNotBlank(summary, "partnerSku", task.getPartnerSku());
         return summary;
     }
-
     private boolean isProductRebuildDeleteTask(ProductPublishTaskRecord task) {
         JsonNode request = readTaskRequestNode(task);
         return "product-rebuild".equalsIgnoreCase(text(request, "rebuildAction"))

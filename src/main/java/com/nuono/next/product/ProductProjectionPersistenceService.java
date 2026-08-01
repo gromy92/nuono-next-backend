@@ -2415,6 +2415,7 @@ public class ProductProjectionPersistenceService {
         putIfNotNull(summary, "taskId", task.getId());
         putIfNotBlank(summary, "taskType", listTaskType(task));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
+        putIfNotNull(summary, "retryAllowed", isProductDeleteTask(task) ? com.nuono.next.product.publish.ProductDeleteRetrySafety.canResume(task) : null);
         putIfNotBlank(summary, "statusLabel", statusLabel);
         putIfNotBlank(summary, "resultText", publishTaskHistoryMessage(task));
         putIfNotBlank(summary, "submittedAt", formatDateTime(task.getSubmittedAt()));
@@ -2427,7 +2428,6 @@ public class ProductProjectionPersistenceService {
         }
         return summary;
     }
-
     private String publishTaskListStatusLabel(ProductPublishTaskRecord task) {
         if (isProductRebuildTask(task)) {
             return productRebuildListStatusLabel(task);
