@@ -1279,11 +1279,11 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
         when(mapper.listShippingOrderSegments(290001L)).thenReturn(List.of(airSegment, seaSegment));
         when(mapper.listLogisticsQuoteCandidatesByShippingOrder(290001L)).thenReturn(List.of(zdLine, etLine));
+        when(productLogisticsPriceBridge.findCurrentCost(zdLine, "ZD")).thenReturn(null);
         when(productLogisticsPriceBridge.findCurrentCost(etLine, "ET")).thenReturn(currentCost("79"));
         when(mapper.submitLogisticsQuoteLinesForShippingOrder(290001L, 307L)).thenReturn(2);
         when(mapper.markShippingOrderSegmentsSubmitted(290001L, 307L, 307L)).thenReturn(2);
         when(mapper.markShippingOrderSubmitted(290001L, 307L, 307L)).thenReturn(1);
-
         ShippingOrderSubmitView view = service.submitShippingOrder(access(), "290001");
 
         assertThat(view.shippingOrderId).isEqualTo("290001");

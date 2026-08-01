@@ -242,6 +242,7 @@ class LocalDbProcurementPurchaseOrderServiceLogisticsQuoteExportTest {
         line.siteCode = "SA";
         line.plannedTransportMode = "SEA";
         line.quoteStatus = quoteStatus;
+        line.shippingSubmitStatus = "NOT_SUBMITTED";
         return line;
     }
 
