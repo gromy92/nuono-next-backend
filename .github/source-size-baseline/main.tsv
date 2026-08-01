@@ -167,7 +167,7 @@ src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderController
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderRecords.java	649
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java	437
 src/main/java/com/nuono/next/procurementorder/PurchaseOrderLogisticsCostCalculator.java	443
-src/main/java/com/nuono/next/product/LocalDbProductMasterService.java	4572
+src/main/java/com/nuono/next/product/LocalDbProductMasterService.java	4544
 src/main/java/com/nuono/next/product/ProductAttributeTemplateService.java	1013
 src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	314
 src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440

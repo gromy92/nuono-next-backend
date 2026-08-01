@@ -100,6 +100,7 @@ public class LocalDbProductMasterService {
     private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
     private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
+    private final ProductDeletePreflightFetcher productDeletePreflightFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
     private final ProductStoreContextBuilder productStoreContextBuilder;
     private final ProductNoonCredentialResolver productNoonCredentialResolver = new ProductNoonCredentialResolver();
@@ -149,6 +150,8 @@ public class LocalDbProductMasterService {
         this.productSnapshotHydrator = new ProductSnapshotHydrator(effectiveObjectMapper);
         this.productSnapshotCoreFetcher = new ProductSnapshotCoreFetcher(effectiveObjectMapper, productNoonAdapter);
         this.productSnapshotSectionBuilder = new ProductSnapshotSectionBuilder(effectiveObjectMapper);
+        this.productDeletePreflightFetcher =
+                new ProductDeletePreflightFetcher(this.productSnapshotCoreFetcher, this.productSnapshotSectionBuilder);
         this.productKeyAttributeBuilder = new ProductKeyAttributeBuilder(effectiveObjectMapper);
         this.productStoreContextBuilder = new ProductStoreContextBuilder();
         this.productSnapshotGroupFetcher = new ProductSnapshotGroupFetcher(
@@ -338,13 +341,6 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView siteOfferReuseSeed
     ) {
         return fetchSnapshot(command, reason, siteOfferReuseSeed, true);
-    }
-
-    private ProductMasterSnapshotView fetchSnapshotWithoutProjection(
-            ProductMasterFetchCommand command,
-            String reason
-    ) {
-        return fetchSnapshot(command, reason, null, false);
     }
 
     private ProductMasterSnapshotView fetchSnapshot(
@@ -1746,7 +1742,7 @@ public class LocalDbProductMasterService {
             if (!isProductDeleteAfterDeleteStage(stage)) {
                 if (!isProductDeleteAfterUnmapStage(stage)) {
                     try {
-                        preDeleteSnapshot = fetchSnapshot(command, "product-delete.before");
+                        preDeleteSnapshot = productDeletePreflightFetcher.fetch(session, command);
                     } catch (IllegalStateException exception) {
                         if (!isNoonProductMissingAfterDelete(exception)) {
                             throw exception;
@@ -1857,30 +1853,6 @@ public class LocalDbProductMasterService {
             }
 
             int verifyAttempt = Math.max(1, task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1);
-            try {
-                fetchSnapshotWithoutProjection(command, "product-delete.after");
-                updatePublishTaskStatus(
-                        task,
-                        ProductPublishCommandService.PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE,
-                        "product_delete_effect_pending",
-                        "商品删除已提交，Noon 仍能回读到商品，系统将稍后继续核对。",
-                        buildTaskResultJson(
-                                "pending_effective",
-                                requestCountScope.snapshot(),
-                                actionWarnings,
-                                productDeleteResultExtras("delete_submitted", preDeleteSnapshot, NoonProductGateway.PSKU_DELETE_URL)
-                        ),
-                        nextPublishVerifyRunAt(task),
-                        null,
-                        verifyAttempt
-                );
-                return;
-            } catch (IllegalStateException exception) {
-                if (!isNoonProductMissingAfterDelete(exception)) {
-                    throw exception;
-                }
-            }
-
             ProductDeleteNoonPresence noonPresence = findProductDeleteNoonPresenceAfterDelete(
                     session,
                     task,
