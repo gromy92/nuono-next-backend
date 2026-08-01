@@ -1,5 +1,6 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAsnPreflightTestFixtures.*;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -209,101 +210,4 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
                 .thenReturn(candidates);
     }
 
-    private ProductCandidateRecord candidate(String partnerSku, String psku, String noonSku, long id) {
-        ProductCandidateRecord row = new ProductCandidateRecord();
-        row.ownerUserId = 307L;
-        row.logicalStoreId = 108065L;
-        row.logicalStoreSiteId = 1080651L;
-        row.storeCode = "STR108065-NSA";
-        row.siteCode = "SA";
-        row.productMasterId = id + 1000;
-        row.productVariantId = id;
-        row.productSiteOfferId = id + 2000;
-        row.partnerSku = partnerSku;
-        row.pskuCode = psku;
-        row.noonSku = noonSku;
-        row.titleCache = partnerSku;
-        row.productLengthCm = BigDecimal.TEN;
-        row.productWidthCm = BigDecimal.TEN;
-        row.productHeightCm = BigDecimal.TEN;
-        return row;
-    }
-
-    private ShippingBatchSourceAllocationRecord allocation(int quantity) {
-        return allocation("SGGRB329", "SGGRB329", quantity);
-    }
-
-    private ShippingBatchSourceAllocationRecord allocation(String partnerSku, String sourceBarcode, int quantity) {
-        ShippingBatchSourceAllocationRecord row = new ShippingBatchSourceAllocationRecord();
-        row.inTransitBatchId = 53023L;
-        row.shippingBatchNo = "XGGEKSA04075";
-        row.inTransitGoodsLineId = 54282L;
-        row.partnerSku = partnerSku;
-        row.sourceBarcode = sourceBarcode;
-        row.quantity = quantity;
-        return row;
-    }
-
-    private CreateAsnCommand command(CreateAsnLineCommand... lines) {
-        CreateAsnCommand command = new CreateAsnCommand();
-        command.storeCode = "STR108065-NSA";
-        command.siteCode = "SA";
-        command.lines = List.of(lines);
-        return command;
-    }
-
-    private CreateAsnLineCommand line(String partnerSku, int quantity) {
-        CreateAsnLineCommand line = new CreateAsnLineCommand();
-        line.partnerSku = partnerSku;
-        line.quantity = quantity;
-        return line;
-    }
-
-    private ObjectNode offerPage(String partnerSku, String psku, String... pbarcodes) {
-        ObjectNode root = objectMapper.createObjectNode();
-        ObjectNode data = root.putObject("data");
-        data.put("total", 1);
-        ObjectNode hit = data.putArray("hits").addObject()
-                .put("partner_sku", partnerSku).put("psku_code", psku);
-        for (String pbarcode : pbarcodes) hit.withArray("partner_barcodes").add(pbarcode);
-        return root;
-    }
-
-    private ObjectNode createResponse() {
-        ObjectNode root = objectMapper.createObjectNode();
-        ObjectNode data = root.putObject("data");
-        data.put("asn_nr", "A05834999PN").put("id_partner_asn", 9001).put("total_qty", 5);
-        return root;
-    }
-
-    private ObjectNode routingResponse() {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.putArray("data").addObject().put("partner_code", "RUH01S").put("code", "W00105371A");
-        return root;
-    }
-
-    private BusinessAccessContext access() {
-        return BusinessAccessContext.builder().sessionUserId(901L).businessOwnerUserId(307L)
-                .accountType(BusinessAccountType.BOSS).storeCodes(Set.of("STR108065-NSA")).build();
-    }
-
-    private StoreSiteRecord site() {
-        StoreSiteRecord row = new StoreSiteRecord();
-        row.ownerUserId = 307L; row.logicalStoreId = 108065L; row.storeCode = "STR108065-NSA";
-        row.storeName = "Canman"; row.siteCode = "SA"; row.projectCode = "PRJ108065";
-        return row;
-    }
-
-    private NoonSalesReportBinding binding() {
-        return new NoonSalesReportBinding(307L, 108065L, "PRJ108065", "STR108065-NSA", "SA",
-                "108065", "merchant@example.com", null, null, "persisted-cookie");
-    }
-
-    private AsnRecord asnRecord() {
-        AsnRecord row = new AsnRecord();
-        row.id = 500001L; row.ownerUserId = 307L; row.logicalStoreId = 108065L;
-        row.storeCode = "STR108065-NSA"; row.siteCode = "SA"; row.localAsnNo = "OWA-500001";
-        row.noonAsnNr = "A05834999PN"; row.status = "LINES_CREATED"; row.totalQuantity = 5;
-        return row;
-    }
 }

@@ -15,7 +15,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDe
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.NoonAppointmentClient;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightModule.Proof;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightProof;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -58,7 +58,7 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
-            Proof proof
+            OfficialWarehouseAsnProductPreflightProof proof
     ) {
         requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
@@ -79,7 +79,7 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSalesReportBinding binding,
             NoonCallContext context,
             String asnNr,
-            Proof proof
+            OfficialWarehouseAsnProductPreflightProof proof
     ) {
         requireAuthorizedProof(proof, binding, context);
         return routeWarehouseRequest(session, binding, context, asnNr, proof.requestLineRows());
@@ -119,7 +119,7 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSalesReportBinding binding,
             NoonCallContext context,
             String asnNr,
-            Proof proof
+            OfficialWarehouseAsnProductPreflightProof proof
     ) {
         requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
@@ -137,7 +137,7 @@ public class OfficialWarehouseNoonInboundClient {
     }
 
     private void requireAuthorizedProof(
-            Proof proof,
+            OfficialWarehouseAsnProductPreflightProof proof,
             NoonSalesReportBinding binding,
             NoonCallContext context
     ) {

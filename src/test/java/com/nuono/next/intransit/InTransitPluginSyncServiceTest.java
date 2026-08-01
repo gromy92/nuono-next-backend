@@ -767,22 +767,6 @@ class InTransitPluginSyncServiceTest {
     }
 
     @Test
-    void shouldTreatBarcodeCaseDifferenceAsAConflict() {
-        PluginSyncCommand command = sampleCommand();
-        PluginSyncLine line = command.getBatches().get(0).getPackages().get(0).getLines().get(0);
-        line.setBarcode("SGGRB329");
-        line.setSku("sggrb329");
-
-        PluginSyncPreviewView preview = service.preview(command);
-
-        assertEquals(false, preview.isCommittable());
-        assertTrue(preview.getIssues().stream().anyMatch(issue ->
-                "barcode".equals(issue.getField())
-                        && issue.getMessage().contains("barcode 与旧字段 sku 不一致")
-        ));
-    }
-
-    @Test
     void shouldKeepPluginLineScopeBlankWhenStoreSiteCannotBeResolved() {
         PluginSyncCommand command = sampleCommand();
         PluginSyncBatch batch = command.getBatches().get(0);

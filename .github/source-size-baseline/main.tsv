@@ -27,14 +27,14 @@ src/main/java/com/nuono/next/infrastructure/mapper/Ali1688HistoricalOrderMapper.
 src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2422
 src/main/java/com/nuono/next/infrastructure/mapper/FileManagementParseMapper.java	2154
 src/main/java/com/nuono/next/infrastructure/mapper/InTransitFreightCostMapper.java	429
-src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsLineMapper.java	472
-src/main/java/com/nuono/next/infrastructure/mapper/InTransitSuperSearchMapper.java	388
+src/main/java/com/nuono/next/infrastructure/mapper/InTransitGoodsLineMapper.java	338
+src/main/java/com/nuono/next/infrastructure/mapper/InTransitSuperSearchMapper.java	348
 src/main/java/com/nuono/next/infrastructure/mapper/LogisticsQuoteMapper.java	883
 src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1061
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1346
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	602
-src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1248
+src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1235
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1367
 src/main/java/com/nuono/next/infrastructure/mapper/OperationsSkinMapper.java	463
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	450
@@ -57,7 +57,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	969
 src/main/java/com/nuono/next/infrastructure/mapper/StoreSyncMapper.java	605
 src/main/java/com/nuono/next/intransit/InTransitBatchCommands.java	825
 src/main/java/com/nuono/next/intransit/InTransitBatchRecords.java	1227
-src/main/java/com/nuono/next/intransit/InTransitBatchService.java	1287
+src/main/java/com/nuono/next/intransit/InTransitBatchService.java	1286
 src/main/java/com/nuono/next/intransit/InTransitForwarderRecords.java	379
 src/main/java/com/nuono/next/intransit/InTransitFreightCostCommands.java	367
 src/main/java/com/nuono/next/intransit/InTransitFreightCostRecords.java	714
@@ -101,7 +101,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	817
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3037
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3036
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1171
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java	387
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335

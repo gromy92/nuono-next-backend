@@ -15,7 +15,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.noon.NoonResponseClassifier;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightModule.Proof;
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.sales.NoonSalesReportBinding;
@@ -54,7 +53,7 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
                     return offerPage("PAPERSAYSB014", "PSKU-014", "PB-014");
                 });
 
-        Proof proof = module.freeze(
+        OfficialWarehouseAsnProductPreflightProof proof = module.freeze(
                 session,
                 binding,
                 context,
@@ -130,7 +129,8 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
         AsnLineInsertRecord selected = line("SGGRB290", "PSKU-290", "N290", 1);
         selected.sourceBarcodes.add("SGGRB329");
 
-        Proof proof = module.freeze(session, binding, context, List.of(selected));
+        OfficialWarehouseAsnProductPreflightProof proof =
+                module.freeze(session, binding, context, List.of(selected));
 
         assertThat(proof.lines()).singleElement().satisfies(line -> {
             assertThat(line.sourceBarcodes()).containsExactly("SGGRB329");
@@ -149,7 +149,7 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
         when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
                 .thenReturn(page);
 
-        Proof proof = module.freeze(
+        OfficialWarehouseAsnProductPreflightProof proof = module.freeze(
                 session, binding, context, List.of(line("SGGRB329", "PSKU-329", "N329", 1)));
 
         assertThat(proof.lines()).singleElement()
@@ -160,7 +160,7 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
     void proofCannotAuthorizeAWriteForAnotherAsnScope() {
         when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
                 .thenReturn(offerPage("SGGRB329", "PSKU-329", "PB-329"));
-        Proof proof = module.freeze(
+        OfficialWarehouseAsnProductPreflightProof proof = module.freeze(
                 session, binding, context, List.of(line("SGGRB329", "PSKU-329", "N329", 1)));
         OfficialWarehouseNoonInboundClient writeClient =
                 new OfficialWarehouseNoonInboundClient(objectMapper, new NoonResponseClassifier());

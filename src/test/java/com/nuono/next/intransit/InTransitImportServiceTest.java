@@ -1,16 +1,14 @@
 package com.nuono.next.intransit;
 
+import static com.nuono.next.intransit.InTransitBarcodeIdentityTestSupport.stubDefaultProductIdentityLookup;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -75,20 +73,8 @@ class InTransitImportServiceTest {
     @BeforeEach
     void setUp() {
         service = new InTransitImportService(mapper, forwarderService, batchService, auditService, accessScopeService, new ObjectMapper());
-        lenient().when(mapper.selectProductIdentityByBarcode(anyLong(), anyString()))
-                .thenAnswer(invocation -> {
-                    String barcode = invocation.getArgument(1);
-                    if ("SKU-AE-001".equals(barcode)) {
-                        return new BarcodeProductIdentity(50001L, "PSKU-001");
-                    }
-                    if ("SKU-AE-002".equals(barcode)) {
-                        return new BarcodeProductIdentity(50001L, "PSKU-002");
-                    }
-                    String partnerSku = barcode.startsWith("SKU-") ? "P" + barcode : barcode;
-                    return new BarcodeProductIdentity(50001L, partnerSku);
-                });
+        stubDefaultProductIdentityLookup(mapper);
     }
-
     @Test
     void shouldPreviewCsvWithoutWritingBatchesOrLines() {
         when(mapper.nextImportBatchId()).thenReturn(56001L);
@@ -417,9 +403,7 @@ class InTransitImportServiceTest {
         when(forwarderService.resolveForwarder(any(ResolveForwarderCommand.class))).thenReturn(matchedForwarder());
         String csv = "批次号,原始货代,运输方式,目的地,店铺编码,站点,目的仓,箱号,SKU,发货数量,已入仓数量\n"
                 + "BATCH-NO-PSKU,义特物流,AIR,DB,STR245027-NAE,AE,FBN-DXB,BATCH-NO-PSKU-1,SOURCE-SKU-001,3,0\n";
-
         ImportPreviewView result = service.preview(command("缺PSKU.csv", csv));
-
         assertEquals("ready", result.getStatus());
         assertEquals("SOURCE-SKU-001", result.getBatches().get(0).getLines().get(0).getPsku());
         assertFalse(result.getIssues().stream().anyMatch(issue -> "psku_missing".equals(issue.getCode())));

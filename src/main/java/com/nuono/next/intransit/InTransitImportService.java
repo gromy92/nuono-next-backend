@@ -223,7 +223,7 @@ public class InTransitImportService {
             ImportPreviewBatchView batch = batches.computeIfAbsent(batchKey, key -> buildBatch(ownerUserId, row, key, issues));
             addRowBatchIssues(resolved.getAccessContext(), row, rowIssues);
             ImportPreviewLineView line = buildLine(row, rowIssues);
-            resolveProductIdentity(ownerUserId, line, row.rowNumber, rowIssues);
+            InTransitBarcodeIdentitySupport.applyImportIdentity(mapper, ownerUserId, line, row.rowNumber, rowIssues);
             if (rowIssues.stream().noneMatch(item -> "error".equals(item.getLevel()))) {
                 validRowCount++;
             }
@@ -364,42 +364,6 @@ public class InTransitImportService {
         }
         return mapper.selectLineByBoxNoAndBarcode(ownerUserId, batchId, line.getBoxNo(), line.getSku());
     }
-
-    private void resolveProductIdentity(
-            Long ownerUserId,
-            ImportPreviewLineView line,
-            int rowNumber,
-            List<ImportPreviewIssueView> rowIssues
-    ) {
-        if (line == null || !StringUtils.hasText(line.getSku())) {
-            return;
-        }
-        String barcode = clean(line.getSku());
-        String sourcePsku = clean(line.getPsku());
-        BarcodeProductIdentity identity = mapper.selectProductIdentityByBarcode(ownerUserId, barcode);
-        if (identity == null || !StringUtils.hasText(identity.getPartnerSku())) {
-            rowIssues.add(issue(
-                    "error",
-                    "barcode_unmatched",
-                    "物流商品 barcode 未唯一匹配当前货主商品：" + barcode,
-                    rowNumber,
-                    "sku"
-            ));
-            return;
-        }
-        String matchedPartnerSku = clean(identity.getPartnerSku());
-        line.setPsku(matchedPartnerSku);
-        if (StringUtils.hasText(sourcePsku) && !sourcePsku.equals(matchedPartnerSku)) {
-            rowIssues.add(issue(
-                    "warning",
-                    "source_psku_ignored",
-                    "来源 PSKU 已忽略，系统按 barcode 匹配为 " + matchedPartnerSku + "。",
-                    rowNumber,
-                    "psku"
-            ));
-        }
-    }
-
     private List<String> syncedBoxNos(ImportPreviewBatchView batch) {
         LinkedHashMap<String, Boolean> values = new LinkedHashMap<>();
         for (ImportPreviewLineView line : batch.getLines()) {

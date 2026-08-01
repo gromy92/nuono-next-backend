@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightProof.FrozenLine;
 import com.nuono.next.product.NoonProductListFieldSupport;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.web.ApiProblemException;
@@ -28,7 +29,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
         this.productIdentityAdapter = new OfficialWarehouseNoonProductIdentityAdapter(noonInboundClient);
     }
 
-    Proof freeze(
+    OfficialWarehouseAsnProductPreflightProof freeze(
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
@@ -69,7 +70,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
         if (!issues.isEmpty()) {
             throw problem(issues);
         }
-        return new Proof(scope, frozenLines);
+        return new OfficialWarehouseAsnProductPreflightProof(scope, frozenLines);
     }
 
     private FrozenLine freezeLine(
@@ -119,7 +120,7 @@ final class OfficialWarehouseAsnProductPreflightModule {
                 return null;
             }
         }
-        return FrozenLine.from(line, pbarcodes);
+        return new FrozenLine(line, sourceBarcodes(line), pbarcodes);
     }
 
     private static List<String> sourceBarcodes(AsnLineInsertRecord line) {
@@ -133,6 +134,13 @@ final class OfficialWarehouseAsnProductPreflightModule {
             }
         }
         return List.copyOf(values);
+    }
+
+    static void addSourceBarcode(AsnLineInsertRecord line, String sourceBarcode) {
+        String value = text(sourceBarcode);
+        if (line != null && value != null && !line.sourceBarcodes.contains(value)) {
+            line.sourceBarcodes.add(value);
+        }
     }
 
     private List<String> partnerBarcodes(JsonNode offer) {
@@ -235,82 +243,4 @@ final class OfficialWarehouseAsnProductPreflightModule {
         return StringUtils.hasText(value) ? value.trim() : null;
     }
 
-    static final class Proof {
-        private final OfficialWarehouseAsnPreflightScope scope;
-        private final List<FrozenLine> lines;
-        private final int totalQuantity;
-
-        private Proof(OfficialWarehouseAsnPreflightScope scope, List<FrozenLine> lines) {
-            this.scope = scope;
-            this.lines = Collections.unmodifiableList(new ArrayList<>(lines));
-            this.totalQuantity = lines.stream().mapToInt(FrozenLine::quantity).sum();
-        }
-
-        void assertAuthorizes(NoonSalesReportBinding binding, NoonCallContext context) {
-            scope.assertMatches(binding, context);
-        }
-
-        List<FrozenLine> lines() {
-            return lines;
-        }
-
-        int totalQuantity() {
-            return totalQuantity;
-        }
-
-        List<AsnLineInsertRecord> requestLineRows() {
-            List<AsnLineInsertRecord> result = new ArrayList<>();
-            for (FrozenLine line : lines) {
-                result.add(line.requestLineRow());
-            }
-            return result;
-        }
-    }
-
-    static final class FrozenLine {
-        private final String partnerSku;
-        private final String pskuCode;
-        private final String noonSku;
-        private final int quantity;
-        private final java.math.BigDecimal cubicFeet;
-        private final String storageTypeCode;
-        private final List<String> sourceBarcodes;
-        private final List<String> pbarcodes;
-
-        private FrozenLine(AsnLineInsertRecord line, List<String> pbarcodes) {
-            this.partnerSku = text(line.partnerSku);
-            this.pskuCode = text(line.pskuCode);
-            this.noonSku = text(line.noonSku);
-            this.quantity = line.quantity;
-            this.cubicFeet = line.cubicFeet;
-            this.storageTypeCode = text(line.storageTypeCode);
-            this.sourceBarcodes = OfficialWarehouseAsnProductPreflightModule.sourceBarcodes(line);
-            this.pbarcodes = List.copyOf(pbarcodes);
-        }
-
-        private static FrozenLine from(AsnLineInsertRecord line, List<String> pbarcodes) {
-            return new FrozenLine(line, pbarcodes);
-        }
-
-        String partnerSku() { return partnerSku; }
-        String pskuCode() { return pskuCode; }
-        String noonSku() { return noonSku; }
-        int quantity() { return quantity; }
-        java.math.BigDecimal cubicFeet() { return cubicFeet; }
-        String storageTypeCode() { return storageTypeCode; }
-        List<String> sourceBarcodes() { return sourceBarcodes; }
-        List<String> pbarcodes() { return pbarcodes; }
-
-        private AsnLineInsertRecord requestLineRow() {
-            AsnLineInsertRecord row = new AsnLineInsertRecord();
-            row.partnerSku = partnerSku;
-            row.pskuCode = pskuCode;
-            row.noonSku = noonSku;
-            row.quantity = quantity;
-            row.cubicFeet = cubicFeet;
-            row.storageTypeCode = storageTypeCode;
-            row.sourceBarcodes.addAll(sourceBarcodes);
-            return row;
-        }
-    }
 }

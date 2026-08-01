@@ -506,15 +506,8 @@ public class InTransitBatchService {
         if (!StringUtils.hasText(resolved.getBoxNo())) {
             throw new IllegalArgumentException("箱号不能为空。");
         }
-        String barcode = clean(resolved.getSku());
-        if (!StringUtils.hasText(barcode)) {
-            throw new IllegalArgumentException("物流商品 barcode 不能为空。");
-        }
-        BarcodeProductIdentity productIdentity = mapper.selectProductIdentityByBarcode(ownerUserId, barcode);
-        if (productIdentity == null || !StringUtils.hasText(productIdentity.getPartnerSku())) {
-            throw new IllegalArgumentException("物流商品 barcode 未唯一匹配当前货主商品：" + barcode);
-        }
-        String partnerSku = clean(productIdentity.getPartnerSku());
+        InTransitBarcodeIdentitySupport.Match identity =
+                InTransitBarcodeIdentitySupport.require(mapper, ownerUserId, resolved.getSku());
 
         Integer shippedQuantity = nonNegativeOrZero(resolved.getShippedQuantity(), "发货数量不能为负数。");
         Integer receivedQuantity = nonNegativeOrZero(resolved.getReceivedQuantity(), "已入仓数量不能为负数。");
@@ -567,9 +560,9 @@ public class InTransitBatchService {
         row.setBatchId(batchId);
         row.setPackageId(packageRow == null ? null : packageRow.getId());
         row.setBoxNo(packageRow == null ? null : packageRow.getBoxNo());
-        row.setSku(barcode);
+        row.setSku(identity.barcode());
         row.setMsku(clean(resolved.getMsku()));
-        row.setPsku(partnerSku);
+        row.setPsku(identity.partnerSku());
         row.setProductName(clean(resolved.getProductName()));
         row.setStoreCode(clean(resolved.getStoreCode()));
         row.setSiteCode(clean(resolved.getSiteCode()));

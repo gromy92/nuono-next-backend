@@ -40,7 +40,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.Avail
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.RunResult;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseNoonInboundClient.NoonCallContext;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightModule.Proof;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightProof;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnLineView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundDetailView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnInboundLineView;
@@ -671,7 +671,7 @@ public class LocalDbOfficialWarehouseService implements
                 ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode, LocalDate.now(), LocalDate.now()));
         NoonSession session = openNoonSession(ownerUserId, binding);
         NoonCallContext asnCallContext = NoonCallContext.asn(asnId, localAsnNo);
-        Proof preflightProof = asnProductPreflight.freeze(session, binding, asnCallContext, lineRows);
+        OfficialWarehouseAsnProductPreflightProof preflightProof = asnProductPreflight.freeze(session, binding, asnCallContext, lineRows);
         asnRow.projectCode = binding.getProjectCode();
         asnRow.partnerId = binding.getPartnerId();
         mapper.insertAsn(asnRow);
@@ -681,7 +681,6 @@ public class LocalDbOfficialWarehouseService implements
         for (AsnShippingBatchLinkInsertRecord linkRow : shippingBatchLinks) {
             mapper.insertAsnShippingBatchLink(linkRow);
         }
-
         boolean remoteAsnCreated = false;
         String noonAsnNo = null;
         try {
@@ -701,8 +700,7 @@ public class LocalDbOfficialWarehouseService implements
                     access.getSessionUserId()
             );
 
-            JsonNode routingResponse = noonInboundClient.routeWarehouse(
-                    session, binding, asnCallContext, asnNr, preflightProof);
+            JsonNode routingResponse = noonInboundClient.routeWarehouse(session, binding, asnCallContext, asnNr, preflightProof);
             JsonNode firstWarehouse = firstWarehouse(routingResponse);
             String selectedWarehousePartnerCode = text(firstWarehouse, "partner_code");
             String selectedWarehouseCode = text(firstWarehouse, "code");
@@ -716,8 +714,7 @@ public class LocalDbOfficialWarehouseService implements
                     access.getSessionUserId()
             );
 
-            JsonNode linesResponse = noonInboundClient.createLines(
-                    session, binding, asnCallContext, asnNr, preflightProof);
+            JsonNode linesResponse = noonInboundClient.createLines(session, binding, asnCallContext, asnNr, preflightProof);
             mapper.markAllLinesCreated(asnId, access.getSessionUserId());
             applyNoonLineResponse(asnId, linesResponse, access.getSessionUserId());
             sealRemoteAsnAfterLineCreation(
@@ -1032,10 +1029,7 @@ public class LocalDbOfficialWarehouseService implements
                         : "ASN_CREATE_SELECTED_IN_TRANSIT_BATCH";
                 link.operatorUserId = operatorUserId;
                 links.add(link);
-                if (StringUtils.hasText(allocation.sourceBarcode)
-                        && !lineRow.sourceBarcodes.contains(allocation.sourceBarcode.trim())) {
-                    lineRow.sourceBarcodes.add(allocation.sourceBarcode.trim());
-                }
+                OfficialWarehouseAsnProductPreflightModule.addSourceBarcode(lineRow, allocation.sourceBarcode);
                 remainingQuantity -= linkedQuantity;
                 remainingBySourceId.put(sourceId, sourceRemaining - linkedQuantity);
             }

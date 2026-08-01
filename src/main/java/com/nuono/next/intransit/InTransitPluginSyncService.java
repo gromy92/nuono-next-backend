@@ -1064,13 +1064,7 @@ public class InTransitPluginSyncService {
         return line != null
                 && StringUtils.hasText(line.getBarcode())
                 && StringUtils.hasText(line.getSku())
-                && !sameBarcode(line.getBarcode(), line.getSku());
-    }
-
-    private boolean sameBarcode(String left, String right) {
-        String cleanedLeft = clean(left);
-        String cleanedRight = clean(right);
-        return cleanedLeft != null && cleanedLeft.equals(cleanedRight);
+                && !InTransitBarcodeIdentitySupport.sameBarcode(line.getBarcode(), line.getSku());
     }
 
     private ParsedNode parseNode(String sourceSystem, String batchNo, PluginSyncNode node) {

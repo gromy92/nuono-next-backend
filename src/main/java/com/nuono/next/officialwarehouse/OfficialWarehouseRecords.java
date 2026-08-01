@@ -3,14 +3,10 @@ package com.nuono.next.officialwarehouse;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
 
 public final class OfficialWarehouseRecords {
-
     private OfficialWarehouseRecords() {
     }
-
     public static class StoreSiteRecord {
         public Long ownerUserId;
         public Long logicalStoreId;
@@ -111,11 +107,10 @@ public final class OfficialWarehouseRecords {
         public BigDecimal productWeightG;
         public BigDecimal cubicFeet;
         public String storageTypeCode;
-        public List<String> sourceBarcodes = new ArrayList<>();
+        public java.util.List<String> sourceBarcodes = new java.util.ArrayList<>();
         public String lineStatus;
         public Long operatorUserId;
     }
-
     public static class ShippingBatchCandidateRecord {
         public Long id;
         public String sourceKind;
