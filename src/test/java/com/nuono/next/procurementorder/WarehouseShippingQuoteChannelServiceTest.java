@@ -1,6 +1,7 @@
 package com.nuono.next.procurementorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -34,6 +35,7 @@ class WarehouseShippingQuoteChannelServiceTest {
                 priceService,
                 mock(WarehouseShippingQuoteProjectionService.class)
         );
+        when(mapper.confirmLogisticsQuoteLine(any(), eq(307L))).thenReturn(1);
     }
 
     @Test
@@ -128,6 +130,15 @@ class WarehouseShippingQuoteChannelServiceTest {
     }
 
     @Test
+    void confirmationRejectsConcurrentSubmission() {
+        PurchaseOrderLogisticsQuoteLineRecord line = line(280001L, "ZD", "ZD-SAU-AIR-FBN-RUH", null);
+        when(mapper.confirmLogisticsQuoteLine(line, 307L)).thenReturn(0);
+
+        assertThatThrownBy(() -> WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, line, 307L))
+                .hasMessageContaining("状态已变化");
+    }
+
+    @Test
     void reassignThenSameChannelQuoteAndSubmitUseCurrentSegmentSnapshot() {
         PurchaseOrderLogisticsQuoteLineRecord current = line(null, null, null, null);
         current.shippingOrderSegmentId = 292002L;
@@ -217,6 +228,7 @@ class WarehouseShippingQuoteChannelServiceTest {
         line.serviceCode = serviceCode;
         line.unitPrice = id == null ? null : new BigDecimal(id.equals(280001L) ? "65" : "79");
         line.quoteStatus = id == null ? "PENDING_QUOTE" : "CONFIRMED";
+        line.shippingSubmitStatus = "NOT_SUBMITTED";
         return line;
     }
 

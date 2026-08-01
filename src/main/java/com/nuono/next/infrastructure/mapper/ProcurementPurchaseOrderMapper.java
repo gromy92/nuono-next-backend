@@ -2572,7 +2572,7 @@ public interface ProcurementPurchaseOrderMapper extends ProcurementWarehouseTran
             "    confirmed_by = #{operatorUserId},",
             "    updated_by = #{operatorUserId},",
             "    gmt_updated = NOW()",
-            "WHERE id = #{row.id}",
+            "WHERE id = #{row.id} AND shipping_submit_status = 'NOT_SUBMITTED'",
             "  AND is_deleted = b'0'"
     })
     int confirmLogisticsQuoteLine(

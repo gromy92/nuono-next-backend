@@ -161,7 +161,7 @@ src/main/java/com/nuono/next/procurement/aliorder/Ali1688SkuPurchaseBatchView.ja
 src/main/java/com/nuono/next/procurement/aliorder/Ali1688SkuPurchaseHistoryView.java	751
 src/main/java/com/nuono/next/procurement/aliorder/HttpAli1688HistoricalOrderProvider.java	592
 src/main/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderService.java	3422
-src/main/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderService.java	6416
+src/main/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderService.java	6412
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderController.java	612
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderRecords.java	635
 src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java	426

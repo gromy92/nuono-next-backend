@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 
 from schema_migrations.mysql_support import MySqlExecutionError
-from release_schema_mysql_forwarder_source_contract import assert_source_contract
+from ci.release_schema_mysql_forwarder_source_contract import assert_source_contract
 
 
 MIGRATION_KEY = "237_warehouse_forwarder_quote_and_transport_eligibility.sql"

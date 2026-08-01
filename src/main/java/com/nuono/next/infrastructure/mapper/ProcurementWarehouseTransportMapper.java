@@ -25,6 +25,20 @@ public interface ProcurementWarehouseTransportMapper
 
     @Select({
             "<script>",
+            "SELECT id FROM procurement_purchase_order_item_site",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND id IN",
+            "  <foreach collection='itemSiteIds' item='itemSiteId' open='(' separator=',' close=')'>#{itemSiteId}</foreach>",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC",
+            "FOR UPDATE",
+            "</script>"
+    })
+    List<Long> lockPurchaseOrderItemSitesForShipping(@Param("ownerUserId") Long ownerUserId,
+                                                     @Param("itemSiteIds") List<Long> itemSiteIds);
+
+    @Select({
+            "<script>",
             "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
             "       product_variant_id AS productVariantId, logical_store_id AS logicalStoreId,",
             "       source_store_code AS sourceStoreCode, partner_sku AS partnerSku,",

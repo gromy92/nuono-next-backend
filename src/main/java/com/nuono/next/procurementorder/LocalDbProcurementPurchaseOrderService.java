@@ -1073,7 +1073,7 @@ public class LocalDbProcurementPurchaseOrderService {
         quoteLine.billingUnit = billingUnit;
         quoteLine.estimatedAmount = null;
         quoteLine.remark = trimToNull(command == null ? null : command.remark);
-        mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
+        WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, quoteLine, operatorUserId);
         persistConfirmedWarehouseQuote(
                 quoteLine,
                 operatorUserId,
@@ -1196,7 +1196,7 @@ public class LocalDbProcurementPurchaseOrderService {
             quoteLine.billingUnit = billingUnit;
             quoteLine.estimatedAmount = null;
             quoteLine.remark = remark;
-            mapper.confirmLogisticsQuoteLine(quoteLine, operatorUserId);
+            WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, quoteLine, operatorUserId);
             persistConfirmedWarehouseQuote(
                     quoteLine,
                     operatorUserId,
@@ -1260,14 +1260,13 @@ public class LocalDbProcurementPurchaseOrderService {
         }
         Long ownerUserId = ownerUserId(access);
         Long operatorUserId = access.getSessionUserId();
-        List<PurchaseOrderRecord> orders = new ArrayList<>();
         LinkedHashSet<Long> orderIds = new LinkedHashSet<>();
         for (String rawOrderId : command.purchaseOrderIds) {
-            Long orderId = parseLongId(rawOrderId, "采购单不存在或已删除。");
-            if (!orderIds.add(orderId)) {
-                continue;
-            }
-            PurchaseOrderRecord order = requireOrderAccess(access, orderId);
+            orderIds.add(parseLongId(rawOrderId, "采购单不存在或已删除。"));
+        }
+        List<PurchaseOrderRecord> orders = new ArrayList<>();
+        for (Long orderId : orderIds.stream().sorted().collect(Collectors.toList())) {
+            PurchaseOrderRecord order = requireOrderAccessForUpdate(access, orderId);
             if (!ownerUserId.equals(order.ownerUserId)) {
                 throw new IllegalArgumentException("仓库单不能跨老板合并采购单。");
             }
@@ -1279,22 +1278,28 @@ public class LocalDbProcurementPurchaseOrderService {
         if (orders.isEmpty()) {
             throw new IllegalArgumentException("请选择要合并的采购单。");
         }
-
         List<PurchaseOrderLogisticsQuoteLineRecord> sourceLines = new ArrayList<>();
         for (PurchaseOrderRecord order : orders) {
-            sourceLines.addAll(refreshLogisticsQuoteLines(order, operatorUserId));
+            sourceLines.addAll(emptyIfNull(mapper.listLogisticsQuoteCandidatesByOrder(order.id)));
         }
         List<Long> itemSiteIds = sourceLines.stream()
                 .map(line -> line.purchaseOrderItemSiteId)
                 .filter(id -> id != null)
                 .distinct()
+                .sorted()
                 .collect(Collectors.toList());
         if (itemSiteIds.isEmpty()) {
             throw new IllegalArgumentException("所选采购单没有可加入仓库单的商品行。");
         }
+        List<Long> lockedItemSiteIds = emptyIfNull(
+                mapper.lockPurchaseOrderItemSitesForShipping(ownerUserId, itemSiteIds));
+        if (!itemSiteIds.equals(lockedItemSiteIds)) {
+            throw new IllegalArgumentException("采购商品范围已变化，请刷新后重试。");
+        }
         if (mapper.countActiveShippingOrderLinesByItemSites(itemSiteIds) > 0) {
             throw new IllegalArgumentException("所选采购单已在仓库单中，不能重复合并。");
         }
+        refreshLogisticsQuoteLines(operatorUserId, sourceLines);
 
         Long shippingOrderId = mapper.nextShippingOrderId();
         String shippingOrderNo = "SO-" + shippingOrderId;
@@ -2049,16 +2054,6 @@ public class LocalDbProcurementPurchaseOrderService {
         view.quantity = nonNull(line.quantity);
         view.eligibilityStatus = WarehouseForwarderEligibilityService.effectiveStatus(line.eligibilityStatus);
         return view;
-    }
-
-    private List<PurchaseOrderLogisticsQuoteLineRecord> refreshLogisticsQuoteLines(
-            PurchaseOrderRecord order,
-            Long operatorUserId
-    ) {
-        return refreshLogisticsQuoteLines(
-                operatorUserId,
-                emptyIfNull(mapper.listLogisticsQuoteCandidatesByOrder(order.id))
-        );
     }
 
     private List<PurchaseOrderLogisticsQuoteLineRecord> refreshLogisticsQuoteLines(
@@ -3294,7 +3289,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 List.of(line),
                 WarehouseShippingQuoteChannelIdentity.candidateFrom(line)
         );
-        mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, line, operatorUserId);
         persistConfirmedWarehouseQuote(
                 line,
                 operatorUserId,
@@ -3438,6 +3433,7 @@ public class LocalDbProcurementPurchaseOrderService {
             return;
         }
         for (PurchaseOrderLogisticsQuoteLineRecord line : lines) {
+            WarehouseShippingQuoteSnapshotRefresher.requireNotSubmitted(line);
             if (isOutsideSelectedShippingOrderSegment(order, line, allowedSegmentIds)) {
                 addImportError(view, rowNumber, "报价行不属于当前筛选的子发货单。");
                 return;
@@ -3493,7 +3489,7 @@ public class LocalDbProcurementPurchaseOrderService {
                     List.of(line),
                     WarehouseShippingQuoteChannelIdentity.candidateFrom(line)
             );
-            mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+            WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, line, operatorUserId);
             persistConfirmedWarehouseQuote(
                     line,
                     operatorUserId,
@@ -3648,7 +3644,7 @@ public class LocalDbProcurementPurchaseOrderService {
                 List.of(line),
                 WarehouseShippingQuoteChannelIdentity.candidateFrom(line)
         );
-        mapper.confirmLogisticsQuoteLine(line, operatorUserId);
+        WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, line, operatorUserId);
         persistConfirmedWarehouseQuote(
                 line,
                 operatorUserId,

@@ -59,6 +59,22 @@ class ProcurementForwarderQuoteMapperSqlTest {
         assertThat(statement).contains("FOR UPDATE");
     }
 
+    @Test
+    void shippingOrderItemSiteLockIsOwnerScopedAndDeterministicallyOrdered() throws Exception {
+        Method method = ProcurementPurchaseOrderMapper.class.getMethod(
+                "lockPurchaseOrderItemSitesForShipping",
+                Long.class,
+                java.util.List.class
+        );
+
+        String statement = sql(method);
+
+        assertThat(statement).contains("owner_user_id = #{ownerUserId}");
+        assertThat(statement).contains("id IN");
+        assertThat(statement).contains("ORDER BY id ASC");
+        assertThat(statement).contains("FOR UPDATE");
+    }
+
     private static String sql(Method method) {
         return String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ");

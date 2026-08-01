@@ -60,6 +60,9 @@ final class WarehouseShippingQuoteSnapshotRefresher {
         PurchaseOrderLogisticsQuoteLineRecord selected = quoteLineId == null
                 ? (shippingOrder ? null : mapper.selectLogisticsQuoteLineByItemSiteForUpdate(documentId, itemSiteId))
                 : mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(documentId, quoteLineId, itemSiteId);
+        if (selected != null) {
+            requireNotSubmitted(selected);
+        }
         if (selected == null || !shippingOrder) {
             return selected;
         }
@@ -70,6 +73,23 @@ final class WarehouseShippingQuoteSnapshotRefresher {
                 .findFirst()
                 .orElse(null);
         return currentBase == null ? null : rebind(selected, currentBase);
+    }
+
+    static void confirm(
+            ProcurementPurchaseOrderMapper mapper,
+            PurchaseOrderLogisticsQuoteLineRecord line,
+            Long operatorUserId
+    ) {
+        requireNotSubmitted(line);
+        if (mapper.confirmLogisticsQuoteLine(line, operatorUserId) != 1) {
+            throw new IllegalArgumentException("物流报价状态已变化，请刷新后重试。");
+        }
+    }
+
+    static void requireNotSubmitted(PurchaseOrderLogisticsQuoteLineRecord line) {
+        if (line == null || !"NOT_SUBMITTED".equals(line.shippingSubmitStatus)) {
+            throw new IllegalArgumentException("物流报价已提交仓库，不能再次导入或修改。");
+        }
     }
 
     private static <T> List<T> safe(List<T> values) {

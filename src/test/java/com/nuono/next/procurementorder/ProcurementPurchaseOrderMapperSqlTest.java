@@ -395,8 +395,8 @@ class ProcurementPurchaseOrderMapperSqlTest {
 
         String sql = String.join(" ", method.getAnnotation(Update.class).value())
                 .replaceAll("\\s+", " ");
-
         assertThat(sql).contains("shipping_submit_status = COALESCE(#{row.shippingSubmitStatus}, shipping_submit_status, 'NOT_SUBMITTED')");
+        assertThat(sql).contains("WHERE id = #{row.id} AND shipping_submit_status = 'NOT_SUBMITTED'");
         assertThat(sql).doesNotContain("shipping_submitted_at = NULL");
         assertThat(sql).doesNotContain("shipping_submitted_by = NULL");
     }

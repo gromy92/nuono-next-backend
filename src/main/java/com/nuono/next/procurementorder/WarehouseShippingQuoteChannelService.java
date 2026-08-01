@@ -199,7 +199,7 @@ public class WarehouseShippingQuoteChannelService {
                 exact = WarehouseShippingQuoteSnapshotRefresher.refresh(mapper, exact, line, operatorUserId);
             }
             exact.quoteStatus = CONFIRMED;
-            mapper.confirmLogisticsQuoteLine(exact, operatorUserId);
+            WarehouseShippingQuoteSnapshotRefresher.confirm(mapper, exact, operatorUserId);
             materialized.add(exact);
         }
         return materialized;

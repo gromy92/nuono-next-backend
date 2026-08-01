@@ -94,10 +94,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
 
     @Mock
     private ProductSelectionMapper productSelectionMapper;
-
     @Mock
     private LocalDbAli1688CollectionService ali1688CollectionService;
-
     @Mock
     private WarehouseProductLogisticsPriceBridge productLogisticsPriceBridge;
     private WarehouseLogisticsQuotePriceService logisticsQuotePriceService;
@@ -117,6 +115,8 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         lenient().when(mapper.nextLogisticsExpectedBillComponentId()).thenReturn(340001L);
         lenient().when(mapper.nextLogisticsBillReconciliationId()).thenReturn(360001L);
         lenient().when(mapper.listRouteSegments(any())).thenReturn(List.of());
+        lenient().when(mapper.confirmLogisticsQuoteLine(any(), anyLong())).thenReturn(1);
+        lenient().when(mapper.lockPurchaseOrderItemSitesForShipping(anyLong(), any())).thenAnswer(invocation -> invocation.getArgument(1));
         lenient().when(mapper.selectOrderByIdForUpdate(anyLong()))
                 .thenAnswer(invocation -> mapper.selectOrderById(invocation.getArgument(0)));
         lenient().when(mapper.selectShippingOrderByIdForUpdate(anyLong(), anyLong()))
@@ -479,7 +479,7 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     @Test
     void importYiteTemplateCanMatchShippingOrderRowsByProductCodeAndVisiblePriceOnly() throws Exception {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
         line.shippingOrderId = 290001L;
         line.shippingOrderNo = "SO-290001";
         line.shippingOrderSegmentId = 292001L;
@@ -506,14 +506,14 @@ class LocalDbProcurementPurchaseOrderServiceTest {
         verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
         assertThat(rowCaptor.getValue().id).isEqualTo(280001L);
         assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
-        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("SUBMITTED");
+        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("NOT_SUBMITTED");
         assertThat(rowCaptor.getValue().unitPrice).isEqualByComparingTo("13.50");
     }
 
     @Test
     void importYiteTemplateFallsBackToProductCodeWhenHiddenShippingOrderItemSiteIdIsStale() throws Exception {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
         line.shippingOrderId = 290001L;
         line.shippingOrderNo = "SO-290001";
         line.shippingOrderSegmentId = 292001L;
@@ -547,12 +547,12 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     @Test
     void importYiteTemplateAppliesProductCodeFallbackToDuplicateShippingOrderRows() throws Exception {
         ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        PurchaseOrderLogisticsQuoteLineRecord firstLine = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
+        PurchaseOrderLogisticsQuoteLineRecord firstLine = quoteLine(280001L, "PENDING_QUOTE", "NOT_SUBMITTED");
         firstLine.shippingOrderId = 290001L;
         firstLine.shippingOrderNo = "SO-290001";
         firstLine.shippingOrderSegmentId = 292001L;
         firstLine.forwarderCode = "YT";
-        PurchaseOrderLogisticsQuoteLineRecord secondLine = quoteLine(280002L, "PENDING_QUOTE", "SUBMITTED");
+        PurchaseOrderLogisticsQuoteLineRecord secondLine = quoteLine(280002L, "PENDING_QUOTE", "NOT_SUBMITTED");
         secondLine.purchaseOrderItemSiteId = 220003L;
         secondLine.shippingOrderId = 290001L;
         secondLine.shippingOrderNo = "SO-290001";
@@ -651,35 +651,18 @@ class LocalDbProcurementPurchaseOrderServiceTest {
     }
 
     @Test
-    void importShippingOrderLogisticsQuoteReportKeepsSubmittedRowsSubmitted() throws Exception {
-        ProcurementPurchaseOrderRecords.ShippingOrderRecord shippingOrder = shippingOrder();
-        shippingOrder.shippingSubmitStatus = "SUBMITTED";
+    void importLogisticsQuoteReportRejectsSubmittedRowsBeforeAnyWrite() throws Exception {
+        PurchaseOrderRecord order = order("SGGR-0607", "人工补货");
         PurchaseOrderLogisticsQuoteLineRecord line = quoteLine(280001L, "PENDING_QUOTE", "SUBMITTED");
-        line.shippingOrderId = 290001L;
-        line.shippingOrderNo = "SO-290001";
-        line.shippingOrderSegmentId = 292001L;
-        ShippingOrderSegmentScopeCommand command = new ShippingOrderSegmentScopeCommand();
-        command.segmentIds = List.of("292001");
 
-        when(mapper.selectShippingOrderById(290001L)).thenReturn(shippingOrder);
-        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(290001L, 280001L, 220002L)).thenReturn(line);
+        when(mapper.selectOrderById(200001L)).thenReturn(order);
+        when(mapper.selectLogisticsQuoteLineByDocumentLineForUpdate(200001L, 280001L, 220002L)).thenReturn(line);
 
-        PurchaseOrderLogisticsQuoteImportView result = service.importShippingOrderLogisticsQuoteReport(
-                access(),
-                "290001",
-                new ByteArrayInputStream(etTemplateWorkbookBytes()),
-                "sku一步上传装箱清单导入模版.xlsx",
-                command
-        );
-
-        assertThat(result.totalRows).isEqualTo(1);
-        assertThat(result.updatedRows).isEqualTo(1);
-        assertThat(result.errors).isEmpty();
-        ArgumentCaptor<PurchaseOrderLogisticsQuoteLineRecord> rowCaptor =
-                ArgumentCaptor.forClass(PurchaseOrderLogisticsQuoteLineRecord.class);
-        verify(mapper).confirmLogisticsQuoteLine(rowCaptor.capture(), eq(307L));
-        assertThat(rowCaptor.getValue().quoteStatus).isEqualTo("CONFIRMED");
-        assertThat(rowCaptor.getValue().shippingSubmitStatus).isEqualTo("SUBMITTED");
+        assertThatThrownBy(() -> service.importLogisticsQuoteReport(
+                access(), "200001", new ByteArrayInputStream(quoteWorkbookBytes()), "物流报价.xlsx"))
+                .hasMessageContaining("已提交仓库");
+        verify(mapper, org.mockito.Mockito.never()).confirmLogisticsQuoteLine(any(), anyLong());
+        verify(logisticsQuotePriceService, org.mockito.Mockito.never()).syncConfirmedQuote(any(), anyLong(), any());
     }
 
     @Test
