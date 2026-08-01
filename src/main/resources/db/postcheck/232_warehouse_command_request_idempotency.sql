@@ -57,6 +57,7 @@ SELECT IF(
               )
           )
           AND character_set_name = 'utf8mb4'
+          AND (column_name <> 'client_request_id' OR collation_name = 'utf8mb4_bin')
           AND is_nullable = 'YES'
           AND column_default IS NULL
           AND extra = ''

@@ -34,12 +34,21 @@ abstract class WarehousePackingOperations extends WarehouseLinkedShippingBatchOp
             String outboundOrderId,
             CreatePackingListCommand command
     ) {
-        OutboundOrderRecord outboundOrder = requireOutboundOrderAccess(
+        Long parsedOutboundOrderId = parseLongId(outboundOrderId, "出库单不存在或已删除。");
+        requireOutboundOrderAccess(access, parsedOutboundOrderId);
+        OutboundOrderRecord outboundOrder = requireOutboundOrderAccessForUpdate(
                 access,
-                parseLongId(outboundOrderId, "出库单不存在或已删除。")
+                parsedOutboundOrderId
         );
         if (!"DRAFT".equals(outboundOrder.status) && !"PACKING".equals(outboundOrder.status)) {
             throw new IllegalArgumentException("只有草稿或装箱中的出库单可以创建装箱单。");
+        }
+        List<PackingListRecord> existingPackingLists = mapper.listPackingListsByOutboundOrder(
+                outboundOrder.id,
+                warehouseBusinessScope(access).storeOwnerUserIds()
+        );
+        if (!existingPackingLists.isEmpty()) {
+            return toPackingListView(existingPackingLists.get(0));
         }
 
         Long operatorUserId = access.getSessionUserId();

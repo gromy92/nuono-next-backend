@@ -28,6 +28,8 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
                 .contains("procurement_fulfillment_confirmation")
                 .contains("client_request_id")
                 .contains("request_fingerprint")
+                .contains("COLLATE utf8mb4_bin")
+                .contains("collation_name <> 'utf8mb4_bin'")
                 .contains("client_request_id` IS NOT NULL")
                 .contains("HAVING COUNT(*) > 1")
                 .contains("(`client_request_id` IS NULL) <> (`request_fingerprint` IS NULL)")
@@ -40,6 +42,7 @@ class WarehouseRequestIdempotencyReleaseMigrationTest {
                 .doesNotContain("UPDATE `procurement_")
                 .doesNotContain("DELETE FROM `procurement_");
         assertThat(postcheck)
+                .contains("collation_name = 'utf8mb4_bin'")
                 .contains("uk_dispatch_plan_owner_client_request")
                 .contains("uk_fulfillment_confirmation_owner_client_request")
                 .contains("HAVING COUNT(*) > 1")

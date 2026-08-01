@@ -1,5 +1,4 @@
--- Converge warehouse receipt and dispatch command idempotency.
--- Existing duplicate non-null request keys require separately evidenced repair.
+-- Converge warehouse receipt/dispatch idempotency; duplicate request keys require evidenced repair.
 SET SESSION `lock_wait_timeout` = 5;
 SET SESSION `innodb_lock_wait_timeout` = 5;
 SET @warehouse_idempotency_table_count := (
@@ -51,6 +50,7 @@ SET @warehouse_idempotency_conflicting_column_count := (
       )
       AND (
           character_set_name <> 'utf8mb4'
+          OR (column_name = 'client_request_id' AND collation_name <> 'utf8mb4_bin')
           OR is_nullable <> 'YES'
           OR column_default IS NOT NULL
           OR extra <> ''
@@ -104,13 +104,13 @@ SET @dispatch_idempotency_columns_sql := CASE
     WHEN @dispatch_client_request_column_exists = 0
         AND @dispatch_request_fingerprint_column_exists = 0
     THEN 'ALTER TABLE `procurement_dispatch_plan`
-        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 DEFAULT NULL
+        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL
             AFTER `owner_user_id`,
         ADD COLUMN `request_fingerprint` VARCHAR(64) CHARACTER SET utf8mb4 DEFAULT NULL
             AFTER `client_request_id`'
     WHEN @dispatch_client_request_column_exists = 0
     THEN 'ALTER TABLE `procurement_dispatch_plan`
-        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 DEFAULT NULL
+        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL
             AFTER `owner_user_id`'
     WHEN @dispatch_request_fingerprint_column_exists = 0
     THEN 'ALTER TABLE `procurement_dispatch_plan`
@@ -139,13 +139,13 @@ SET @receipt_idempotency_columns_sql := CASE
     WHEN @receipt_client_request_column_exists = 0
         AND @receipt_request_fingerprint_column_exists = 0
     THEN 'ALTER TABLE `procurement_fulfillment_confirmation`
-        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 DEFAULT NULL
+        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL
             AFTER `owner_user_id`,
         ADD COLUMN `request_fingerprint` CHAR(64) CHARACTER SET utf8mb4 DEFAULT NULL
             AFTER `client_request_id`'
     WHEN @receipt_client_request_column_exists = 0
     THEN 'ALTER TABLE `procurement_fulfillment_confirmation`
-        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 DEFAULT NULL
+        ADD COLUMN `client_request_id` VARCHAR(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL
             AFTER `owner_user_id`'
     WHEN @receipt_request_fingerprint_column_exists = 0
     THEN 'ALTER TABLE `procurement_fulfillment_confirmation`

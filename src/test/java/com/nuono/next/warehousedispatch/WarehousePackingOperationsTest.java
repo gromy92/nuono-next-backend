@@ -54,6 +54,7 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
         command.remark = "仓库装箱";
 
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
         when(mapper.nextPackingListId()).thenReturn(830001L);
         when(mapper.markOutboundOrderPacking(800001L, 307L, 307L)).thenReturn(1);
 
@@ -71,6 +72,7 @@ class WarehousePackingOperationsTest extends WarehouseDispatchServiceTestSupport
         command.remark = "仓库装箱";
 
         when(mapper.selectOutboundOrderById(800001L)).thenReturn(outboundOrder);
+        when(mapper.selectOutboundOrderByIdForUpdate(800001L)).thenReturn(outboundOrder);
         when(mapper.nextPackingListId()).thenReturn(830001L);
         when(mapper.markOutboundOrderPacking(800001L, 307L, 307L)).thenReturn(1);
 
