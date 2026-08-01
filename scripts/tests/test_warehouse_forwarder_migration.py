@@ -20,9 +20,25 @@ from ci.release_schema_mysql_forwarder_source_contract import (  # noqa: E402
     assert_source_contract,
     execute_group_concat,
 )
+from ci.release_schema_mysql_postcheck_diagnostics import (  # noqa: E402
+    outer_if_predicates,
+)
 
 
 class WarehouseForwarderMigrationTest(unittest.TestCase):
+    def test_postcheck_diagnostics_split_only_outer_contract_predicates(self):
+        resources = SCRIPT_DIR.parent / "src/main/resources"
+        migration = next(
+            item for item in load_catalog(resources) if item.key ==
+            "237_warehouse_forwarder_quote_and_transport_eligibility.sql"
+        )
+
+        predicates = outer_if_predicates(migration.postcheck_sql)
+
+        self.assertGreater(len(predicates), 40)
+        self.assertIn("version_no='YT-SAU-20260728'", predicates[0])
+        self.assertIn("product_management_id_sequence", predicates[-1])
+
     def test_ci_matches_production_trigger_policy_without_elevating_migration_user(self):
         workflow = (SCRIPT_DIR.parent / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"
@@ -182,6 +198,8 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
             self.assertIn("COALESCE(adjustment.adjusted_value,price.unit_price)", sql)
             self.assertIn("adjustment.id IS NULL", sql)
             self.assertIn("uk_pfte_active_scope", sql)
+            self.assertIn("CONCAT(CHAR(92),CHAR(39)),CHAR(39)", sql)
+            self.assertIn("CONCAT(CHAR(92),'0'),'0'", sql)
 
 
 if __name__ == "__main__":

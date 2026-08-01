@@ -38,6 +38,7 @@ from ci.release_schema_mysql_forwarder_trigger_scenario import (  # noqa: E402
 from ci.release_schema_mysql_forwarder_source_guard_scenario import verify_forwarder_source_drift_guard  # noqa: E402
 from ci.release_schema_mysql_forwarder_eligibility_guard_scenario import verify_forwarder_eligibility_binary_guards  # noqa: E402
 from ci.release_schema_mysql_forwarder_shape_guard_scenario import verify_forwarder_wrong_shape_fail_before_writes  # noqa: E402
+from ci.release_schema_mysql_postcheck_diagnostics import apply_with_diagnostics  # noqa: E402
 
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
@@ -170,11 +171,12 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         self.assertEqual("RERUN_APPLIED", repair_result)
         verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
-        self.assertEqual(
-            [request_idempotency.key, packing_index.key,
-             appointment.key, shipping_batch.key, shipping_plan.key, forwarder.key],
-            runner.apply(approved_managed=approvals),
-        )
+        expected_applied = [
+            request_idempotency.key, packing_index.key, appointment.key,
+            shipping_batch.key, shipping_plan.key, forwarder.key,
+        ]
+        applied = apply_with_diagnostics(runner, approvals, database, forwarder)
+        self.assertEqual(expected_applied, applied)
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
         verify_applied_schema(
