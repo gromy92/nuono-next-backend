@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -48,6 +49,41 @@ class LocalDbOfficialWarehouseServiceAppointmentConstraintTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("status <> 'RUNNING'");
+    }
+
+    @Test
+    void appointmentRequestUpdatePreservesConfirmedScheduleProjection() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "updateAppointmentRequest",
+                AppointmentInsertRecord.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .doesNotContain("appointment_date = NULL")
+                .doesNotContain("appointment_slot_id = NULL")
+                .doesNotContain("appointment_time = NULL")
+                .doesNotContain("ap_success_time = NULL");
+    }
+
+    @Test
+    void scheduledPersistenceDoesNotReplaceConfirmedResultWithNullRemoteFields() throws Exception {
+        Method method = OfficialWarehouseMapper.class.getMethod(
+                "markAppointmentScheduled",
+                Long.class,
+                LocalDate.class,
+                Integer.class,
+                String.class,
+                Long.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("appointment_date = COALESCE(#{appointmentDate}, appointment_date)")
+                .contains("appointment_slot_id = COALESCE(#{slotId}, appointment_slot_id)")
+                .contains("appointment_time = COALESCE(#{appointmentTime}, appointment_time)");
     }
 
     @Test
@@ -117,6 +153,36 @@ class LocalDbOfficialWarehouseServiceAppointmentConstraintTest {
                 contains("没有匹配"),
                 eq(307L)
         );
+    }
+
+    @Test
+    void schedulerRehydratesConfirmedTimeWhenNoonIsAlreadyScheduled() {
+        OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
+        NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
+        OfficialWarehouseNoonInboundClient inboundClient = mock(OfficialWarehouseNoonInboundClient.class);
+        NoonAppointmentClient noonClient = mock(NoonAppointmentClient.class);
+        LocalDbOfficialWarehouseService service = service(
+                mapper, mock(NoonSessionGateway.class), bindingResolver, inboundClient
+        );
+        AppointmentRecord pending = appointment(null);
+        AppointmentRecord running = appointment(null);
+        running.status = "RUNNING";
+        LocalDate scheduledDate = LocalDate.parse("2026-08-01");
+        when(mapper.listDueAppointments(1)).thenReturn(List.of(pending));
+        when(mapper.claimDueAppointmentForRun(611517L, 307L)).thenReturn(1);
+        when(mapper.selectAppointment(307L, 611517L)).thenReturn(running);
+        when(bindingResolver.resolve(any())).thenReturn(binding());
+        when(inboundClient.appointmentClient(any(), any(), any(), any())).thenReturn(noonClient);
+        when(noonClient.queryAsnDetail(any()))
+                .thenReturn(new AsnDetail("scheduled", scheduledDate, "11am-2pm"));
+        ReflectionTestUtils.setField(service, "appointmentSchedulerEnabled", true);
+
+        service.runAppointmentScheduler();
+
+        verify(mapper).markAppointmentScheduled(
+                eq(611517L), eq(scheduledDate), isNull(), eq("11am-2pm"), eq(307L)
+        );
+        verify(noonClient, never()).schedule(any(), any(), any());
     }
 
     private static LocalDbOfficialWarehouseService service(

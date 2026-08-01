@@ -35,7 +35,7 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
         if (isNoonScheduledStatus(status)) {
-            return RunResult.alreadyScheduled();
+            return RunResult.alreadyScheduled(detail);
         }
         RunResult readiness = setWarehousesAndWaitUntilReady(task, client);
         if (readiness != null) {
@@ -269,12 +269,9 @@ public class OfficialWarehouseAppointmentRunner {
     }
 
     private static boolean isNoonScheduledStatus(String status) {
-        return "SCHEDULED".equals(status)
-                || "HANDED_OVER".equals(status)
-                || "RECEIVING".equals(status)
-                || "GRN_COMPLETED".equals(status);
+        return "SCHEDULED".equals(status) || "HANDED_OVER".equals(status)
+                || "RECEIVING".equals(status) || "GRN_COMPLETED".equals(status);
     }
-
     private static boolean isNoonReadyForScheduleStatus(String status) {
         return "SEALED".equals(status);
     }
@@ -294,18 +291,12 @@ public class OfficialWarehouseAppointmentRunner {
 
     public interface NoonAppointmentClient {
         AsnDetail queryAsnDetail(AppointmentTask task);
-
         List<String> queryDayCapacity(AppointmentTask task);
-
         List<SlotCapacity> querySlotCapacity(AppointmentTask task, LocalDate capacityDate);
-
         boolean setWarehouses(AppointmentTask task);
-
         default void onWarehousesSet(AppointmentTask task) {
         }
-
         boolean reschedule(AppointmentTask task);
-
         boolean schedule(AppointmentTask task, LocalDate capacityDate, SlotCapacity slot);
     }
 
@@ -324,9 +315,17 @@ public class OfficialWarehouseAppointmentRunner {
 
     public static class AsnDetail {
         public final String status;
+        public final LocalDate appointmentDate;
+        public final String appointmentTime;
 
         public AsnDetail(String status) {
+            this(status, null, null);
+        }
+
+        public AsnDetail(String status, LocalDate appointmentDate, String appointmentTime) {
             this.status = status;
+            this.appointmentDate = appointmentDate;
+            this.appointmentTime = appointmentTime;
         }
     }
 
@@ -370,8 +369,8 @@ public class OfficialWarehouseAppointmentRunner {
             return result;
         }
 
-        private static RunResult alreadyScheduled() {
-            RunResult result = scheduled(null, null, null);
+        private static RunResult alreadyScheduled(AsnDetail detail) {
+            RunResult result = scheduled(detail.appointmentDate, null, detail.appointmentTime);
             result.alreadyScheduled = true;
             return result;
         }
