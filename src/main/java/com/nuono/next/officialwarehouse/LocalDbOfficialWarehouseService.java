@@ -1602,13 +1602,14 @@ public class LocalDbOfficialWarehouseService implements
         row.availableToday = Boolean.TRUE.equals(command.availableToday);
         row.status = "PENDING";
         row.operatorUserId = access.getSessionUserId();
-
         if (existing == null || "CANCELED".equals(existing.status)) {
             row.id = mapper.nextAppointmentId();
             mapper.insertAppointment(row);
         } else {
             row.id = existing.id;
-            mapper.updateAppointmentRequest(row);
+            if (mapper.updateAppointmentRequest(row) == 0) {
+                throw new IllegalArgumentException("约仓任务正在执行，请稍后重新提交所选日期和时间。");
+            }
         }
         return requireAppointment(ownerUserId, row.id);
     }
@@ -1679,10 +1680,8 @@ public class LocalDbOfficialWarehouseService implements
         return runAppointmentRecord(appointment, access.getSessionUserId(), true);
     }
 
-    @Scheduled(
-            initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:5000}",
-            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:5000}"
-    )
+    @Scheduled(initialDelayString = "${nuono.official-warehouse.appointment.scheduler.initial-delay-ms:5000}",
+            fixedDelayString = "${nuono.official-warehouse.appointment.scheduler.fixed-delay-ms:5000}")
     public void runAppointmentScheduler() {
         if (!appointmentSchedulerEnabled) {
             return;
@@ -1698,9 +1697,10 @@ public class LocalDbOfficialWarehouseService implements
                 continue;
             }
             try {
+                appointment = requireAppointment(appointment.ownerUserId, appointment.id);
                 runClaimedAppointmentRecord(appointment, operatorId, true);
             } catch (Exception ignored) {
-                // Individual appointment failures are persisted in runClaimedAppointmentRecord.
+                // Continue with the next claimed appointment.
             }
         }
     }
@@ -2261,7 +2261,6 @@ public class LocalDbOfficialWarehouseService implements
             throw new IllegalStateException("等待 Noon ASN sealed 被中断。", exception);
         }
     }
-
 
     private void applyNoonLineResponse(Long asnId, JsonNode linesResponse, Long operatorUserId) {
         JsonNode data = linesResponse == null ? null : linesResponse.path("data");

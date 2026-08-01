@@ -963,8 +963,7 @@ public interface OfficialWarehouseMapper {
             "    next_attempt_at = NULL, ap_success_time = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
             "    updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{row.id}",
-            "  AND owner_user_id = #{row.ownerUserId}",
-            "  AND is_deleted = b'0'"
+            "  AND owner_user_id = #{row.ownerUserId} AND is_deleted = b'0' AND status <> 'RUNNING'"
     })
     int updateAppointmentRequest(@Param("row") AppointmentInsertRecord row);
 
