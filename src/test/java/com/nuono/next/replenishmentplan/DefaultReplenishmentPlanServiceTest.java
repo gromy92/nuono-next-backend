@@ -11,12 +11,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
-import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
 import com.nuono.next.salesforecast.SalesForecastResultRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRepository;
-import com.nuono.next.salesforecast.SalesForecastService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
@@ -39,8 +37,6 @@ class DefaultReplenishmentPlanServiceTest {
     private static final String SITE_CODE = "SA";
     private static final LocalDate SOURCE_DATE = LocalDate.of(2026, 7, 6);
 
-    @Mock
-    private SalesForecastService forecastService;
     @Mock
     private SalesForecastRunRepository forecastRunRepository;
     @Mock
@@ -151,7 +147,7 @@ class DefaultReplenishmentPlanServiceTest {
         assertEquals(SOURCE_DATE.plusDays(20), row.getNearestInboundEtaDate());
 
         ArgumentCaptor<SalesForecastQuery> forecastQuery = ArgumentCaptor.forClass(SalesForecastQuery.class);
-        verify(forecastService).getOverview(forecastQuery.capture());
+        verify(forecastRunRepository).findLatestCompleted(forecastQuery.capture());
         assertEquals(OWNER_USER_ID, forecastQuery.getValue().getOwnerUserId());
         assertEquals(STORE_CODE, forecastQuery.getValue().getStoreCode());
         assertEquals(SITE_CODE, forecastQuery.getValue().getSiteCode());
@@ -201,7 +197,7 @@ class DefaultReplenishmentPlanServiceTest {
 
     @Test
     void missingForecastRunReturnsEmptyOverviewWithoutReadingRepositoriesOrWritingForecast() {
-        when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
 
         ReplenishmentPlanOverviewView overview = service.getOverview(query());
 
@@ -420,7 +416,7 @@ class DefaultReplenishmentPlanServiceTest {
     @Test
     void businessDateUsesAsiaShanghaiAcrossUtcBoundary() {
         DefaultReplenishmentPlanService boundaryService = serviceAt(Instant.parse("2026-07-06T16:30:00Z"));
-        when(forecastService.getOverview(any())).thenReturn(SalesForecastOverviewView.empty(STORE_CODE, SITE_CODE));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(null);
 
         ReplenishmentPlanOverviewView overview = boundaryService.getOverview(query());
 
@@ -459,7 +455,6 @@ class DefaultReplenishmentPlanServiceTest {
 
     private DefaultReplenishmentPlanService serviceAt(Instant instant) {
         return new DefaultReplenishmentPlanService(
-                forecastService,
                 forecastRunRepository,
                 repository,
                 configResolver,
@@ -469,8 +464,7 @@ class DefaultReplenishmentPlanServiceTest {
     }
 
     private void givenForecast(List<SalesForecastResultRecord> results) {
-        when(forecastService.getOverview(any()))
-                .thenReturn(SalesForecastOverviewView.ready(STORE_CODE, SITE_CODE, run(), results));
+        when(forecastRunRepository.findLatestCompleted(any())).thenReturn(run());
         when(forecastRunRepository.listResults(100L)).thenReturn(results);
     }
 

@@ -13,8 +13,8 @@ import com.nuono.next.salesforecast.SalesForecastOverviewRow;
 import com.nuono.next.salesforecast.SalesForecastOverviewView;
 import com.nuono.next.salesforecast.SalesForecastQuery;
 import com.nuono.next.salesforecast.SalesForecastResultRecord;
+import com.nuono.next.salesforecast.SalesForecastRunRecord;
 import com.nuono.next.salesforecast.SalesForecastRunRepository;
-import com.nuono.next.salesforecast.SalesForecastService;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
@@ -36,7 +36,6 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
 
     private static final ZoneId BUSINESS_ZONE = ZoneId.of("Asia/Shanghai");
 
-    private final SalesForecastService forecastService;
     private final SalesForecastRunRepository forecastRunRepository;
     private final ReplenishmentPlanRepository repository;
     private final ReplenishmentPlanConfigResolver configResolver;
@@ -45,13 +44,11 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
 
     @Autowired
     public DefaultReplenishmentPlanService(
-            SalesForecastService forecastService,
             SalesForecastRunRepository forecastRunRepository,
             ReplenishmentPlanRepository repository,
             ReplenishmentPlanConfigResolver configResolver
     ) {
         this(
-                forecastService,
                 forecastRunRepository,
                 repository,
                 configResolver,
@@ -61,14 +58,12 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
     }
 
     DefaultReplenishmentPlanService(
-            SalesForecastService forecastService,
             SalesForecastRunRepository forecastRunRepository,
             ReplenishmentPlanRepository repository,
             ReplenishmentPlanConfigResolver configResolver,
             ReplenishmentPlanCalculator calculator,
             Clock clock
     ) {
-        this.forecastService = forecastService;
         this.forecastRunRepository = forecastRunRepository;
         this.repository = repository;
         this.configResolver = configResolver;
@@ -90,16 +85,22 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
         );
         Map<String, ReplenishmentProductStockRow> stockByPartnerSku =
                 ReplenishmentProductCoverageAssembler.index(listStockRows(query));
-        SalesForecastOverviewView forecast = forecastService.getOverview(forecastQuery);
-        LocalDate anchorDate = anchorDate(forecast);
-        if (forecast == null || !"ready".equals(forecast.getState()) || forecast.getRunId() == null) {
+        SalesForecastRunRecord forecastRun = forecastRunRepository.findLatestCompleted(forecastQuery);
+        LocalDate anchorDate = anchorDate(forecastRun);
+        if (forecastRun == null || forecastRun.getId() == null) {
             return coverageOnlyOverview(query, config, anchorDate, stockByPartnerSku);
         }
         LocalDate planDate = LocalDate.now(clock);
-        List<SalesForecastResultRecord> forecastResults = forecastRunRepository.listResults(forecast.getRunId());
+        List<SalesForecastResultRecord> forecastResults = forecastRunRepository.listResults(forecastRun.getId());
         if (forecastResults == null || forecastResults.isEmpty()) {
             return coverageOnlyOverview(query, config, anchorDate, stockByPartnerSku);
         }
+        SalesForecastOverviewView forecast = SalesForecastOverviewView.ready(
+                query.getStoreCode(),
+                query.getSiteCode(),
+                forecastRun,
+                forecastResults
+        );
         List<SalesForecastOverviewRow> forecastRows = forecast.getRows().stream()
                 .filter(row -> row != null && hasText(row.getPartnerSku()))
                 .collect(Collectors.toList());
@@ -202,9 +203,9 @@ public class DefaultReplenishmentPlanService implements ReplenishmentPlanService
                 query, config, anchorDate, stockByPartnerSku);
     }
 
-    private LocalDate anchorDate(SalesForecastOverviewView forecast) {
-        if (forecast != null && forecast.getSourceDataDate() != null) {
-            return forecast.getSourceDataDate();
+    private LocalDate anchorDate(SalesForecastRunRecord forecastRun) {
+        if (forecastRun != null && forecastRun.getSourceDataDate() != null) {
+            return forecastRun.getSourceDataDate();
         }
         return LocalDate.now(clock);
     }
