@@ -68,7 +68,7 @@ src/test/java/com/nuono/next/product/LocalDbProductMasterServiceDeletionTest.jav
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceSharedOnlySkipTest.java	421
 src/test/java/com/nuono/next/product/ProductImageProfileControllerTest.java	344
 src/test/java/com/nuono/next/product/ProductImageProfileServiceTest.java	1135
-src/test/java/com/nuono/next/product/ProductManagementMapperPublishTaskSqlTest.java	322
+src/test/java/com/nuono/next/product/ProductManagementMapperPublishTaskSqlTest.java	301
 src/test/java/com/nuono/next/product/ProductMasterControllerAccessTest.java	382
 src/test/java/com/nuono/next/product/ProductProjectionPersistenceServiceListSummaryTest.java	1370
 src/test/java/com/nuono/next/product/ProductPskuProductIdentityMapperSqlTest.java	357

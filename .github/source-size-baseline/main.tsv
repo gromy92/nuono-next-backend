@@ -50,7 +50,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProductImageProfileMapper.jav
 src/main/java/com/nuono/next/infrastructure/mapper/ProductKeywordMapper.java	332
 src/main/java/com/nuono/next/infrastructure/mapper/ProductListingMapper.java	373
 src/main/java/com/nuono/next/infrastructure/mapper/ProductLogisticsCostMapper.java	395
-src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4281
+src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4185
 src/main/java/com/nuono/next/infrastructure/mapper/ProductPublicDetailMapper.java	550
 src/main/java/com/nuono/next/infrastructure/mapper/ProductSelectionMapper.java	1320
 src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	969

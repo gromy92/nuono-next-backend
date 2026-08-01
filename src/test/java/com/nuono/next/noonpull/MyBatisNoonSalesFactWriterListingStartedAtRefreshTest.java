@@ -1,33 +1,25 @@
 package com.nuono.next.noonpull;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.nuono.next.infrastructure.mapper.NoonSalesFactMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
+import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class MyBatisNoonSalesFactWriterListingStartedAtRefreshTest {
 
     @Test
-    void upsertRefreshesListingStartedAtForAffectedOffer() throws Exception {
+    void upsertPersistsSalesFactWithoutProductProjectionDependency() {
         NoonSalesFactMapper salesFactMapper = mock(NoonSalesFactMapper.class);
-        ProductManagementMapper productManagementMapper = mock(ProductManagementMapper.class);
         when(salesFactMapper.nextDailySalesFactId()).thenReturn(456L);
 
-        Constructor<MyBatisNoonSalesFactWriter> constructor = MyBatisNoonSalesFactWriter.class.getConstructor(
-                NoonSalesFactMapper.class,
-                ProductManagementMapper.class
-        );
-        MyBatisNoonSalesFactWriter writer = constructor.newInstance(salesFactMapper, productManagementMapper);
+        MyBatisNoonSalesFactWriter writer = new MyBatisNoonSalesFactWriter(salesFactMapper);
         NoonSalesDailyFact fact = new NoonSalesDailyFact(
                 307L,
                 "STR245027-NAE",
@@ -44,43 +36,10 @@ class MyBatisNoonSalesFactWriterListingStartedAtRefreshTest {
         writer.upsert(fact);
 
         verify(salesFactMapper).upsertDailySalesFact(456L, fact);
-        verifyRefreshCall(
-                productManagementMapper,
-                307L,
-                "STR245027-NAE",
-                "AE",
-                "MILKYWAYA01",
-                "MILKYWAYA01-BLACK"
-        );
-    }
-
-    private void verifyRefreshCall(
-            ProductManagementMapper productManagementMapper,
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            String partnerSku,
-            String sku
-    ) throws Exception {
-        Method method = ProductManagementMapper.class.getMethod(
-                "refreshProductSiteOfferListingStartedAtBySalesFact",
-                Long.class,
-                String.class,
-                String.class,
-                String.class,
-                String.class,
-                LocalDateTime.class,
-                Long.class
-        );
-        method.invoke(
-                verify(productManagementMapper),
-                eq(ownerUserId),
-                eq(storeCode),
-                eq(siteCode),
-                eq(partnerSku),
-                eq(sku),
-                any(LocalDateTime.class),
-                eq(ownerUserId)
-        );
+        assertFalse(Arrays.stream(MyBatisNoonSalesFactWriter.class.getDeclaredFields())
+                .anyMatch((field) -> ProductManagementMapper.class.equals(field.getType())));
+        assertFalse(Arrays.stream(MyBatisNoonSalesFactWriter.class.getDeclaredConstructors())
+                .flatMap((constructor) -> Arrays.stream(constructor.getParameterTypes()))
+                .anyMatch(ProductManagementMapper.class::equals));
     }
 }
