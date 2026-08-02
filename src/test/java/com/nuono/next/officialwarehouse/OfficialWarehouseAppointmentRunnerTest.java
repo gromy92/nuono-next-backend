@@ -1,17 +1,17 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentTestFixtures.DatedSlots;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentTestFixtures.FakeNoonAppointmentClient;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentTestFixtures.task;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AppointmentTask;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDetail;
-import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.NoonAppointmentClient;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.RunResult;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -45,25 +45,6 @@ class OfficialWarehouseAppointmentRunnerTest {
                 "schedule:2026-06-16:9",
                 "detail"
         );
-    }
-
-    @Test
-    void alreadyScheduledNoonAsnStopsAutomaticRunWithoutRescheduling() {
-        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
-        client.asnStatus = "scheduled";
-        client.appointmentDate = LocalDate.parse("2026-08-01");
-        client.appointmentTime = "11am-2pm";
-        client.dayCapacity = List.of("2026-06-16");
-        client.slotsByDate.add(new DatedSlots("2026-06-16", List.of(new SlotCapacity(9, "9am-10am"))));
-
-        RunResult result = runner.runOnce(task(""), client);
-
-        assertThat(result.status).isEqualTo("SCHEDULED");
-        assertThat(result.alreadyScheduled).isTrue();
-        assertThat(result.appointmentDate).isEqualTo(LocalDate.parse("2026-08-01"));
-        assertThat(result.appointmentTime).isEqualTo("11am-2pm");
-        assertThat(result.failureType).isNull();
-        assertThat(client.calls).containsExactly("detail");
     }
 
     @Test
@@ -153,23 +134,6 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
-    void selectedSlotReschedulesWithDestinationWarehouseOnly() {
-        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
-        client.asnStatus = "scheduled";
-        AppointmentTask task = task("");
-
-        RunResult result = runner.scheduleSelectedSlot(task, client, LocalDate.parse("2026-06-16"), new SlotCapacity(9, "9am-10am"));
-
-        assertThat(result.status).isEqualTo("SCHEDULED");
-        assertThat(client.calls).containsExactly(
-                "detail",
-                "reschedule:A05531714PN",
-                "schedule:2026-06-16:9",
-                "detail"
-        );
-    }
-
-    @Test
     void selectedSlotDoesNotMarkScheduledUntilNoonDetailConfirmsSchedule() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "sealed";
@@ -206,95 +170,4 @@ class OfficialWarehouseAppointmentRunnerTest {
         assertThat(client.calls).containsExactly("detail", "schedule:2026-06-16:9");
     }
 
-    private static AppointmentTask task(String timeRange) {
-        AppointmentTask task = new AppointmentTask();
-        task.appointmentId = 610001L;
-        task.asnId = 500002L;
-        task.noonAsnNr = "A05531714PN";
-        task.totalUnits = 10;
-        task.warehouseTo = "JED01";
-        task.apStartDate = LocalDate.parse("2026-06-15");
-        task.apEndDate = LocalDate.parse("2026-06-18");
-        task.apTimeRange = timeRange;
-        task.availableToday = false;
-        return task;
-    }
-
-    private static class FakeNoonAppointmentClient implements NoonAppointmentClient {
-        private String asnStatus;
-        private String asnStatusAfterSchedule = "scheduled";
-        private LocalDate appointmentDate; private String appointmentTime;
-        private boolean setWarehousesAccepted = true;
-        private boolean scheduleAccepted = true;
-        private boolean recordWarehouseConfirmation;
-        private List<String> dayCapacity = List.of();
-        private final List<DatedSlots> slotsByDate = new ArrayList<>();
-        private final List<String> calls = new ArrayList<>();
-
-        @Override
-        public AsnDetail queryAsnDetail(AppointmentTask task) {
-            calls.add("detail");
-            return new AsnDetail(asnStatus, appointmentDate, appointmentTime);
-        }
-
-        @Override
-        public List<String> queryDayCapacity(AppointmentTask task) {
-            calls.add("days");
-            return dayCapacity;
-        }
-
-        @Override
-        public List<SlotCapacity> querySlotCapacity(AppointmentTask task, LocalDate capacityDate) {
-            calls.add("slots:" + capacityDate);
-            return slotsByDate.stream()
-                    .filter(entry -> entry.date.equals(capacityDate.toString()))
-                    .findFirst()
-                    .map(entry -> entry.slots)
-                    .orElse(List.of());
-        }
-
-        @Override
-        public boolean setWarehouses(AppointmentTask task) {
-            calls.add("set-warehouses:" + task.warehouseTo);
-            if (setWarehousesAccepted && "created".equals(asnStatus)) {
-                asnStatus = "sealed";
-            }
-            return setWarehousesAccepted;
-        }
-
-        @Override
-        public void onWarehousesSet(AppointmentTask task) {
-            if (recordWarehouseConfirmation) {
-                calls.add("warehouse-confirmed:" + task.warehouseTo);
-            }
-        }
-
-        @Override
-        public boolean reschedule(AppointmentTask task) {
-            calls.add("reschedule:" + task.noonAsnNr);
-            if ("scheduled".equals(asnStatus)) {
-                asnStatus = "sealed";
-            }
-            return true;
-        }
-
-        @Override
-        public boolean schedule(AppointmentTask task, LocalDate capacityDate, SlotCapacity slot) {
-            calls.add("schedule:" + capacityDate + ":" + slot.idSlot);
-            if (scheduleAccepted) {
-                asnStatus = asnStatusAfterSchedule;
-            }
-            return scheduleAccepted;
-        }
-    }
-
-    private static class DatedSlots {
-        private final String date;
-        private final List<SlotCapacity> slots;
-
-        private DatedSlots(String date, List<SlotCapacity> slots) {
-            this.date = date;
-            this.slots = slots;
-        }
-    }
 }
