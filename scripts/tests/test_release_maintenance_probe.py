@@ -96,13 +96,13 @@ class ReleaseMaintenanceProbeTest(unittest.TestCase):
         retry = function_from(script, "wait_for_external_maintenance", "start_maintenance_responder")
         switch = function_from(script, "switch_nginx_to_maintenance", "stop_pid")
 
-        self.assertIn("for external_attempt in $(seq 1 15)", retry)
+        self.assertIn("for external_attempt in {1..15}", retry)
         self.assertLess(
             retry.index('"$(maintenance_response_status)"'),
             retry.index('external_status="$(external_maintenance_status)"'),
         )
         self.assertIn('grep -F -q "服务正在更新，请稍后重试"', retry)
-        self.assertIn('if ! external_status="$(wait_for_external_maintenance)"; then', switch)
+        self.assertIn('capture_status external_status wait_for_external_maintenance', switch)
         self.assertIn('switch_nginx_to_port "$MAINTENANCE_PORT" || return 1', switch)
 
     def test_transient_external_502_then_503_succeeds(self):
