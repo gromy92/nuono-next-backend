@@ -223,7 +223,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
         self.assertIn("127.0.0.1", script)
         self.assertIn('maintenance_status="$(maintenance_response_status)"', script)
         self.assertIn('[ "$maintenance_status" = "503" ]', script)
-        self.assertIn('external_status="$(external_maintenance_status)"', script)
+        self.assertIn('external_status="$(wait_for_external_maintenance)"', script)
         self.assertIn('[ "$external_status" = "503" ]', script)
 
     def test_embedded_responder_serves_json_503_on_loopback(self):
