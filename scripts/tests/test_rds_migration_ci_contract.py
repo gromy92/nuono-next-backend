@@ -22,6 +22,11 @@ class RdsMigrationCiContractTest(unittest.TestCase):
         self.assertIn("myisam,memory,archive", workflow)
         self.assertIn("NUONO_MIGRATION_EXPECTED_PORT", workflow)
         self.assertIn("NUONO_MIGRATION_EXPECTED_PORT", mysql_suite)
+        contention = (ROOT / "scripts/ci/release_schema_mysql_scenario.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("expected_port=client.expected_port", contention)
+        self.assertNotIn("expected_port=3306", contention)
 
     def test_disabled_engine_fixture_keeps_wrong_shape_on_innodb(self):
         scenario = (

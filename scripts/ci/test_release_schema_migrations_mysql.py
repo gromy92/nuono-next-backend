@@ -211,7 +211,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         verify_forwarder_eligibility_binary_guards(self, database, forwarder)
         verify_forwarder_trigger_repair(self, database, forwarder)
         verify_forwarder_atomic_guards(self, database, forwarder)
-        verify_lock_contention(self, defaults_file, expected_schema)
+        verify_lock_contention(self, database)
 
         verify_pre_catalog_bootstrap(
             self,

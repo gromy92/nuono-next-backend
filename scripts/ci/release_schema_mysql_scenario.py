@@ -161,13 +161,14 @@ def verify_applied_schema(
     _verify_history_postcheck(test_case, database, history)
 
 
-def verify_lock_contention(test_case, defaults_file, expected_schema):
+def verify_lock_contention(test_case, reference_database):
+    client = reference_database.client
     databases = [
         MySqlMigrationDatabase(
-            defaults_file,
-            expected_schema=expected_schema,
-            expected_host="127.0.0.1",
-            expected_port=3306,
+            client.source_defaults_file,
+            expected_schema=client.expected_schema,
+            expected_host=client.expected_host,
+            expected_port=client.expected_port,
         )
         for _ in range(2)
     ]
