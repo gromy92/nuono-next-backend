@@ -80,7 +80,7 @@ DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_schema_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_schema_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_232_warehouse_idempotency_schema` CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_232_warehouse_idempotency_schema_guard`
 VALUES (IF(@warehouse_idempotency_table_count = 2
     AND @warehouse_idempotency_owner_column_count = 2
@@ -212,7 +212,7 @@ DROP TEMPORARY TABLE IF EXISTS `nuono_232_warehouse_idempotency_index_guard`;
 CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_index_guard` (
     `conflicting_index_count` BIGINT NOT NULL,
     CONSTRAINT `chk_232_warehouse_idempotency_index` CHECK (`conflicting_index_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_232_warehouse_idempotency_index_guard`
 VALUES (@warehouse_idempotency_conflicting_index_count);
 DROP TEMPORARY TABLE `nuono_232_warehouse_idempotency_index_guard`;
@@ -271,7 +271,7 @@ CREATE TEMPORARY TABLE `nuono_232_warehouse_idempotency_data_guard` (
     `invalid_row_count` BIGINT NOT NULL,
     CONSTRAINT `chk_232_warehouse_idempotency_data`
         CHECK (`invalid_row_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_232_warehouse_idempotency_data_guard`
 VALUES (
     @warehouse_idempotency_duplicate_group_count

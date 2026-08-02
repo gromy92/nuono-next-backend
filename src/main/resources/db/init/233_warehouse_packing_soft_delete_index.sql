@@ -43,7 +43,7 @@ CREATE TEMPORARY TABLE `nuono_233_packing_item_schema_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_233_packing_item_schema`
         CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_233_packing_item_schema_guard`
 VALUES (IF(
     @packing_item_table_count = 1
@@ -91,7 +91,7 @@ CREATE TEMPORARY TABLE `nuono_233_packing_item_index_guard` (
     `conflicting_index_count` BIGINT NOT NULL,
     CONSTRAINT `chk_233_packing_item_index`
         CHECK (`conflicting_index_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_233_packing_item_index_guard`
 VALUES (IF(
     @packing_item_list_index_exists = 1

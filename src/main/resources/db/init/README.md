@@ -20,6 +20,14 @@
   hashes are fixed as follows:
   - `223`: `3e69492bdc3665c7a7609704c6ce4d82e90ac26347766639fd321d3dbf9b6742`
   - `224`: `feefcabb4fc3a352e9b59103fd9ca7a835ffce49023f90cfc12b0d0ce0d206e8`
+- Temporary validation guards in the release catalog use `InnoDB`. Production
+  disables `MEMORY`, `MyISAM`, and `ARCHIVE`, so release SQL must not depend on
+  those engines even for temporary tables.
+- On 2026-08-02, before the first governed production history row existed,
+  issue #459 corrected the temporary guard engine in 227 and 230-237 from
+  `MEMORY` to `InnoDB`. The superseded `ba09e876` artifact was never applied
+  and must not be used. After a catalog row is recorded in a governed
+  environment, its script and postcheck bytes remain immutable.
 - The release-side Database Migration Module owns schema DDL. Application
   startup and business requests are read-only with respect to schema.
 

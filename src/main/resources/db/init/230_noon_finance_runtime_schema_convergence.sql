@@ -80,7 +80,7 @@ CREATE TEMPORARY TABLE `nuono_230_finance_duplicate_guard` (
     `duplicate_group_count` BIGINT NOT NULL,
     CONSTRAINT `chk_230_no_finance_duplicate_groups`
         CHECK (`duplicate_group_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 
 INSERT INTO `nuono_230_finance_duplicate_guard` (`duplicate_group_count`)
 VALUES (@finance_duplicate_group_count);
@@ -171,7 +171,7 @@ CREATE TEMPORARY TABLE `nuono_230_finance_shadow_guard` (
     `conflicting_shadow_index_count` BIGINT NOT NULL,
     CONSTRAINT `chk_230_no_conflicting_finance_shadow_index`
         CHECK (`conflicting_shadow_index_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 
 INSERT INTO `nuono_230_finance_shadow_guard`
     (`conflicting_shadow_index_count`)

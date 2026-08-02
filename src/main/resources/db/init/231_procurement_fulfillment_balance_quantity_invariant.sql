@@ -44,7 +44,7 @@ CREATE TEMPORARY TABLE
         `invalid_schema_count` BIGINT NOT NULL,
         CONSTRAINT `chk_231_fulfillment_balance_schema`
             CHECK (`invalid_schema_count` = 0)
-    ) ENGINE=MEMORY;
+    ) ENGINE=InnoDB;
 
 INSERT INTO `nuono_231_fulfillment_balance_schema_guard`
     (`invalid_schema_count`)
@@ -84,7 +84,7 @@ CREATE TEMPORARY TABLE
         `invalid_row_count` BIGINT NOT NULL,
         CONSTRAINT `chk_231_fulfillment_balance_data`
             CHECK (`invalid_row_count` = 0)
-    ) ENGINE=MEMORY;
+    ) ENGINE=InnoDB;
 
 INSERT INTO `nuono_231_fulfillment_balance_data_guard`
     (`invalid_row_count`)
@@ -205,7 +205,7 @@ CREATE TEMPORARY TABLE
         `conflicting_constraint_count` BIGINT NOT NULL,
         CONSTRAINT `chk_231_fulfillment_balance_constraint`
             CHECK (`conflicting_constraint_count` = 0)
-    ) ENGINE=MEMORY;
+    ) ENGINE=InnoDB;
 
 INSERT INTO `nuono_231_fulfillment_balance_constraint_guard`
     (`conflicting_constraint_count`)

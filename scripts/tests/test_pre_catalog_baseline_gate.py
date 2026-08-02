@@ -14,6 +14,39 @@ from schema_migrations.catalog import load_catalog  # noqa: E402
 
 
 class PreCatalogBaselineGateTest(unittest.TestCase):
+    def test_catalog_temporary_guards_use_rds_compatible_innodb(self):
+        resource_root = SCRIPT_DIR.parent / "src/main/resources"
+
+        for migration in load_catalog(resource_root):
+            with self.subTest(migration=migration.key):
+                temporary_table_count = len(re.findall(
+                    r"CREATE\s+TEMPORARY\s+TABLE\b",
+                    migration.script_sql,
+                    re.IGNORECASE,
+                ))
+                temporary_table_engines = re.findall(
+                    r"CREATE\s+TEMPORARY\s+TABLE\b.*?"
+                    r"ENGINE\s*=\s*([A-Za-z0-9_]+)\s*;",
+                    migration.script_sql,
+                    re.IGNORECASE | re.DOTALL,
+                )
+
+                self.assertEqual(
+                    temporary_table_count,
+                    len(temporary_table_engines),
+                )
+                self.assertEqual(
+                    ["INNODB"] * temporary_table_count,
+                    [engine.upper() for engine in temporary_table_engines],
+                )
+                self.assertNotRegex(
+                    migration.script_sql,
+                    re.compile(
+                        r"ENGINE\s*=\s*(?:MEMORY|MYISAM|ARCHIVE)\b",
+                        re.IGNORECASE,
+                    ),
+                )
+
     def test_bootstrap_fails_closed_before_creating_history(self):
         resource_root = SCRIPT_DIR.parent / "src/main/resources"
         bootstrap = load_catalog(resource_root)[0]
