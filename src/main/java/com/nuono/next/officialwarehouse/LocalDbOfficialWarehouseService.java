@@ -2086,7 +2086,7 @@ public class LocalDbOfficialWarehouseService implements
         return appointment == null ? null : appointment.ownerUserId;
     }
 
-    private AppointmentTask toAppointmentTask(AppointmentRecord appointment) {
+    static AppointmentTask toAppointmentTask(AppointmentRecord appointment) {
         AppointmentTask task = new AppointmentTask();
         task.appointmentId = appointment.id;
         task.asnId = appointment.asnId;
@@ -2097,7 +2097,7 @@ public class LocalDbOfficialWarehouseService implements
         task.apStartDate = appointment.apStartDateValue;
         task.apEndDate = appointment.apEndDateValue;
         task.apTimeRange = appointment.apTimeRange;
-        task.availableToday = Boolean.TRUE.equals(appointment.availableToday);
+        OfficialWarehouseAppointmentExecution.applyPersistedState(task, appointment);
         return task;
     }
 

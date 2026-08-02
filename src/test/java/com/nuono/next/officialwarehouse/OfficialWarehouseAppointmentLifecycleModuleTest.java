@@ -53,7 +53,7 @@ class OfficialWarehouseAppointmentLifecycleModuleTest {
     }
 
     @Test
-    void ordinaryUpsertCannotResetRunningOrScheduledAppointment() {
+    void ordinaryUpsertCannotResetRunningAppointment() {
         AppointmentInsertRecord request = request();
         when(mapper.lockAsnForAppointment(307L, 500001L)).thenReturn(500001L);
         when(mapper.selectActiveAppointmentByAsnForUpdate(307L, 500001L))
@@ -65,6 +65,23 @@ class OfficialWarehouseAppointmentLifecycleModuleTest {
 
         verify(mapper, never()).updateAppointmentRequest(any(), any(Long.class), any(Boolean.class));
         verify(mapper, never()).insertAppointment(any());
+    }
+
+    @Test
+    void automaticRebookingCanReplaceScheduledRequestWithoutClaimingItEarly() {
+        AppointmentInsertRecord request = request();
+        AppointmentRecord scheduled = appointment("SCHEDULED", 7L);
+        AppointmentRecord pending = appointment("PENDING", 8L);
+        when(mapper.lockAsnForAppointment(307L, 500001L)).thenReturn(500001L);
+        when(mapper.selectActiveAppointmentByAsnForUpdate(307L, 500001L))
+                .thenReturn(scheduled);
+        when(mapper.updateAppointmentRequest(request, 7L, true)).thenReturn(1);
+        when(mapper.selectAppointment(307L, 610001L)).thenReturn(pending);
+
+        assertThat(module.saveRequest(request)).isSameAs(pending);
+
+        verify(mapper).updateAppointmentRequest(request, 7L, true);
+        verify(mapper, never()).markAppointmentRunning(any(), any(), any(), any());
     }
 
     @Test

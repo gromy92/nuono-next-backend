@@ -1,20 +1,31 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.MAX_SEALED_CHECK_ATTEMPTS;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.inRange;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonFailureStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonPostAppointmentStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonReadyForScheduleStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonRebookableStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonScheduledStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.matchesTimeRange;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.normalize;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.parseAcceptedHours;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.rescheduleAndWaitUntilReady;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.scheduleAndConfirm;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.shouldReleaseExistingSchedule;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.sleepBeforeNextSealedCheck;
+
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.util.StringUtils;
 
 public class OfficialWarehouseAppointmentRunner {
 
-    private static final int MAX_SEALED_CHECK_ATTEMPTS = 5;
-    private static final long SEALED_CHECK_INTERVAL_MS = 1200L;
     private final Clock clock;
 
     public OfficialWarehouseAppointmentRunner(Clock clock) {
@@ -32,8 +43,20 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
-        if (isNoonScheduledStatus(status)) {
-            return RunResult.alreadyScheduled(detail);
+        if (isNoonPostAppointmentStatus(status)) {
+            return RunResult.failed("NOON_ASN_" + status, "Noon ASN 已进入收货流程，不能重新约仓：" + status);
+        }
+        boolean oldScheduleReleased = false;
+        if (isNoonRebookableStatus(status)) {
+            if (!shouldReleaseExistingSchedule(task, detail)) {
+                return RunResult.alreadyScheduled(detail);
+            }
+            RunResult releaseReadiness = rescheduleAndWaitUntilReady(task, client);
+            if (releaseReadiness != null) {
+                return releaseReadiness;
+            }
+            status = "SEALED";
+            oldScheduleReleased = true;
         }
         boolean warehousesChanged = !isNoonReadyForScheduleStatus(status);
         RunResult readiness = warehousesChanged ? setWarehousesAndWaitUntilReady(task, client, false) : null;
@@ -58,8 +81,14 @@ public class OfficialWarehouseAppointmentRunner {
                 }
             }
         } catch (RuntimeException exception) {
-            if (!warehousesChanged) {
+            if (!warehousesChanged && !oldScheduleReleased) {
                 throw exception;
+            }
+            if (oldScheduleReleased) {
+                return RunResult.reconciliationRequired(
+                        "RESCHEDULE_FOLLOW_UP",
+                        "Noon 已释放原预约，但后续仓位读取失败，请先在 Noon 后台核对。"
+                );
             }
             return RunResult.reconciliationRequired("SET_WAREHOUSES_FOLLOW_UP", "Noon 已接受设置仓库，但后续读取失败，请先在 Noon 后台核对。");
         }
@@ -116,13 +145,13 @@ public class OfficialWarehouseAppointmentRunner {
         if (isNoonFailureStatus(status)) {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
         }
-        if (isNoonScheduledStatus(status)) {
-            try {
-                if (!client.reschedule(task)) {
-                    return RunResult.reconciliationRequired("RESCHEDULE_ASN", "Noon 改约请求已发出，但结果未确认，请先在 Noon 后台核对。");
-                }
-            } catch (RuntimeException exception) {
-                return RunResult.reconciliationRequired("RESCHEDULE_ASN", "Noon 改约请求已发出，但结果未确认，请先在 Noon 后台核对。");
+        if (isNoonPostAppointmentStatus(status)) {
+            return RunResult.failed("NOON_ASN_" + status, "Noon ASN 已进入收货流程，不能重新约仓：" + status);
+        }
+        if (isNoonRebookableStatus(status)) {
+            RunResult rescheduleReadiness = rescheduleAndWaitUntilReady(task, client);
+            if (rescheduleReadiness != null) {
+                return rescheduleReadiness;
             }
             status = "SEALED";
         }
@@ -132,14 +161,6 @@ public class OfficialWarehouseAppointmentRunner {
             return readiness;
         }
         return scheduleAndConfirm(task, client, appointmentDate, slot);
-    }
-    private static boolean inRange(AppointmentTask task, LocalDate date) {
-        LocalDate start = task.apStartDate;
-        LocalDate end = task.apEndDate;
-        if (start != null && date.isBefore(start)) {
-            return false;
-        }
-        return end == null || !date.isAfter(end);
     }
     private static RunResult waitUntilReadyForSchedule(AppointmentTask task,
             NoonAppointmentClient client, boolean selectedSlot) {
@@ -180,103 +201,6 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.reconciliationRequired("SET_WAREHOUSES", "Noon 设置仓库请求已发出，但结果未确认，请先在 Noon 后台核对。");
         }
     }
-    private static RunResult scheduleAndConfirm(AppointmentTask task, NoonAppointmentClient client,
-            LocalDate appointmentDate, SlotCapacity slot) {
-        boolean accepted;
-        try {
-            accepted = client.schedule(task, appointmentDate, slot);
-        } catch (RuntimeException exception) {
-            return RunResult.reconciliationRequired("SCHEDULE_APPOINTMENT", "Noon 约仓请求已发出，但结果未确认，请先在 Noon 后台核对。");
-        }
-        if (!accepted) {
-            return RunResult.reconciliationRequired("SCHEDULE_APPOINTMENT", "Noon 约仓请求已发出，但结果未确认，请先在 Noon 后台核对。");
-        }
-        AsnDetail confirmed;
-        try {
-            confirmed = client.queryAsnDetail(task);
-        } catch (RuntimeException exception) {
-            return RunResult.reconciliationRequired("SCHEDULE_CONFIRMATION", "Noon 已接受约仓，但确认读取失败，请先在 Noon 后台核对。");
-        }
-        String confirmedStatus = normalize(confirmed == null ? null : confirmed.status);
-        if (isNoonScheduledStatus(confirmedStatus)) {
-            return RunResult.scheduled(appointmentDate, slot.idSlot, slot.name);
-        }
-        if (isNoonFailureStatus(confirmedStatus)) {
-            return RunResult.failed("NOON_ASN_" + confirmedStatus, "Noon ASN 状态不可约仓：" + confirmedStatus);
-        }
-        return RunResult.reconciliationRequired(
-                "SCHEDULE_NOT_CONFIRMED",
-                "Noon 返回约仓提交成功，但 ASN 详情尚未确认已约仓，请稍后重试或在 Noon 后台核对。"
-        );
-    }
-
-    private static void sleepBeforeNextSealedCheck() {
-        try {
-            Thread.sleep(SEALED_CHECK_INTERVAL_MS);
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-        }
-    }
-    private static boolean matchesTimeRange(SlotCapacity slot, Set<Integer> acceptedHours) {
-        if (acceptedHours == null || acceptedHours.isEmpty()) {
-            return true;
-        }
-        if (slot == null || !StringUtils.hasText(slot.name)) {
-            return false;
-        }
-        String[] parts = slot.name.split("-");
-        if (parts.length != 2) {
-            return false;
-        }
-        Integer start = parseHour(parts[0]);
-        Integer end = parseHour(parts[1]);
-        if (start == null || end == null) {
-            return false;
-        }
-        int min = acceptedHours.stream().min(Integer::compareTo).orElse(0);
-        int max = acceptedHours.stream().max(Integer::compareTo).orElse(23);
-        return start >= min && end <= max;
-    }
-    private static Set<Integer> parseAcceptedHours(String apTimeRange) {
-        if (!StringUtils.hasText(apTimeRange)) {
-            return Set.of();
-        }
-        String[] values = apTimeRange.split(",");
-        Set<Integer> hours = new LinkedHashSet<>();
-        for (String value : values) {
-            Integer hour = parseHour(value);
-            if (hour != null) {
-                hours.add(hour);
-            }
-        }
-        return hours;
-    }
-
-    private static Integer parseHour(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        try {
-            if (normalized.endsWith("am") || normalized.endsWith("pm")) {
-                boolean pm = normalized.endsWith("pm");
-                String numberText = normalized.substring(0, normalized.length() - 2).trim();
-                int hour = Integer.parseInt(numberText);
-                if (hour < 1 || hour > 12) {
-                    return null;
-                }
-                if (!pm) {
-                    return hour == 12 ? 0 : hour;
-                }
-                return hour == 12 ? 12 : hour + 12;
-            }
-            int hour = Integer.parseInt(normalized);
-            return hour >= 0 && hour <= 23 ? hour : null;
-        } catch (NumberFormatException exception) {
-            return null;
-        }
-    }
-
     private static LocalDate parseDate(String value) {
         if (!StringUtils.hasText(value)) {
             return null;
@@ -286,27 +210,6 @@ public class OfficialWarehouseAppointmentRunner {
         } catch (Exception exception) {
             return null;
         }
-    }
-
-    private static boolean isNoonScheduledStatus(String status) {
-        return "SCHEDULED".equals(status) || "HANDED_OVER".equals(status)
-                || "RECEIVING".equals(status) || "GRN_COMPLETED".equals(status);
-    }
-    private static boolean isNoonReadyForScheduleStatus(String status) {
-        return "SEALED".equals(status);
-    }
-
-    private static boolean isNoonFailureStatus(String status) {
-        return "EXPIRED".equals(status)
-                || "CANCELED".equals(status)
-                || "CANCELLED".equals(status);
-    }
-
-    private static String normalize(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        return value.trim().replace('-', '_').toUpperCase(Locale.ROOT);
     }
 
     public interface NoonAppointmentClient {
@@ -331,6 +234,9 @@ public class OfficialWarehouseAppointmentRunner {
         public LocalDate apEndDate;
         public String apTimeRange;
         public boolean availableToday;
+        public boolean rebookingRequested;
+        public LocalDate previousAppointmentDate;
+        public String previousAppointmentTime;
     }
 
     public static class AsnDetail {
@@ -361,7 +267,7 @@ public class OfficialWarehouseAppointmentRunner {
         public Integer slotId; public String appointmentTime;
         public String failureType; public String errorMessage;
         public boolean alreadyScheduled, reconciliationRequired;
-        private static RunResult scheduled(LocalDate appointmentDate, Integer slotId, String appointmentTime) {
+        static RunResult scheduled(LocalDate appointmentDate, Integer slotId, String appointmentTime) {
             RunResult result = new RunResult();
             result.status = "SCHEDULED"; result.appointmentDate = appointmentDate;
             result.slotId = slotId; result.appointmentTime = appointmentTime;
@@ -371,13 +277,13 @@ public class OfficialWarehouseAppointmentRunner {
             RunResult result = scheduled(detail.appointmentDate, null, detail.appointmentTime);
             result.alreadyScheduled = true; return result;
         }
-        private static RunResult failed(String failureType, String errorMessage) {
+        static RunResult failed(String failureType, String errorMessage) {
             RunResult result = new RunResult();
             result.status = "FAILED"; result.failureType = failureType;
             result.errorMessage = errorMessage;
             return result;
         }
-        private static RunResult reconciliationRequired(String failureType, String errorMessage) {
+        static RunResult reconciliationRequired(String failureType, String errorMessage) {
             RunResult result = failed(failureType, errorMessage);
             result.reconciliationRequired = true; return result;
         }

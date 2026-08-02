@@ -26,7 +26,7 @@ public class OfficialWarehouseAppointmentLifecycleModule {
     @Transactional
     public AppointmentRecord saveRequest(AppointmentInsertRecord request) {
         OfficialWarehouseAppointmentPreparedRequest prepared =
-                prepareRequest(request, false);
+                prepareRequest(request, true);
         return current(prepared.ownerUserId, prepared.appointmentId);
     }
     @Transactional

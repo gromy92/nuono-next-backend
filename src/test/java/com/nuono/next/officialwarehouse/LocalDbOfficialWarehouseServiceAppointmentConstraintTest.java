@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AppointmentTask;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import org.apache.ibatis.annotations.Update;
@@ -21,6 +22,20 @@ import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 class LocalDbOfficialWarehouseServiceAppointmentConstraintTest {
+
+    @Test
+    void scheduledProjectionMakesClaimedTaskAnExplicitRebooking() {
+        AppointmentRecord appointment = appointment("RUNNING", 8L, null);
+        appointment.appointmentDate = "2026-08-01";
+        appointment.appointmentTime = "11am-2pm";
+        appointment.apSuccessTime = "2026-07-31 06:02:00";
+
+        AppointmentTask task = LocalDbOfficialWarehouseService.toAppointmentTask(appointment);
+
+        assertThat(task.rebookingRequested).isTrue();
+        assertThat(task.previousAppointmentDate).isEqualTo(LocalDate.parse("2026-08-01"));
+        assertThat(task.previousAppointmentTime).isEqualTo("11am-2pm");
+    }
 
     @Test
     void appointmentRequestUpdateUsesVersionAndAllowedStateFences() throws Exception {
@@ -108,7 +123,7 @@ class LocalDbOfficialWarehouseServiceAppointmentConstraintTest {
         when(mapper.lockAsnForAppointment(307L, 501819L)).thenReturn(501819L);
         when(mapper.selectActiveAppointmentByAsnForUpdate(307L, 501819L))
                 .thenReturn(pending);
-        when(mapper.updateAppointmentRequest(request, 7L, false)).thenReturn(0);
+        when(mapper.updateAppointmentRequest(request, 7L, true)).thenReturn(0);
 
         assertThatThrownBy(() -> lifecycle.saveRequest(request))
                 .isInstanceOf(OfficialWarehouseAppointmentStateConflictException.class)
