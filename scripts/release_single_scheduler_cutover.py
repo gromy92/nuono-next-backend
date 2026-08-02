@@ -2,10 +2,9 @@
 """Generate the single-scheduler cutover with a loopback JSON 503 bridge."""
 from __future__ import annotations
 import shlex
+from release_maintenance_probe import external_maintenance_retry_function
 def _q(value: str | int) -> str:
     return shlex.quote(str(value))
-
-
 def build_single_scheduler_cutover_script(
     *,
     staged_jar: str,
@@ -107,6 +106,7 @@ external_maintenance_status() {{
   curl -sS --max-time 10 -o "$MAINTENANCE_DIR/external-response.json" -w '%{{http_code}}' \
     "$EXTERNAL_HEALTH_URL" 2>/dev/null || true
 }}
+{external_maintenance_retry_function()}
 start_maintenance_responder() {{
   mkdir -p "$MAINTENANCE_DIR"
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ] || {{
@@ -158,14 +158,15 @@ stop_maintenance_responder() {{
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ]
 }}
 switch_nginx_to_maintenance() {{
-  switch_nginx_to_port "$MAINTENANCE_PORT"
+  switch_nginx_to_port "$MAINTENANCE_PORT" || return 1
   local maintenance_status=""
   maintenance_status="$(maintenance_response_status)"
-  [ "$maintenance_status" = "503" ]
+  [ "$maintenance_status" = "503" ] || return 1
   local external_status=""
-  external_status="$(external_maintenance_status)"
-  [ "$external_status" = "503" ]
-  grep -F -q "服务正在更新，请稍后重试" "$MAINTENANCE_DIR/external-response.json"
+  if ! external_status="$(wait_for_external_maintenance)"; then
+    return 1
+  fi
+  [ "$external_status" = "503" ] || return 1
   MAINTENANCE_ROUTED=1
   emit NGINX_CURRENT_PORT "$MAINTENANCE_PORT"
   emit MAINTENANCE_EXTERNAL_STATUS "$external_status"
