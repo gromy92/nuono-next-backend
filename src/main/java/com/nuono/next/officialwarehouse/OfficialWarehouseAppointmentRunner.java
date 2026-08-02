@@ -12,8 +12,9 @@ import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecu
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.parseAcceptedHours;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.rescheduleAndWaitUntilReady;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.scheduleAndConfirm;
-import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.shouldReleaseExistingSchedule;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.sleepBeforeNextSealedCheck;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentScheduleMatch.automaticDecision;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentScheduleMatch.selectedDecision;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -48,8 +49,9 @@ public class OfficialWarehouseAppointmentRunner {
         }
         boolean oldScheduleReleased = false;
         if (isNoonRebookableStatus(status)) {
-            if (!shouldReleaseExistingSchedule(task, detail)) {
-                return RunResult.alreadyScheduled(detail);
+            RunResult existingSchedule = automaticDecision(task, detail);
+            if (existingSchedule != null) {
+                return existingSchedule;
             }
             RunResult releaseReadiness = rescheduleAndWaitUntilReady(task, client);
             if (releaseReadiness != null) {
@@ -149,6 +151,10 @@ public class OfficialWarehouseAppointmentRunner {
             return RunResult.failed("NOON_ASN_" + status, "Noon ASN 已进入收货流程，不能重新约仓：" + status);
         }
         if (isNoonRebookableStatus(status)) {
+            RunResult existingSchedule = selectedDecision(task, detail, appointmentDate, slot);
+            if (existingSchedule != null) {
+                return existingSchedule;
+            }
             RunResult rescheduleReadiness = rescheduleAndWaitUntilReady(task, client);
             if (rescheduleReadiness != null) {
                 return rescheduleReadiness;
@@ -273,7 +279,7 @@ public class OfficialWarehouseAppointmentRunner {
             result.slotId = slotId; result.appointmentTime = appointmentTime;
             return result;
         }
-        private static RunResult alreadyScheduled(AsnDetail detail) {
+        static RunResult alreadyScheduled(AsnDetail detail) {
             RunResult result = scheduled(detail.appointmentDate, null, detail.appointmentTime);
             result.alreadyScheduled = true; return result;
         }

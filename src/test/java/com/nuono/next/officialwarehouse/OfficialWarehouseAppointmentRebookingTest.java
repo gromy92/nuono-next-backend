@@ -58,6 +58,64 @@ class OfficialWarehouseAppointmentRebookingTest {
     }
 
     @Test
+    void automaticRebookingDoesNotReleaseScheduleThatMatchesNeitherOldNorNew() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-03");
+        client.appointmentTime = "3pm-4pm";
+
+        RunResult result = runner.runOnce(rebookingTask(), client);
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
+    void automaticRebookingDoesNotReleaseScheduleWithMissingRemoteTime() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+
+        RunResult result = runner.runOnce(rebookingTask(), client);
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
+    void automaticRebookingRequiresCompletePersistedOldAppointmentEvidence() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+        client.appointmentTime = "11am-2pm";
+        AppointmentTask task = rebookingTask();
+        task.previousAppointmentTime = null;
+
+        RunResult result = runner.runOnce(task, client);
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
+    void currentRequestMatchWinsWhenItAlsoMatchesPersistedOldAppointment() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+        client.appointmentTime = "11am-2pm";
+        AppointmentTask task = rebookingTask();
+        task.apStartDate = LocalDate.parse("2026-08-01");
+
+        RunResult result = runner.runOnce(task, client);
+
+        assertThat(result.alreadyScheduled).isTrue();
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
     void scheduledAsnWithoutExplicitRebookingOnlyRepairsLocalProjection() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
@@ -72,25 +130,88 @@ class OfficialWarehouseAppointmentRebookingTest {
     }
 
     @Test
+    void scheduledAsnWithoutExplicitRebookingRequiresCompleteRequestedFacts() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-06-16");
+
+        RunResult result = runner.runOnce(task(""), client);
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
     void selectedSlotReschedulesBeforeSubmittingNewSlot() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+        client.appointmentTime = "11am-2pm";
 
         RunResult result = runner.scheduleSelectedSlot(
-                task(""), client, LocalDate.parse("2026-06-16"), new SlotCapacity(9, "9am-10am")
+                rebookingTask(), client, LocalDate.parse("2026-08-02"), new SlotCapacity(36, "11am-2pm")
         );
 
         assertThat(result.status).isEqualTo("SCHEDULED");
         assertThat(client.calls).containsExactly(
                 "detail", "reschedule:A05531714PN", "detail",
-                "schedule:2026-06-16:9", "detail"
+                "schedule:2026-08-02:36", "detail"
         );
+    }
+
+    @Test
+    void selectedSlotRepairsLocalProjectionWhenRemoteAlreadyMatchesTarget() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-02");
+        client.appointmentTime = "11am-2pm";
+
+        RunResult result = runner.scheduleSelectedSlot(
+                rebookingTask(), client, LocalDate.parse("2026-08-02"), new SlotCapacity(36, "11am-2pm")
+        );
+
+        assertThat(result.alreadyScheduled).isTrue();
+        assertThat(result.slotId).isEqualTo(36);
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
+    void selectedSlotDoesNotReleaseScheduleThatMatchesNeitherOldNorTarget() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-03");
+        client.appointmentTime = "3pm-4pm";
+
+        RunResult result = runner.scheduleSelectedSlot(
+                rebookingTask(), client, LocalDate.parse("2026-08-02"), new SlotCapacity(36, "11am-2pm")
+        );
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
+    void selectedSlotDoesNotReleaseScheduleWithMissingRemoteAppointmentFacts() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "scheduled";
+
+        RunResult result = runner.scheduleSelectedSlot(
+                rebookingTask(), client, LocalDate.parse("2026-08-02"), new SlotCapacity(36, "11am-2pm")
+        );
+
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(result.failureType).isEqualTo("NOON_SCHEDULED_APPOINTMENT_MISMATCH");
+        assertThat(client.calls).containsExactly("detail");
     }
 
     @Test
     void automaticRebookingStopsWhenNoonDoesNotConfirmRelease() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
+        client.appointmentDate = LocalDate.parse("2026-08-01");
+        client.appointmentTime = "11am-2pm";
         client.rescheduleAccepted = false;
         AppointmentTask task = rebookingTask();
 

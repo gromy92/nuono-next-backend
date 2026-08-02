@@ -73,36 +73,6 @@ final class OfficialWarehouseAppointmentExecution {
         );
     }
 
-    static boolean shouldReleaseExistingSchedule(AppointmentTask task, AsnDetail detail) {
-        if (!task.rebookingRequested) {
-            return false;
-        }
-        if (matchesPreviousAppointment(task, detail)) {
-            return true;
-        }
-        return !matchesRequestedAppointment(task, detail);
-    }
-
-    private static boolean matchesPreviousAppointment(AppointmentTask task, AsnDetail detail) {
-        if (detail == null
-                || task.previousAppointmentDate == null
-                || !task.previousAppointmentDate.equals(detail.appointmentDate)) {
-            return false;
-        }
-        return !StringUtils.hasText(task.previousAppointmentTime)
-                || sameAppointmentTime(task.previousAppointmentTime, detail.appointmentTime);
-    }
-
-    private static boolean matchesRequestedAppointment(AppointmentTask task, AsnDetail detail) {
-        if (detail == null || detail.appointmentDate == null || !inRange(task, detail.appointmentDate)) {
-            return false;
-        }
-        return matchesTimeRange(
-                new SlotCapacity(null, detail.appointmentTime),
-                parseAcceptedHours(task.apTimeRange)
-        );
-    }
-
     static RunResult scheduleAndConfirm(
             AppointmentTask task,
             NoonAppointmentClient client,
@@ -237,7 +207,7 @@ final class OfficialWarehouseAppointmentExecution {
                 && sameAppointmentTime(slot.name, confirmed.appointmentTime);
     }
 
-    private static boolean sameAppointmentTime(String expected, String actual) {
+    static boolean sameAppointmentTime(String expected, String actual) {
         if (!StringUtils.hasText(expected) || !StringUtils.hasText(actual)) {
             return false;
         }
