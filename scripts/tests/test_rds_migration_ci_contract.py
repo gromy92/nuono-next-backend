@@ -41,7 +41,7 @@ class RdsMigrationCiContractTest(unittest.TestCase):
 
         self.assertIn("START TRANSACTION;CREATE TEMPORARY TABLE", mysql_suite)
         self.assertIn("MYSQL_3819", mysql_suite)
-        self.assertIn("SELECT @@in_transaction", mysql_suite)
+        self.assertIn("assertIsNone(database.client.lock_process)", mysql_suite)
 
 
 if __name__ == "__main__":

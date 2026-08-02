@@ -51,7 +51,6 @@ SHIPPING_PLAN_MIGRATION_KEY = (
     "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql"
 )
 
-
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
     "requires an isolated MySQL schema",
@@ -270,17 +269,18 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(MigrationError, failure_key):
                 failing_runner.apply()
+            self.assertIsNone(database.client.lock_process)
             states = database.load_states()
             self.assertEqual("FAILED", states[failing.key].state)
             self.assertNotIn(blocked.key, states)
             self.assertEqual(
-                "0\nMYSQL_3819\n0",
+                "0\nMYSQL_3819",
                 database.client.execute(
                     "SELECT COUNT(*) FROM information_schema.tables "
                     "WHERE table_schema=DATABASE() "
                     "AND table_name='migration_must_not_run';"
                     "SELECT error_code FROM nuono_schema_migration WHERE "
-                    f"migration_key='{failing.key}';SELECT @@in_transaction;"
+                    f"migration_key='{failing.key}';"
                 ),
             )
 
