@@ -60,7 +60,7 @@ final class ProductPublishAuthSuspensionPolicy {
         boolean writeMayHaveOccurred = authRequired.isWriteMayHaveOccurred() || afterUnmapStage;
         String message = writeMayHaveOccurred
                 ? "Noon 授权恢复中，本次删除已进入写入阶段。系统不会自动继续删除或重建；恢复后请先核对 Noon 当前结果，再人工点击重试。"
-                : "Noon 授权恢复中。系统不会自动继续删除或重建；恢复后请重新核对目标商品并人工点击重试。";
+                : "Noon 授权恢复中，本次删除已停在安全检查点；恢复成功后系统会自动继续原任务。";
         return new Decision(
                 authRequired,
                 writeMayHaveOccurred,

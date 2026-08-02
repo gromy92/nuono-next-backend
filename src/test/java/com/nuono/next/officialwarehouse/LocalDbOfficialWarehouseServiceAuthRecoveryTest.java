@@ -12,7 +12,9 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
 import com.nuono.next.noonpull.NoonPullFailurePolicy;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -33,7 +35,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
     private OfficialWarehouseMapper mapper;
     private NoonSessionGateway sessionGateway;
     private NoonSalesReportBindingResolver bindingResolver;
-    private NoonProjectAuthRecoveryQueue recoveryQueue;
+    private NoonAuthWaitQueue recoveryQueue;
     private NoonPullProjectAuthGate authGate;
     private LocalDbOfficialWarehouseService service;
 
@@ -42,7 +44,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         mapper = mock(OfficialWarehouseMapper.class);
         sessionGateway = mock(NoonSessionGateway.class);
         bindingResolver = mock(NoonSalesReportBindingResolver.class);
-        recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+        recoveryQueue = mock(NoonAuthWaitQueue.class);
         authGate = mock(NoonPullProjectAuthGate.class);
         service = new LocalDbOfficialWarehouseService(
                 mapper,
@@ -66,11 +68,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
     @Test
     void expiredCookieQueuesSharedRecoveryAndKeepsSameAppointmentPending() {
-        when(recoveryQueue.enqueueProject(
-                eq(308L),
-                eq("PRJ512183"),
-                eq("STR512183-NSA")
-        )).thenReturn(Optional.of(139L));
+        NoonAuthWaitRequest request = appointmentWaitRequest("PROVIDER_CALL");
+        when(recoveryQueue.enqueue(request)).thenReturn(Optional.of(139L));
         when(sessionGateway.loginWithPersistedCookiePinnedEgress(
                 eq(308L),
                 eq("merchant@example.com"),
@@ -98,20 +97,21 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         verify(mapper, never()).markAppointmentFailed(
                 eq(308L), eq(611402L), eq(1L), any(), any(), any(), eq(901L)
         );
+        verify(recoveryQueue).enqueue(request);
     }
 
     @Test
     void blockedProjectWaitsWithoutOpeningAnotherNoonSession() {
         when(authGate.isBlocked(308L, "PRJ512183")).thenReturn(true);
+        NoonAuthWaitRequest request = appointmentWaitRequest("PROJECT_GATE");
+        when(recoveryQueue.enqueue(request)).thenReturn(Optional.of(139L));
 
         service.runAppointmentOnce(access(), "611402");
 
         verify(sessionGateway, never()).loginWithPersistedCookiePinnedEgress(
                 any(), any(), any(), any(), any(), any(), anyInt()
         );
-        verify(recoveryQueue, never()).enqueueProject(
-                any(), any(), any()
-        );
+        verify(recoveryQueue).enqueue(request);
         verify(mapper).markAppointmentPendingRetry(
                 eq(308L),
                 eq(611402L),
@@ -126,9 +126,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
     @Test
     void unavailableRecoveryKeepsExistingTerminalAuthFailureBehavior() {
-        when(recoveryQueue.enqueueProject(
-                any(), any(), any()
-        )).thenReturn(Optional.empty());
+        when(recoveryQueue.enqueue(any())).thenReturn(Optional.empty());
         when(sessionGateway.loginWithPersistedCookiePinnedEgress(
                 any(), any(), any(), any(), any(), any(), anyInt()
         )).thenThrow(new IllegalStateException(
@@ -158,7 +156,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
         service.runAppointmentOnce(access(), "611402");
 
-        verify(recoveryQueue, never()).enqueueProject(any(), any(), any());
+        verify(recoveryQueue, never()).enqueue(any());
         verify(mapper).markAppointmentFailed(
                 eq(308L),
                 eq(611402L),
@@ -188,9 +186,20 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 "SA",
                 "PARTNER",
                 "merchant@example.com",
-                null,
-                "mail-auth-code",
                 "expired-cookie"
+        );
+    }
+
+    private static NoonAuthWaitRequest appointmentWaitRequest(String checkpoint) {
+        return NoonAuthWaitRequest.task(
+                308L,
+                "PRJ512183",
+                "STR512183-NSA",
+                "SA",
+                "OFFICIAL_WAREHOUSE_APPOINTMENT",
+                611402L,
+                checkpoint,
+                NoonAuthResumePolicy.AUTO_RESUME
         );
     }
 

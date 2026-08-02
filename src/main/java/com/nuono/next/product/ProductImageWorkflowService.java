@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriUtils;
@@ -38,7 +39,7 @@ class ProductImageWorkflowService {
     private final PapersayPackageImageComposer packageComposer;
     private final ProductImagePublishExecutionLocks publishExecutionLocks =
             new ProductImagePublishExecutionLocks();
-
+    private ProductWriteAuthRecovery authRecovery = ProductWriteAuthRecovery.disabled();
     ProductImageWorkflowService(
             ProductImageProfileMapper mapper,
             ProductImageGenerator generator,
@@ -52,6 +53,10 @@ class ProductImageWorkflowService {
         this.packageComposer = new PapersayPackageImageComposer(objectMapper);
     }
 
+    @Autowired(required = false)
+    void setProductWriteAuthRecovery(ProductWriteAuthRecovery authRecovery) {
+        if (authRecovery != null) this.authRecovery = authRecovery;
+    }
     void generate(Long suiteId, Long ownerUserId, String storeCode, Long operatorUserId) {
         ProductImageSuiteRecord suite = requireSuite(suiteId);
         ProductImageProfileRecord profile = requireProfile(suite, ownerUserId, storeCode);
@@ -144,7 +149,10 @@ class ProductImageWorkflowService {
         ) == 0) {
             return;
         }
-        try {
+        try (ProductWriteAuthRecovery.TaskScope ignored = authRecovery.openTaskScope(
+                ownerUserId, null, storeCode, null,
+                "PRODUCT_IMAGE_SUITE", suiteId, attemptId, true
+        )) {
             ProductImageNoonPublisher publisher = publisherProvider.getIfAvailable();
             if (publisher == null) throw new IllegalStateException("Noon 图片发布服务暂时不可用。");
             List<String> images = checkpoint.approvedImageUrls();

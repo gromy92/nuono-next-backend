@@ -112,7 +112,7 @@ final class OfficialWarehouseAsnPreflightTestFixtures {
 
     static NoonSalesReportBinding binding() {
         return new NoonSalesReportBinding(307L, 108065L, "PRJ108065", "STR108065-NSA", "SA",
-                "108065", "merchant@example.com", null, null, "persisted-cookie");
+                "108065", "merchant@example.com", "persisted-cookie");
     }
 
     static AsnRecord asnRecord() {

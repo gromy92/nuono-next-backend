@@ -30,7 +30,7 @@ public class ProductListingAuthRecoveryCoordinator {
     private final ProductListingMapper listingMapper;
     private final ProductListingNoonWriteAdapter noonWriteAdapter;
     private final ProductListingService listingService;
-    private final ProductListingReauthenticationCommitter reauthenticationCommitter;
+    private final ProductListingAuthContinuationService authContinuationService;
     private final ProductListingCreateOutcomeService createOutcomeService;
     private final ObjectMapper objectMapper;
     private final AtomicLong pendingTaskScanCursor = new AtomicLong(0L);
@@ -40,7 +40,7 @@ public class ProductListingAuthRecoveryCoordinator {
             ProductListingMapper listingMapper,
             ProductListingNoonWriteAdapter noonWriteAdapter,
             ProductListingService listingService,
-            ProductListingReauthenticationCommitter reauthenticationCommitter,
+            ProductListingAuthContinuationService authContinuationService,
             ProductListingCreateOutcomeService createOutcomeService,
             ObjectMapper objectMapper
     ) {
@@ -48,7 +48,7 @@ public class ProductListingAuthRecoveryCoordinator {
         this.listingMapper = listingMapper;
         this.noonWriteAdapter = noonWriteAdapter;
         this.listingService = listingService;
-        this.reauthenticationCommitter = reauthenticationCommitter;
+        this.authContinuationService = authContinuationService;
         this.createOutcomeService = createOutcomeService;
         this.objectMapper = objectMapper;
     }
@@ -59,7 +59,8 @@ public class ProductListingAuthRecoveryCoordinator {
     ) {
         if (task == null
                 || !"REAL_RUN".equals(task.getMode())
-                || !ProductListingWriteAuthRecovery.FAILURE_CODE.equals(task.getFailureCode())) {
+                || !(ProductListingWriteAuthRecovery.FAILURE_CODE.equals(task.getFailureCode())
+                || ProductListingWriteAuthRecovery.RECOVERED_CODE.equals(task.getFailureCode()))) {
             return false;
         }
         ProductListingNoonWriteResult previous = readResult(task.getNoonResultJson());
@@ -84,7 +85,7 @@ public class ProductListingAuthRecoveryCoordinator {
                     context,
                     task,
                     previous,
-                    ProductListingReauthenticationCommitter.ResumeAction
+                    ProductListingAuthContinuationService.ResumeAction
                             .CHECK_CREATE_RESULT
             );
             createOutcomeService.verify(context, task.getId());
@@ -97,7 +98,7 @@ public class ProductListingAuthRecoveryCoordinator {
                         context,
                         task,
                         previous,
-                        ProductListingReauthenticationCommitter.ResumeAction
+                        ProductListingAuthContinuationService.ResumeAction
                                 .CONTINUE_AFTER_CREATE
                 );
                 return true;
@@ -106,7 +107,7 @@ public class ProductListingAuthRecoveryCoordinator {
                     context,
                     task,
                     previous,
-                    ProductListingReauthenticationCommitter.ResumeAction
+                    ProductListingAuthContinuationService.ResumeAction
                             .VERIFY_READBACK
             );
             listingService.verifyRealRunReadBack(context, task.getId());
@@ -166,7 +167,7 @@ public class ProductListingAuthRecoveryCoordinator {
                 context,
                 task,
                 previous,
-                ProductListingReauthenticationCommitter.ResumeAction.RETRY_CREATE
+                ProductListingAuthContinuationService.ResumeAction.RETRY_CREATE
         );
         listingService.executeSubmittedRealRunTask(task.getId());
         return true;
@@ -176,10 +177,10 @@ public class ProductListingAuthRecoveryCoordinator {
             BusinessAccessContext context,
             ProductListingTaskRecord task,
             ProductListingNoonWriteResult previous,
-            ProductListingReauthenticationCommitter.ResumeAction action
+            ProductListingAuthContinuationService.ResumeAction action
     ) {
-        ProductListingWorkflowView advanced = reauthenticationCommitter
-                .advanceSharedRecovery(
+        ProductListingWorkflowView advanced = authContinuationService
+                .advance(
                         context,
                         task.getId(),
                         task.getOwnerUserId(),
@@ -195,15 +196,15 @@ public class ProductListingAuthRecoveryCoordinator {
     }
 
     private ProductListingWorkflowView.NextAction nextAction(
-            ProductListingReauthenticationCommitter.ResumeAction action
+            ProductListingAuthContinuationService.ResumeAction action
     ) {
-        if (action == ProductListingReauthenticationCommitter.ResumeAction.RETRY_CREATE) {
+        if (action == ProductListingAuthContinuationService.ResumeAction.RETRY_CREATE) {
             return ProductListingWorkflowView.NextAction.WAIT;
         }
-        if (action == ProductListingReauthenticationCommitter.ResumeAction.CHECK_CREATE_RESULT) {
+        if (action == ProductListingAuthContinuationService.ResumeAction.CHECK_CREATE_RESULT) {
             return ProductListingWorkflowView.NextAction.CHECK_CREATE_RESULT;
         }
-        if (action == ProductListingReauthenticationCommitter.ResumeAction.CONTINUE_AFTER_CREATE) {
+        if (action == ProductListingAuthContinuationService.ResumeAction.CONTINUE_AFTER_CREATE) {
             return ProductListingWorkflowView.NextAction.CONTINUE_AFTER_CREATE;
         }
         return ProductListingWorkflowView.NextAction.VERIFY_READBACK;

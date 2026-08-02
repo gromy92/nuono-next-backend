@@ -13,20 +13,10 @@ class ProductNoonCredentialResolver {
     ) {
         return new ProductNoonCredential(
                 firstNonBlank(
-                        command == null ? null : command.getNoonUser(),
                         store == null ? null : store.getNoonPartnerProjectUser(),
                         store == null ? null : store.getNoonPartnerUser(),
                         owner == null ? null : owner.getNoonPartnerProjectUser(),
                         owner == null ? null : owner.getNoonPartnerUser()
-                ),
-                firstNonBlank(
-                        command == null ? null : command.getNoonPassword(),
-                        store == null ? null : store.getNoonPartnerPwd(),
-                        owner == null ? null : owner.getNoonPartnerPwd()
-                ),
-                firstNonBlank(
-                        store == null ? null : store.getNoonPartnerMailAuthCode(),
-                        owner == null ? null : owner.getNoonPartnerMailAuthCode()
                 ),
                 store == null ? null : normalize(store.getNoonPartnerCookie()),
                 firstNonBlank(

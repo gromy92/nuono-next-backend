@@ -10,10 +10,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noonpull.NoonPullDataDomain;
-import com.nuono.next.noonpull.NoonPullRepository;
-import com.nuono.next.noonpull.NoonPullTaskRecord;
-import com.nuono.next.noonpull.NoonPullTaskStatus;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.time.Clock;
 import java.time.Instant;
@@ -23,21 +19,18 @@ import org.junit.jupiter.api.Test;
 
 class NoonAuthRecoveryTargetValidationTest {
     private NoonAuthRecoveryRepository recoveryRepository;
-    private NoonPullRepository pullRepository;
     private StoreSyncMapper storeSyncMapper;
     private NoonAuthRecoveryCoordinator coordinator;
 
     @BeforeEach
     void setUp() {
         recoveryRepository = mock(NoonAuthRecoveryRepository.class);
-        pullRepository = mock(NoonPullRepository.class);
         storeSyncMapper = mock(StoreSyncMapper.class);
         NoonAuthRecoveryProperties properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
         properties.setTrustedSenderDomains("noon.com");
         coordinator = new NoonAuthRecoveryCoordinator(
                 recoveryRepository,
-                pullRepository,
                 storeSyncMapper,
                 properties,
                 "shared@example.com",
@@ -50,31 +43,34 @@ class NoonAuthRecoveryTargetValidationTest {
 
     @Test
     void refusesProjectCodeFallbackAndIncompleteStoreMappingBeforeAllocatingRecovery() {
-        assertTrue(coordinator.enqueueProject(307L, "PRJ1", "PRJ1").isEmpty());
+        assertTrue(coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "PRJ1")).isEmpty());
 
         StoreSyncStoreRecord incomplete = new StoreSyncStoreRecord();
         incomplete.setProjectCode("PRJ1");
         incomplete.setStoreCode("STORE-1");
         when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(incomplete);
 
-        assertTrue(coordinator.enqueueProject(307L, "PRJ1", "STORE-1").isEmpty());
+        assertTrue(coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")).isEmpty());
         verify(recoveryRepository, never()).coalesceActiveRecovery(any());
     }
 
     @Test
     void refusesPullRecoveryWithoutSiteBeforeAllocatingRecovery() {
-        NoonPullTaskRecord incomplete = new NoonPullTaskRecord();
-        incomplete.setId(99L);
-        incomplete.setOwnerUserId(307L);
+        StoreSyncStoreRecord incomplete = new StoreSyncStoreRecord();
+        incomplete.setProjectCode("PRJ1");
         incomplete.setStoreCode("STORE-99");
-        incomplete.setSiteCode(null);
-        incomplete.setDataDomain(NoonPullDataDomain.ORDER);
-        incomplete.setStatus(NoonPullTaskStatus.RUNNING);
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-99")).thenReturn(incomplete);
 
-        assertTrue(coordinator.blockAndEnqueue(
-                incomplete,
-                "auth_required: cookie expired"
-        ).isEmpty());
+        assertTrue(coordinator.enqueue(NoonAuthWaitRequest.task(
+                307L,
+                "PRJ1",
+                "STORE-99",
+                null,
+                "ORDER",
+                99L,
+                "ORDER",
+                NoonAuthResumePolicy.AUTO_RESUME
+        )).isEmpty());
         verify(recoveryRepository, never()).coalesceActiveRecovery(any());
     }
 }

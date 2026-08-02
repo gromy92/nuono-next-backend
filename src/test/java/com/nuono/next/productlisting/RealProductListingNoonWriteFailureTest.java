@@ -159,7 +159,7 @@ class RealProductListingNoonWriteFailureTest extends RealProductListingNoonWrite
     }
 
     @Test
-    void taxonomyAuthenticationFailureRemainsAReauthenticationActionBeforeCreate() {
+    void taxonomyAuthenticationFailureWaitsForSharedAuthorizationBeforeCreate() {
         FakeSessionFactory sessionFactory = new FakeSessionFactory();
         sessionFactory.session.taxonomyFailure =
                 new NoonAuthenticationRequiredException("Project authorization recovery is pending.");

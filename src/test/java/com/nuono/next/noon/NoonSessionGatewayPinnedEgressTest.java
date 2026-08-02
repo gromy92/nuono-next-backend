@@ -118,7 +118,6 @@ class NoonSessionGatewayPinnedEgressTest {
         return new NoonSessionGateway(
                 new ObjectMapper(),
                 mock(StoreSyncMapper.class),
-                false,
                 0L,
                 true,
                 "",
@@ -126,8 +125,6 @@ class NoonSessionGatewayPinnedEgressTest {
                 "",
                 "",
                 false,
-                false,
-                "",
                 "http://noon.test/whoami",
                 "",
                 "",

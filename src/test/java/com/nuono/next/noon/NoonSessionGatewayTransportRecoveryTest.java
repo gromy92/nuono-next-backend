@@ -51,8 +51,8 @@ class NoonSessionGatewayTransportRecoveryTest {
 
     private NoonSessionGateway gateway(String providerUrl) {
         return new NoonSessionGateway(
-                new ObjectMapper(), mock(StoreSyncMapper.class), false, 0L, true,
-                "", "", "", "", false, false, "", "http://noon.test/whoami",
+                new ObjectMapper(), mock(StoreSyncMapper.class), 0L, true,
+                "", "", "", "", false, "http://noon.test/whoami",
                 "", "", "", "", "", "", true, "HTTP", "", 0, providerUrl
         );
     }

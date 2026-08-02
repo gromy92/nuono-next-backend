@@ -1,5 +1,4 @@
 package com.nuono.next.sales;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -409,12 +408,14 @@ class SalesDataControllerAccessTest {
                 LocalDate.of(2026, 5, 4),
                 10003L,
                 "manual",
+                "NONE",
                 "succeeded",
                 9001L,
                 1,
                 1,
                 0,
                 LocalDate.of(2026, 5, 4),
+                null,
                 null
         );
     }
@@ -473,7 +474,6 @@ class SalesDataControllerAccessTest {
                 10003L
         );
     }
-
     private BusinessAccessContext salesContext() {
         return BusinessAccessContext.builder()
                 .sessionUserId(10003L)

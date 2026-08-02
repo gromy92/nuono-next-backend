@@ -25,15 +25,7 @@ class NoonPullAuthRecoveryFoundationTest {
         Clock clock = Clock.fixed(Instant.parse("2026-07-16T04:00:00Z"), ZoneOffset.UTC);
         repository = new InMemoryNoonPullRepository();
         service = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
-        service.setAuthRecoveryQueue((task, rawFailure) -> {
-            repository.blockTaskForAuth(
-                    task.getId(),
-                    RECOVERY_ID,
-                    rawFailure,
-                    LocalDateTime.ofInstant(clock.instant(), clock.getZone())
-            );
-            return Optional.of(RECOVERY_ID);
-        });
+        service.setAuthWaitQueue(request -> Optional.of(RECOVERY_ID));
     }
 
     @Test
@@ -145,7 +137,7 @@ class NoonPullAuthRecoveryFoundationTest {
     @Test
     void customProductDetailTaskShouldNotEnterAutomaticAuthRecovery() {
         AtomicInteger queueCalls = new AtomicInteger();
-        service.setAuthRecoveryQueue((task, rawFailure) -> {
+        service.setAuthWaitQueue(request -> {
             queueCalls.incrementAndGet();
             return Optional.of(RECOVERY_ID);
         });

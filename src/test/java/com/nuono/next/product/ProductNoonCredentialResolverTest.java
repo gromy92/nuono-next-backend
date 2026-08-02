@@ -20,14 +20,12 @@ class ProductNoonCredentialResolverTest {
                 "353172",
                 "store-main-user",
                 "store-project-user",
-                "store-password",
                 "store-cookie"
         );
         StoreSyncOwnerContext owner = ownerCredential(
                 "308",
                 "other-main-user",
                 "other-project-user",
-                "other-password",
                 "other-cookie",
                 "other-partner"
         );
@@ -35,38 +33,32 @@ class ProductNoonCredentialResolverTest {
         ProductNoonCredential credential = resolver.resolve(command, store, owner);
 
         assertEquals("store-project-user", credential.getNoonUser());
-        assertEquals("store-password", credential.getNoonPassword());
         assertEquals("store-cookie", credential.getNoonCookie());
         assertEquals("PRJ353172", credential.getProjectCode());
     }
 
     @Test
-    void resolveKeepsManualLoginOverrideAheadOfStoreCredential() {
+    void resolveUsesPersistedProjectIdentityWithoutRequestCredentialOverride() {
         ProductMasterFetchCommand command = new ProductMasterFetchCommand();
-        command.setNoonUser("manual-user");
-        command.setNoonPassword("manual-password");
         StoreSyncStoreRecord store = storeCredential(
                 "STR353172-NSA",
                 "PRJ353172",
                 "353172",
                 "store-main-user",
                 "store-project-user",
-                "store-password",
                 "store-cookie"
         );
         StoreSyncOwnerContext owner = ownerCredential(
                 "308",
                 "owner-main-user",
                 "owner-project-user",
-                "owner-password",
                 "owner-cookie",
                 "owner-partner"
         );
 
         ProductNoonCredential credential = resolver.resolve(command, store, owner);
 
-        assertEquals("manual-user", credential.getNoonUser());
-        assertEquals("manual-password", credential.getNoonPassword());
+        assertEquals("store-project-user", credential.getNoonUser());
         assertEquals("store-cookie", credential.getNoonCookie());
         assertEquals("PRJ353172", credential.getProjectCode());
     }
@@ -80,14 +72,12 @@ class ProductNoonCredentialResolverTest {
                 null,
                 null,
                 null,
-                null,
                 null
         );
         StoreSyncOwnerContext owner = ownerCredential(
                 "308",
                 "owner-main-user",
                 "owner-project-user",
-                "owner-password",
                 "owner-cookie",
                 "owner-partner"
         );
@@ -95,7 +85,6 @@ class ProductNoonCredentialResolverTest {
         ProductNoonCredential credential = resolver.resolve(command, store, owner);
 
         assertEquals("owner-project-user", credential.getNoonUser());
-        assertEquals("owner-password", credential.getNoonPassword());
         assertNull(credential.getNoonCookie());
         assertEquals("owner-partner", credential.getProjectCode());
     }
@@ -106,7 +95,6 @@ class ProductNoonCredentialResolverTest {
             String partnerId,
             String noonPartnerUser,
             String noonPartnerProjectUser,
-            String noonPartnerPwd,
             String noonPartnerCookie
     ) {
         StoreSyncStoreRecord store = new StoreSyncStoreRecord();
@@ -115,7 +103,6 @@ class ProductNoonCredentialResolverTest {
         store.setNoonPartnerId(partnerId);
         store.setNoonPartnerUser(noonPartnerUser);
         store.setNoonPartnerProjectUser(noonPartnerProjectUser);
-        store.setNoonPartnerPwd(noonPartnerPwd);
         store.setNoonPartnerCookie(noonPartnerCookie);
         return store;
     }
@@ -124,7 +111,6 @@ class ProductNoonCredentialResolverTest {
             String ownerId,
             String noonPartnerUser,
             String noonPartnerProjectUser,
-            String noonPartnerPwd,
             String noonPartnerCookie,
             String partnerId
     ) {
@@ -132,7 +118,6 @@ class ProductNoonCredentialResolverTest {
         owner.setId(Long.valueOf(ownerId));
         owner.setNoonPartnerUser(noonPartnerUser);
         owner.setNoonPartnerProjectUser(noonPartnerProjectUser);
-        owner.setNoonPartnerPwd(noonPartnerPwd);
         owner.setNoonPartnerCookie(noonPartnerCookie);
         owner.setNoonPartnerId(partnerId);
         return owner;

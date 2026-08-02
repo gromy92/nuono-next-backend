@@ -15,7 +15,8 @@ import static org.mockito.Mockito.when;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonHttpException;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductError;
 import com.nuono.next.product.noon.NoonProductErrorCode;
@@ -26,7 +27,7 @@ import org.junit.jupiter.api.Test;
 
 class ProductWriteAuthRecoveryTest {
 
-    private final NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+    private final NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
     private final NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
     private final ProductWriteAuthRecovery recovery = new ProductWriteAuthRecovery(recoveryQueue, authGate);
 
@@ -41,13 +42,13 @@ class ProductWriteAuthRecoveryTest {
 
         assertFalse(exception.isWriteMayHaveOccurred());
         assertNull(exception.getRecoveryId());
-        assertTrue(exception.getMessage().contains("人工重新确认"));
-        verify(recoveryQueue, never()).enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+        assertTrue(exception.getMessage().contains("安全检查点自动继续"));
+        verify(recoveryQueue, never()).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
     void nestedNoonAuthFailureShouldEnqueueExactProjectAndPreserveWriteProgress() {
-        when(recoveryQueue.enqueueProject(307L, "PRJ-1", "STR108065-NAE"))
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE")))
                 .thenReturn(Optional.of(991L));
         NoonProductException authFailure = new NoonProductException(
                 new NoonProductError(
@@ -70,12 +71,12 @@ class ProductWriteAuthRecoveryTest {
         assertEquals(991L, exception.getRecoveryId());
         assertTrue(exception.isWriteMayHaveOccurred());
         assertTrue(exception.getMessage().contains("recoveryId=991"));
-        verify(recoveryQueue).enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+        verify(recoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
     void dedicatedAuthenticationFailuresAndExplicit401ShouldNotNeedMessageMarkers() {
-        when(recoveryQueue.enqueueProject(307L, "PRJ-1", "STR108065-NAE"))
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE")))
                 .thenReturn(Optional.of(991L));
 
         for (RuntimeException failure : new RuntimeException[] {
@@ -95,7 +96,7 @@ class ProductWriteAuthRecoveryTest {
             assertFalse(exception.isWriteMayHaveOccurred());
         }
         verify(recoveryQueue, times(2))
-                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+                .enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
@@ -110,7 +111,7 @@ class ProductWriteAuthRecoveryTest {
             ));
         }
         verify(recoveryQueue, never())
-                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+                .enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
@@ -142,7 +143,7 @@ class ProductWriteAuthRecoveryTest {
             ));
         }
         verify(recoveryQueue, never())
-                .enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+                .enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
@@ -165,7 +166,7 @@ class ProductWriteAuthRecoveryTest {
         );
 
         assertNull(exception);
-        verify(recoveryQueue, never()).enqueueProject(307L, "PRJ-404", "STR108065-NAE");
+        verify(recoveryQueue, never()).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-404", "STR108065-NAE"));
     }
 
     @Test
@@ -188,7 +189,7 @@ class ProductWriteAuthRecoveryTest {
         );
 
         assertNull(exception);
-        verify(recoveryQueue, never()).enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+        verify(recoveryQueue, never()).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
@@ -223,7 +224,7 @@ class ProductWriteAuthRecoveryTest {
         StoreSyncStoreRecord project = new StoreSyncStoreRecord();
         project.setProjectCode("LOCAL-PRJ");
         when(storeSyncMapper.selectOwnerProject(307L, "STR108065-NAE")).thenReturn(project);
-        when(recoveryQueue.enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE"))
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE")))
                 .thenReturn(Optional.of(992L));
         recovery.setStoreSyncMapper(storeSyncMapper);
         recovery.requireAvailable(307L, "LIVE-PRJ", "STR108065-NAE");
@@ -238,8 +239,8 @@ class ProductWriteAuthRecoveryTest {
 
         assertNotNull(exception);
         assertEquals(992L, exception.getRecoveryId());
-        verify(recoveryQueue).enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE");
-        verify(recoveryQueue, never()).enqueueProject(307L, "LIVE-PRJ", "STR108065-NAE");
+        verify(recoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE"));
+        verify(recoveryQueue, never()).enqueue(NoonAuthWaitRequest.binding(307L, "LIVE-PRJ", "STR108065-NAE"));
         verify(storeSyncMapper, times(2)).selectOwnerProject(307L, "STR108065-NAE");
     }
 

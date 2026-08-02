@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Test;
 class ProductListingCreateOutcomeConfirmationTest extends ProductListingCreateOutcomeTestSupport {
 
     @Test
-    void lookupAuthenticationFailureTransitionsUnknownTaskToReauthentication()
+    void lookupAuthenticationFailureTransitionsUnknownTaskToAuthorizationWait()
             throws Exception {
         ProductListingMapper mapper = mock(ProductListingMapper.class);
         ProductListingService listingService = mock(ProductListingService.class);
@@ -55,7 +55,7 @@ class ProductListingCreateOutcomeConfirmationTest extends ProductListingCreateOu
         ProductListingCreateOutcomeVerificationView view =
                 service.verify(context, 20002L);
 
-        assertEquals("reauthentication_required", view.getStatus());
+        assertEquals("authorization_waiting", view.getStatus());
         assertEquals("noon_auth_required", view.getFailureCode());
         verify(mapper).markCreateOutcomeLookupAuthenticationRequired(
                 eq(20002L),

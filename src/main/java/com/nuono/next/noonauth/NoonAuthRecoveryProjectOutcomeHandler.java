@@ -21,6 +21,7 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
 
     private final NoonAuthRecoveryRepository repository;
     private final NoonAuthTransientOrchestrator transientOrchestrator;
+    private NoonAuthWaitingTaskRouter waitingTaskRouter;
 
     NoonAuthRecoveryProjectOutcomeHandler(
             NoonAuthRecoveryRepository repository,
@@ -28,6 +29,11 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
     ) {
         this.repository = repository;
         this.transientOrchestrator = transientOrchestrator;
+        this.waitingTaskRouter = new NoonAuthWaitingTaskRouter(repository, java.util.Collections.emptyList());
+    }
+
+    void setWaitingTaskHandlers(List<NoonAuthWaitingTaskHandler> handlers) {
+        this.waitingTaskRouter = new NoonAuthWaitingTaskRouter(repository, handlers);
     }
 
     void apply(
@@ -240,22 +246,19 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
             String failureCode = null;
             String diagnostic = "project cookie verified";
             if (item.getSourceTaskId() != null) {
-                boolean resumed = repository.requeueBlockedTaskAfterRecoveryCas(
-                        item.getSourceTaskId(),
-                        recoveryId,
-                        fence.status,
-                        fence.version,
-                        fence.leaseToken,
-                        now
+                NoonAuthWaitingTaskOutcome outcome = waitingTaskRouter.resume(
+                        item, fence.status, fence.version, fence.leaseToken, now
                 );
-                if (resumed) {
+                if (outcome == NoonAuthWaitingTaskOutcome.RESUMED) {
                     recoveredTasks++;
+                } else if (outcome == NoonAuthWaitingTaskOutcome.MANUAL_REVIEW) {
+                    diagnostic = "project cookie verified; source task requires readback";
                 } else if (!worker.renewFence(fence)) {
                     return -1;
                 } else {
                     targetStatus = NoonAuthRecoveryItemStatus.STALE;
-                    failureCode = "SOURCE_TASK_STALE";
-                    diagnostic = "project recovered but source task is no longer auth-blocked";
+                    failureCode = "SOURCE_TASK_NOT_RESUMED";
+                    diagnostic = "project recovered but source task handler rejected the transition";
                 }
             }
             boolean transitioned = repository.transitionRecoveryItem(
@@ -280,5 +283,18 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
 
     private static String projectKey(NoonAuthRecoveryItemRecord item) {
         return item.getOwnerUserId() + ":" + item.getProjectCode();
+    }
+
+    NoonAuthWaitingTaskOutcome failWaitingTask(
+            NoonAuthRecoveryItemRecord item,
+            NoonAuthRecoveryWorker.ExecutionFence fence,
+            String failureCode,
+            String diagnostic,
+            LocalDateTime now
+    ) {
+        return waitingTaskRouter.fail(
+                item, fence.status, fence.version, fence.leaseToken,
+                failureCode, diagnostic, now
+        );
     }
 }

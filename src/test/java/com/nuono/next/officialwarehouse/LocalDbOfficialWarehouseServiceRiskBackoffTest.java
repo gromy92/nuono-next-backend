@@ -82,7 +82,7 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 eq("fbn.noon.partners"),
                 eq(443)
         )).thenThrow(new IllegalStateException(
-                "auth_required: Noon Cookie 无效或已过期，请人工重新授权; project=PRJ108065"
+                "auth_required: Noon Cookie 无效或已过期，等待自动授权恢复; project=PRJ108065"
         ));
 
         service.runAppointmentOnce(access(), "611049");
@@ -229,8 +229,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 "SA",
                 "PARTNER",
                 "merchant@example.com",
-                null,
-                "mail-auth-code",
                 "persisted-cookie"
         );
     }

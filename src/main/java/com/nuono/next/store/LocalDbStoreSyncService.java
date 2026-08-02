@@ -2,7 +2,8 @@ package com.nuono.next.store;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import java.util.ArrayList;
@@ -18,7 +19,6 @@ import org.springframework.util.StringUtils;
 @Service
 @Profile("local-db")
 public class LocalDbStoreSyncService {
-
     private static final List<String> SYNCED_RULES = List.of(
             "店铺管理按最新老系统 user_project 项目级店铺读取，user_store 只作为站点明细。",
             "老板可绑定统一 Noon 商家邮箱，非老板仅查看列表。",
@@ -29,13 +29,13 @@ public class LocalDbStoreSyncService {
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final NoonSessionGateway noonSessionGateway;
-    private final NoonProjectAuthRecoveryQueue projectAuthRecoveryQueue;
+    private final NoonAuthWaitQueue projectAuthRecoveryQueue;
 
     public LocalDbStoreSyncService(
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
             NoonSessionGateway noonSessionGateway,
-            NoonProjectAuthRecoveryQueue projectAuthRecoveryQueue
+            NoonAuthWaitQueue projectAuthRecoveryQueue
     ) {
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
@@ -153,11 +153,10 @@ public class LocalDbStoreSyncService {
         String noonPartnerId = firstNonBlank(derivePartnerId(project.getProjectCode()), project.getNoonPartnerId());
         String noonUser = noonSessionGateway.configuredMerchantEmail();
 
-        int updated = storeSyncMapper.updateProjectEmailBinding(
+        int updated = storeSyncMapper.updateProjectSharedEmailBinding(
                 project.getId(),
                 command.getOwnerUserId(),
                 noonUser,
-                null,
                 noonPartnerId,
                 command.getOwnerUserId()
         );
@@ -206,8 +205,8 @@ public class LocalDbStoreSyncService {
         requireText(projectCode, "请输入 Noon Project Code。");
         String noonPartnerId = derivePartnerId(projectCode);
         String noonUser = noonSessionGateway.configuredMerchantEmail();
-        String orgCode = normalize(command.getOrgCode());
-        String orgName = firstNonBlank(command.getOrgName(), owner.getCompanyName());
+        String orgCode = null;
+        String orgName = normalize(owner.getCompanyName());
         if (storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), projectCode) != null
                 || (StringUtils.hasText(siteStoreCode)
                 && storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), siteStoreCode) != null)) {
@@ -221,7 +220,6 @@ public class LocalDbStoreSyncService {
                 projectCode,
                 projectName,
                 noonUser,
-                null,
                 noonPartnerId,
                 authorized,
                 authorized
@@ -471,7 +469,9 @@ public class LocalDbStoreSyncService {
 
     private void requireRecoveryQueued(Long ownerUserId, String projectCode, String storeCode) {
         if (projectAuthRecoveryQueue == null
-                || projectAuthRecoveryQueue.enqueueProject(ownerUserId, projectCode, storeCode).isEmpty()) {
+                || projectAuthRecoveryQueue.enqueue(
+                        NoonAuthWaitRequest.binding(ownerUserId, projectCode, storeCode)
+                ).isEmpty()) {
             throw new IllegalStateException("Noon 后台认证恢复暂不可用，店铺绑定未生效。");
         }
     }

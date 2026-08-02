@@ -44,7 +44,6 @@ class ProductPublishWriteService {
         }
 
         String noonUser = firstNonBlank(
-                normalize(command.getNoonUser()),
                 normalize(store.getNoonPartnerProjectUser()),
                 normalize(store.getNoonPartnerUser()),
                 owner.getNoonPartnerProjectUser(),

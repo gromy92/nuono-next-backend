@@ -243,8 +243,6 @@ public class ProductDetailBaselineBackfillService {
         }
         copy.setOwnerUserId(source.getOwnerUserId());
         copy.setStoreCode(source.getStoreCode());
-        copy.setNoonUser(source.getNoonUser());
-        copy.setNoonPassword(source.getNoonPassword());
         copy.setSkuParent(source.getSkuParent());
         copy.setPartnerSku(source.getPartnerSku());
         copy.setPskuCode(source.getPskuCode());

@@ -21,7 +21,7 @@ src/main/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiService.j
 src/main/java/com/nuono/next/filemanagement/parse/FileParseTaskListItemView.java	306
 src/main/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseService.java	1888
 src/main/java/com/nuono/next/filemanagement/parse/OfficeFileParseInputExtractor.java	371
-src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	417
+src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	407
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688CollectionMapper.java	425
 src/main/java/com/nuono/next/infrastructure/mapper/Ali1688HistoricalOrderMapper.java	2311
 src/main/java/com/nuono/next/infrastructure/mapper/CompetitorAnalysisMapper.java	2422
@@ -53,8 +53,8 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProductLogisticsCostMapper.ja
 src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4185
 src/main/java/com/nuono/next/infrastructure/mapper/ProductPublicDetailMapper.java	550
 src/main/java/com/nuono/next/infrastructure/mapper/ProductSelectionMapper.java	1320
-src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	969
-src/main/java/com/nuono/next/infrastructure/mapper/StoreSyncMapper.java	605
+src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	875
+src/main/java/com/nuono/next/infrastructure/mapper/StoreSyncMapper.java	540
 src/main/java/com/nuono/next/intransit/InTransitBatchCommands.java	825
 src/main/java/com/nuono/next/intransit/InTransitBatchRecords.java	1227
 src/main/java/com/nuono/next/intransit/InTransitBatchService.java	1286
@@ -80,12 +80,12 @@ src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344
 src/main/java/com/nuono/next/noon/ImapNoonEmailOtpReader.java	554
-src/main/java/com/nuono/next/noon/NoonSessionGateway.java	3059
+src/main/java/com/nuono/next/noon/NoonSessionGateway.java	2303
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
 src/main/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepository.java	748
-src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	484
+src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	363
 src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryWorker.java	1006
 src/main/java/com/nuono/next/nooncompleteness/NoonDataAuditService.java	569
 src/main/java/com/nuono/next/nooncompleteness/NoonGapPatrolActionService.java	370
@@ -93,7 +93,7 @@ src/main/java/com/nuono/next/nooncompleteness/NoonGapPatrolPlanner.java	377
 src/main/java/com/nuono/next/nooncompleteness/NoonHistoricalBackfillPolicy.java	377
 src/main/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGate.java	349
 src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
-src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	913
+src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	896
 src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1121
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
@@ -167,7 +167,7 @@ src/main/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderViews.java
 src/main/java/com/nuono/next/procurementorder/PurchaseOrderLogisticsCostCalculator.java	442
 src/main/java/com/nuono/next/product/LocalDbProductMasterService.java	4544
 src/main/java/com/nuono/next/product/ProductAttributeTemplateService.java	1013
-src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	314
+src/main/java/com/nuono/next/product/ProductDetailBaselineBackfillService.java	312
 src/main/java/com/nuono/next/product/ProductGroupProjectionService.java	440
 src/main/java/com/nuono/next/product/ProductGroupPublishService.java	343
 src/main/java/com/nuono/next/product/ProductImageMetadataService.java	407
@@ -192,7 +192,7 @@ src/main/java/com/nuono/next/product/ProductSnapshotSectionBuilder.java	648
 src/main/java/com/nuono/next/product/ProductSpecManagementController.java	349
 src/main/java/com/nuono/next/product/ProductVariantLogisticsProfileService.java	317
 src/main/java/com/nuono/next/product/ProductVariantSpecService.java	573
-src/main/java/com/nuono/next/product/publish/ProductPublishCommandService.java	843
+src/main/java/com/nuono/next/product/publish/ProductPublishCommandService.java	729
 src/main/java/com/nuono/next/productkeyword/ProductKeywordService.java	603
 src/main/java/com/nuono/next/productkeyword/ProductKeywordViews.java	420
 src/main/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackfill.java	363
@@ -232,5 +232,5 @@ src/main/java/com/nuono/next/sales/SalesProductRow.java	305
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastEngine.java	451
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1045
 src/main/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilder.java	484
-src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3518
+src/main/java/com/nuono/next/store/LocalDbStoreInitializationService.java	3393
 src/main/java/com/nuono/next/store/LocalDbStoreSyncService.java	570

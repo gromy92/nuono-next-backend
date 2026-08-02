@@ -30,24 +30,16 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     }
 
     @Override
-    public NoonAuthIdentityRecoveryRecord selectRecovery(Long recoveryId) {
-        return mapper.selectRecovery(recoveryId);
-    }
+    public NoonAuthIdentityRecoveryRecord selectRecovery(Long recoveryId) { return mapper.selectRecovery(recoveryId); }
 
     @Override
-    public NoonAuthIdentityRecoveryRecord selectRecoveryForUpdate(Long recoveryId) {
-        return mapper.selectRecoveryForUpdate(recoveryId);
-    }
+    public NoonAuthIdentityRecoveryRecord selectRecoveryForUpdate(Long recoveryId) { return mapper.selectRecoveryForUpdate(recoveryId); }
 
     @Override
-    public NoonAuthIdentityRecoveryRecord selectActiveRecovery(String identityKey) {
-        return mapper.selectActiveRecovery(identityKey);
-    }
+    public NoonAuthIdentityRecoveryRecord selectActiveRecovery(String identityKey) { return mapper.selectActiveRecovery(identityKey); }
 
     @Override
-    public NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey) {
-        return mapper.selectActiveRecoveryForUpdate(identityKey);
-    }
+    public NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey) { return mapper.selectActiveRecoveryForUpdate(identityKey); }
 
     @Override
     public NoonAuthIdentityRecoveryRecord selectWaitingSuccessorForUpdate(String identityKey) {
@@ -533,6 +525,14 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     @Override
     public NoonProjectAuthStateRecord selectProjectAuthStateForUpdate(Long ownerUserId, String projectCode) {
         return mapper.selectProjectAuthStateForUpdate(ownerUserId, projectCode);
+    }
+
+    @Override
+    public boolean hasRecoveredSourceTaskAtCurrentAuthVersion(Long ownerUserId, String projectCode,
+            String sourceDomain, Long sourceTaskId, Long currentAuthVersion) {
+        return mapper.countRecoveredSourceTaskAtCurrentAuthVersion(
+                ownerUserId, projectCode, sourceDomain, sourceTaskId, currentAuthVersion
+        ) > 0;
     }
 
     @Override

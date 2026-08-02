@@ -15,7 +15,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -32,7 +33,7 @@ class ProductNoonAdapterAuthRecoveryTest {
     void blockedProjectShouldStopBeforePersistedCookieLogin() {
         NoonSessionGateway sessionGateway = mock(NoonSessionGateway.class);
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
         when(authGate.isBlocked(307L, "PRJ-1")).thenReturn(true);
         ProductNoonAdapter adapter = new ProductNoonAdapter(sessionGateway, new NoonProductGateway());
         adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(recoveryQueue, authGate));
@@ -56,15 +57,15 @@ class ProductNoonAdapterAuthRecoveryTest {
                 anyString(),
                 anyString()
         );
-        verify(recoveryQueue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(recoveryQueue, never()).enqueue(any());
     }
 
     @Test
     void freshCookieAuthFailureShouldEnterRecoveryQueueOnce() {
         NoonSessionGateway sessionGateway = mock(NoonSessionGateway.class);
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
-        when(recoveryQueue.enqueueProject(307L, "PRJ-1", "STR108065-NAE"))
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE")))
                 .thenReturn(Optional.of(991L));
         when(sessionGateway.loginWithPersistedCookie(
                 307L,
@@ -89,14 +90,14 @@ class ProductNoonAdapterAuthRecoveryTest {
 
         assertEquals(991L, exception.getRecoveryId());
         assertFalse(exception.isWriteMayHaveOccurred());
-        verify(recoveryQueue).enqueueProject(307L, "PRJ-1", "STR108065-NAE");
+        verify(recoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ-1", "STR108065-NAE"));
     }
 
     @Test
     void rawProjectScopeFailureMentioningAuthRequiredShouldNotQueueEmailRecovery() {
         NoonSessionGateway sessionGateway = mock(NoonSessionGateway.class);
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
         when(sessionGateway.loginWithPersistedCookie(
                 307L,
                 "operator@example.com",
@@ -121,7 +122,7 @@ class ProductNoonAdapterAuthRecoveryTest {
         );
 
         assertEquals(NoonProductErrorCode.NOON_PROJECT_SCOPE_MISSING, exception.getCode());
-        verify(recoveryQueue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(recoveryQueue, never()).enqueue(any());
     }
 
     @Test
@@ -129,7 +130,7 @@ class ProductNoonAdapterAuthRecoveryTest {
         NoonSessionGateway sessionGateway = mock(NoonSessionGateway.class);
         NoonSession session = newSession(sessionGateway, "LIVE-PRJ", "STR108065-NAE");
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
         StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
         StoreSyncStoreRecord project = new StoreSyncStoreRecord();
         project.setProjectCode("LOCAL-PRJ");
@@ -154,8 +155,8 @@ class ProductNoonAdapterAuthRecoveryTest {
     void successfulHttpResponseBodyWithAuthRequiredShouldNotClaimCurrentWriteOccurred() {
         NoonSessionGateway sessionGateway = mock(NoonSessionGateway.class);
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
-        when(recoveryQueue.enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE"))
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE")))
                 .thenReturn(Optional.of(991L));
         ProductNoonAdapter adapter = new ProductNoonAdapter(sessionGateway, new NoonProductGateway());
         adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(recoveryQueue, authGate));
@@ -172,13 +173,13 @@ class ProductNoonAdapterAuthRecoveryTest {
 
         assertFalse(exception.isWriteMayHaveOccurred());
         assertEquals(991L, exception.getRecoveryId());
-        verify(recoveryQueue).enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE");
+        verify(recoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE"));
     }
 
     @Test
     void alternateFailureEnvelopeFieldsShouldExposeAuthRequired() {
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
-        when(recoveryQueue.enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE"))
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
+        when(recoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE")))
                 .thenReturn(Optional.of(991L));
         ProductNoonAdapter adapter = new ProductNoonAdapter(
                 mock(NoonSessionGateway.class),
@@ -203,12 +204,12 @@ class ProductNoonAdapterAuthRecoveryTest {
         }
 
         verify(recoveryQueue, times(3))
-                .enqueueProject(307L, "LOCAL-PRJ", "STR108065-NAE");
+                .enqueue(NoonAuthWaitRequest.binding(307L, "LOCAL-PRJ", "STR108065-NAE"));
     }
 
     @Test
     void normalDataContainingUnauthorizedTextShouldNotTriggerRecovery() {
-        NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
         ProductNoonAdapter adapter = new ProductNoonAdapter(
                 mock(NoonSessionGateway.class),
                 new NoonProductGateway()
@@ -232,7 +233,7 @@ class ProductNoonAdapterAuthRecoveryTest {
         );
 
         assertEquals(response, actual);
-        verify(recoveryQueue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(recoveryQueue, never()).enqueue(any());
     }
 
     private NoonSession newSession(

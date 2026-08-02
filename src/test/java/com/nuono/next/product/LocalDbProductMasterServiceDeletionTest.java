@@ -1016,7 +1016,6 @@ class LocalDbProductMasterServiceDeletionTest {
         store.setProjectCode("PRJ245027");
         store.setProjectName("xingyao");
         store.setNoonPartnerProjectUser("nuonuo@example.test");
-        store.setNoonPartnerPwd("password");
         return store;
     }
 
@@ -1056,7 +1055,6 @@ class LocalDbProductMasterServiceDeletionTest {
         StoreSyncOwnerContext owner = new StoreSyncOwnerContext();
         owner.setId(10002L);
         owner.setNoonPartnerProjectUser("nuonuo@example.test");
-        owner.setNoonPartnerPwd("password");
         return owner;
     }
 
@@ -1064,7 +1062,6 @@ class LocalDbProductMasterServiceDeletionTest {
         return new NoonSessionGateway(
                 objectMapper,
                 null,
-                false,
                 0,
                 true,
                 "",
@@ -1072,8 +1069,6 @@ class LocalDbProductMasterServiceDeletionTest {
                 "en-sa",
                 "en",
                 false,
-                false,
-                "",
                 "",
                 "",
                 "",

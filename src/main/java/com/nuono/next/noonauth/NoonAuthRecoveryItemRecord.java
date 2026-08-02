@@ -11,6 +11,8 @@ public class NoonAuthRecoveryItemRecord {
     private String siteCode;
     private Long sourceTaskId;
     private String sourceDomain;
+    private String sourceCheckpoint;
+    private NoonAuthResumePolicy resumePolicy;
     private Long expectedAuthVersion;
     private NoonAuthRecoveryItemStatus status;
     private String failureCode;
@@ -81,6 +83,22 @@ public class NoonAuthRecoveryItemRecord {
 
     public void setSourceDomain(String sourceDomain) {
         this.sourceDomain = sourceDomain;
+    }
+
+    public String getSourceCheckpoint() {
+        return sourceCheckpoint;
+    }
+
+    public void setSourceCheckpoint(String sourceCheckpoint) {
+        this.sourceCheckpoint = sourceCheckpoint;
+    }
+
+    public NoonAuthResumePolicy getResumePolicy() {
+        return resumePolicy;
+    }
+
+    public void setResumePolicy(NoonAuthResumePolicy resumePolicy) {
+        this.resumePolicy = resumePolicy;
     }
 
     public Long getExpectedAuthVersion() {

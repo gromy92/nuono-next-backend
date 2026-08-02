@@ -18,9 +18,17 @@ final class NoonAuthRecoveryStoreTargetResolver {
         String project = NoonAuthRecoveryTargetPolicy.normalize(projectCode);
         String requestedStore = NoonAuthRecoveryTargetPolicy.normalize(storeCode);
         if (mapper == null
-                || project == null
                 || requestedStore == null
                 || requestedStore.toUpperCase(Locale.ROOT).startsWith("PRJ")) {
+            return null;
+        }
+        if (project == null) {
+            StoreSyncStoreRecord mappedProject = mapper.selectOwnerProject(ownerUserId, requestedStore);
+            project = mappedProject == null
+                    ? null
+                    : NoonAuthRecoveryTargetPolicy.normalize(mappedProject.getProjectCode());
+        }
+        if (project == null) {
             return null;
         }
         StoreSyncStoreRecord store = mapper.selectOwnerStore(ownerUserId, requestedStore);

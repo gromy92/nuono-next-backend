@@ -46,7 +46,7 @@ public class NoonResponseClassifier {
                     "NOON_AUTH_REQUIRED",
                     NoonFailureCategory.AUTHENTICATION,
                     normalizedOperation,
-                    "Noon 登录态已失效或无权执行该操作，请重新授权后再试。",
+                    "Noon 登录态已失效；持久任务会等待统一授权恢复，即时查询请稍后重试。",
                     HttpStatus.BAD_GATEWAY.value(),
                     status,
                     false,

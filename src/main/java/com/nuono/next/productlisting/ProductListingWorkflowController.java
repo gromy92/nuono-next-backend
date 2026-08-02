@@ -19,18 +19,15 @@ public class ProductListingWorkflowController {
 
     private final ProductListingWorkflowService workflowService;
     private final ProductListingCreateOutcomeService createOutcomeService;
-    private final ProductListingReauthenticationService reauthenticationService;
     private final BusinessAccessResolver businessAccessResolver;
 
     public ProductListingWorkflowController(
             ProductListingWorkflowService workflowService,
             ProductListingCreateOutcomeService createOutcomeService,
-            ProductListingReauthenticationService reauthenticationService,
             BusinessAccessResolver businessAccessResolver
     ) {
         this.workflowService = workflowService;
         this.createOutcomeService = createOutcomeService;
-        this.reauthenticationService = reauthenticationService;
         this.businessAccessResolver = businessAccessResolver;
     }
 
@@ -90,52 +87,6 @@ public class ProductListingWorkflowController {
             return workflowService.loadWorkflow(context, draftId);
         } catch (BusinessAccessDeniedException exception) {
             throw forbidden(exception);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-    @PostMapping("/tasks/{realRunTaskId}/reauthenticate")
-    public ProductListingWorkflowView reauthenticate(
-            @PathVariable Long realRunTaskId,
-            HttpServletRequest request
-    ) {
-        try {
-            return reauthenticationService.reauthenticate(
-                    context(request),
-                    realRunTaskId
-            );
-        } catch (BusinessAccessDeniedException exception) {
-            throw forbidden(exception);
-        } catch (ProductListingReauthenticationException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    exception.getMessage(),
-                    exception
-            );
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
-    }
-
-    @GetMapping("/tasks/{realRunTaskId}/reauthentication-status")
-    public ProductListingWorkflowView reauthenticationStatus(
-            @PathVariable Long realRunTaskId,
-            HttpServletRequest request
-    ) {
-        try {
-            return reauthenticationService.reauthenticationStatus(
-                    context(request),
-                    realRunTaskId
-            );
-        } catch (BusinessAccessDeniedException exception) {
-            throw forbidden(exception);
-        } catch (ProductListingReauthenticationException exception) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    exception.getMessage(),
-                    exception
-            );
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }

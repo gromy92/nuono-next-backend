@@ -75,8 +75,6 @@ public class FoundationUserDetail {
 
     private String noonPartnerUserCode;
 
-    private String noonPartnerMailAuthCode;
-
     private String cookieGenerateTime;
 
     private String effectiveTime;
@@ -365,14 +363,6 @@ public class FoundationUserDetail {
 
     public void setNoonPartnerUserCode(String noonPartnerUserCode) {
         this.noonPartnerUserCode = noonPartnerUserCode;
-    }
-
-    public String getNoonPartnerMailAuthCode() {
-        return noonPartnerMailAuthCode;
-    }
-
-    public void setNoonPartnerMailAuthCode(String noonPartnerMailAuthCode) {
-        this.noonPartnerMailAuthCode = noonPartnerMailAuthCode;
     }
 
     public String getCookieGenerateTime() {

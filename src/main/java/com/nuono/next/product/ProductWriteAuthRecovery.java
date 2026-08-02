@@ -4,7 +4,10 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonauth.NoonAuthRecoveryTriggerPolicy;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.product.ProductWriteAuthTaskContext.TaskIdentity;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductErrorCode;
 import com.nuono.next.product.noon.NoonProductException;
@@ -18,21 +21,21 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class ProductWriteAuthRecovery {
-    private final NoonProjectAuthRecoveryQueue recoveryQueue;
+    private final NoonAuthWaitQueue recoveryQueue;
     private final NoonPullProjectAuthGate authGate;
+    private final ProductWriteAuthTaskContext taskContext;
     private StoreSyncMapper storeSyncMapper;
-
     public ProductWriteAuthRecovery(
-            NoonProjectAuthRecoveryQueue recoveryQueue,
+            NoonAuthWaitQueue recoveryQueue,
             NoonPullProjectAuthGate authGate
     ) {
         this.recoveryQueue = recoveryQueue;
         this.authGate = authGate;
+        this.taskContext = new ProductWriteAuthTaskContext(recoveryQueue, this::canonicalProjectCode);
     }
-
     public static ProductWriteAuthRecovery disabled() {
         return new ProductWriteAuthRecovery(
-                (ownerUserId, projectCode, storeCode) -> Optional.empty(),
+                request -> Optional.empty(),
                 (ownerUserId, projectCode) -> false
         );
     }
@@ -41,11 +44,9 @@ public class ProductWriteAuthRecovery {
     public void setStoreSyncMapper(StoreSyncMapper storeSyncMapper) {
         this.storeSyncMapper = storeSyncMapper;
     }
-
     public void requireAvailable(Long ownerUserId, String projectCode) {
         requireAvailable(ownerUserId, projectCode, projectCode);
     }
-
     public void requireAvailable(Long ownerUserId, String projectCode, String storeCode) {
         String canonicalProjectCode = canonicalProjectCode(ownerUserId, projectCode, storeCode);
         if (authGate == null
@@ -56,7 +57,6 @@ public class ProductWriteAuthRecovery {
         }
         throw pendingException(null, false, true, null);
     }
-
     public ProductWriteAuthRequiredException suspendIfAuthFailure(
             Long ownerUserId,
             String projectCode,
@@ -64,9 +64,59 @@ public class ProductWriteAuthRecovery {
             Throwable failure,
             boolean writeMayHaveOccurred
     ) {
+        return suspendIfAuthFailure(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                failure,
+                writeMayHaveOccurred,
+                null
+        );
+    }
+    public ProductWriteAuthRequiredException suspendTaskIfAuthFailure(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            String sourceDomain,
+            Long sourceTaskId,
+            String checkpoint,
+            Throwable failure,
+            boolean writeMayHaveOccurred
+    ) {
+        return suspendIfAuthFailure(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                failure,
+                writeMayHaveOccurred,
+                taskContext.identity(
+                        ownerUserId,
+                        projectCode,
+                        storeCode,
+                        siteCode,
+                        sourceDomain,
+                        sourceTaskId,
+                        checkpoint,
+                        false
+                )
+        );
+    }
+
+    private ProductWriteAuthRequiredException suspendIfAuthFailure(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            Throwable failure,
+            boolean writeMayHaveOccurred,
+            TaskIdentity taskIdentity
+    ) {
+        TaskIdentity scopedTask = taskContext.current();
+        boolean effectiveWriteMayHaveOccurred = writeMayHaveOccurred
+                || (scopedTask != null && scopedTask.forceReadback);
         ProductWriteAuthRequiredException existing = ProductWriteAuthRequiredException.find(failure);
         if (existing != null) {
-            if (!writeMayHaveOccurred || existing.isWriteMayHaveOccurred()) {
+            if (!effectiveWriteMayHaveOccurred || existing.isWriteMayHaveOccurred()) {
                 return existing;
             }
             return pendingException(existing.getRecoveryId(), true, true, existing);
@@ -83,18 +133,75 @@ public class ProductWriteAuthRecovery {
                 && StringUtils.hasText(canonicalProjectCode)
                 && StringUtils.hasText(storeCode)) {
             try {
-                Optional<Long> queued = recoveryQueue.enqueueProject(
-                        ownerUserId,
-                        canonicalProjectCode,
-                        storeCode.trim()
-                );
+                TaskIdentity currentTask = scopedTask;
+                Optional<Long> queued;
+                if (currentTask != null) {
+                    queued = taskContext.enqueue(
+                            currentTask,
+                            canonicalProjectCode,
+                            effectiveWriteMayHaveOccurred
+                    );
+                } else if (taskIdentity != null && taskIdentity.sourceTaskId != null) {
+                    queued = taskContext.enqueue(
+                            taskIdentity, canonicalProjectCode, effectiveWriteMayHaveOccurred
+                    );
+                } else {
+                    queued = recoveryQueue.enqueue(NoonAuthWaitRequest.binding(
+                                ownerUserId,
+                                canonicalProjectCode,
+                                storeCode.trim()
+                    ));
+                }
                 recoveryId = queued.orElse(null);
                 recoveryQueued = queued.isPresent();
+            } catch (NoonAuthRetrySuppressedException suppressed) {
+                throw suppressed;
             } catch (RuntimeException ignored) {
                 recoveryQueued = false;
             }
         }
-        return pendingException(recoveryId, writeMayHaveOccurred, recoveryQueued, failure);
+        return pendingException(recoveryId, effectiveWriteMayHaveOccurred, recoveryQueued, failure);
+    }
+    public TaskScope openTaskScope(ProductPublishTaskRecord task) {
+        return taskContext.open(task);
+    }
+    public TaskScope openTaskScope(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            String sourceDomain,
+            Long sourceTaskId,
+            String checkpoint
+    ) {
+        return taskContext.open(
+                ownerUserId, projectCode, storeCode, siteCode,
+                sourceDomain, sourceTaskId, checkpoint, false
+        );
+    }
+
+    public TaskScope openTaskScope(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            String sourceDomain,
+            Long sourceTaskId,
+            String checkpoint,
+            boolean forceReadback
+    ) {
+        return taskContext.open(
+                ownerUserId, projectCode, storeCode, siteCode,
+                sourceDomain, sourceTaskId, checkpoint, forceReadback
+        );
+    }
+
+    public Optional<Long> enqueueTask(
+            ProductPublishTaskRecord task,
+            String checkpoint,
+            boolean writeMayHaveOccurred
+    ) {
+        return taskContext.enqueue(task, checkpoint, writeMayHaveOccurred);
     }
 
     public boolean isExplicitAuthFailure(Throwable failure) {
@@ -173,7 +280,7 @@ public class ProductWriteAuthRecovery {
         if (writeMayHaveOccurred) {
             message.append("。本次操作已进入写入阶段，恢复后请先回读 Noon 结果，再人工决定是否继续");
         } else {
-            message.append("。恢复成功后不会自动重放本次商品写入，请人工重新确认");
+            message.append("。业务任务进入授权等待队列，恢复成功后将从安全检查点自动继续");
         }
         return new ProductWriteAuthRequiredException(
                 recoveryId,
@@ -182,4 +289,11 @@ public class ProductWriteAuthRecovery {
                 cause
         );
     }
+
+    @FunctionalInterface
+    public interface TaskScope extends AutoCloseable {
+        @Override
+        void close();
+    }
+
 }

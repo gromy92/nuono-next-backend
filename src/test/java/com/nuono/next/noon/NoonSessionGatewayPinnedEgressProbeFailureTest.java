@@ -72,8 +72,8 @@ class NoonSessionGatewayPinnedEgressProbeFailureTest {
 
     private NoonSessionGateway gateway(String providerUrl, boolean proxyEnabled) {
         return new NoonSessionGateway(
-                new ObjectMapper(), mock(StoreSyncMapper.class), false, 0L, true,
-                "", "", "", "", false, false, "", "http://noon.test/whoami",
+                new ObjectMapper(), mock(StoreSyncMapper.class), 0L, true,
+                "", "", "", "", false, "http://noon.test/whoami",
                 "", "", "", "", "", "", proxyEnabled, "HTTP", "", 0, providerUrl
         );
     }
