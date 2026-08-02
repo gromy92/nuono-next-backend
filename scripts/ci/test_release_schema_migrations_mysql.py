@@ -274,12 +274,13 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             self.assertEqual("FAILED", states[failing.key].state)
             self.assertNotIn(blocked.key, states)
             self.assertEqual(
-                "0\nMYSQL_3819",
+                "0\nFAILED/MYSQL_3819/FAILED/MYSQL_3819",
                 database.client.execute(
                     "SELECT COUNT(*) FROM information_schema.tables "
                     "WHERE table_schema=DATABASE() "
                     "AND table_name='migration_must_not_run';"
-                    "SELECT error_code FROM nuono_schema_migration WHERE "
+                    "SELECT CONCAT(h.state,'/',h.error_code,'/',a.state,'/',a.error_code) "
+                    "FROM nuono_schema_migration h JOIN nuono_schema_migration_attempt a USING(migration_key,attempt_no) WHERE "
                     f"migration_key='{failing.key}';"
                 ),
             )
@@ -295,6 +296,5 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(MigrationError, "checksum drift"):
             plan_migrations(extended, database.load_states())
-
 if __name__ == "__main__":
     unittest.main()
