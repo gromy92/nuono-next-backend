@@ -67,7 +67,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             defaults_file,
             expected_schema=expected_schema,
             expected_host="127.0.0.1",
-            expected_port=3306,
+            expected_port=int(os.environ.get("NUONO_MIGRATION_EXPECTED_PORT", "3306")),
         )
         self.addCleanup(database.close)
         runner = MigrationRunner(
@@ -249,9 +249,9 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
                 root,
                 failure_order,
                 failure_key,
-                "CREATE TABLE migration_failure_before (id INT);\n"
-                "THIS IS NOT VALID SQL;\n"
-                "CREATE TABLE migration_failure_after (id INT);\n",
+                "START TRANSACTION;CREATE TEMPORARY TABLE migration_failure_guard "
+                "(invalid_count INT NOT NULL,CHECK(invalid_count=0)) ENGINE=InnoDB;"
+                "INSERT INTO migration_failure_guard VALUES(1);COMMIT;\n",
                 "SELECT 0;\n",
             )
             blocked = build_probe_migration(
@@ -274,12 +274,13 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             self.assertEqual("FAILED", states[failing.key].state)
             self.assertNotIn(blocked.key, states)
             self.assertEqual(
-                "0",
+                "0\nMYSQL_3819\n0",
                 database.client.execute(
                     "SELECT COUNT(*) FROM information_schema.tables "
                     "WHERE table_schema=DATABASE() "
-                    "AND table_name IN "
-                    "('migration_failure_after', 'migration_must_not_run');"
+                    "AND table_name='migration_must_not_run';"
+                    "SELECT error_code FROM nuono_schema_migration WHERE "
+                    f"migration_key='{failing.key}';SELECT @@in_transaction;"
                 ),
             )
 
