@@ -119,7 +119,7 @@ def verify_forwarder_wrong_shape_fail_before_writes(test_case, database, migrati
 def _verify_wrong_eligibility_shape(test_case, database, migration):
     database.client.execute(
         f"CREATE TABLE {ELIGIBILITY_TABLE} (id BIGINT NOT NULL) "
-        "ENGINE=MyISAM DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;"
+        "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;"
     )
     try:
         _assert_failed_unchanged(test_case, database, migration)

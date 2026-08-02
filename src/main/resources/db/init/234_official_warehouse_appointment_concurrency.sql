@@ -43,7 +43,7 @@ DROP TEMPORARY TABLE IF EXISTS `nuono_234_appointment_base_guard`;
 CREATE TEMPORARY TABLE `nuono_234_appointment_base_guard` (
     `invalid_schema_count` BIGINT NOT NULL, CONSTRAINT `chk_234_appointment_base`
     CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_234_appointment_base_guard`
 VALUES (IF(
     @appointment_table_count = 1
@@ -168,7 +168,7 @@ DROP TEMPORARY TABLE IF EXISTS `nuono_234_appointment_target_guard`;
 CREATE TEMPORARY TABLE `nuono_234_appointment_target_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_234_appointment_target` CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_234_appointment_target_guard`
 VALUES (IF(
     (
@@ -251,7 +251,7 @@ DROP TEMPORARY TABLE IF EXISTS `nuono_234_appointment_data_guard`;
 CREATE TEMPORARY TABLE `nuono_234_appointment_data_guard` (
     `invalid_data_count` BIGINT NOT NULL,
     CONSTRAINT `chk_234_appointment_data` CHECK (`invalid_data_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_234_appointment_data_guard`
 VALUES (
     @appointment_invalid_row_count

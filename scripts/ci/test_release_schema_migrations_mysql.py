@@ -51,7 +51,6 @@ SHIPPING_PLAN_MIGRATION_KEY = (
     "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql"
 )
 
-
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
     "requires an isolated MySQL schema",
@@ -67,7 +66,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             defaults_file,
             expected_schema=expected_schema,
             expected_host="127.0.0.1",
-            expected_port=3306,
+            expected_port=int(os.environ.get("NUONO_MIGRATION_EXPECTED_PORT", "3306")),
         )
         self.addCleanup(database.close)
         runner = MigrationRunner(
@@ -212,7 +211,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         verify_forwarder_eligibility_binary_guards(self, database, forwarder)
         verify_forwarder_trigger_repair(self, database, forwarder)
         verify_forwarder_atomic_guards(self, database, forwarder)
-        verify_lock_contention(self, defaults_file, expected_schema)
+        verify_lock_contention(self, database)
 
         verify_pre_catalog_bootstrap(
             self,
@@ -249,9 +248,9 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
                 root,
                 failure_order,
                 failure_key,
-                "CREATE TABLE migration_failure_before (id INT);\n"
-                "THIS IS NOT VALID SQL;\n"
-                "CREATE TABLE migration_failure_after (id INT);\n",
+                "START TRANSACTION;CREATE TEMPORARY TABLE migration_failure_guard "
+                "(invalid_count INT NOT NULL,CHECK(invalid_count=0)) ENGINE=InnoDB;"
+                "INSERT INTO migration_failure_guard VALUES(1);COMMIT;\n",
                 "SELECT 0;\n",
             )
             blocked = build_probe_migration(
@@ -270,16 +269,19 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             )
             with self.assertRaisesRegex(MigrationError, failure_key):
                 failing_runner.apply()
+            self.assertIsNone(database.client.lock_process)
             states = database.load_states()
             self.assertEqual("FAILED", states[failing.key].state)
             self.assertNotIn(blocked.key, states)
             self.assertEqual(
-                "0",
+                "0\nFAILED/MYSQL_3819/FAILED/MYSQL_3819",
                 database.client.execute(
                     "SELECT COUNT(*) FROM information_schema.tables "
                     "WHERE table_schema=DATABASE() "
-                    "AND table_name IN "
-                    "('migration_failure_after', 'migration_must_not_run');"
+                    "AND table_name='migration_must_not_run';"
+                    "SELECT CONCAT(h.state,'/',h.error_code,'/',a.state,'/',a.error_code) "
+                    "FROM nuono_schema_migration h JOIN nuono_schema_migration_attempt a USING(migration_key,attempt_no) WHERE "
+                    f"migration_key='{failing.key}';"
                 ),
             )
 
@@ -294,6 +296,5 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         with self.assertRaisesRegex(MigrationError, "checksum drift"):
             plan_migrations(extended, database.load_states())
-
 if __name__ == "__main__":
     unittest.main()
