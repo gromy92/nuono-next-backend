@@ -71,7 +71,7 @@ health_status() {{
 wait_for_health() {{
   local attempt
   for attempt in $(seq 1 80); do
-    [ "$(health_status "$1")" = UP ] && {{ printf '%s' "$attempt"; return 0; }}
+    [ "$(health_status "$1")" = UP ] && {{ READY_ATTEMPT="$attempt"; return 0; }}
     sleep 1
   done
   return 1
@@ -85,8 +85,8 @@ from pathlib import Path
 import re, sys
 path = Path(sys.argv[1])
 original = path.read_text()
-updated = re.sub(r"127\\.0\\.0\\.1:[0-9]+", f"127.0.0.1:{{sys.argv[2]}}", original, count=1)
-if updated == original:
+updated, replacements = re.subn(r"127\\.0\\.0\\.1:[0-9]+", f"127.0.0.1:{{sys.argv[2]}}", original, count=1)
+if replacements != 1:
     raise SystemExit("no managed loopback upstream found")
 path.write_text(updated)
 PY
@@ -277,7 +277,7 @@ OLD_STOPPED=1
 rm -f "$TARGET_SLOT_DIR/nuono-next.pid"
 NEW_START_ATTEMPTED=1
 start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
-ready_attempt="$(wait_for_health "$TARGET_PORT")"
+wait_for_health "$TARGET_PORT"
 NEW_PID="$(pid_for_port "$TARGET_PORT")"
 [ -n "$NEW_PID" ]
 process_uses_jar "$NEW_PID" "$TARGET_SLOT_DIR/$JAR_NAME"
@@ -291,7 +291,7 @@ stop_maintenance_responder
 trap - ERR
 emit CUTOVER_RESULT PASS
 emit SINGLE_SCHEDULER_GUARD PASS
-emit TARGET_READY_ATTEMPT "$ready_attempt"
+emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"
 emit TARGET_PID "$NEW_PID"
 emit ACTIVE_PORT "$TARGET_PORT"
 emit ACTIVE_JAR_PATH "$ACTIVE_JAR_PATH"

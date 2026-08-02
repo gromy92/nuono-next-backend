@@ -146,6 +146,109 @@ printf 'rc=%s\nrouted=%s\n' "$rc" "$MAINTENANCE_ROUTED"
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "rc=1\nrouted=0\n")
 
+    def test_write_upstream_port_accepts_already_current_target(self):
+        script = build_script()
+        writer = function_from(script, "write_upstream_port", "switch_nginx_to_port")
+        with tempfile.TemporaryDirectory() as temp:
+            upstream = Path(temp) / "upstream.inc"
+            upstream.write_text(
+                "# NUONO_BLUE_GREEN_MANAGED\nserver 127.0.0.1:18089;\n"
+            )
+            result = run_bash(f'''set -uo pipefail
+NGINX_UPSTREAM_FILE={str(upstream)!r}
+{writer}
+write_upstream_port 18089
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+
+    def test_target_health_failure_triggers_only_parent_rollback(self):
+        script = build_script()
+        target_health = script[
+            script.index('wait_for_health "$TARGET_PORT"') : script.index(
+                'NEW_PID=', script.index('wait_for_health "$TARGET_PORT"')
+            )
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            rollback_calls = Path(temp) / "rollback-calls"
+            result = run_bash(f'''set -Eeuo pipefail
+TARGET_PORT=18088
+ROLLBACK_CALLS={str(rollback_calls)!r}
+wait_for_health() {{ return 1; }}
+rollback_cutover() {{ printf '%s\n' "$BASH_SUBSHELL" >> "$ROLLBACK_CALLS"; }}
+trap rollback_cutover ERR
+{target_health}
+''')
+            calls = rollback_calls.read_text().splitlines()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, ["0"])
+
+    def test_target_health_failure_executes_complete_real_rollback(self):
+        script = build_script()
+        rollback = function_from(script, "rollback_cutover", "validate_cutover")
+        target_health = script[
+            script.index('wait_for_health "$TARGET_PORT"') : script.index(
+                'NEW_PID=', script.index('wait_for_health "$TARGET_PORT"')
+            )
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            actions = directory / "actions"
+            upstream_backup = directory / "upstream.before"
+            upstream_backup.write_text("server 127.0.0.1:18087;\n")
+            result = run_bash(f'''set -Eeuo pipefail
+ACTIVE_PORT=18087
+TARGET_PORT=18088
+MAINTENANCE_PORT=18089
+EXTERNAL_HEALTH_URL=https://www.nuoon.com/ai/actuator/health
+UPSTREAM_BACKUP={str(upstream_backup)!r}
+ACTIONS={str(actions)!r}
+ROLLBACK_RUNNING=0
+MAINTENANCE_ROUTED=1
+NEW_START_ATTEMPTED=1
+OLD_STOPPED=1
+ACTIVE_HEALTH=UNAVAILABLE
+CURRENT_PORT=18089
+record() {{ printf '%s\n' "$1" >> "$ACTIONS"; }}
+switch_nginx_to_maintenance() {{ record ensure-maintenance; }}
+stop_target_runtime() {{ record stop-target; }}
+pid_for_port() {{ :; }}
+restart_old_runtime() {{ record restart-old; ACTIVE_HEALTH=UP; }}
+wait_for_health() {{
+  if [ "$1" = "$TARGET_PORT" ]; then return 1; fi
+  record wait-old
+}}
+health_status() {{
+  if [ "$1" = "$ACTIVE_PORT" ]; then printf '%s' "$ACTIVE_HEALTH"; else printf UNAVAILABLE; fi
+}}
+restore_nginx_to_active() {{ record restore-upstream; CURRENT_PORT="$ACTIVE_PORT"; }}
+stop_maintenance_responder() {{ record stop-maintenance; }}
+curl() {{ record external-health; printf '{{"status":"UP"}}'; }}
+current_upstream_port() {{ printf '%s' "$CURRENT_PORT"; }}
+emit() {{ printf '%s=%s\n' "$1" "$2"; }}
+{rollback}
+trap rollback_cutover ERR
+{target_health}
+''')
+            action_sequence = actions.read_text().splitlines()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            action_sequence,
+            [
+                "ensure-maintenance",
+                "stop-target",
+                "restart-old",
+                "wait-old",
+                "restore-upstream",
+                "stop-maintenance",
+                "external-health",
+            ],
+        )
+        self.assertEqual(
+            result.stdout,
+            "ROLLBACK_RESULT=PASS\nCUTOVER_RESULT=FAILED_ROLLED_BACK\n",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
