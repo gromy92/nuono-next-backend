@@ -4,6 +4,7 @@ import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.competitoranalysis.noon.NoonProductDetail;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,15 +15,34 @@ class CompetitorProductDetailWriteGuard {
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorProductSnapshotService snapshotService;
     private final CompetitorRefreshLeaseGuard leaseGuard;
+    private final CompetitorCorrectionWriterFenceGuard correctionFenceGuard;
 
     CompetitorProductDetailWriteGuard(
             CompetitorAnalysisMapper mapper,
             CompetitorProductSnapshotService snapshotService,
             CompetitorRefreshLeaseGuard leaseGuard
     ) {
+        this(
+                mapper,
+                snapshotService,
+                leaseGuard,
+                CompetitorCorrectionWriterFenceGuard.disabled()
+        );
+    }
+
+    @Autowired
+    CompetitorProductDetailWriteGuard(
+            CompetitorAnalysisMapper mapper,
+            CompetitorProductSnapshotService snapshotService,
+            CompetitorRefreshLeaseGuard leaseGuard,
+            CompetitorCorrectionWriterFenceGuard correctionFenceGuard
+    ) {
         this.mapper = mapper;
         this.snapshotService = snapshotService;
         this.leaseGuard = leaseGuard;
+        this.correctionFenceGuard = Objects.requireNonNull(
+                correctionFenceGuard, "correctionFenceGuard"
+        );
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -80,6 +100,7 @@ class CompetitorProductDetailWriteGuard {
             Long actorUserId,
             String checkpointPayloadJson
     ) {
+        correctionFenceGuard.acquireForWrite();
         Long watchProductId = watchProduct == null ? null : watchProduct.getId();
         leaseGuard.acquire(taskId, searchRunId, watchProductId);
         String expectedCode = normalize(product == null

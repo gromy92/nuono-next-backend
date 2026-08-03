@@ -52,6 +52,8 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "237_warehouse_forwarder_quote_and_transport_eligibility.sql",
                 "238_noon_auth_business_wait_queue.sql",
                 "239_official_warehouse_scope_collation_alignment.sql",
+                "240_operations_competitor_snapshot_active_uniqueness.sql",
+                "241_operations_competitor_correction_writer_fence.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -66,6 +68,8 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "MANAGED",
                 "AUTO_ADDITIVE",
+                "MANAGED",
+                "MANAGED",
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
@@ -291,7 +295,6 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
     @staticmethod
     def compact(sql: str) -> str:
         return re.sub(r"[\s`(){};]", "", sql.lower())
-
 
 if __name__ == "__main__":
     unittest.main()

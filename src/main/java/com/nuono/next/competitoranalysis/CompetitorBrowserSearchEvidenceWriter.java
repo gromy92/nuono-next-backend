@@ -13,12 +13,19 @@ final class CompetitorBrowserSearchEvidenceWriter {
     private static final Duration RUN_FUTURE_SKEW = Duration.ofMinutes(5);
 
     private final CompetitorAnalysisMapper mapper;
+    private CompetitorCorrectionWriterFenceGuard correctionFenceGuard =
+            CompetitorCorrectionWriterFenceGuard.disabled();
 
     CompetitorBrowserSearchEvidenceWriter(CompetitorAnalysisMapper mapper) {
         this.mapper = mapper;
     }
 
+    void setCorrectionFenceGuard(CompetitorCorrectionWriterFenceGuard guard) {
+        this.correctionFenceGuard = java.util.Objects.requireNonNull(guard, "guard");
+    }
+
     void lockFreshRun(CompetitorKeywordRunRow run) {
+        correctionFenceGuard.acquireForWrite();
         LocalDateTime capturedAt = run == null ? null : run.getCapturedAt();
         LocalDateTime now = LocalDateTime.now(BUSINESS_ZONE);
         if (capturedAt == null
