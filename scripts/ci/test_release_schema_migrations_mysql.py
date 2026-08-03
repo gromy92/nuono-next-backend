@@ -38,7 +38,7 @@ from ci.release_schema_mysql_forwarder_source_guard_scenario import verify_forwa
 from ci.release_schema_mysql_forwarder_eligibility_guard_scenario import verify_forwarder_eligibility_binary_guards  # noqa: E402
 from ci.release_schema_mysql_forwarder_shape_guard_scenario import verify_forwarder_wrong_shape_fail_before_writes  # noqa: E402
 from ci.release_schema_mysql_postcheck_diagnostics import apply_with_diagnostics  # noqa: E402
-from ci.release_schema_mysql_noon_auth_wait_scenario import prepare_noon_auth_wait_fixture, verify_noon_auth_wait_migration  # noqa: E402
+from ci.release_schema_mysql_noon_auth_wait_scenario import approve_noon_auth_wait, prepare_noon_auth_wait_fixture, verify_noon_auth_wait_migration  # noqa: E402
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
 REQUEST_IDEMPOTENCY_MIGRATION_KEY = "232_warehouse_command_request_idempotency.sql"
@@ -95,8 +95,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         forwarder = next(
             item for item in migrations if item.key == FORWARDER_MIGRATION_KEY
         )
-        noon_auth_wait = next(item for item in migrations
-                              if item.key == "238_noon_auth_business_wait_queue.sql")
         integrity_approval = (integrity.key,)
         approvals = list(integrity_approval)
         with self.assertRaisesRegex(MigrationError, "missing " + integrity.key):
@@ -116,10 +114,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner.apply(approved_managed=approvals)
         self.assertNotIn(forwarder.key, database.load_states())
         approvals.append(forwarder.key)
-        with self.assertRaisesRegex(MigrationError,
-                                    "missing " + noon_auth_wait.key):
-            runner.apply(approved_managed=approvals)
-        approvals.append(noon_auth_wait.key)
+        noon_auth_wait = approve_noon_auth_wait(self, runner, approvals, migrations)
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.apply(approved_managed=approvals)
         states = database.load_states()
@@ -217,7 +212,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         verify_forwarder_trigger_repair(self, database, forwarder)
         verify_forwarder_atomic_guards(self, database, forwarder)
         verify_lock_contention(self, database)
-
         verify_pre_catalog_bootstrap(
             self,
             database,

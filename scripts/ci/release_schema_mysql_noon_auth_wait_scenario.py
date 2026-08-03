@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+from schema_migrations.core import MigrationError
+
+
+MIGRATION_KEY = "238_noon_auth_business_wait_queue.sql"
+
+
+def approve_noon_auth_wait(test_case, runner, approvals, migrations):
+    migration = next(item for item in migrations if item.key == MIGRATION_KEY)
+    with test_case.assertRaisesRegex(MigrationError, "missing " + migration.key):
+        runner.apply(approved_managed=approvals)
+    approvals.append(migration.key)
+    return migration
+
 
 def prepare_noon_auth_wait_fixture(database):
     database.client.execute(
