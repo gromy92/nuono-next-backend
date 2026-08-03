@@ -10,6 +10,10 @@ from release_single_scheduler_cutover import build_single_scheduler_cutover_scri
 
 
 MIGRATION_KEY = "242_file_management_parse_retirement.sql"
+PREREQUISITE_MANAGED_MIGRATION_KEYS = (
+    "240_operations_competitor_snapshot_active_uniqueness.sql",
+    "241_operations_competitor_correction_writer_fence.sql",
+)
 RUNNER_FILES = (
     "release_schema_migrations.py",
     "schema_migrations/__init__.py",
@@ -78,6 +82,10 @@ def build_file_parse_retirement_cutover_script(
         app_dir=app_dir,
     )
     runner_files = " ".join(_q(value) for value in RUNNER_FILES)
+    prerequisite_approvals = " ".join(
+        f"--approve-managed {_q(value)}"
+        for value in PREREQUISITE_MANAGED_MIGRATION_KEYS
+    )
     support = f"""
 DRAIN_MIGRATION_KEY={_q(MIGRATION_KEY)}
 DRAIN_EXPECTED_COMMIT={_q(expected_commit)}
@@ -122,6 +130,7 @@ run_runtime_drain_migration() {{
     --expected-port "$DRAIN_EXPECTED_DB_PORT" \
     --release-commit "$DRAIN_EXPECTED_COMMIT" \
     --installed-by "governed-cutover:$RELEASE_NAME" \
+    {prerequisite_approvals} \
     --approve-managed "$DRAIN_MIGRATION_KEY" \
     --approve-runtime-drain "$DRAIN_MIGRATION_KEY" \
     > "$DRAIN_RESULT_FILE"
