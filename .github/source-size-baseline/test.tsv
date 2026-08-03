@@ -24,11 +24,11 @@ src/test/java/com/nuono/next/logisticsquote/LogisticsQuoteFactLandingStateTest.j
 src/test/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchServiceTest.java	1733
 src/test/java/com/nuono/next/masterdata/LocalDbMasterDataServiceTest.java	589
 src/test/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGatewayTest.java	883
-src/test/java/com/nuono/next/noon/NoonSessionGatewayTest.java	1217
+src/test/java/com/nuono/next/noon/NoonSessionGatewayTest.java	903
 src/test/java/com/nuono/next/noonads/NoonAdvertisingAnalyticsServiceTest.java	303
 src/test/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepositoryTest.java	526
-src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinatorTest.java	641
-src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryPersistenceContractTest.java	508
+src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinatorTest.java	614
+src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryPersistenceContractTest.java	507
 src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryWorkerTest.java	1057
 src/test/java/com/nuono/next/nooncompleteness/NoonDataAuditServiceTest.java	502
 src/test/java/com/nuono/next/nooncompleteness/NoonGapPatrolActionServiceTest.java	382
@@ -39,9 +39,9 @@ src/test/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGateTest.
 src/test/java/com/nuono/next/noonpull/NoonPullScheduledExecutionServiceTest.java	1428
 src/test/java/com/nuono/next/noonpull/NoonPullSchedulerTest.java	758
 src/test/java/com/nuono/next/noonpull/NoonPullSmokeRunnerTest.java	966
-src/test/java/com/nuono/next/noonpull/NoonRealProviderBehaviorTest.java	537
+src/test/java/com/nuono/next/noonpull/NoonRealProviderBehaviorTest.java	529
 src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	691
-src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	345
+src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	341
 src/test/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsServiceTest.java	1003
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	588
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	304
@@ -64,7 +64,7 @@ src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderSyncServ
 src/test/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderServiceTest.java	3545
 src/test/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderServiceTest.java	3332
 src/test/java/com/nuono/next/procurementorder/ProcurementPurchaseOrderMapperSqlTest.java	609
-src/test/java/com/nuono/next/product/LocalDbProductMasterServiceDeletionTest.java	1127
+src/test/java/com/nuono/next/product/LocalDbProductMasterServiceDeletionTest.java	1122
 src/test/java/com/nuono/next/product/LocalDbProductMasterServiceSharedOnlySkipTest.java	421
 src/test/java/com/nuono/next/product/ProductImageProfileControllerTest.java	344
 src/test/java/com/nuono/next/product/ProductImageProfileServiceTest.java	1135
@@ -81,7 +81,7 @@ src/test/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackf
 src/test/java/com/nuono/next/productlisting/ProductListingServiceTest.java	743
 src/test/java/com/nuono/next/productlisting/ProductListingTestFixtures.java	602
 src/test/java/com/nuono/next/productlisting/ProductListingValidatorTest.java	303
-src/test/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapterTest.java	438
+src/test/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapterTest.java	436
 src/test/java/com/nuono/next/productlogisticscost/ProductLogisticsCostControllerTest.java	633
 src/test/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncServiceTest.java	599
 src/test/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapterTest.java	535
@@ -95,4 +95,4 @@ src/test/java/com/nuono/next/sales/SalesHistoryBackfillServiceTest.java	306
 src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastEngineTest.java	326
 src/test/java/com/nuono/next/salesforecast/DefaultSalesForecastServiceTest.java	986
 src/test/java/com/nuono/next/salesforecast/SalesForecastFeatureBuilderTest.java	467
-src/test/java/com/nuono/next/store/LocalDbStoreSyncServiceTest.java	388
+src/test/java/com/nuono/next/store/LocalDbStoreSyncServiceTest.java	382

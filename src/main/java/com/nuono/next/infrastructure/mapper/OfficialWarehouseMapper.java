@@ -27,7 +27,6 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface OfficialWarehouseMapper {
-
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -1037,6 +1036,7 @@ public interface OfficialWarehouseMapper {
             @Param("runExecutionVersion") Long runExecutionVersion, @Param("retrySeconds") int retrySeconds,
             @Param("errorStage") String errorStage, @Param("failureType") String failureType,
             @Param("errorMessage") String errorMessage, @Param("operatorUserId") Long operatorUserId);
+
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'FAILED', next_attempt_at = NULL,",

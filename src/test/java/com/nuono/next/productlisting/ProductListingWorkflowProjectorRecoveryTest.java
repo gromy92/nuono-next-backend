@@ -84,7 +84,7 @@ class ProductListingWorkflowProjectorRecoveryTest {
                         "noon_auth_required",
                         "cookie expired with HTTP 307",
                         ProductListingWorkflowView.WriteCertainty.NOT_STARTED,
-                        ProductListingWorkflowView.NextAction.REAUTHENTICATE
+                        ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION
                 ),
                 Arguments.of(
                         "failed",

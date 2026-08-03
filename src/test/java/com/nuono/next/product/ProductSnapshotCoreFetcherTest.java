@@ -165,7 +165,6 @@ class ProductSnapshotCoreFetcherTest {
             NoonSessionGateway gateway = new NoonSessionGateway(
                     objectMapper,
                     storeSyncMapper,
-                    false,
                     0L,
                     true,
                     "",
@@ -173,8 +172,6 @@ class ProductSnapshotCoreFetcherTest {
                     "",
                     "",
                     false,
-                    false,
-                    "",
                     "",
                     "",
                     "",

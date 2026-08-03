@@ -9,6 +9,7 @@ import org.springframework.util.StringUtils;
 
 public final class ProductListingWriteAuthRecovery {
     public static final String FAILURE_CODE = "noon_auth_required";
+    public static final String RECOVERED_CODE = "noon_auth_recovered";
 
     private final ProductWriteAuthRecovery authRecovery;
 
@@ -36,10 +37,14 @@ public final class ProductListingWriteAuthRecovery {
             String fallbackMessage
     ) {
         boolean writeMayHaveOccurred = hasWriteAttempt(steps);
-        ProductWriteAuthRequiredException authRequired = authRecovery.suspendIfAuthFailure(
+        ProductWriteAuthRequiredException authRequired = authRecovery.suspendTaskIfAuthFailure(
                 request == null ? null : request.getOwnerUserId(),
                 binding == null ? null : binding.getProjectCode(),
                 storeCode(request, binding),
+                binding == null ? null : binding.getSiteCode(),
+                "PRODUCT_LISTING",
+                request == null ? null : request.getRealRunTaskId(),
+                failedStepKey(steps, "LISTING_WRITE"),
                 failure,
                 writeMayHaveOccurred
         );
@@ -76,10 +81,14 @@ public final class ProductListingWriteAuthRecovery {
         ProductListingNoonWriteStepResult step = new ProductListingNoonWriteStepResult();
         step.setStepKey(stepKey);
         step.setStatus("failed");
-        ProductWriteAuthRequiredException authRequired = authRecovery.suspendIfAuthFailure(
+        ProductWriteAuthRequiredException authRequired = authRecovery.suspendTaskIfAuthFailure(
                 request == null ? null : request.getOwnerUserId(),
                 binding == null ? null : binding.getProjectCode(),
                 storeCode(request, binding),
+                binding == null ? null : binding.getSiteCode(),
+                "PRODUCT_LISTING",
+                request == null ? null : request.getRealRunTaskId(),
+                StringUtils.hasText(stepKey) ? stepKey : "LISTING_READ",
                 failure,
                 writeMayHaveOccurred
         );
@@ -201,6 +210,20 @@ public final class ProductListingWriteAuthRecovery {
                 ProductListingNoonWriteStepResult step = steps.get(index);
                 if (step != null && "failed".equals(step.getStatus()) && StringUtils.hasText(step.getFailureCode())) {
                     return step.getFailureCode();
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private String failedStepKey(List<ProductListingNoonWriteStepResult> steps, String fallback) {
+        if (steps != null) {
+            for (int index = steps.size() - 1; index >= 0; index--) {
+                ProductListingNoonWriteStepResult step = steps.get(index);
+                if (step != null
+                        && "failed".equals(step.getStatus())
+                        && StringUtils.hasText(step.getStepKey())) {
+                    return step.getStepKey();
                 }
             }
         }

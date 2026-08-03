@@ -84,8 +84,6 @@ class NoonRealProviderBehaviorTest {
         StoreSyncStoreRecord store = boundStore();
         store.setNoonPartnerProjectUser(null);
         store.setNoonPartnerUser(null);
-        store.setNoonPartnerPwd(null);
-        store.setNoonPartnerMailAuthCode(null);
         when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
         RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
         session.enqueuePostResponse(objectMapper.createObjectNode()
@@ -105,12 +103,11 @@ class NoonRealProviderBehaviorTest {
 
         assertEquals(0, page.getItems().size());
         assertEquals("unified@example.com", sessionFactory.lastBinding.getNoonUser());
-        assertEquals(null, sessionFactory.lastBinding.getNoonEmailAuthCode());
-        assertEquals(null, sessionFactory.lastBinding.getNoonPassword());
+        assertEquals("session=already-present", sessionFactory.lastBinding.getPersistedCookie());
     }
 
     @Test
-    void bindingResolverShouldNotMixOwnerEmailOtpCredentialIntoStorePasswordAccount() {
+    void bindingResolverShouldKeepProjectSessionIdentityIsolatedFromOwnerIdentity() {
         StoreSyncStoreRecord store = boundStore();
         store.setProjectCode("PRJ108065");
         store.setStoreCode("STR108065-NSA");
@@ -118,11 +115,8 @@ class NoonRealProviderBehaviorTest {
         store.setNoonPartnerId("108065");
         store.setNoonPartnerProjectUser("nuonuo1@p108065.idp.noon.partners");
         store.setNoonPartnerUser("nuonuo1@p108065.idp.noon.partners");
-        store.setNoonPartnerMailAuthCode(null);
-        store.setNoonPartnerPwd("canman-password");
         StoreSyncOwnerContext owner = new StoreSyncOwnerContext();
         owner.setNoonPartnerUser("xingyaoqw@163.com");
-        owner.setNoonPartnerMailAuthCode("xingyao-mail-auth-code");
         when(storeSyncMapper.selectOwnerStore(10002L, "STR108065-NSA")).thenReturn(store);
         when(storeSyncMapper.selectOwnerContext(10002L)).thenReturn(owner);
         RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
@@ -142,8 +136,7 @@ class NoonRealProviderBehaviorTest {
         provider.fetchPage(productRequest("STR108065-NSA", "SA"), 1);
 
         assertEquals("nuonuo1@p108065.idp.noon.partners", sessionFactory.lastBinding.getNoonUser());
-        assertEquals("canman-password", sessionFactory.lastBinding.getNoonPassword());
-        assertEquals(null, sessionFactory.lastBinding.getNoonEmailAuthCode());
+        assertEquals("session=already-present", sessionFactory.lastBinding.getPersistedCookie());
     }
 
     @Test
@@ -214,9 +207,10 @@ class NoonRealProviderBehaviorTest {
                 ""
         );
 
-        provider.createExport(salesRequest());
-
-        assertEquals(null, sessionFactory.lastBinding.getPersistedCookie());
+        NoonInterfacePullException failure = assertThrows(NoonInterfacePullException.class,
+                () -> provider.createExport(salesRequest()));
+        assertTrue(failure.getMessage().contains("shared email OTP recovery configuration"));
+        assertEquals(null, sessionFactory.lastBinding);
     }
 
     @Test
@@ -451,7 +445,6 @@ class NoonRealProviderBehaviorTest {
                 .dateTo(LocalDate.of(2026, 5, 21))
                 .build();
     }
-
     private StoreSyncStoreRecord boundStore() {
         StoreSyncStoreRecord record = new StoreSyncStoreRecord();
         record.setProjectCode("PRJ245027");
@@ -459,7 +452,6 @@ class NoonRealProviderBehaviorTest {
         record.setSite("AE");
         record.setNoonPartnerId("245027");
         record.setNoonPartnerProjectUser("project-user@example.com");
-        record.setNoonPartnerPwd("secret");
         record.setNoonPartnerCookie("session=already-present");
         return record;
     }

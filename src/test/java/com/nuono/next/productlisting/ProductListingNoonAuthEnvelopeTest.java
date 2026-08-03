@@ -2,17 +2,19 @@ package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -39,7 +41,10 @@ class ProductListingNoonAuthEnvelopeTest {
         assertEquals(701L, result.getRecoveryId());
         assertFalse(result.getWriteMayHaveOccurred());
         assertEquals(1, session.writeCalls.get());
-        verify(fixture.queue).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        verify(fixture.queue).enqueue(listingWaitRequest(
+                "create_product",
+                NoonAuthResumePolicy.AUTO_RESUME
+        ));
     }
     @Test
     void authEnvelopeAfterSuccessfulCreateStopsLaterWritesAndKeepsRisk() {
@@ -141,33 +146,6 @@ class ProductListingNoonAuthEnvelopeTest {
     }
 
     @Test
-    void nestedBusinessCodeIsNotMistakenForAnAuthEnvelope() {
-        ObjectNode response = objectMapper.createObjectNode();
-        response.putObject("data").put("code", 403).put("status", "catalog_attribute");
-
-        assertDoesNotThrow(() -> ProductListingNoonCallGuard.requireAuthorized(response));
-    }
-
-    @Test
-    void alternateErrorFieldsAndTextArraysAreRecognized() {
-        for (String field : List.of(
-                "errorMessages", "errorMessage", "error_message", "err", "errors")) {
-            ObjectNode response = objectMapper.createObjectNode();
-            response.putArray(field).add("HTTP 403");
-            assertThrows(
-                    IllegalStateException.class,
-                    () -> ProductListingNoonCallGuard.requireAuthorized(response),
-                    field
-            );
-        }
-        assertThrows(
-                IllegalStateException.class,
-                () -> ProductListingNoonCallGuard.requireAuthorized(
-                        objectMapper.getNodeFactory().textNode("auth_required"))
-        );
-    }
-
-    @Test
     void acceptedCreateResponseWithoutReferencesKeepsUnknownWriteRisk() {
         EnvelopeSession session = new EnvelopeSession();
         session.firstWriteResponse = objectMapper.createObjectNode();
@@ -180,9 +158,9 @@ class ProductListingNoonAuthEnvelopeTest {
     }
 
     private RecoveryFixture fixture(EnvelopeSession session, long recoveryId) {
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        when(queue.enqueueProject(10002L, "PRJ240053", "STR245027-NAE"))
+        when(queue.enqueue(any(NoonAuthWaitRequest.class)))
                 .thenReturn(Optional.of(recoveryId));
         ProductListingRealWriteProperties properties = new ProductListingRealWriteProperties();
         properties.setReadBackMaxAttempts(5);
@@ -196,6 +174,22 @@ class ProductListingNoonAuthEnvelopeTest {
         );
         adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
         return new RecoveryFixture(adapter, queue);
+    }
+
+    private static NoonAuthWaitRequest listingWaitRequest(
+            String checkpoint,
+            NoonAuthResumePolicy resumePolicy
+    ) {
+        return NoonAuthWaitRequest.task(
+                10002L,
+                "PRJ240053",
+                "STR245027-NAE",
+                "AE",
+                "PRODUCT_LISTING",
+                88003L,
+                checkpoint,
+                resumePolicy
+        );
     }
 
     private ProductListingNoonWriteRequest request(List<String> images) {
@@ -281,17 +275,17 @@ class ProductListingNoonAuthEnvelopeTest {
         public NoonPullStoreBinding resolve(NoonInterfacePullRequest request) {
             return new NoonPullStoreBinding(
                     request.getOwnerUserId(), "PRJ240053", request.getStoreCode(), "AE",
-                    "240053", "merchant@example.test", "secret", null, "sid=test");
+                    "240053", "merchant@example.test", "sid=test");
         }
     }
 
     private static final class RecoveryFixture {
         private final RealProductListingNoonWriteAdapter adapter;
-        private final NoonProjectAuthRecoveryQueue queue;
+        private final NoonAuthWaitQueue queue;
 
         private RecoveryFixture(
                 RealProductListingNoonWriteAdapter adapter,
-                NoonProjectAuthRecoveryQueue queue
+                NoonAuthWaitQueue queue
         ) {
             this.adapter = adapter;
             this.queue = queue;

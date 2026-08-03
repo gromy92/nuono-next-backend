@@ -1,7 +1,6 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.sales.DailySalesFact;
-import com.nuono.next.sales.NoonSalesCsvImportResult;
 import com.nuono.next.sales.SalesImportExceptionRecord;
 import com.nuono.next.sales.SalesFactQuery;
 import com.nuono.next.sales.SalesImportBatch;
@@ -10,8 +9,6 @@ import com.nuono.next.sales.SalesImportBatchRecord;
 import com.nuono.next.sales.SalesProductDimensionSnapshot;
 import com.nuono.next.sales.SalesActivityWindowRecord;
 import com.nuono.next.sales.SalesActivityWindowScope;
-import com.nuono.next.sales.SalesSyncTaskCommand;
-import com.nuono.next.sales.SalesSyncTaskRecord;
 import com.nuono.next.salesforecast.SalesForecastFollowUpCommand;
 import com.nuono.next.salesforecast.SalesForecastFollowUpRecord;
 import com.nuono.next.salesforecast.SalesForecastHistoricalStockSnapshot;
@@ -711,97 +708,6 @@ public interface SalesDataMapper {
             "ORDER BY `row_number` ASC, id ASC"
     })
     List<SalesImportExceptionRecord> selectSalesImportExceptions(@Param("batchId") Long batchId);
-
-    @Insert({
-            "INSERT INTO sales_sync_task (",
-            "  id, owner_user_id, logical_store_id, store_code, site_code, date_from, date_to,",
-            "  requested_by, trigger_type, status, queued_at, gmt_create, gmt_updated",
-            ") VALUES (",
-            "  #{id}, #{command.ownerUserId}, #{command.logicalStoreId}, #{command.storeCode},",
-            "  #{command.siteCode}, #{command.dateFrom}, #{command.dateTo}, #{command.requestedBy},",
-            "  #{command.triggerType}, 'queued', NOW(), NOW(), NOW()",
-            ")"
-    })
-    int insertSalesSyncTask(@Param("id") Long id, @Param("command") SalesSyncTaskCommand command);
-
-    @Update({
-            "UPDATE sales_sync_task",
-            "SET status = 'running',",
-            "    started_at = COALESCE(started_at, NOW()),",
-            "    failure_reason = NULL,",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int updateSalesSyncTaskRunning(@Param("taskId") Long taskId);
-
-    @Update({
-            "UPDATE sales_sync_task",
-            "SET status = #{result.taskStatus},",
-            "    source_batch_id = #{result.sourceBatchId},",
-            "    total_rows = #{result.totalRows},",
-            "    success_rows = #{result.successRows},",
-            "    failure_rows = #{result.failureRows},",
-            "    latest_fact_date = #{result.reportDateTo},",
-            "    failure_reason = #{result.taskFailureReason},",
-            "    finished_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int updateSalesSyncTaskSucceeded(
-            @Param("taskId") Long taskId,
-            @Param("result") NoonSalesCsvImportResult result
-    );
-
-    @Update({
-            "UPDATE sales_sync_task",
-            "SET status = 'failed',",
-            "    failure_reason = #{failureReason},",
-            "    finished_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int updateSalesSyncTaskFailed(@Param("taskId") Long taskId, @Param("failureReason") String failureReason);
-
-    @ConstructorArgs({
-            @Arg(column = "id", javaType = Long.class),
-            @Arg(column = "ownerUserId", javaType = Long.class),
-            @Arg(column = "logicalStoreId", javaType = Long.class),
-            @Arg(column = "storeCode", javaType = String.class),
-            @Arg(column = "siteCode", javaType = String.class),
-            @Arg(column = "dateFrom", javaType = LocalDate.class),
-            @Arg(column = "dateTo", javaType = LocalDate.class),
-            @Arg(column = "requestedBy", javaType = Long.class),
-            @Arg(column = "triggerType", javaType = String.class),
-            @Arg(column = "status", javaType = String.class),
-            @Arg(column = "sourceBatchId", javaType = Long.class),
-            @Arg(column = "totalRows", javaType = Integer.class),
-            @Arg(column = "successRows", javaType = Integer.class),
-            @Arg(column = "failureRows", javaType = Integer.class),
-            @Arg(column = "latestFactDate", javaType = LocalDate.class),
-            @Arg(column = "failureReason", javaType = String.class)
-    })
-    @Select({
-            "SELECT",
-            "  id,",
-            "  owner_user_id AS ownerUserId,",
-            "  logical_store_id AS logicalStoreId,",
-            "  store_code AS storeCode,",
-            "  site_code AS siteCode,",
-            "  date_from AS dateFrom,",
-            "  date_to AS dateTo,",
-            "  requested_by AS requestedBy,",
-            "  trigger_type AS triggerType,",
-            "  status,",
-            "  source_batch_id AS sourceBatchId,",
-            "  total_rows AS totalRows,",
-            "  success_rows AS successRows,",
-            "  failure_rows AS failureRows,",
-            "  latest_fact_date AS latestFactDate,",
-            "  failure_reason AS failureReason",
-            "FROM sales_sync_task",
-            "WHERE id = #{taskId}"
-    })
-    SalesSyncTaskRecord selectSalesSyncTaskById(@Param("taskId") Long taskId);
 
     @Insert({
             "INSERT INTO sales_activity_window (",

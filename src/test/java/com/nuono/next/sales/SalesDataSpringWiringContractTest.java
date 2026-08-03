@@ -126,8 +126,8 @@ class SalesDataSpringWiringContractTest {
                 }
 
                 @Override
-                public SalesSyncTaskRecord markRunning(Long taskId) {
-                    return null;
+                public boolean claimRunning(Long taskId) {
+                    return false;
                 }
 
                 @Override
@@ -138,6 +138,16 @@ class SalesDataSpringWiringContractTest {
                 @Override
                 public SalesSyncTaskRecord markFailed(Long taskId, String failureReason) {
                     return null;
+                }
+
+                @Override
+                public SalesSyncTaskRecord markWaitingForAuthorization(Long taskId, Long recoveryId) {
+                    return null;
+                }
+
+                @Override
+                public List<SalesSyncTaskRecord> listQueued(int limit) {
+                    return List.of();
                 }
 
                 @Override

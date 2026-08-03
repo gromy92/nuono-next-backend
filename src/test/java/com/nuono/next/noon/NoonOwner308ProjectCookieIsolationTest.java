@@ -82,7 +82,6 @@ class NoonOwner308ProjectCookieIsolationTest {
         NoonSessionGateway gateway = new NoonSessionGateway(
                 new ObjectMapper(),
                 mock(StoreSyncMapper.class),
-                false,
                 0L,
                 true,
                 "",
@@ -90,8 +89,6 @@ class NoonOwner308ProjectCookieIsolationTest {
                 "",
                 "",
                 true,
-                false,
-                "",
                 server.url("/whoami"),
                 server.url("/lookup"),
                 server.url("/pkce"),

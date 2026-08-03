@@ -11,6 +11,7 @@ import com.nuono.next.product.noon.NoonProductException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -87,6 +88,18 @@ public class ProductPublishCommandService {
         if (productWriteAuthRecovery != null) {
             this.productWriteAuthRecovery = productWriteAuthRecovery;
         }
+    }
+
+    public Optional<Long> enqueueAuthWait(
+            ProductPublishTaskRecord task,
+            String checkpoint,
+            boolean writeMayHaveOccurred
+    ) {
+        return productWriteAuthRecovery.enqueueTask(task, checkpoint, writeMayHaveOccurred);
+    }
+
+    public ProductWriteAuthRecovery.TaskScope openAuthTaskScope(ProductPublishTaskRecord task) {
+        return productWriteAuthRecovery.openTaskScope(task);
     }
     public ProductPublishTaskView loadTask(
             Long taskId,
@@ -686,134 +699,7 @@ public class ProductPublishCommandService {
         return StringUtils.hasText(first) ? first : second;
     }
 
-    public static class ProductPublishTaskCreateCommand {
-        private Long ownerUserId;
-        private Long productMasterId;
-        private String storeCode;
-        private String projectCode;
-        private String skuParent;
-        private String partnerSku;
-        private String pskuCode;
-        private String currentSiteCode;
-        private String draftJson;
-        private String baselineJson;
-        private String draftHash;
-        private String changedDomainsJson;
-        private String requestJson;
-        private String idempotencyKey;
-
-        public Long getOwnerUserId() {
-            return ownerUserId;
-        }
-
-        public void setOwnerUserId(Long ownerUserId) {
-            this.ownerUserId = ownerUserId;
-        }
-
-        public Long getProductMasterId() {
-            return productMasterId;
-        }
-
-        public void setProductMasterId(Long productMasterId) {
-            this.productMasterId = productMasterId;
-        }
-
-        public String getStoreCode() {
-            return storeCode;
-        }
-
-        public void setStoreCode(String storeCode) {
-            this.storeCode = storeCode;
-        }
-
-        public String getProjectCode() {
-            return projectCode;
-        }
-
-        public void setProjectCode(String projectCode) {
-            this.projectCode = projectCode;
-        }
-
-        public String getSkuParent() {
-            return skuParent;
-        }
-
-        public void setSkuParent(String skuParent) {
-            this.skuParent = skuParent;
-        }
-
-        public String getPartnerSku() {
-            return partnerSku;
-        }
-
-        public void setPartnerSku(String partnerSku) {
-            this.partnerSku = partnerSku;
-        }
-
-        public String getPskuCode() {
-            return pskuCode;
-        }
-
-        public void setPskuCode(String pskuCode) {
-            this.pskuCode = pskuCode;
-        }
-
-        public String getCurrentSiteCode() {
-            return currentSiteCode;
-        }
-
-        public void setCurrentSiteCode(String currentSiteCode) {
-            this.currentSiteCode = currentSiteCode;
-        }
-
-        public String getDraftJson() {
-            return draftJson;
-        }
-
-        public void setDraftJson(String draftJson) {
-            this.draftJson = draftJson;
-        }
-
-        public String getBaselineJson() {
-            return baselineJson;
-        }
-
-        public void setBaselineJson(String baselineJson) {
-            this.baselineJson = baselineJson;
-        }
-
-        public String getDraftHash() {
-            return draftHash;
-        }
-
-        public void setDraftHash(String draftHash) {
-            this.draftHash = draftHash;
-        }
-
-        public String getChangedDomainsJson() {
-            return changedDomainsJson;
-        }
-
-        public void setChangedDomainsJson(String changedDomainsJson) {
-            this.changedDomainsJson = changedDomainsJson;
-        }
-
-        public String getRequestJson() {
-            return requestJson;
-        }
-
-        public void setRequestJson(String requestJson) {
-            this.requestJson = requestJson;
-        }
-
-        public String getIdempotencyKey() {
-            return idempotencyKey;
-        }
-
-        public void setIdempotencyKey(String idempotencyKey) {
-            this.idempotencyKey = idempotencyKey;
-        }
-    }
+    public static class ProductPublishTaskCreateCommand extends ProductPublishTaskCreateCommandData { }
 
     public static class ProductPublishTaskCreateResult {
         private final ProductPublishTaskRecord task;

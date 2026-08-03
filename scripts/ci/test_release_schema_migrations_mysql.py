@@ -38,18 +38,14 @@ from ci.release_schema_mysql_forwarder_source_guard_scenario import verify_forwa
 from ci.release_schema_mysql_forwarder_eligibility_guard_scenario import verify_forwarder_eligibility_binary_guards  # noqa: E402
 from ci.release_schema_mysql_forwarder_shape_guard_scenario import verify_forwarder_wrong_shape_fail_before_writes  # noqa: E402
 from ci.release_schema_mysql_postcheck_diagnostics import apply_with_diagnostics  # noqa: E402
-
+from ci.release_schema_mysql_noon_auth_wait_scenario import approve_noon_auth_wait, prepare_noon_auth_wait_fixture, verify_noon_auth_wait_migration  # noqa: E402
 
 INTEGRITY_MIGRATION_KEY = "231_procurement_fulfillment_balance_quantity_invariant.sql"
-REQUEST_IDEMPOTENCY_MIGRATION_KEY = (
-    "232_warehouse_command_request_idempotency.sql"
-)
+REQUEST_IDEMPOTENCY_MIGRATION_KEY = "232_warehouse_command_request_idempotency.sql"
 PACKING_INDEX_MIGRATION_KEY = "233_warehouse_packing_soft_delete_index.sql"
 APPOINTMENT_MIGRATION_KEY = "234_official_warehouse_appointment_concurrency.sql"
 SHIPPING_BATCH_MIGRATION_KEY = "235_warehouse_shipping_batch_request_idempotency.sql"
-SHIPPING_PLAN_MIGRATION_KEY = (
-    "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql"
-)
+SHIPPING_PLAN_MIGRATION_KEY = "236_warehouse_shipping_batch_dispatch_plan_uniqueness.sql"
 
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
@@ -79,6 +75,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
 
         self.assertEqual({}, database.load_states())
         prepare_current_release_fixture(database)
+        prepare_noon_auth_wait_fixture(database)
         forwarder_fact_signature = prepare_forwarder_fixture(database, resources)
         integrity = next(item for item in migrations if item.key == INTEGRITY_MIGRATION_KEY)
         request_idempotency = next(
@@ -117,6 +114,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner.apply(approved_managed=approvals)
         self.assertNotIn(forwarder.key, database.load_states())
         approvals.append(forwarder.key)
+        noon_auth_wait = approve_noon_auth_wait(self, runner, approvals, migrations)
         with self.assertRaisesRegex(MigrationError, integrity.key):
             runner.apply(approved_managed=approvals)
         states = database.load_states()
@@ -175,7 +173,8 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             installed_by="ci-mysql",
             lock_timeout_seconds=5,
         )
-        pre_forwarder_approvals = [key for key in approvals if key != forwarder.key]
+        pre_forwarder_approvals = [key for key in approvals
+                                   if key not in (forwarder.key, noon_auth_wait.key)]
         expected_applied = [
             request_idempotency.key, packing_index.key, appointment.key,
             shipping_batch.key, shipping_plan.key,
@@ -199,11 +198,12 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         )
         verify_forwarder_wrong_shape_fail_before_writes(self, database, forwarder)
         self.assertEqual(
-            [forwarder.key],
+            [forwarder.key, noon_auth_wait.key],
             apply_with_diagnostics(runner, approvals, database, forwarder),
         )
         self.assertTrue(all(state.state == "APPLIED"
                             for state in database.load_states().values()))
+        verify_noon_auth_wait_migration(self, database, noon_auth_wait)
         verify_forwarder_migration(
             self, database, migrations, forwarder_fact_signature
         )
@@ -212,7 +212,6 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         verify_forwarder_trigger_repair(self, database, forwarder)
         verify_forwarder_atomic_guards(self, database, forwarder)
         verify_lock_contention(self, database)
-
         verify_pre_catalog_bootstrap(
             self,
             database,
@@ -221,7 +220,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
             runner,
         )
 
-        target = forwarder
+        target = noon_auth_wait
         database.client.execute(
             "UPDATE nuono_schema_migration h "
             "JOIN nuono_schema_migration_attempt a "

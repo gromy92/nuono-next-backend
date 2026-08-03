@@ -63,8 +63,6 @@ class ProductListingNoonReadBackAuthClassificationTest {
                         "AE",
                         "240053",
                         "merchant@example.test",
-                        "secret",
-                        null,
                         "sid=test"
                 ),
                 Map.of()

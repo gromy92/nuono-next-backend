@@ -70,8 +70,6 @@ class NoonAdsAdvertiserContextResolverTest {
                 siteCode,
                 partnerId,
                 "noon-user",
-                "noon-password",
-                null,
                 "cookie"
         );
     }

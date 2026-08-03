@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ import java.util.Optional;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 @Service
@@ -24,7 +26,7 @@ public class NoonPullFoundationService {
     private final NoonPullRepository repository;
     private final Clock clock;
     private final NoonPullFailurePolicy failurePolicy;
-    private NoonPullAuthRecoveryQueue authRecoveryQueue = (task, rawFailure) -> Optional.empty();
+    private final NoonPullAuthWaitSupport authWaitSupport;
 
     @Autowired
     public NoonPullFoundationService(NoonPullRepository repository) {
@@ -39,6 +41,7 @@ public class NoonPullFoundationService {
         this.repository = repository;
         this.clock = clock;
         this.failurePolicy = failurePolicy;
+        this.authWaitSupport = new NoonPullAuthWaitSupport(repository);
     }
 
     public NoonPullPlanRecord createPlan(NoonPullPlanDraft draft) {
@@ -517,6 +520,7 @@ public class NoonPullFoundationService {
         return persisted;
     }
 
+    @Transactional
     public NoonPullTaskRecord markFailedWithPolicy(Long taskId, String rawFailure, int attempt) {
         NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
         if (failureType == NoonPullFailureType.AUTH_REQUIRED) {
@@ -557,10 +561,8 @@ public class NoonPullFoundationService {
     }
 
     @Autowired(required = false)
-    void setAuthRecoveryQueue(NoonPullAuthRecoveryQueue authRecoveryQueue) {
-        this.authRecoveryQueue = authRecoveryQueue == null
-                ? (task, rawFailure) -> Optional.empty()
-                : authRecoveryQueue;
+    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
+        authWaitSupport.setQueue(authWaitQueue);
     }
 
     private NoonPullTaskRecord tryBlockForAuthRecovery(Long taskId, String rawFailure) {
@@ -571,26 +573,7 @@ public class NoonPullFoundationService {
         if (!NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task)) {
             return null;
         }
-        Optional<Long> recoveryId = authRecoveryQueue.blockAndEnqueue(task.copy(), redact(rawFailure));
-        if (recoveryId.isEmpty()) {
-            return null;
-        }
-        NoonPullTaskRecord blocked = requireTask(taskId);
-        if (blocked.getStatus() != NoonPullTaskStatus.BLOCKED_AUTH
-                || !Objects.equals(recoveryId.get(), blocked.getAuthRecoveryId())) {
-            throw new IllegalStateException(
-                    "Noon auth recovery queue did not atomically block pull task " + taskId
-            );
-        }
-
-        LocalDateTime now = now();
-        NoonPullPlanRecord plan = requirePlan(blocked.getPlanId());
-        plan.setLatestFailureAt(now);
-        plan.setLatestFailureType(NoonPullFailureType.AUTH_REQUIRED.code());
-        plan.setNextRetryAt(null);
-        plan.setUpdatedAt(now);
-        repository.updatePlan(plan);
-        return blocked.copy();
+        return authWaitSupport.block(task, redact(rawFailure), now());
     }
 
     public NoonPullPlanRecord pausePlan(Long planId, String reason) {

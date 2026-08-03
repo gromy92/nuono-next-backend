@@ -95,14 +95,6 @@ public class NoonPullStoreBindingResolver {
                         : null,
                 noonUser
         );
-        String noonEmailAuthCode = firstNonBlank(
-                store.getNoonPartnerMailAuthCode(),
-                allowOwnerCredentialFallback && owner != null ? owner.getNoonPartnerMailAuthCode() : null
-        );
-        String noonPassword = firstNonBlank(
-                store.getNoonPartnerPwd(),
-                allowOwnerCredentialFallback && owner != null ? owner.getNoonPartnerPwd() : null
-        );
         String persistedCookie = firstNonBlank(store.getNoonPartnerCookie());
 
         requireText(projectCode, "missing Noon projectCode");
@@ -113,8 +105,6 @@ public class NoonPullStoreBindingResolver {
         requireNoonSessionOrRecoveryCredential(
                 persistedCookie,
                 sessionProjectUser,
-                noonEmailAuthCode,
-                noonPassword,
                 configuredMerchantEmailLoginAvailable
         );
 
@@ -126,8 +116,6 @@ public class NoonPullStoreBindingResolver {
                 partnerId,
                 noonUser,
                 sessionProjectUser,
-                noonPassword,
-                noonEmailAuthCode,
                 persistedCookie
         );
     }
@@ -215,19 +203,15 @@ public class NoonPullStoreBindingResolver {
     private static void requireNoonSessionOrRecoveryCredential(
             String persistedCookie,
             String sessionProjectUser,
-            String noonEmailAuthCode,
-            String noonPassword,
             boolean configuredMerchantEmailLoginAvailable
     ) {
         if (StringUtils.hasText(persistedCookie)
                 && StringUtils.hasText(sessionProjectUser)) {
             return;
         }
-        if (!StringUtils.hasText(noonEmailAuthCode)
-                && !configuredMerchantEmailLoginAvailable
-                && !StringUtils.hasText(noonPassword)) {
+        if (!configuredMerchantEmailLoginAvailable) {
             throw providerNotConfigured(
-                    "missing persisted Noon project session or recoverable login credential"
+                    "missing persisted Noon project session or shared email OTP recovery configuration"
             );
         }
     }

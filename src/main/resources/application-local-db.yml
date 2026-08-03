@@ -34,10 +34,8 @@ nuono:
       - user_menu
       - user_store
   noon:
-    chrome-cookie-fallback-enabled: true
     auth:
       partner-identity-enabled: true
-      signin-fallback-enabled: true
       edge-access-hold-seconds: ${NUONO_NOON_EDGE_ACCESS_HOLD_SECONDS:1800}
     account-min-request-interval-millis: 1200
     max-concurrent-account-tasks: 3

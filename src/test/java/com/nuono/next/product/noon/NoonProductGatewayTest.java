@@ -21,9 +21,9 @@ class NoonProductGatewayTest {
     }
 
     @Test
-    void shouldClassifyExpiredCookieAsManualAuthorizationRequired() {
+    void shouldClassifyExpiredCookieAsAuthorizationRequired() {
         NoonProductError error = gateway.classify(
-                new IllegalStateException("auth_required: Noon Cookie 无效或已过期，请人工重新授权")
+                new IllegalStateException("auth_required: Noon Cookie 无效或已过期，等待自动授权恢复")
         );
 
         assertEquals(NoonProductErrorCode.NOON_AUTH_REQUIRED, error.getCode());

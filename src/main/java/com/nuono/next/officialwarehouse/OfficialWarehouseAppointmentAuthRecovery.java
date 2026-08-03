@@ -1,7 +1,9 @@
 package com.nuono.next.officialwarehouse;
 
 import com.nuono.next.noonauth.NoonAuthRecoveryTriggerPolicy;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import java.util.Optional;
 import org.springframework.context.annotation.Profile;
@@ -15,11 +17,11 @@ public class OfficialWarehouseAppointmentAuthRecovery {
     private static final String ERROR_STAGE = "AUTH_RECOVERY";
     private static final String FAILURE_TYPE = "AUTH_RECOVERY_PENDING";
 
-    private final NoonProjectAuthRecoveryQueue recoveryQueue;
+    private final NoonAuthWaitQueue recoveryQueue;
     private final NoonPullProjectAuthGate authGate;
 
     public OfficialWarehouseAppointmentAuthRecovery(
-            NoonProjectAuthRecoveryQueue recoveryQueue,
+            NoonAuthWaitQueue recoveryQueue,
             NoonPullProjectAuthGate authGate
     ) {
         this.recoveryQueue = recoveryQueue;
@@ -28,25 +30,40 @@ public class OfficialWarehouseAppointmentAuthRecovery {
 
     static OfficialWarehouseAppointmentAuthRecovery disabled() {
         return new OfficialWarehouseAppointmentAuthRecovery(
-                (ownerUserId, projectCode, storeCode) -> Optional.empty(),
+                request -> Optional.empty(),
                 (ownerUserId, projectCode) -> false
         );
     }
 
-    AuthWait blockedWait(Long ownerUserId, String projectCode) {
+    AuthWait blockedWait(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            Long appointmentId
+    ) {
         if (authGate == null
                 || ownerUserId == null
                 || !StringUtils.hasText(projectCode)
                 || !authGate.isBlocked(ownerUserId, projectCode)) {
             return null;
         }
-        return AuthWait.blocked();
+        return enqueueTask(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                siteCode,
+                appointmentId,
+                "PROJECT_GATE"
+        ).map(AuthWait::queued).orElseGet(AuthWait::blocked);
     }
 
     AuthWait enqueue(
             Long ownerUserId,
             String projectCode,
             String storeCode,
+            String siteCode,
+            Long appointmentId,
             String rawFailure
     ) {
         if (recoveryQueue == null
@@ -57,12 +74,45 @@ public class OfficialWarehouseAppointmentAuthRecovery {
             return null;
         }
         try {
-            return recoveryQueue.enqueueProject(ownerUserId, projectCode, storeCode)
+            return enqueueTask(
+                    ownerUserId,
+                    projectCode,
+                    storeCode,
+                    siteCode,
+                    appointmentId,
+                    "PROVIDER_CALL"
+            )
                     .map(AuthWait::queued)
                     .orElse(null);
         } catch (RuntimeException recoveryFailure) {
             return null;
         }
+    }
+
+    private Optional<Long> enqueueTask(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            Long appointmentId,
+            String checkpoint
+    ) {
+        if (recoveryQueue == null
+                || ownerUserId == null
+                || appointmentId == null
+                || !StringUtils.hasText(storeCode)) {
+            return Optional.empty();
+        }
+        return recoveryQueue.enqueue(NoonAuthWaitRequest.task(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                siteCode,
+                "OFFICIAL_WAREHOUSE_APPOINTMENT",
+                appointmentId,
+                checkpoint,
+                NoonAuthResumePolicy.AUTO_RESUME
+        ));
     }
 
     static final class AuthWait {

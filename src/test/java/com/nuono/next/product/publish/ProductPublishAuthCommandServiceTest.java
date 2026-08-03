@@ -14,7 +14,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.ProductPublishTaskRecord;
 import com.nuono.next.product.ProductPublishTaskView;
@@ -68,7 +68,7 @@ class ProductPublishAuthCommandServiceTest {
         ProductPublishTaskRecord task = authTask(false);
         when(mapper.selectProductPublishTaskById(1001L)).thenReturn(task);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         when(gate.isBlocked(10002L, "PRJ-1")).thenReturn(true);
         service.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
 

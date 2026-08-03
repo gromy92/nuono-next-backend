@@ -7,12 +7,15 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullGatewaySessionFactory;
@@ -28,14 +31,15 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class RealProductListingNoonWriteAuthRecoveryTest {
 
     @Test
     void newAuthFailureAfterCreateQueuesRecoveryAndPreservesWriteRisk() {
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        when(queue.enqueueProject(10002L, "PRJ240053", "STR245027-NAE"))
+        when(queue.enqueue(any(NoonAuthWaitRequest.class)))
                 .thenReturn(Optional.of(991L));
         AtomicInteger writeCalls = new AtomicInteger();
         NoonPullGatewaySession session = sessionThatFailsAfterCreate(writeCalls);
@@ -53,12 +57,18 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         assertEquals("create_product", result.getSteps().get(0).getStepKey());
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getSteps().get(1).getFailureCode());
         assertTrue(result.getSteps().get(1).getWriteMayHaveOccurred());
-        verify(queue).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        ArgumentCaptor<NoonAuthWaitRequest> waitRequest = ArgumentCaptor.forClass(NoonAuthWaitRequest.class);
+        verify(queue).enqueue(waitRequest.capture());
+        assertListingWaitRequest(
+                waitRequest.getValue(),
+                "sku_cache",
+                NoonAuthResumePolicy.READBACK_REQUIRED
+        );
     }
 
     @Test
     void pendingRecoveryBlocksManualContinuationBeforeSessionLogin() {
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
         when(gate.isBlocked(10002L, "PRJ240053")).thenReturn(true);
         AtomicInteger loginCalls = new AtomicInteger();
@@ -75,7 +85,7 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getFailureCode());
         assertEquals(Boolean.FALSE, result.getWriteMayHaveOccurred());
         assertEquals(0, loginCalls.get());
-        verify(queue, never()).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        verify(queue, never()).enqueue(any(NoonAuthWaitRequest.class));
 
         ProductListingNoonWriteStepResult readBack =
                 adapter.verifyReadBack(writeRequest(), "ZPARENT", "PSKU_CODE_1", List.of());
@@ -86,9 +96,9 @@ class RealProductListingNoonWriteAuthRecoveryTest {
 
     @Test
     void authFailureDuringReadBackStopsImmediatelyAndPreservesWriteRisk() {
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        when(queue.enqueueProject(10002L, "PRJ240053", "STR245027-NAE"))
+        when(queue.enqueue(any(NoonAuthWaitRequest.class)))
                 .thenReturn(Optional.of(992L));
         AtomicInteger writeCalls = new AtomicInteger();
         AtomicInteger readBackCalls = new AtomicInteger();
@@ -103,7 +113,10 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         assertTrue(result.getWriteMayHaveOccurred());
         assertTrue(writeCalls.get() > 1);
         assertEquals(1, readBackCalls.get());
-        verify(queue).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        verify(queue).enqueue(listingWaitRequest(
+                "verify_noon_readback",
+                NoonAuthResumePolicy.READBACK_REQUIRED
+        ));
     }
 
     private RealProductListingNoonWriteAdapter adapter(NoonPullGatewaySessionFactory sessionFactory) {
@@ -126,6 +139,37 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         request.setRealRunTaskId(88003L);
         request.setDraft(draft);
         return request;
+    }
+
+    private static NoonAuthWaitRequest listingWaitRequest(
+            String checkpoint,
+            NoonAuthResumePolicy resumePolicy
+    ) {
+        return NoonAuthWaitRequest.task(
+                10002L,
+                "PRJ240053",
+                "STR245027-NAE",
+                "AE",
+                "PRODUCT_LISTING",
+                88003L,
+                checkpoint,
+                resumePolicy
+        );
+    }
+
+    private static void assertListingWaitRequest(
+            NoonAuthWaitRequest request,
+            String checkpoint,
+            NoonAuthResumePolicy resumePolicy
+    ) {
+        assertEquals(10002L, request.getOwnerUserId());
+        assertEquals("PRJ240053", request.getProjectCode());
+        assertEquals("STR245027-NAE", request.getStoreCode());
+        assertEquals("AE", request.getSiteCode());
+        assertEquals("PRODUCT_LISTING", request.getSourceDomain());
+        assertEquals(88003L, request.getSourceTaskId());
+        assertEquals(checkpoint, request.getCheckpoint());
+        assertEquals(resumePolicy, request.getResumePolicy());
     }
 
     private NoonPullGatewaySession sessionThatFailsAfterCreate(AtomicInteger writeCalls) {
@@ -243,8 +287,6 @@ class RealProductListingNoonWriteAuthRecoveryTest {
                     "AE",
                     "240053",
                     "merchant@example.test",
-                    "secret",
-                    null,
                     "sid=test"
             );
         }

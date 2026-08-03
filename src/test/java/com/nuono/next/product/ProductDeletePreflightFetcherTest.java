@@ -115,7 +115,6 @@ class ProductDeletePreflightFetcherTest {
             NoonSessionGateway gateway = new NoonSessionGateway(
                     objectMapper,
                     storeSyncMapper,
-                    false,
                     0L,
                     true,
                     "",
@@ -123,8 +122,6 @@ class ProductDeletePreflightFetcherTest {
                     "",
                     "",
                     false,
-                    false,
-                    "",
                     "",
                     "",
                     "",

@@ -52,12 +52,12 @@ public class ProductListingCreateOutcomeVerificationView {
     }
 
     public static ProductListingCreateOutcomeVerificationView
-            reauthenticationRequired(Long taskId, String partnerSku) {
+            authorizationWaiting(Long taskId, String partnerSku) {
         ProductListingCreateOutcomeVerificationView view =
-                base(taskId, partnerSku, "reauthentication_required");
+                base(taskId, partnerSku, "authorization_waiting");
         view.setFailureCode("noon_auth_required");
         view.setMessage(
-                "核对 Noon 创建结果时授权已失效；请重新授权后继续只读核对，系统不会重复创建商品。"
+                "核对 Noon 创建结果时授权已失效；原任务已进入授权等待队列，恢复后自动继续只读核对，系统不会重复创建商品。"
         );
         return view;
     }

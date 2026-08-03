@@ -99,8 +99,6 @@ class OfficialWarehouseAsnListRemoteExecutorTest {
                 "SA",
                 "PARTNER",
                 "merchant@example.com",
-                null,
-                "mail-auth-code",
                 "cookie"
         );
     }

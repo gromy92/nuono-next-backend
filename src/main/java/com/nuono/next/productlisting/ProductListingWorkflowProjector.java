@@ -50,11 +50,11 @@ public final class ProductListingWorkflowProjector {
                     ProductListingWorkflowView.WriteCertainty.UNKNOWN
             );
             view.setNextAction(
-                    ProductListingWorkflowView.NextAction.REAUTHENTICATE
+                    ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION
             );
             view.setReasonCode("NOON_AUTH_REQUIRED");
             view.setMessage(
-                    "诺诺本地草稿已保留，但尚未取得 Noon 正式商品引用；请重新授权，系统随后自动只读核对，禁止重复创建。"
+                    "诺诺本地草稿已保留，但尚未取得 Noon 正式商品引用；任务正在等待统一授权，恢复后自动只读核对，禁止重复创建。"
             );
             return view;
         }
@@ -87,11 +87,11 @@ public final class ProductListingWorkflowProjector {
                     ProductListingWorkflowView.WriteCertainty.WRITTEN
             );
             view.setNextAction(
-                    ProductListingWorkflowView.NextAction.REAUTHENTICATE
+                    ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION
             );
             view.setReasonCode("NOON_AUTH_REQUIRED");
             view.setMessage(
-                    "Noon 商品已经创建，但后续授权已失效；请重新授权后继续，禁止重复创建。"
+                    "Noon 商品已经创建，但后续授权已失效；任务正在等待统一授权，恢复后自动继续，禁止重复创建。"
             );
             return view;
         }
@@ -156,8 +156,8 @@ public final class ProductListingWorkflowProjector {
                 view.setNextAction(ProductListingWorkflowView.NextAction.NONE);
                 view.setMessage("写入结果缺少足够证据，需人工核对且禁止重新上架。");
             } else if (isAuthenticationFailure(realRunTask)) {
-                view.setNextAction(ProductListingWorkflowView.NextAction.REAUTHENTICATE);
-                view.setMessage("Noon 授权已失效，请重新授权后处理该任务；不要重复确认。");
+                view.setNextAction(ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION);
+                view.setMessage("Noon 授权已失效，任务正在等待统一授权恢复；不要重复确认。");
             } else if (rejected && requiresDraftEdit(realRunTask)) {
                 view.setNextAction(ProductListingWorkflowView.NextAction.EDIT_DRAFT);
                 view.setMessage("本次确认已被拒绝，请修改草稿并生成新的 dry-run。");
@@ -250,9 +250,8 @@ public final class ProductListingWorkflowProjector {
 
     private boolean isAuthenticationFailure(ProductListingTaskView task) {
         return task != null
-                && "noon_auth_required".equalsIgnoreCase(
-                        task.getFailureCode()
-                );
+                && ("noon_auth_required".equalsIgnoreCase(task.getFailureCode())
+                || "noon_auth_recovered".equalsIgnoreCase(task.getFailureCode()));
     }
 
     private boolean isClearlyNotStartedFailure(ProductListingTaskView task) {

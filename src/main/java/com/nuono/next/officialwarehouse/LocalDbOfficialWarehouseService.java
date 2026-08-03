@@ -119,7 +119,6 @@ public class LocalDbOfficialWarehouseService implements
     private int appointmentSchedulerMaxItems;
     @Value("${nuono.official-warehouse.appointment.scheduler.retry-base-seconds:5}")
     private int appointmentRetryBaseSeconds;
-
     @Value("${nuono.official-warehouse.appointment.scheduler.stale-execution-minutes:${nuono.official-warehouse.appointment.scheduler.stale-no-capacity-minutes:15}}")
     private int appointmentStaleExecutionMinutes;
 
@@ -1676,7 +1675,10 @@ public class LocalDbOfficialWarehouseService implements
             AppointmentTask task = toAppointmentTask(appointment);
             binding = resolveBinding(appointment);
             OfficialWarehouseAppointmentAuthRecovery.AuthWait blocked =
-                    appointmentAuthRecovery.blockedWait(appointment.ownerUserId, binding.getProjectCode());
+                    appointmentAuthRecovery.blockedWait(
+                            appointment.ownerUserId, binding.getProjectCode(), appointment.storeCode,
+                            appointment.siteCode, appointment.id
+                    );
             if (blocked != null) {
                 markAppointmentPendingAuthRecovery(claim, operatorId, blocked);
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
@@ -1752,10 +1754,8 @@ public class LocalDbOfficialWarehouseService implements
             OfficialWarehouseAppointmentAuthRecovery.AuthWait authWait =
                     allowRetry && shouldRetryAppointment(appointment, "AUTH_RECOVERY_PENDING")
                             ? appointmentAuthRecovery.enqueue(
-                                    appointment.ownerUserId,
-                                    binding == null ? null : binding.getProjectCode(),
-                                    appointment.storeCode,
-                                    message
+                                    appointment.ownerUserId, binding == null ? null : binding.getProjectCode(),
+                                    appointment.storeCode, appointment.siteCode, appointment.id, message
                             )
                             : null;
             if (authWait != null) {

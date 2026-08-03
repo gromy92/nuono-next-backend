@@ -2,6 +2,7 @@ package com.nuono.next.noonauth;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -14,7 +15,6 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonpull.NoonPullDataDomain;
-import com.nuono.next.noonpull.NoonPullRepository;
 import com.nuono.next.noonpull.NoonPullTaskRecord;
 import com.nuono.next.noonpull.NoonPullTaskStatus;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -28,7 +28,6 @@ import org.junit.jupiter.api.Test;
 
 class NoonAuthRecoveryCoordinatorTest {
     private NoonAuthRecoveryRepository recoveryRepository;
-    private NoonPullRepository pullRepository;
     private StoreSyncMapper storeSyncMapper;
     private NoonAuthRecoveryProperties properties;
     private NoonAuthRecoveryCoordinator coordinator;
@@ -36,7 +35,6 @@ class NoonAuthRecoveryCoordinatorTest {
     @BeforeEach
     void setUp() {
         recoveryRepository = mock(NoonAuthRecoveryRepository.class);
-        pullRepository = mock(NoonPullRepository.class);
         storeSyncMapper = mock(StoreSyncMapper.class);
         properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
@@ -44,7 +42,6 @@ class NoonAuthRecoveryCoordinatorTest {
         properties.setTrustedSenderDomains("noon.com");
         coordinator = new NoonAuthRecoveryCoordinator(
                 recoveryRepository,
-                pullRepository,
                 storeSyncMapper,
                 properties,
                 " Shared@Example.COM ",
@@ -53,6 +50,9 @@ class NoonAuthRecoveryCoordinatorTest {
         );
         when(recoveryRepository.selectProjectBindingFingerprint(anyLong(), anyString()))
                 .thenReturn("binding-fingerprint-v1");
+        when(storeSyncMapper.selectOwnerStore(anyLong(), anyString())).thenAnswer(invocation ->
+                store("PRJ1", invocation.getArgument(1))
+        );
     }
 
     @Test
@@ -71,31 +71,12 @@ class NoonAuthRecoveryCoordinatorTest {
         state.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
         when(recoveryRepository.selectProjectAuthStateForUpdate(anyLong(), anyString())).thenReturn(state);
         when(recoveryRepository.coalesceRecoveryItem(any())).thenReturn(501L);
-        when(pullRepository.blockTaskForAuth(anyLong(), anyLong(), anyString(), any())).thenReturn(1);
-
         for (long taskId = 1; taskId <= 20; taskId++) {
-            Optional<Long> recoveryId = coordinator.blockAndEnqueue(
-                    task(taskId, 300L + taskId, "STORE-" + taskId),
-                    "auth_required: Noon Cookie invalid"
-            );
+            Optional<Long> recoveryId = enqueue(task(taskId, 300L + taskId, "STORE-" + taskId));
             assertEquals(Optional.of(91L), recoveryId);
         }
 
         verify(recoveryRepository, org.mockito.Mockito.times(20)).coalesceActiveRecovery(any());
-        verify(pullRepository, org.mockito.Mockito.times(20))
-                .blockTaskForAuth(anyLong(), org.mockito.ArgumentMatchers.eq(91L), anyString(), any());
-    }
-
-    @Test
-    void refusesProjectAccessErrorsSoTheyCannotBurnOtpQuota() {
-        Optional<Long> result = coordinator.blockAndEnqueue(
-                task(1L, 308L, "STORE1"),
-                "auth_required: account does not contain current project PRJ404"
-        );
-
-        assertTrue(result.isEmpty());
-        verify(recoveryRepository, never()).coalesceActiveRecovery(any());
-        verify(pullRepository, never()).blockTaskForAuth(anyLong(), anyLong(), anyString(), any());
     }
 
     @Test
@@ -105,10 +86,7 @@ class NoonAuthRecoveryCoordinatorTest {
         state.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
         when(recoveryRepository.selectProjectAuthState(308L, "PRJ1")).thenReturn(state);
 
-        assertTrue(coordinator.blockAndEnqueue(
-                task(1L, 308L, "STORE1"),
-                "auth_required: cookie expired"
-        ).isEmpty());
+        assertTrue(enqueue(task(1L, 308L, "STORE1")).isEmpty());
         assertFalse(coordinator.isBlocked(308L, "PRJ1"));
         verify(recoveryRepository, never()).selectProjectAuthState(anyLong(), anyString());
     }
@@ -148,16 +126,10 @@ class NoonAuthRecoveryCoordinatorTest {
         state.setAuthVersion(8L);
         when(recoveryRepository.selectProjectAuthStateForUpdate(anyLong(), anyString()))
                 .thenReturn(null, state);
-        when(pullRepository.blockTaskForAuth(anyLong(), anyLong(), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(92L), coordinator.blockAndEnqueue(
-                task(7L, 307L, "STORE-7"),
-                "auth_required: cookie expired"
-        ));
+        assertEquals(Optional.of(92L), enqueue(task(7L, 307L, "STORE-7")));
 
         verify(recoveryRepository).coalesceSuccessorRecovery(any());
         verify(recoveryRepository).promoteReadySuccessors(any(), any());
-        verify(pullRepository).blockTaskForAuth(eq(7L), eq(92L), anyString(), any());
     }
 
     @Test
@@ -177,15 +149,9 @@ class NoonAuthRecoveryCoordinatorTest {
         state.setAuthVersion(7L);
         state.setStatus(NoonProjectAuthStatus.RECOVERING);
         when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(state);
-        when(pullRepository.blockTaskForAuth(anyLong(), anyLong(), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(91L), coordinator.blockAndEnqueue(
-                task(8L, 307L, "STORE-8"),
-                "auth_required: cookie expired"
-        ));
+        assertEquals(Optional.of(91L), enqueue(task(8L, 307L, "STORE-8")));
 
         verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
-        verify(pullRepository).blockTaskForAuth(eq(8L), eq(91L), anyString(), any());
     }
 
     @Test
@@ -206,13 +172,9 @@ class NoonAuthRecoveryCoordinatorTest {
         );
         when(recoveryRepository.selectProjectAuthState(307L, "PRJ1")).thenReturn(held);
 
-        assertTrue(coordinator.blockAndEnqueue(
-                task(9L, 307L, "STORE-9"),
-                "auth_required: cookie expired"
-        ).isEmpty());
+        assertTrue(enqueue(task(9L, 307L, "STORE-9")).isEmpty());
 
         verify(recoveryRepository, never()).coalesceActiveRecovery(any());
-        verify(pullRepository, never()).blockTaskForAuth(anyLong(), anyLong(), anyString(), any());
     }
 
     @Test
@@ -248,14 +210,7 @@ class NoonAuthRecoveryCoordinatorTest {
         active.setId(91L);
         active.setStatus(NoonAuthRecoveryStatus.COALESCING);
         when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active);
-        when(pullRepository.blockTaskForAuth(10L, 91L, "auth expiry queued; task=10; domain=ORDER", null))
-                .thenReturn(0);
-        when(pullRepository.blockTaskForAuth(eq(10L), eq(91L), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(91L), coordinator.blockAndEnqueue(
-                task(10L, 307L, "STORE-10"),
-                "auth_required: cookie expired"
-        ));
+        assertEquals(Optional.of(91L), enqueue(task(10L, 307L, "STORE-10")));
 
         verify(recoveryRepository).upsertProjectAuthRequired(
                 eq(307L), eq("PRJ1"), anyString(), eq(91L),
@@ -294,12 +249,7 @@ class NoonAuthRecoveryCoordinatorTest {
         active.setId(91L);
         active.setStatus(NoonAuthRecoveryStatus.COALESCING);
         when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active);
-        when(pullRepository.blockTaskForAuth(eq(11L), eq(91L), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(91L), coordinator.blockAndEnqueue(
-                task(11L, 307L, "STORE-11"),
-                "auth_required: cookie expired"
-        ));
+        assertEquals(Optional.of(91L), enqueue(task(11L, 307L, "STORE-11")));
     }
 
     @Test
@@ -309,13 +259,9 @@ class NoonAuthRecoveryCoordinatorTest {
         when(storeSyncMapper.selectOwnerProject(307L, "STORE-12")).thenReturn(project);
         when(recoveryRepository.selectProjectBindingFingerprint(307L, "PRJ1")).thenReturn(null);
 
-        assertTrue(coordinator.blockAndEnqueue(
-                task(12L, 307L, "STORE-12"),
-                "auth_required: cookie expired"
-        ).isEmpty());
+        assertTrue(enqueue(task(12L, 307L, "STORE-12")).isEmpty());
 
         verify(recoveryRepository, never()).coalesceActiveRecovery(any());
-        verify(pullRepository, never()).blockTaskForAuth(eq(12L), anyLong(), anyString(), any());
     }
 
     @Test
@@ -339,12 +285,7 @@ class NoonAuthRecoveryCoordinatorTest {
         enqueued.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
         when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1"))
                 .thenReturn(null, enqueued);
-        when(pullRepository.blockTaskForAuth(eq(13L), eq(91L), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(91L), coordinator.blockAndEnqueue(
-                task(13L, 307L, "STORE-13"),
-                "auth_required: missing_cookie"
-        ));
+        assertEquals(Optional.of(91L), enqueue(task(13L, 307L, "STORE-13")));
     }
 
     @Test
@@ -367,7 +308,7 @@ class NoonAuthRecoveryCoordinatorTest {
                 any()
         )).thenReturn(1L);
 
-        assertEquals(Optional.of(91L), coordinator.enqueueProject(307L, "PRJ1", "STORE-1"));
+        assertEquals(Optional.of(91L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
         org.mockito.InOrder lockOrder = org.mockito.Mockito.inOrder(recoveryRepository);
         lockOrder.verify(recoveryRepository).coalesceActiveRecovery(any());
@@ -395,7 +336,36 @@ class NoonAuthRecoveryCoordinatorTest {
                         && item.getSourceTaskId() == null
                         && "STORE_BINDING".equals(item.getSourceDomain())
         ));
-        verify(pullRepository, never()).blockTaskForAuth(anyLong(), anyLong(), anyString(), any());
+    }
+
+    @Test
+    void sameTaskCannotStartAnotherOtpUnderTheAuthVersionAlreadyRecoveredForIt() {
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-1"))
+                .thenReturn(store("PRJ1", "STORE-1"));
+        NoonProjectAuthStateRecord healthy = new NoonProjectAuthStateRecord();
+        healthy.setStatus(NoonProjectAuthStatus.HEALTHY);
+        healthy.setAuthVersion(8L);
+        when(recoveryRepository.selectProjectAuthState(307L, "PRJ1")).thenReturn(healthy);
+        when(recoveryRepository.hasRecoveredSourceTaskAtCurrentAuthVersion(
+                307L, "PRJ1", "PRODUCT_DELETE", 77001L, 8L
+        )).thenReturn(true);
+
+        NoonAuthRetrySuppressedException exception = assertThrows(
+                NoonAuthRetrySuppressedException.class,
+                () -> coordinator.enqueue(NoonAuthWaitRequest.task(
+                        307L,
+                        "PRJ1",
+                        "STORE-1",
+                        "AE",
+                        "PRODUCT_DELETE",
+                        77001L,
+                        "PROVIDER_CALL",
+                        NoonAuthResumePolicy.AUTO_RESUME
+                ))
+        );
+
+        assertTrue(exception.getMessage().contains("停止重复认证"));
+        verify(recoveryRepository, never()).coalesceActiveRecovery(any());
     }
 
     @Test
@@ -430,7 +400,7 @@ class NoonAuthRecoveryCoordinatorTest {
                 anyString(), any(), any(), any()
         )).thenReturn(9L);
 
-        assertEquals(Optional.of(91L), coordinator.enqueueProject(307L, "PRJ1", "STORE-1"));
+        assertEquals(Optional.of(91L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
         verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository).rebaseProjectBindingEpoch(
@@ -470,7 +440,7 @@ class NoonAuthRecoveryCoordinatorTest {
                 any(), any(), any()
         )).thenReturn(9L);
 
-        assertEquals(Optional.of(92L), coordinator.enqueueProject(307L, "PRJ1", "STORE-1"));
+        assertEquals(Optional.of(92L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
         verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository).rebaseProjectBindingEpoch(
@@ -500,7 +470,7 @@ class NoonAuthRecoveryCoordinatorTest {
                 any(), any(), any()
         )).thenReturn(8L);
 
-        assertEquals(Optional.of(91L), coordinator.enqueueProject(307L, "PRJ1", "STORE-1"));
+        assertEquals(Optional.of(91L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
         verify(recoveryRepository).rebaseProjectBindingEpoch(
                 eq(91L), eq(307L), eq("PRJ1"), anyString(), anyString(), anyString(),
@@ -537,15 +507,10 @@ class NoonAuthRecoveryCoordinatorTest {
         incorrectlyReblocked.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
         when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1"))
                 .thenReturn(healthy, healthy, incorrectlyReblocked);
-        when(pullRepository.blockTaskForAuth(eq(15L), eq(95L), anyString(), any())).thenReturn(1);
-
         NoonPullTaskRecord lateTask = task(15L, 307L, "STORE-15");
         lateTask.setStartedAt(LocalDateTime.parse("2026-07-16T03:59:59"));
 
-        assertEquals(Optional.of(95L), coordinator.blockAndEnqueue(
-                lateTask,
-                "auth_required: stale request completed with old cookie"
-        ));
+        assertEquals(Optional.of(95L), enqueue(lateTask));
 
         verify(recoveryRepository, never()).upsertProjectAuthRequired(
                 anyLong(), anyString(), anyString(), anyLong(), anyString(), anyString(),
@@ -556,7 +521,6 @@ class NoonAuthRecoveryCoordinatorTest {
                         && Long.valueOf(7L).equals(item.getExpectedAuthVersion())
                         && Long.valueOf(15L).equals(item.getSourceTaskId())
         ));
-        verify(pullRepository).blockTaskForAuth(eq(15L), eq(95L), anyString(), any());
     }
 
     @Test
@@ -583,12 +547,7 @@ class NoonAuthRecoveryCoordinatorTest {
         committed.setExpectedAuthVersion(7L);
         committed.setStatus(NoonAuthRecoveryItemStatus.RECOVERED);
         when(recoveryRepository.selectProjectRecoveryItem(91L, 307L, "PRJ1")).thenReturn(committed);
-        when(pullRepository.blockTaskForAuth(eq(14L), eq(91L), anyString(), any())).thenReturn(1);
-
-        assertEquals(Optional.of(91L), coordinator.blockAndEnqueue(
-                task(14L, 307L, "STORE-14"),
-                "auth_required: stale worker observed old cookie"
-        ));
+        assertEquals(Optional.of(91L), enqueue(task(14L, 307L, "STORE-14")));
 
         verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository, never()).upsertProjectAuthRequired(
@@ -629,6 +588,20 @@ class NoonAuthRecoveryCoordinatorTest {
         task.setDataDomain(NoonPullDataDomain.ORDER);
         task.setStatus(NoonPullTaskStatus.RUNNING);
         return task;
+    }
+
+    private Optional<Long> enqueue(NoonPullTaskRecord task) {
+        return coordinator.enqueue(NoonAuthWaitRequest.task(
+                task.getOwnerUserId(),
+                null,
+                task.getStoreCode(),
+                task.getSiteCode(),
+                task.getDataDomain() == null ? "NOON_PULL" : task.getDataDomain().name(),
+                task.getId(),
+                task.getDataDomain() == null ? "PULL" : task.getDataDomain().name(),
+                NoonAuthResumePolicy.AUTO_RESUME,
+                task.getStartedAt()
+        ));
     }
 
     private StoreSyncStoreRecord store(String projectCode, String storeCode) {

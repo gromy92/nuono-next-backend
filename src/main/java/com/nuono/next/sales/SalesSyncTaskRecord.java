@@ -13,6 +13,7 @@ public class SalesSyncTaskRecord {
     private final LocalDate dateTo;
     private final Long requestedBy;
     private final String triggerType;
+    private final String listingCoverageMode;
     private final String status;
     private final Long sourceBatchId;
     private final Integer totalRows;
@@ -20,6 +21,7 @@ public class SalesSyncTaskRecord {
     private final Integer failureRows;
     private final LocalDate latestFactDate;
     private final String failureReason;
+    private final Long authRecoveryId;
 
     public SalesSyncTaskRecord(
             Long id,
@@ -31,13 +33,15 @@ public class SalesSyncTaskRecord {
             LocalDate dateTo,
             Long requestedBy,
             String triggerType,
+            String listingCoverageMode,
             String status,
             Long sourceBatchId,
             Integer totalRows,
             Integer successRows,
             Integer failureRows,
             LocalDate latestFactDate,
-            String failureReason
+            String failureReason,
+            Long authRecoveryId
     ) {
         this.id = id;
         this.ownerUserId = ownerUserId;
@@ -48,6 +52,7 @@ public class SalesSyncTaskRecord {
         this.dateTo = dateTo;
         this.requestedBy = requestedBy;
         this.triggerType = triggerType;
+        this.listingCoverageMode = listingCoverageMode;
         this.status = status;
         this.sourceBatchId = sourceBatchId;
         this.totalRows = totalRows;
@@ -55,6 +60,7 @@ public class SalesSyncTaskRecord {
         this.failureRows = failureRows;
         this.latestFactDate = latestFactDate;
         this.failureReason = failureReason;
+        this.authRecoveryId = authRecoveryId;
     }
 
     public static SalesSyncTaskRecord queued(Long id, SalesSyncTaskCommand command) {
@@ -68,7 +74,9 @@ public class SalesSyncTaskRecord {
                 command.getDateTo(),
                 command.getRequestedBy(),
                 command.getTriggerType(),
+                command.getListingCoverageMode().name(),
                 "queued",
+                null,
                 null,
                 null,
                 null,
@@ -81,24 +89,33 @@ public class SalesSyncTaskRecord {
     public SalesSyncTaskRecord withStatus(String status) {
         return new SalesSyncTaskRecord(
                 id, ownerUserId, logicalStoreId, storeCode, siteCode, dateFrom, dateTo,
-                requestedBy, triggerType, status, sourceBatchId, totalRows, successRows,
-                failureRows, latestFactDate, failureReason
+                requestedBy, triggerType, listingCoverageMode, status, sourceBatchId, totalRows, successRows,
+                failureRows, latestFactDate, failureReason, authRecoveryId
         );
     }
 
     public SalesSyncTaskRecord succeeded(NoonSalesCsvImportResult result) {
         return new SalesSyncTaskRecord(
                 id, ownerUserId, logicalStoreId, storeCode, siteCode, dateFrom, dateTo,
-                requestedBy, triggerType, result.getTaskStatus(), result.getSourceBatchId(), result.getTotalRows(),
-                result.getSuccessRows(), result.getFailureRows(), result.getReportDateTo(), result.getTaskFailureReason()
+                requestedBy, triggerType, listingCoverageMode, result.getTaskStatus(), result.getSourceBatchId(), result.getTotalRows(),
+                result.getSuccessRows(), result.getFailureRows(), result.getReportDateTo(), result.getTaskFailureReason(), null
         );
     }
 
     public SalesSyncTaskRecord failed(String failureReason) {
         return new SalesSyncTaskRecord(
                 id, ownerUserId, logicalStoreId, storeCode, siteCode, dateFrom, dateTo,
-                requestedBy, triggerType, "failed", sourceBatchId, totalRows, successRows,
-                failureRows, latestFactDate, failureReason
+                requestedBy, triggerType, listingCoverageMode, "failed", sourceBatchId, totalRows, successRows,
+                failureRows, latestFactDate, failureReason, authRecoveryId
+        );
+    }
+
+    public SalesSyncTaskRecord waitingForAuthorization(Long recoveryId) {
+        return new SalesSyncTaskRecord(
+                id, ownerUserId, logicalStoreId, storeCode, siteCode, dateFrom, dateTo,
+                requestedBy, triggerType, listingCoverageMode, "waiting_authorization", sourceBatchId,
+                totalRows, successRows, failureRows, latestFactDate,
+                "Noon Project 授权恢复中，恢复后将自动继续原销量同步任务。", recoveryId
         );
     }
 
@@ -134,6 +151,10 @@ public class SalesSyncTaskRecord {
         return failureReason;
     }
 
+    public Long getAuthRecoveryId() {
+        return authRecoveryId;
+    }
+
     public Long getOwnerUserId() {
         return ownerUserId;
     }
@@ -164,5 +185,9 @@ public class SalesSyncTaskRecord {
 
     public String getTriggerType() {
         return triggerType;
+    }
+
+    public String getListingCoverageMode() {
+        return listingCoverageMode;
     }
 }
