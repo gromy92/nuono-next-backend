@@ -34,7 +34,7 @@ MANAGED_MIGRATIONS = (
     "205_product_listing_reauthentication_attempt.sql",
     "206_product_barcode_store_uniqueness.sql",
     "240_operations_competitor_snapshot_active_uniqueness.sql",
-    "241_operations_competitor_correction_writer_fence.sql",
+    "241_operations_competitor_correction_writer_fence.sql", "242_file_management_parse_retirement.sql",
 )
 
 COMPETITOR_OPERATION_NAME = "competitor_business_date_correction"

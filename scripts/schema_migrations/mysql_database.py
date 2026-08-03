@@ -13,6 +13,7 @@ from schema_migrations.mysql_support import (
 )
 
 LOCK_NAME = "nuono:schema-migrations"
+FILE_PARSE_RETIREMENT_KEY = "242_file_management_parse_retirement.sql"
 
 
 class MySqlMigrationDatabase:
@@ -110,6 +111,15 @@ class MySqlMigrationDatabase:
 
     def livecheck(self, migration: Migration) -> bool:
         return self._check(migration.livecheck_sql)
+
+    def acknowledge_runtime_drain(self, migration_key: str) -> None:
+        if migration_key != FILE_PARSE_RETIREMENT_KEY:
+            raise MigrationError(
+                f"runtime-drain acknowledgement is not allowed for {migration_key}"
+            )
+        self.client.execute(
+            "SET @nuono_242_all_legacy_parse_runtimes_drained = 1;"
+        )
 
     def _check(self, sql: str) -> bool:
         try:

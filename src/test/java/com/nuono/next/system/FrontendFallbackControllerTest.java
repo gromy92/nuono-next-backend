@@ -36,4 +36,12 @@ class FrontendFallbackControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(forwardedUrl("/index.html"));
     }
+
+    @Test
+    void shouldNotForwardRetiredFileManagementRoutes() throws Exception {
+        mockMvc.perform(get("/system/file-management"))
+                .andExpect(status().isNotFound());
+        mockMvc.perform(get("/system/ai-file-parse"))
+                .andExpect(status().isNotFound());
+    }
 }

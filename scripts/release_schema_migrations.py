@@ -56,6 +56,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--migration-key")
     parser.add_argument("--rerun", action="store_true")
     parser.add_argument("--approve-managed", action="append", default=[])
+    parser.add_argument("--approve-runtime-drain", action="append", default=[])
     return parser.parse_args(argv)
 
 
@@ -100,7 +101,10 @@ def main(argv: list[str] | None = None) -> int:
                 raise MigrationError(
                     "--migration-key/--rerun are only valid for repair-forward"
                 )
-            applied = runner.apply(approved_managed=args.approve_managed)
+            applied = runner.apply(
+                approved_managed=args.approve_managed,
+                approved_runtime_drains=args.approve_runtime_drain,
+            )
             _emit({"result": "APPLIED", "migrations": applied})
             return 0
 
@@ -109,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             migration_key,
             rerun=args.rerun,
             approved_managed=args.approve_managed,
+            approved_runtime_drains=args.approve_runtime_drain,
         )
         _emit(
             {
@@ -232,6 +237,7 @@ def _reject_mutation_only_options(args) -> None:
         or args.migration_key
         or args.rerun
         or args.approve_managed
+        or args.approve_runtime_drain
     ):
         raise MigrationError(
             "mutation/repair options are not valid for status or plan"

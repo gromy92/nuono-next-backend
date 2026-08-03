@@ -38,8 +38,6 @@ public enum BusinessCapability {
     )),
     OPERATIONS_SKIN_MANAGEMENT(List.of("/operations/skin-management", "/api/operations/skin-management")),
     ADVANCED_OPERATIONS_CONFIG(List.of("/operations/config", "/api/operations-config")),
-    FILE_MANAGEMENT_SYSTEM(List.of("/system/file-management", "/system/ai-file-parse")),
-    FILE_MANAGEMENT_BUSINESS(List.of("/system/file-management", "/system/ai-file-parse")),
     LOGISTICS_QUOTE(List.of("/purchase/logistics-quote")),
     WAREHOUSE_DISPATCH(List.of(
             "/warehouse/dispatch",
