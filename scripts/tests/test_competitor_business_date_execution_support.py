@@ -97,7 +97,10 @@ class VerifySqlTest(unittest.TestCase):
 
         self.assertIn("  (2, 0,", sql)
         self.assertIn("e.`expect_present` = 0 AND t.`id` IS NOT NULL", sql)
-        self.assertIn("BINARY t.`field_key` <=> BINARY e.`field_key`", sql)
+        self.assertIn(
+            "CAST(t.`field_key` AS BINARY) <=> CAST(e.`field_key` AS BINARY)",
+            sql,
+        )
 
     def test_rejects_incomplete_expected_row(self):
         row = {"sequence_name": "event", "next_id": 2}

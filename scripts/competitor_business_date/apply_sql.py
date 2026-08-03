@@ -246,7 +246,7 @@ def _row_match(
             continue
         lhs, rhs = f"{left}.`{column.name}`", f"{right}.`{column.name}`"
         if column.kind in {"text", "json"}:
-            lhs, rhs = f"BINARY {lhs}", f"BINARY {rhs}"
+            lhs, rhs = f"CAST({lhs} AS BINARY)", f"CAST({rhs} AS BINARY)"
         comparisons.append(f"({lhs} <=> {rhs})")
     return " AND ".join(comparisons)
 

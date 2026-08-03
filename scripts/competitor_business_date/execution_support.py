@@ -134,7 +134,7 @@ def _row_match(contract: TableContract) -> str:
     for column in contract.row_columns:
         left, right = f"t.`{column.name}`", f"e.`{column.name}`"
         if column.kind in {"text", "json"}:
-            left, right = f"BINARY {left}", f"BINARY {right}"
+            left, right = f"CAST({left} AS BINARY)", f"CAST({right} AS BINARY)"
         comparisons.append(f"({left} <=> {right})")
     return " AND ".join(comparisons)
 def _temp_name(contract: TableContract) -> str:

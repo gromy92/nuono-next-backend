@@ -174,7 +174,7 @@ FOR UPDATE;
 INSERT INTO `_cbd_fence_guard` VALUES (
   IF(@cbd_current_status = 'ACTIVE'
      AND @cbd_current_generation = {generation}
-     AND BINARY @cbd_current_run_id = BINARY {run_literal}, 1, 0)
+     AND CAST(@cbd_current_run_id AS BINARY) = CAST({run_literal} AS BINARY), 1, 0)
 );
 UPDATE `{FENCE_TABLE}`
 SET `fence_status` = 'OPEN',
@@ -183,7 +183,7 @@ SET `fence_status` = 'OPEN',
 WHERE `fence_name` = '{FENCE_NAME}'
   AND `fence_status` = 'ACTIVE'
   AND `generation` = {generation}
-  AND BINARY `operation_run_id` = BINARY {run_literal};
+  AND CAST(`operation_run_id` AS BINARY) = CAST({run_literal} AS BINARY);
 INSERT INTO `_cbd_fence_guard` VALUES (IF(ROW_COUNT() = 1, 1, 0));
 COMMIT;
 SELECT {mysql_text_literal(sentinel)};
