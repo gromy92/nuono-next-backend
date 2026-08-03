@@ -282,10 +282,10 @@ class OfficialWarehouseSchemaTest {
         String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
         String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
         String runner = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentRunner.java"));
+        String readiness = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAppointmentWarehouseReadiness.java"));
 
-        assertThat(runner)
-                .contains("client.onWarehousesSet(task);")
-                .contains("default void onWarehousesSet(AppointmentTask task)");
+        assertThat(readiness).contains("client.onWarehousesSet(task);");
+        assertThat(runner).contains("default void onWarehousesSet(AppointmentTask task)");
         assertThat(mapper)
                 .contains("int updateAsnCurrentWarehouseForAppointment(").contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
                 .contains("AND owner_user_id = #{ownerUserId}")
