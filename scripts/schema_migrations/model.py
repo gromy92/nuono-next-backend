@@ -21,12 +21,16 @@ class Migration:
     kind: str
     script_path: PurePosixPath
     postcheck_path: PurePosixPath
+    livecheck_path: PurePosixPath
     checksum: str
     postcheck_checksum: str
+    livecheck_checksum: str
     script_bytes: bytes
     postcheck_bytes: bytes
+    livecheck_bytes: bytes
     script_file: Path | None = None
     postcheck_file: Path | None = None
+    livecheck_file: Path | None = None
 
     @property
     def script_sql(self) -> str:
@@ -35,6 +39,10 @@ class Migration:
     @property
     def postcheck_sql(self) -> str:
         return self.postcheck_bytes.decode("utf-8")
+
+    @property
+    def livecheck_sql(self) -> str:
+        return self.livecheck_bytes.decode("utf-8")
 
 
 @dataclass(frozen=True)
@@ -68,6 +76,8 @@ class MigrationDatabase(Protocol):
     def run_script(self, migration: Migration) -> None: ...
 
     def postcheck(self, migration: Migration) -> bool: ...
+
+    def livecheck(self, migration: Migration) -> bool: ...
 
     def mark_applied(self, migration: Migration, attempt_no: int) -> None: ...
 

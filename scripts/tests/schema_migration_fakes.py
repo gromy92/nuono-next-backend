@@ -7,6 +7,7 @@ class FakeDatabase:
         self.events = []
         self.postcheck_passes = True
         self.postcheck_results = {}
+        self.livecheck_results = {}
         self.script_error = None
 
     def acquire_lock(self, timeout_seconds):
@@ -60,6 +61,13 @@ class FakeDatabase:
     def postcheck(self, migration):
         self.events.append(("postcheck", migration.key))
         return self.postcheck_results.get(
+            migration.key,
+            self.postcheck_passes,
+        )
+
+    def livecheck(self, migration):
+        self.events.append(("livecheck", migration.key))
+        return self.livecheck_results.get(
             migration.key,
             self.postcheck_passes,
         )
