@@ -20,7 +20,8 @@ class ReleaseSchemaCatalogLoader {
     private static final String CATALOG = "db/init/release-migrations.tsv";
     private static final int CATALOG_START_ORDER = 227;
     private static final String HEADER =
-            "order\tmigration_key\tkind\tscript_path\tpostcheck_path";
+            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+                    + "livecheck_path";
     private static final Pattern NAME =
             Pattern.compile("^(\\d{3})_[a-z0-9_]+\\.sql$");
 
@@ -42,19 +43,21 @@ class ReleaseSchemaCatalogLoader {
                     continue;
                 }
                 String[] cells = line.split("\\t", -1);
-                if (cells.length != 5) {
-                    throw invalid("catalog row must contain five columns");
+                if (cells.length != 6) {
+                    throw invalid("catalog row must contain six columns");
                 }
                 int order = parseOrder(cells[0]);
                 String key = cells[1];
                 String kind = cells[2];
                 String scriptPath = safePath(cells[3], "db/init/");
                 String postcheckPath = safePath(cells[4], "db/postcheck/");
+                String livecheckPath = safeLivecheckPath(cells[5]);
                 Matcher name = NAME.matcher(key);
                 if (!name.matches()
                         || Integer.parseInt(name.group(1)) != order
                         || !key.equals(fileName(scriptPath))
                         || !key.equals(fileName(postcheckPath))
+                        || !key.equals(fileName(livecheckPath))
                         || order <= previousOrder) {
                     throw invalid("catalog identity/order is invalid for " + key);
                 }
@@ -66,7 +69,8 @@ class ReleaseSchemaCatalogLoader {
                         key,
                         kind,
                         sha256(resource(scriptPath)),
-                        sha256(resource(postcheckPath))
+                        sha256(resource(postcheckPath)),
+                        sha256(resource(livecheckPath))
                 ));
                 orders.add(order);
                 previousOrder = order;
@@ -111,6 +115,13 @@ class ReleaseSchemaCatalogLoader {
             throw invalid("unsafe catalog resource path");
         }
         return value;
+    }
+
+    private static String safeLivecheckPath(String value) {
+        if (value.startsWith("db/postcheck/")) {
+            return safePath(value, "db/postcheck/");
+        }
+        return safePath(value, "db/livecheck/");
     }
 
     private static String fileName(String path) {

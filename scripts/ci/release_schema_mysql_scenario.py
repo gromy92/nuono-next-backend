@@ -195,11 +195,15 @@ def build_probe_migration(root, order, key, script, postcheck):
         "AUTO_ADDITIVE",
         PurePosixPath("db/init") / key,
         PurePosixPath("db/postcheck") / key,
+        PurePosixPath("db/postcheck") / key,
         sha256_bytes(script.encode("utf-8")),
+        sha256_bytes(postcheck.encode("utf-8")),
         sha256_bytes(postcheck.encode("utf-8")),
         script.encode("utf-8"),
         postcheck.encode("utf-8"),
+        postcheck.encode("utf-8"),
         script_file,
+        postcheck_file,
         postcheck_file,
     )
 

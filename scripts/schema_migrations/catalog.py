@@ -16,6 +16,7 @@ CATALOG_COLUMNS = (
     "kind",
     "script_path",
     "postcheck_path",
+    "livecheck_path",
 )
 MIGRATION_KINDS = frozenset({"BOOTSTRAP", "AUTO_ADDITIVE", "MANAGED"})
 MIGRATION_NAME = re.compile(r"^(?P<order>[0-9]{3})_[a-z0-9_]+\.sql$")
@@ -138,26 +139,42 @@ def _migration_from_row(
         raise MigrationError(f"{key}: unsupported migration kind {kind!r}")
     script_path = _relative_path(_required_cell(row, "script_path"))
     postcheck_path = _relative_path(_required_cell(row, "postcheck_path"))
+    livecheck_path = _relative_path(_required_cell(row, "livecheck_path"))
     if key != script_path.name:
         raise MigrationError("migration_key must equal the exact script filename")
     if key != postcheck_path.name:
         raise MigrationError(f"{key}: postcheck filename must equal migration_key")
+    if key != livecheck_path.name:
+        raise MigrationError(f"{key}: livecheck filename must equal migration_key")
+    if (
+        livecheck_path != postcheck_path
+        and livecheck_path.parent != PurePosixPath("db/livecheck")
+    ):
+        raise MigrationError(
+            f"{key}: livecheck must reuse postcheck or live under db/livecheck"
+        )
     script_bytes, script_file = read_resource(script_path)
     postcheck_bytes, postcheck_file = read_resource(postcheck_path)
+    livecheck_bytes, livecheck_file = read_resource(livecheck_path)
     _decode_sql(key, "script", script_bytes)
     _decode_sql(key, "postcheck", postcheck_bytes)
+    _decode_sql(key, "livecheck", livecheck_bytes)
     return Migration(
         order=order,
         key=key,
         kind=kind,
         script_path=script_path,
         postcheck_path=postcheck_path,
+        livecheck_path=livecheck_path,
         checksum=sha256_bytes(script_bytes),
         postcheck_checksum=sha256_bytes(postcheck_bytes),
+        livecheck_checksum=sha256_bytes(livecheck_bytes),
         script_bytes=script_bytes,
         postcheck_bytes=postcheck_bytes,
+        livecheck_bytes=livecheck_bytes,
         script_file=script_file,
         postcheck_file=postcheck_file,
+        livecheck_file=livecheck_file,
     )
 
 

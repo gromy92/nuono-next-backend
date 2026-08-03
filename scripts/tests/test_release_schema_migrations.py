@@ -30,11 +30,12 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
         self.write_migration("227_history.sql", "BOOTSTRAP", "SELECT 227;\n")
         self.write_migration("228_feature.sql", "AUTO_ADDITIVE", "SELECT 228;\n")
         (self.root / "db/init/release-migrations.tsv").write_text(
-            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+            "livecheck_path\n"
             "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
-            "db/postcheck/227_history.sql\n"
+            "db/postcheck/227_history.sql\tdb/postcheck/227_history.sql\n"
             "228\t228_feature.sql\tAUTO_ADDITIVE\tdb/init/228_feature.sql\t"
-            "db/postcheck/228_feature.sql\n",
+            "db/postcheck/228_feature.sql\tdb/postcheck/228_feature.sql\n",
             encoding="utf-8",
         )
         self.migrations = load_catalog(self.root)
@@ -62,14 +63,14 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             (
                 "wrong start",
                 "228\t228_history.sql\tBOOTSTRAP\tdb/init/228_history.sql\t"
-                "db/postcheck/228_history.sql\n",
+                "db/postcheck/228_history.sql\tdb/postcheck/228_history.sql\n",
             ),
             (
                 "gap",
                 "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
-                "db/postcheck/227_history.sql\n"
+                "db/postcheck/227_history.sql\tdb/postcheck/227_history.sql\n"
                 "229\t229_feature.sql\tAUTO_ADDITIVE\tdb/init/229_feature.sql\t"
-                "db/postcheck/229_feature.sql\n",
+                "db/postcheck/229_feature.sql\tdb/postcheck/229_feature.sql\n",
             ),
         )
         for label, rows in cases:
@@ -81,7 +82,8 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
                 ):
                     self.write_migration(name, "ignored", f"SELECT {order};\n")
                 (self.root / "db/init/release-migrations.tsv").write_text(
-                    "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+                    "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+                    "livecheck_path\n"
                     + rows,
                     encoding="utf-8",
                 )
@@ -116,7 +118,7 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             [
                 ("lock", 30),
                 ("bootstrap", "227_history.sql"),
-                ("postcheck", "227_history.sql"),
+                ("livecheck", "227_history.sql"),
                 ("begin", "228_feature.sql", 1, "APPLY"),
                 ("script", "228_feature.sql"),
                 ("postcheck", "228_feature.sql"),
