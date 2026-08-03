@@ -60,7 +60,8 @@ public class OfficialWarehouseAppointmentRunner {
             status = "SEALED";
             oldScheduleReleased = true;
         }
-        boolean warehousesChanged = !isNoonReadyForScheduleStatus(status);
+        boolean warehousesChanged = !isNoonReadyForScheduleStatus(status)
+                || isWarehouseChangeRequired(task, detail);
         RunResult readiness = warehousesChanged ? setWarehousesAndWaitUntilReady(task, client, false) : null;
         if (readiness != null) {
             return readiness;
@@ -106,6 +107,9 @@ public class OfficialWarehouseAppointmentRunner {
             return List.of();
         }
         if (!isNoonReadyForScheduleStatus(status) && !isNoonScheduledStatus(status)) {
+            return List.of();
+        }
+        if (isWarehouseChangeRequired(task, detail)) {
             return List.of();
         }
         List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
@@ -161,7 +165,8 @@ public class OfficialWarehouseAppointmentRunner {
             }
             status = "SEALED";
         }
-        RunResult readiness = isNoonReadyForScheduleStatus(status) ? null
+        RunResult readiness = isNoonReadyForScheduleStatus(status)
+                && !isWarehouseChangeRequired(task, detail) ? null
                 : setWarehousesAndWaitUntilReady(task, client, true);
         if (readiness != null) {
             return readiness;
@@ -170,15 +175,19 @@ public class OfficialWarehouseAppointmentRunner {
     }
     private static RunResult waitUntilReadyForSchedule(AppointmentTask task,
             NoonAppointmentClient client, boolean selectedSlot) {
+        boolean warehouseChangeStillPending = false;
         for (int attempt = 0; attempt < MAX_SEALED_CHECK_ATTEMPTS; attempt++) {
             AsnDetail detail = client.queryAsnDetail(task);
             String status = normalize(detail == null ? null : detail.status);
             if (isNoonFailureStatus(status)) {
                 return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
             }
-            if (isNoonReadyForScheduleStatus(status)) {
+            if (isNoonReadyForScheduleStatus(status)
+                    && !isWarehouseChangeRequired(task, detail)) {
                 return null;
             }
+            warehouseChangeStillPending = isNoonReadyForScheduleStatus(status)
+                    && isWarehouseChangeRequired(task, detail);
             if (isNoonScheduledStatus(status)) {
                 return selectedSlot
                         ? RunResult.reconciliationRequired("NOON_ALREADY_SCHEDULED_DURING_PREPARATION",
@@ -189,7 +198,12 @@ public class OfficialWarehouseAppointmentRunner {
                 sleepBeforeNextSealedCheck();
             }
         }
-        return RunResult.failed("ASN_NOT_SEALED", "Noon 已设置仓库，但 ASN 尚未 sealed，稍后再点立即约仓。");
+        return warehouseChangeStillPending
+                ? RunResult.failed(
+                        "ASN_WAREHOUSE_NOT_CONFIRMED",
+                        "Noon 已接受设置仓库，但 ASN 尚未回读为目标到达仓库，稍后再点立即约仓。"
+                )
+                : RunResult.failed("ASN_NOT_SEALED", "Noon 已设置仓库，但 ASN 尚未 sealed，稍后再点立即约仓。");
     }
     private static RunResult setWarehousesAndWaitUntilReady(AppointmentTask task,
             NoonAppointmentClient client, boolean selectedSlot) {
@@ -216,6 +230,25 @@ public class OfficialWarehouseAppointmentRunner {
         } catch (Exception exception) {
             return null;
         }
+    }
+
+    private static boolean isWarehouseChangeRequired(AppointmentTask task, AsnDetail detail) {
+        if (task == null || !StringUtils.hasText(task.warehouseTo) || detail == null) {
+            return false;
+        }
+        boolean remoteWarehouseKnown = StringUtils.hasText(detail.warehouseToPartnerCode)
+                || StringUtils.hasText(detail.warehouseToCode);
+        if (!remoteWarehouseKnown) {
+            return false;
+        }
+        return !sameWarehouse(task.warehouseTo, detail.warehouseToPartnerCode)
+                && !sameWarehouse(task.warehouseTo, detail.warehouseToCode);
+    }
+
+    private static boolean sameWarehouse(String requestedWarehouse, String remoteWarehouse) {
+        return StringUtils.hasText(requestedWarehouse)
+                && StringUtils.hasText(remoteWarehouse)
+                && requestedWarehouse.trim().equalsIgnoreCase(remoteWarehouse.trim());
     }
 
     public interface NoonAppointmentClient {
@@ -247,9 +280,20 @@ public class OfficialWarehouseAppointmentRunner {
 
     public static class AsnDetail {
         public final String status; public final LocalDate appointmentDate; public final String appointmentTime;
-        public AsnDetail(String status) { this(status, null, null); }
+        public final String warehouseToPartnerCode; public final String warehouseToCode;
+        public AsnDetail(String status) { this(status, null, null, null, null); }
         public AsnDetail(String status, LocalDate appointmentDate, String appointmentTime) {
+            this(status, appointmentDate, appointmentTime, null, null);
+        }
+        public AsnDetail(
+                String status,
+                LocalDate appointmentDate,
+                String appointmentTime,
+                String warehouseToPartnerCode,
+                String warehouseToCode
+        ) {
             this.status = status; this.appointmentDate = appointmentDate; this.appointmentTime = appointmentTime;
+            this.warehouseToPartnerCode = warehouseToPartnerCode; this.warehouseToCode = warehouseToCode;
         }
     }
 

@@ -343,7 +343,13 @@ public class OfficialWarehouseNoonInboundClient {
     }
     static AsnDetail parseAsnDetail(JsonNode detail) {
         OfficialWarehouseAsnListSyncSupport.NoonAsnListRow row = OfficialWarehouseAsnListSyncSupport.parseRow(detail);
-        return new AsnDetail(row.remoteStatus, row.appointmentDate, row.appointmentTime);
+        return new AsnDetail(
+                row.remoteStatus,
+                row.appointmentDate,
+                row.appointmentTime,
+                row.warehouseToPartnerCode,
+                row.warehouseToCode
+        );
     }
     static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
         return OfficialWarehouseRoutingLineParser.parse(detail);
