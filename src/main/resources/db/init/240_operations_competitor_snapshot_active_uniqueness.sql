@@ -41,7 +41,17 @@ SET @cps_base_columns_exact := (
 );
 
 DROP TEMPORARY TABLE IF EXISTS `_migration_240_indexes`;
-CREATE TEMPORARY TABLE `_migration_240_indexes` AS
+CREATE TEMPORARY TABLE `_migration_240_indexes` (
+    `index_name` VARCHAR(64) NOT NULL,
+    `non_unique` BIGINT NOT NULL,
+    `column_count` BIGINT NOT NULL,
+    `column_signature` TEXT NOT NULL,
+    `prefix_count` BIGINT NOT NULL,
+    `non_btree_count` BIGINT NOT NULL,
+    `invisible_count` BIGINT NOT NULL,
+    `expression_count` BIGINT NOT NULL
+) ENGINE=InnoDB;
+INSERT INTO `_migration_240_indexes`
 SELECT index_name, MIN(non_unique) AS non_unique, COUNT(*) AS column_count,
        GROUP_CONCAT(COALESCE(column_name, '<expression>')
          ORDER BY seq_in_index SEPARATOR ',') AS column_signature,
