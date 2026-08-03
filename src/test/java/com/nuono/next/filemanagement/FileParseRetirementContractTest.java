@@ -59,6 +59,8 @@ class FileParseRetirementContractTest {
         assertTrue(migration.contains("@nuono_242_all_legacy_parse_runtimes_drained"));
         assertTrue(migration.contains("blocking_task_count"));
         assertTrue(migration.contains("not in ('published', 'failed')"));
+        assertEquals(3, count(migration, "engine=innodb"));
+        assertFalse(migration.contains("engine=memory"));
         assertTrue(migration.contains("where `status` = 'active'\n  and `is_deleted` = b'0'"));
         assertFalse(migration.contains("delete from"));
         assertFalse(migration.contains("drop table"));
@@ -113,5 +115,9 @@ class FileParseRetirementContractTest {
         assertTrue(Pattern.compile(
                 "(?is)\\bwhere\\s+`status`\\s*=\\s*'active'\\s+and\\s+`is_deleted`\\s*=\\s*b'0'\\s*;\\s*$"
         ).matcher(statement).find());
+    }
+
+    private static int count(String value, String marker) {
+        return value.split(Pattern.quote(marker), -1).length - 1;
     }
 }

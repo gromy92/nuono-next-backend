@@ -17,7 +17,7 @@ CREATE TEMPORARY TABLE `nuono_242_file_parse_cutover_ack` (
     `all_legacy_runtimes_drained` TINYINT NOT NULL,
     CONSTRAINT `chk_nuono_242_legacy_runtimes_drained`
         CHECK (`all_legacy_runtimes_drained` = 1)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 
 INSERT INTO `nuono_242_file_parse_cutover_ack` (`all_legacy_runtimes_drained`)
 VALUES (COALESCE(@nuono_242_all_legacy_parse_runtimes_drained, 0));
@@ -27,7 +27,7 @@ CREATE TEMPORARY TABLE `nuono_242_file_parse_retirement_guard` (
     `blocking_task_count` BIGINT NOT NULL,
     CONSTRAINT `chk_nuono_242_no_blocking_tasks`
         CHECK (`blocking_task_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 
 INSERT INTO `nuono_242_file_parse_retirement_guard` (`blocking_task_count`)
 SELECT COUNT(*)
@@ -82,7 +82,7 @@ CREATE TEMPORARY TABLE `nuono_242_file_parse_retirement_postcheck` (
     `active_entry_count` BIGINT NOT NULL,
     CONSTRAINT `chk_nuono_242_no_active_entry`
         CHECK (`active_entry_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 
 INSERT INTO `nuono_242_file_parse_retirement_postcheck` (`active_entry_count`)
 SELECT
