@@ -15,7 +15,7 @@ import com.nuono.next.infrastructure.mapper.OperationsSkinMapper;
 import com.nuono.next.infrastructure.mapper.ProductImageProfileMapper;
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.List;
@@ -37,7 +37,7 @@ class ProductImageManualRetryAuthGateTest {
                 events
         );
         service.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
-                mock(NoonProjectAuthRecoveryQueue.class),
+                mock(NoonAuthWaitQueue.class),
                 authGate
         ));
         ProductImageProfileRecord profile = profile();
@@ -68,7 +68,7 @@ class ProductImageManualRetryAuthGateTest {
         NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
         StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
         ProductWriteAuthRecovery authRecovery = new ProductWriteAuthRecovery(
-                mock(NoonProjectAuthRecoveryQueue.class),
+                mock(NoonAuthWaitQueue.class),
                 authGate
         );
         authRecovery.setStoreSyncMapper(storeSyncMapper);

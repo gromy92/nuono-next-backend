@@ -37,7 +37,8 @@ final class NoonSessionResponseClassifier {
     }
 
     private static boolean isExactTransientStatus(int statusCode) {
-        return statusCode == 408
+        return statusCode == 407
+                || statusCode == 408
                 || statusCode == 500
                 || statusCode == 502
                 || statusCode == 503

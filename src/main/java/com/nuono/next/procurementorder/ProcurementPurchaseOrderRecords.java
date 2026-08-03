@@ -1,6 +1,8 @@
 package com.nuono.next.procurementorder;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public final class ProcurementPurchaseOrderRecords {
 
@@ -90,6 +92,8 @@ public final class ProcurementPurchaseOrderRecords {
         public String serviceCode;
         public String serviceName;
         public String quoteVersionCode;
+        public LocalDate quoteEffectiveFrom;
+        public LocalDateTime quoteRecordedAt;
         public String country;
         public String siteCode;
         public String targetPlatform;
@@ -158,26 +162,6 @@ public final class ProcurementPurchaseOrderRecords {
         public String conditionText;
         public BigDecimal minCharge;
         public String targetPlatform;
-    }
-
-    public static class ForwarderTransportFeeRecord {
-        public Long id;
-        public String serviceCode;
-        public String feeName;
-        public String feeType;
-        public String targetPlatform;
-        public String deliveryCity;
-        public String triggerCondition;
-        public String pricingModel;
-        public String currency;
-        public BigDecimal amount;
-        public BigDecimal rate;
-        public String billingUnit;
-        public String billingBasis;
-        public BigDecimal minCharge;
-        public BigDecimal minBillableUnit;
-        public String roundingRule;
-        public Boolean includedInBasePrice;
     }
 
     public static class LogisticsRecommendationInsertRecord {
@@ -273,6 +257,7 @@ public final class ProcurementPurchaseOrderRecords {
         public String exportedAt;
         public String confirmedAt;
         public String shippingSubmittedAt;
+        public String eligibilityStatus;
     }
 
     public static class ProductForwarderChannelQuoteRecord {
@@ -473,6 +458,7 @@ public final class ProcurementPurchaseOrderRecords {
         public String billingUnit;
         public String quoteStatus;
         public String shippingSubmitStatus;
+        public String eligibilityStatus;
     }
 
     public static class ProductForwarderDeclarationAttributeRecord {

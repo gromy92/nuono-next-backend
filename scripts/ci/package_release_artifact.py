@@ -7,7 +7,19 @@ import json
 import os
 import re
 import shutil
+import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parents[1]
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from schema_migrations.catalog import (  # noqa: E402
+    CATALOG_PATH,
+    load_catalog,
+)
+from schema_migrations.artifact import runner_descriptors  # noqa: E402
+from schema_migrations.core import MigrationError  # noqa: E402
 
 
 class ArtifactError(RuntimeError):
@@ -101,6 +113,38 @@ def build_manifest(
                 }
             )
         manifest["migrations"] = descriptors
+        resource_root = migration_dir.parents[1]
+        try:
+            forward_migrations = load_catalog(resource_root)
+        except MigrationError as error:
+            raise ArtifactError(f"invalid forward migration catalog: {error}") from error
+        catalog_file = resource_root.joinpath(*CATALOG_PATH.parts)
+        manifest["migration_catalog"] = {
+            "path": CATALOG_PATH.as_posix(),
+            "sha256": sha256_file(catalog_file),
+            "size": catalog_file.stat().st_size,
+        }
+        manifest["forward_migrations"] = [
+            {
+                "order": migration.order,
+                "migration_key": migration.key,
+                "kind": migration.kind,
+                "script_path": migration.script_path.as_posix(),
+                "script_sha256": migration.checksum,
+                "script_size": len(migration.script_bytes),
+                "postcheck_path": migration.postcheck_path.as_posix(),
+                "postcheck_sha256": migration.postcheck_checksum,
+                "postcheck_size": len(migration.postcheck_bytes),
+                "livecheck_path": migration.livecheck_path.as_posix(),
+                "livecheck_sha256": migration.livecheck_checksum,
+                "livecheck_size": len(migration.livecheck_bytes),
+            }
+            for migration in forward_migrations
+        ]
+        try:
+            manifest["migration_runner"] = runner_descriptors(SCRIPT_DIR)
+        except MigrationError as error:
+            raise ArtifactError(f"invalid migration runner bundle: {error}") from error
     return manifest
 
 

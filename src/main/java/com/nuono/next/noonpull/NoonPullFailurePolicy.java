@@ -23,6 +23,9 @@ public class NoonPullFailurePolicy {
         if (!StringUtils.hasText(value)) {
             return NoonPullFailureType.UNKNOWN_FAILURE;
         }
+        if (value.contains("noon_egress_unavailable") || value.contains("noon_egress_blocked")) {
+            return NoonPullFailureType.PROVIDER_UNAVAILABLE;
+        }
         if (value.contains("ads advertiser context mismatch")
                 || value.contains("access to run ads in this country")) {
             return NoonPullFailureType.ADS_ADVERTISER_CONTEXT_MISMATCH;

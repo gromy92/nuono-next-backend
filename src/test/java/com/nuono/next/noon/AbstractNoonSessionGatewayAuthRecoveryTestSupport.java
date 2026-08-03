@@ -64,7 +64,6 @@ abstract class AbstractNoonSessionGatewayAuthRecoveryTestSupport {
         NoonSessionGateway gateway = new NoonSessionGateway(
                 objectMapper,
                 mock(StoreSyncMapper.class),
-                false,
                 0L,
                 true,
                 "",
@@ -72,8 +71,6 @@ abstract class AbstractNoonSessionGatewayAuthRecoveryTestSupport {
                 "",
                 "",
                 true,
-                false,
-                "",
                 server.url("/whoami"),
                 server.url("/lookup"),
                 server.url("/pkce"),
@@ -153,6 +150,7 @@ abstract class AbstractNoonSessionGatewayAuthRecoveryTestSupport {
                         307L,
                         TARGET_PROJECT,
                         "STR7001-NAE",
+                        "AE",
                         0L
                 )),
                 () -> true
@@ -190,6 +188,7 @@ abstract class AbstractNoonSessionGatewayAuthRecoveryTestSupport {
                     307L + index,
                     "PRJ" + suffix,
                     "STR" + suffix + "-NAE",
+                    "AE",
                     0L
             ));
         }

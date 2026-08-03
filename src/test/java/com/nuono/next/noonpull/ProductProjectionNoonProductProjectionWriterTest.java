@@ -3,21 +3,25 @@ package com.nuono.next.noonpull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class ProductProjectionNoonProductProjectionWriterTest {
 
     @Test
-    void shouldForwardCompleteSiteScopeToPersistenceService() {
+    void shouldForwardCompleteSiteAndProductScopesToPersistenceService() {
         ProductProjectionPersistenceService persistenceService =
                 mock(ProductProjectionPersistenceService.class);
+        ProductListActiveStateReconciler activeStateReconciler =
+                mock(ProductListActiveStateReconciler.class);
         ProductProjectionNoonProductProjectionWriter writer =
-                new ProductProjectionNoonProductProjectionWriter(persistenceService);
+                new ProductProjectionNoonProductProjectionWriter(persistenceService, activeStateReconciler);
         List<ProductProjectionPersistenceService.SiteSeed> siteSeeds = List.of(
                 new ProductProjectionPersistenceService.SiteSeed("STR244978-NAE", "AE", "LOCAL_READY", true)
         );
@@ -35,10 +39,13 @@ class ProductProjectionNoonProductProjectionWriterTest {
         command.setWarnings(warnings);
         command.setPreserveDrafts(true);
         command.setCompleteSiteScope(true);
+        command.setCompleteProductScope(true);
 
         writer.write(command);
 
-        verify(persistenceService).persistInitializationProjection(
+        InOrder ordered = inOrder(activeStateReconciler, persistenceService);
+        ordered.verify(activeStateReconciler).reconcile(same(command));
+        ordered.verify(persistenceService).persistInitializationProjection(
                 eq(307L),
                 eq("PRJ244978"),
                 eq("chenwu"),

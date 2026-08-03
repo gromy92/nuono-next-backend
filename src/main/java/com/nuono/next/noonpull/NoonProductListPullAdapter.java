@@ -9,7 +9,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +19,7 @@ import org.springframework.util.StringUtils;
 @Service
 public class NoonProductListPullAdapter {
     private static final Logger log = LoggerFactory.getLogger(NoonProductListPullAdapter.class);
+    static final String ABSENT_STATUS_STATE_SOURCE = "NOON_PRODUCT_LIST_STATUS_ABSENT";
     private final NoonProductProjectionWriter projectionWriter;
     private ProductDetailBaselineDailyBackfillService detailBaselineDailyBackfillService;
 
@@ -54,6 +54,7 @@ public class NoonProductListPullAdapter {
         writeCommand.setPreserveDrafts(true);
         writeCommand.setPublishFlowTriggered(false);
         writeCommand.setCompleteSiteScope(false);
+        writeCommand.setCompleteProductScope(isCompleteProductScope(command, seeds));
         writeCommand.setSiteSeeds(List.of(new ProductProjectionPersistenceService.SiteSeed(
                 command.getStoreCode(),
                 command.getSiteCode(),
@@ -67,6 +68,16 @@ public class NoonProductListPullAdapter {
             enqueueDailyDetailBackfill(command);
         }
         return new NoonProductListApplyResult(seeds.size());
+    }
+
+    private boolean isCompleteProductScope(
+            NoonProductListApplyCommand command,
+            List<ProductProjectionPersistenceService.ProductMasterSeed> seeds
+    ) {
+        if (command.getItems().isEmpty() || seeds.size() != command.getItems().size()) {
+            return false;
+        }
+        return seeds.stream().allMatch(seed -> seed != null && StringUtils.hasText(seed.getPartnerSku()));
     }
 
     private void enqueueDailyDetailBackfill(NoonProductListApplyCommand command) {
@@ -132,7 +143,24 @@ public class NoonProductListPullAdapter {
         seed.setFinalPriceSource(seed.getFinalPrice() == null ? null : "offer_list");
         seed.setLiveStatus(firstNonBlank(text(item, "live_status"), text(item, "seller_status")));
         seed.setStatusCode(text(item, "status_code"));
-        seed.setIsActive(resolveActive(seed.getLiveStatus()));
+        Boolean statusCodeActive = NoonProductListActiveStateSupport.resolve(seed.getStatusCode());
+        Boolean liveStatusActive = NoonProductListActiveStateSupport.resolve(seed.getLiveStatus());
+        Boolean resolvedActive = statusCodeActive != null ? statusCodeActive : liveStatusActive;
+        String activeStateSource = statusCodeActive != null
+                ? "NOON_PRODUCT_LIST_STATUS_CODE"
+                : liveStatusActive != null ? "NOON_PRODUCT_LIST_LIVE_STATUS" : null;
+        // Noon keeps non-live offers in the complete list with both status fields absent.
+        if (resolvedActive == null
+                && !StringUtils.hasText(seed.getStatusCode())
+                && !StringUtils.hasText(seed.getLiveStatus())) {
+            resolvedActive = false;
+            activeStateSource = ABSENT_STATUS_STATE_SOURCE;
+        }
+        seed.setIsActive(resolvedActive);
+        if (resolvedActive != null) {
+            seed.setActiveStateSource(activeStateSource);
+            seed.setActiveStateSyncedAt(LocalDateTime.now().toString());
+        }
         seed.setFbnStock(intValue(item.get("fbn_stock")));
         seed.setSupermallStock(intValue(item.get("supermall_stock")));
         seed.setFbpStock(intValue(item.get("fbp_stock")));
@@ -177,18 +205,6 @@ public class NoonProductListPullAdapter {
         } catch (NumberFormatException exception) {
             return null;
         }
-    }
-
-    private Boolean resolveActive(String liveStatus) {
-        if (!StringUtils.hasText(liveStatus)) {
-            return false;
-        }
-        String normalized = liveStatus.trim().toLowerCase(Locale.ROOT);
-        return "active".equals(normalized)
-                || "true".equals(normalized)
-                || "1".equals(normalized)
-                || "yes".equals(normalized)
-                || "enabled".equals(normalized);
     }
 
     private String resolveImageUrl(String image) {

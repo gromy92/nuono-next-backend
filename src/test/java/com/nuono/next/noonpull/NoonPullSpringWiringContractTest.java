@@ -76,9 +76,8 @@ class NoonPullSpringWiringContractTest {
                     assertThat(mapper.fact.getSkuParent()).isEqualTo("PSKU-1");
                     assertThat(mapper.fact.getSku()).isEqualTo("SKU-1");
                     assertThat(mapper.fact.getSourceBatchId()).isEqualTo("noon-report-sales-130008-abcdef12");
-                    assertThat(mapper.ensureSequenceCalls).isEqualTo(1);
-                    assertThat(mapper.ensureFactSequenceCalls).isEqualTo(1);
-                    assertThat(mapper.ensureFactTableCalls).isEqualTo(1);
+                    assertThat(mapper.nextIdCalls).isEqualTo(1);
+                    assertThat(mapper.upsertCalls).isEqualTo(1);
                 });
     }
 
@@ -119,9 +118,8 @@ class NoonPullSpringWiringContractTest {
                     assertThat(mapper.fact.getOrderIdentity()).isEqualTo("NAEI50094671190");
                     assertThat(mapper.fact.getSourceBatchId()).isEqualTo("noon-report-order-130016-abcdef12");
                     assertThat(mapper.historyFact).isSameAs(mapper.fact);
-                    assertThat(mapper.ensureSequenceCalls).isEqualTo(1);
-                    assertThat(mapper.ensureFactSequenceCalls).isEqualTo(1);
-                    assertThat(mapper.ensureFactTableCalls).isEqualTo(1);
+                    assertThat(mapper.nextIdCalls).isEqualTo(1);
+                    assertThat(mapper.upsertCalls).isEqualTo(1);
                 });
     }
 
@@ -165,32 +163,18 @@ class NoonPullSpringWiringContractTest {
 
     private static final class RecordingNoonSalesFactMapper implements NoonSalesFactMapper {
         private NoonSalesDailyFact fact;
-        private int ensureSequenceCalls;
-        private int ensureFactSequenceCalls;
-        private int ensureFactTableCalls;
-
-        @Override
-        public void ensureSalesDataIdSequence() {
-            ensureSequenceCalls++;
-        }
-
-        @Override
-        public void ensureDailySalesFactSequence() {
-            ensureFactSequenceCalls++;
-        }
-
-        @Override
-        public void ensureDailySalesFactTable() {
-            ensureFactTableCalls++;
-        }
+        private int nextIdCalls;
+        private int upsertCalls;
 
         @Override
         public void nextId(IdSequenceCommand command) {
+            nextIdCalls++;
             command.setAllocatedId(100001L);
         }
 
         @Override
         public int upsertDailySalesFact(Long id, NoonSalesDailyFact fact) {
+            upsertCalls++;
             this.fact = fact;
             return 1;
         }
@@ -208,32 +192,18 @@ class NoonPullSpringWiringContractTest {
     private static final class RecordingNoonOrderFactMapper implements NoonOrderFactMapper {
         private NoonOrderLineFact fact;
         private NoonOrderLineFact historyFact;
-        private int ensureSequenceCalls;
-        private int ensureFactSequenceCalls;
-        private int ensureFactTableCalls;
-
-        @Override
-        public void ensureNoonOrderIdSequence() {
-            ensureSequenceCalls++;
-        }
-
-        @Override
-        public void ensureOrderLineFactSequence() {
-            ensureFactSequenceCalls++;
-        }
-
-        @Override
-        public void ensureNoonOrderLineFactTable() {
-            ensureFactTableCalls++;
-        }
+        private int nextIdCalls;
+        private int upsertCalls;
 
         @Override
         public void nextId(IdSequenceCommand command) {
+            nextIdCalls++;
             command.setAllocatedId(200001L);
         }
 
         @Override
         public int upsertOrderLineFact(Long id, NoonOrderLineFact fact) {
+            upsertCalls++;
             this.fact = fact;
             return 1;
         }

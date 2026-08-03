@@ -10,7 +10,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ShippingBatchS
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchRecord;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -21,7 +21,10 @@ class WarehouseDispatchTargetProjectionTest extends WarehouseDispatchServiceTest
     @Test
     void updateReadyItemDispatchTargetPersistsAndReturnsOriginalAndTargetPartition() {
         FulfillmentBalanceRecord balance = balance("CONFIRMED", "SUBMITTED");
-        when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
         when(mapper.updateBalanceDispatchTarget(900001L, 307L, "AE", "SEA", 307L)).thenReturn(1);
         UpdateDispatchTargetCommand command = new UpdateDispatchTargetCommand();
         command.targetSiteCode = "AE";
@@ -42,7 +45,7 @@ class WarehouseDispatchTargetProjectionTest extends WarehouseDispatchServiceTest
         FulfillmentBalanceRecord sea = balance("CONFIRMED", "SUBMITTED");
         sea.id = 900002L;
         sea.targetTransportMode = "SEA";
-        when(mapper.listReadyBalances(307L, Set.of("STR69486-NSA"), null, null))
+        when(mapper.listReadyBalances(Map.of("STR69486-NSA", 307L), null, null))
                 .thenReturn(List.of(air, sea));
 
         var views = service.listReadyItems(access(), null, null, null);
@@ -57,7 +60,7 @@ class WarehouseDispatchTargetProjectionTest extends WarehouseDispatchServiceTest
         ShippingBatchRecord record = shippingBatch();
         record.siteSummaryJson = "{\"SA\":5,\"AE\":2}";
         record.transportSummaryJson = "{\"AIR\":5,\"SEA\":2}";
-        when(mapper.listShippingBatches(307L)).thenReturn(List.of(record));
+        when(mapper.listShippingBatches(Map.of("STR69486-NSA", 307L))).thenReturn(List.of(record));
 
         var view = service.listShippingBatches(access()).get(0);
 
@@ -70,7 +73,10 @@ class WarehouseDispatchTargetProjectionTest extends WarehouseDispatchServiceTest
         FulfillmentBalanceRecord balance = balance("CONFIRMED", "SUBMITTED");
         balance.targetSiteCode = "AE";
         balance.targetTransportMode = "SEA";
-        when(mapper.selectBalancesForUpdate(List.of(900001L))).thenReturn(List.of(balance));
+        when(mapper.selectAuthorizedBalances(
+                List.of(900001L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(balance));
         MobileShippingDecisionPreviewCommand command = new MobileShippingDecisionPreviewCommand();
         command.siteCode = "AE";
         command.transportMode = "SEA";

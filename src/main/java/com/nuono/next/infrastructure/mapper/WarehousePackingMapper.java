@@ -26,7 +26,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
+import java.util.Map;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -81,26 +81,58 @@ public interface WarehousePackingMapper extends WarehouseOutboundMapper {
             "       box_count AS boxCount, packed_quantity AS packedQuantity, gross_weight_kg AS grossWeightKg, volume_cbm AS volumeCbm,",
             "       remark, DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
             "FROM warehouse_packing_list",
-            "WHERE outbound_order_id = #{outboundOrderId}",
+            "WHERE id = #{packingListId}",
             "  AND is_deleted = b'0'",
-            "ORDER BY id ASC"
+            "LIMIT 1",
+            "FOR UPDATE"
     })
-    List<PackingListRecord> listPackingListsByOutboundOrder(@Param("outboundOrderId") Long outboundOrderId);
+    PackingListRecord selectPackingListByIdForUpdate(@Param("packingListId") Long packingListId);
 
-@Delete({
-            "DELETE FROM warehouse_packing_box_item",
-            "WHERE packing_list_id = #{packingListId}"
+    @Select({
+            "<script>",
+            "SELECT packing.id, packing.outbound_order_id AS outboundOrderId,",
+            "       packing.owner_user_id AS ownerUserId, packing.packing_no AS packingNo, packing.status,",
+            "       packing.box_count AS boxCount, packing.packed_quantity AS packedQuantity,",
+            "       packing.gross_weight_kg AS grossWeightKg, packing.volume_cbm AS volumeCbm,",
+            "       packing.remark, DATE_FORMAT(packing.gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(packing.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM warehouse_packing_list packing",
+            "JOIN warehouse_outbound_order outbound",
+            "  ON outbound.id = packing.outbound_order_id",
+            " AND outbound.is_deleted = b'0'",
+            "WHERE packing.outbound_order_id = #{outboundOrderId}",
+            "  AND packing.is_deleted = b'0'",
+            WarehouseAggregateSourceScopeMapper.PACKING_SOURCE_SCOPE,
+            "ORDER BY packing.id ASC",
+            "</script>"
     })
-    int deletePackingBoxItems(
+    List<PackingListRecord> listPackingListsByOutboundOrder(
+            @Param("outboundOrderId") Long outboundOrderId,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
+
+@Update({
+            "UPDATE warehouse_packing_box_item",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE packing_list_id = #{packingListId}",
+            "  AND is_deleted = b'0'"
+    })
+    int softDeletePackingBoxItems(
             @Param("packingListId") Long packingListId,
             @Param("operatorUserId") Long operatorUserId
     );
 
-@Delete({
-            "DELETE FROM warehouse_packing_box",
-            "WHERE packing_list_id = #{packingListId}"
+@Update({
+            "UPDATE warehouse_packing_box",
+            "SET is_deleted = b'1',",
+            "    updated_by = #{operatorUserId},",
+            "    gmt_updated = NOW()",
+            "WHERE packing_list_id = #{packingListId}",
+            "  AND is_deleted = b'0'"
     })
-    int deletePackingBoxes(
+    int softDeletePackingBoxes(
             @Param("packingListId") Long packingListId,
             @Param("operatorUserId") Long operatorUserId
     );
@@ -235,7 +267,7 @@ public interface WarehousePackingMapper extends WarehouseOutboundMapper {
             "    gmt_updated = NOW()",
             "WHERE id = #{outboundOrderId}",
             "  AND owner_user_id = #{ownerUserId}",
-            "  AND status IN ('PACKED', 'SHIPPED')",
+            "  AND status = 'PACKED'",
             "  AND is_deleted = b'0'"
     })
     int markOutboundOrderShipped(

@@ -59,8 +59,6 @@ abstract class RealProductListingNoonWriteAdapterTest {
                     "AE",
                     "240053",
                     "merchant@example.test",
-                    "secret",
-                    null,
                     "sid=test"
             );
         }

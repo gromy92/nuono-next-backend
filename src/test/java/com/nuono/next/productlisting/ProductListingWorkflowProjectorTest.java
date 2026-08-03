@@ -93,7 +93,7 @@ class ProductListingWorkflowProjectorTest {
     }
 
     @Test
-    void unknownCreateLookupAuthenticationFailureRequiresReauthentication() {
+    void unknownCreateLookupAuthenticationFailureWaitsForSharedAuthorization() {
         ProductListingNoonWriteStepResult create =
                 new ProductListingNoonWriteStepResult();
         create.setStepKey("create_product");
@@ -125,7 +125,7 @@ class ProductListingWorkflowProjectorTest {
                 view.getWriteCertainty()
         );
         assertEquals(
-                ProductListingWorkflowView.NextAction.REAUTHENTICATE,
+                ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION,
                 view.getNextAction()
         );
     }

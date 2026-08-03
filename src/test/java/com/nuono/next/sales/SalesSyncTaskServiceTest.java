@@ -5,6 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import com.nuono.next.noon.NoonAuthenticationRequiredException;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import org.junit.jupiter.api.Test;
 
 class SalesSyncTaskServiceTest {
@@ -43,6 +47,42 @@ class SalesSyncTaskServiceTest {
         assertEquals("STR245027-NSA", salesFactRepository.lastStoreCode);
         assertEquals("SA", salesFactRepository.lastSiteCode);
         assertEquals(10003L, salesFactRepository.lastUpdatedBy);
+    }
+
+    @Test
+    void authenticationFailureWaitsAndPreservesExactTaskForAutomaticResume() {
+        RecordingSalesSyncTaskRepository repository = new RecordingSalesSyncTaskRepository();
+        SalesSyncTaskService service = new SalesSyncTaskService(
+                repository,
+                request -> {
+                    throw new NoonAuthenticationRequiredException("Noon cookie expired");
+                },
+                new NoonSalesCsvImportService(
+                        new NoonProductViewsSalesReportParser(),
+                        new RecordingSalesFactRepository()
+                ),
+                new RecordingSalesFactRepository()
+        );
+        List<NoonAuthWaitRequest> requests = new ArrayList<>();
+        service.setAuthWaitQueue(request -> {
+            requests.add(request);
+            return Optional.of(77001L);
+        });
+
+        SalesSyncTaskRecord task = service.triggerAndRun(
+                command(SalesListingCoverageMode.CONFIRMED_EMPTY_SITE)
+        );
+
+        assertEquals("waiting_authorization", task.getStatus());
+        assertEquals(77001L, task.getAuthRecoveryId());
+        assertEquals(1, requests.size());
+        NoonAuthWaitRequest request = requests.get(0);
+        assertEquals("SALES_SYNC", request.getSourceDomain());
+        assertEquals(9001L, request.getSourceTaskId());
+        assertEquals("REPORT_EXPORT", request.getCheckpoint());
+        assertEquals(NoonAuthResumePolicy.AUTO_RESUME, request.getResumePolicy());
+        assertEquals("STR245027-NSA", request.getStoreCode());
+        assertEquals("SA", request.getSiteCode());
     }
 
     private static SalesSyncTaskCommand command(SalesListingCoverageMode listingCoverageMode) {
@@ -99,9 +139,12 @@ class SalesSyncTaskServiceTest {
         }
 
         @Override
-        public SalesSyncTaskRecord markRunning(Long taskId) {
+        public boolean claimRunning(Long taskId) {
+            if (task == null || !"queued".equals(task.getStatus())) {
+                return false;
+            }
             task = task.withStatus("running");
-            return task;
+            return true;
         }
 
         @Override
@@ -114,6 +157,17 @@ class SalesSyncTaskServiceTest {
         public SalesSyncTaskRecord markFailed(Long taskId, String failureReason) {
             task = task.failed(failureReason);
             return task;
+        }
+
+        @Override
+        public SalesSyncTaskRecord markWaitingForAuthorization(Long taskId, Long recoveryId) {
+            task = task.waitingForAuthorization(recoveryId);
+            return task;
+        }
+
+        @Override
+        public List<SalesSyncTaskRecord> listQueued(int limit) {
+            return task != null && "queued".equals(task.getStatus()) ? List.of(task) : List.of();
         }
 
         @Override

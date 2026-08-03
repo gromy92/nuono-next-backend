@@ -49,7 +49,7 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
 
 @Test
     void createOutboundOrdersCarriesSourceStoreScopeForAppPacking() {
-        when(mapper.selectShippingBatchById(700001L)).thenReturn(shippingBatch());
+        when(mapper.selectShippingBatchByIdForUpdate(700001L)).thenReturn(shippingBatch());
         when(mapper.selectShippingSuggestionOptionById(710001L)).thenReturn(selectedOption());
         when(mapper.listShippingBatchSources(700001L)).thenReturn(List.of(shippingBatchSource()));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(shippingSuggestionLine()));
@@ -57,7 +57,7 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
         when(mapper.nextOutboundOrderId()).thenReturn(800001L);
         when(mapper.nextOutboundOrderLineId()).thenReturn(820001L);
         when(mapper.nextOutboundOrderLineSourceId()).thenReturn(825001L);
-        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 307L)).thenReturn(1);
+        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 710001L, 307L)).thenReturn(1);
 
         var orders = service.createOutboundOrders(access(), "700001");
 
@@ -90,7 +90,7 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
         secondLineSource.id = 730002L;
         secondLineSource.lineId = 720002L;
         secondLineSource.batchSourceId = 760002L;
-        when(mapper.selectShippingBatchById(700001L)).thenReturn(shippingBatch());
+        when(mapper.selectShippingBatchByIdForUpdate(700001L)).thenReturn(shippingBatch());
         when(mapper.selectShippingSuggestionOptionById(710001L)).thenReturn(selectedOption());
         when(mapper.listShippingBatchSources(700001L)).thenReturn(List.of(shippingBatchSource(), secondSource));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(shippingSuggestionLine(), secondLine));
@@ -99,7 +99,7 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
         when(mapper.nextOutboundOrderId()).thenReturn(800001L);
         when(mapper.nextOutboundOrderLineId()).thenReturn(820001L, 820002L);
         when(mapper.nextOutboundOrderLineSourceId()).thenReturn(825001L, 825002L);
-        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 307L)).thenReturn(1);
+        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 710001L, 307L)).thenReturn(1);
 
         var orders = service.createOutboundOrders(access(), "700001");
 
@@ -126,7 +126,10 @@ class WarehouseOutboundOperationsTest extends WarehouseDispatchServiceTestSuppor
                 + "\"quoteCargoCategoryCode\":\"YT-CAT-020\",\"quoteCargoCategoryName\":\"普货报价\"}";
         OutboundOrderLineSourceRecord source = outboundOrderLineSource();
         when(mapper.selectShippingBatchById(700001L)).thenReturn(batch);
-        when(mapper.listOutboundOrdersByBatch(700001L)).thenReturn(List.of(outboundOrder()));
+        when(mapper.listOutboundOrdersByBatch(
+                700001L,
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(outboundOrder()));
         when(mapper.listOutboundOrderLineSources(800001L)).thenReturn(List.of(source));
         when(mapper.listOutboundOrderLines(800001L)).thenReturn(List.of(outboundLine));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(suggestionLine));

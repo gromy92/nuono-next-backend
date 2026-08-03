@@ -174,7 +174,7 @@ class NoonAuthTransientBackoffGuardTest {
             String projectCode,
             String storeCode
     ) {
-        return new NoonAuthRecoveryProjectTarget(ownerUserId, projectCode, storeCode, 0L);
+        return new NoonAuthRecoveryProjectTarget(ownerUserId, projectCode, storeCode, "AE", 0L);
     }
 
     private NoonAuthTransientBackoffWriteFence fence(Long recoveryId) {

@@ -23,12 +23,14 @@ final class ProductListingSharedRecoveryEvidence {
                 || !"REAL_RUN".equalsIgnoreCase(realRun.getMode())
                 || !Objects.equals(ownerUserId, realRun.getOwnerUserId())
                 || !Objects.equals(expectedNoonResultJson, realRun.getNoonResultJson())
-                || !ProductListingWriteAuthRecovery.FAILURE_CODE.equalsIgnoreCase(
+                || !(ProductListingWriteAuthRecovery.FAILURE_CODE.equalsIgnoreCase(
                         realRun.getFailureCode())
+                || ProductListingWriteAuthRecovery.RECOVERED_CODE.equalsIgnoreCase(
+                        realRun.getFailureCode()))
                 || !Objects.equals(
                         expectedRecoveryId,
                         recoveryId(realRun.getNoonResultJson()))) {
-            throw new ProductListingReauthenticationException(
+            throw new ProductListingAuthContinuationException(
                     "共享授权恢复任务状态已变化，请刷新后重试。");
         }
     }
@@ -41,7 +43,7 @@ final class ProductListingSharedRecoveryEvidence {
             );
             return result == null ? null : result.getRecoveryId();
         } catch (JsonProcessingException exception) {
-            throw new ProductListingReauthenticationException(
+            throw new ProductListingAuthContinuationException(
                     "共享授权恢复任务证据无法解析，请人工核对。");
         }
     }

@@ -3,8 +3,10 @@ package com.nuono.next.officialwarehouse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
+import com.nuono.next.noon.NoonEgressUnavailableException;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import java.lang.reflect.Method;
+import java.util.List;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
@@ -39,9 +41,7 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     @Test
     void schedulerDueClaimIsAtomicAndOnlyClaimsStillDuePendingAppointments() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
-                "claimDueAppointmentForRun",
-                Long.class,
-                Long.class
+                "claimDueAppointmentForRun", Long.class, Long.class, Long.class, Long.class
         );
         String sql = String.join(" ", method.getAnnotation(Update.class).value())
                 .replaceAll("\\s+", " ");
@@ -49,6 +49,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         assertThat(sql).contains("UPDATE official_warehouse_appointment");
         assertThat(sql).contains("SET status = 'RUNNING'");
         assertThat(sql).contains("attempt_count = attempt_count + 1");
+        assertThat(sql).contains("execution_version = execution_version + 1");
+        assertThat(sql).contains("execution_version = #{expectedExecutionVersion}");
         assertThat(sql).contains("WHERE id = #{appointmentId}");
         assertThat(sql).contains("status = 'PENDING'");
         assertThat(sql).contains("(next_attempt_at IS NULL OR next_attempt_at <= NOW())");
@@ -59,6 +61,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     void manualRunCannotReclaimAlreadyRunningAppointment() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentRunning",
+                Long.class,
+                Long.class,
                 Long.class,
                 Long.class
         );
@@ -71,9 +75,9 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
-    void staleRunningRecoveryOnlyRequeuesNoCapacityAppointments() throws Exception {
+    void staleRunningRecoveryQuarantinesUnknownRemoteOutcome() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
-                "markStaleNoCapacityAppointmentsPending",
+                "markStaleAppointmentsForReconciliation",
                 int.class,
                 Long.class
         );
@@ -81,12 +85,11 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("status = 'RUNNING'");
-        assertThat(sql).contains("failure_type = 'NO_CAPACITY'");
         assertThat(sql).contains("gmt_updated <= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)");
-        assertThat(sql).contains("status = 'PENDING'");
-        assertThat(sql).contains("next_attempt_at = NOW()");
-        assertThat(sql).doesNotContain("failure_type IN");
-        assertThat(sql).doesNotContain("status IN ('RUNNING'");
+        assertThat(sql).contains("status = 'FAILED'");
+        assertThat(sql).contains("STALE_EXECUTION_RECONCILIATION_REQUIRED");
+        assertThat(sql).contains("execution_version = execution_version + 1");
+        assertThat(sql).doesNotContain("status = 'PENDING'");
     }
 
     @Test
@@ -105,6 +108,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentPendingRetry",
                 Long.class,
+                Long.class,
+                Long.class,
                 int.class,
                 String.class,
                 String.class,
@@ -122,6 +127,8 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     void successfulAppointmentResetsRetryAttemptCount() throws Exception {
         Method method = OfficialWarehouseMapper.class.getMethod(
                 "markAppointmentScheduled",
+                Long.class,
+                Long.class,
                 Long.class,
                 java.time.LocalDate.class,
                 Integer.class,
@@ -227,6 +234,45 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 .isEqualTo("NOON_ACCESS_FAILURE");
         assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("NOON_ACCESS_FAILURE"))
                 .isTrue();
+    }
+
+    @Test
+    void exhaustedEgressCandidatesRemainRetryableNoonAccessFailure() {
+        String failureType = LocalDbOfficialWarehouseService.appointmentRetryFailureType(
+                "NOON_CALL",
+                "NOON_EGRESS_UNAVAILABLE",
+                "NOON_EGRESS_UNAVAILABLE attempts=3 stages=[CONNECT_STATUS_407]"
+        );
+
+        assertThat(failureType).isEqualTo("NOON_ACCESS_FAILURE");
+        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure(failureType)).isTrue();
+    }
+
+    @Test
+    void typedEgressFailurePreservesBlockedAndUnavailableRetryClassification() {
+        NoonEgressUnavailableException blocked = new NoonEgressUnavailableException(
+                3,
+                List.of("CONNECT_STATUS_407", "CONNECT_STATUS_407", "CONNECT_STATUS_407")
+        );
+        NoonEgressUnavailableException unavailable = new NoonEgressUnavailableException(
+                3,
+                List.of("CONNECT_REFUSED", "CONNECT_IO", "SESSION_TIMEOUT")
+        );
+
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.noonFailureType(blocked))
+                .isEqualTo("NOON_EGRESS_BLOCKED");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.failureType(
+                "NOON_CALL",
+                OfficialWarehouseAppointmentRetryPolicy.noonFailureType(blocked),
+                blocked.getMessage()
+        )).isEqualTo("NOON_ACCESS_BLOCKED");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.noonFailureType(unavailable))
+                .isEqualTo("NOON_EGRESS_UNAVAILABLE");
+        assertThat(OfficialWarehouseAppointmentRetryPolicy.failureType(
+                "NOON_CALL",
+                OfficialWarehouseAppointmentRetryPolicy.noonFailureType(unavailable),
+                unavailable.getMessage()
+        )).isEqualTo("NOON_ACCESS_FAILURE");
     }
 
     @Test

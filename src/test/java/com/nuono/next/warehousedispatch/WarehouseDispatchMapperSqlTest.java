@@ -4,9 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.WarehouseDispatchMapper;
 import java.lang.reflect.Method;
-import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
+import java.util.Map;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -57,8 +56,7 @@ class WarehouseDispatchMapperSqlTest {
 
         Method listMethod = WarehouseDispatchMapper.class.getMethod(
                 "listReadyBalances",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class,
                 String.class
         );
@@ -97,8 +95,7 @@ class WarehouseDispatchMapperSqlTest {
     void appReceiptSpecStatusReadsWarehouseSourceOnly() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listReceiptRows",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class
         );
 
@@ -180,8 +177,10 @@ class WarehouseDispatchMapperSqlTest {
         assertThat(sql).contains("FROM warehouse_outbound_order_line_source source");
         assertThat(sql).contains("NOT EXISTS ( SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote");
         assertThat(sql).contains("quote.purchase_order_item_site_id = source.purchase_order_item_site_id");
-        assertThat(sql).contains("quote.quote_status = 'CONFIRMED'");
+        assertThat(sql).contains("quote.unit_price > 0");
+        assertThat(sql).contains("UPPER(TRIM(COALESCE(quote.forwarder_code, ''))) = 'ZD'");
         assertThat(sql).contains("quote.shipping_submit_status = 'SUBMITTED'");
+        assertThat(sql).doesNotContain("quote.quote_status = 'CONFIRMED'");
         assertThat(sql).doesNotContain("LEFT JOIN procurement_purchase_order_logistics_quote_line quote");
     }
 
@@ -196,8 +195,12 @@ class WarehouseDispatchMapperSqlTest {
                 .replaceAll("\\s+", " ");
 
         assertThat(sql).contains("balance.logical_store_id AS logicalStoreId");
-        assertThat(sql).contains("COALESCE(batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode");
-        assertThat(sql).contains("COALESCE(batch_source.source_store_name, balance.source_store_name) AS sourceStoreName");
+        assertThat(sql).contains(
+                "COALESCE(source.source_store_code, batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode"
+        );
+        assertThat(sql).contains(
+                "COALESCE(source.source_store_name, batch_source.source_store_name, balance.source_store_name) AS sourceStoreName"
+        );
         assertThat(sql).contains("LEFT JOIN warehouse_shipping_batch_source batch_source");
         assertThat(sql).contains("LEFT JOIN procurement_fulfillment_balance balance");
     }
@@ -206,8 +209,7 @@ class WarehouseDispatchMapperSqlTest {
     void receiptOrdersOnlyExposeSubmittedShippingOrders() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listReceiptRows",
-                Long.class,
-                Collection.class,
+                Map.class,
                 String.class
         );
 
@@ -223,7 +225,7 @@ class WarehouseDispatchMapperSqlTest {
     void shippingBatchStatusFollowsOutboundExecutionProgress() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listShippingBatches",
-                Long.class
+                Map.class
         );
 
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
@@ -241,7 +243,7 @@ class WarehouseDispatchMapperSqlTest {
     void shippingBatchListIncludesPackingExecutionSummary() throws Exception {
         Method method = WarehouseDispatchMapper.class.getMethod(
                 "listShippingBatches",
-                Long.class
+                Map.class
         );
 
         String sql = String.join(" ", method.getAnnotation(Select.class).value())
@@ -256,32 +258,36 @@ class WarehouseDispatchMapperSqlTest {
     }
 
     @Test
-    void packingBoxReplacementPhysicallyDeletesDraftRowsBeforeReinsert() throws Exception {
-        Method deleteItems = WarehouseDispatchMapper.class.getMethod(
-                "deletePackingBoxItems",
+    void packingBoxReplacementSoftDeletesDraftRowsBeforeReinsert() throws Exception {
+        Method softDeleteItems = WarehouseDispatchMapper.class.getMethod(
+                "softDeletePackingBoxItems",
                 Long.class,
                 Long.class
         );
-        Method deleteBoxes = WarehouseDispatchMapper.class.getMethod(
-                "deletePackingBoxes",
+        Method softDeleteBoxes = WarehouseDispatchMapper.class.getMethod(
+                "softDeletePackingBoxes",
                 Long.class,
                 Long.class
         );
 
-        Delete deleteItemsSql = deleteItems.getAnnotation(Delete.class);
-        Delete deleteBoxesSql = deleteBoxes.getAnnotation(Delete.class);
-        assertThat(deleteItemsSql).isNotNull();
-        assertThat(deleteBoxesSql).isNotNull();
+        Update softDeleteItemsSql = softDeleteItems.getAnnotation(Update.class);
+        Update softDeleteBoxesSql = softDeleteBoxes.getAnnotation(Update.class);
+        assertThat(softDeleteItemsSql).isNotNull();
+        assertThat(softDeleteBoxesSql).isNotNull();
 
-        String itemSql = String.join(" ", deleteItemsSql.value())
+        String itemSql = String.join(" ", softDeleteItemsSql.value())
                 .replaceAll("\\s+", " ");
-        String boxSql = String.join(" ", deleteBoxesSql.value())
+        String boxSql = String.join(" ", softDeleteBoxesSql.value())
                 .replaceAll("\\s+", " ");
 
-        assertThat(itemSql).contains("DELETE FROM warehouse_packing_box_item");
-        assertThat(itemSql).doesNotContain("is_deleted = b'1'");
-        assertThat(boxSql).contains("DELETE FROM warehouse_packing_box");
-        assertThat(boxSql).doesNotContain("is_deleted = b'1'");
+        assertThat(itemSql)
+                .contains("UPDATE warehouse_packing_box_item", "is_deleted = b'1'",
+                        "updated_by = #{operatorUserId}", "gmt_updated = NOW()", "AND is_deleted = b'0'")
+                .doesNotContain("DELETE FROM");
+        assertThat(boxSql)
+                .contains("UPDATE warehouse_packing_box", "is_deleted = b'1'",
+                        "updated_by = #{operatorUserId}", "gmt_updated = NOW()", "AND is_deleted = b'0'")
+                .doesNotContain("DELETE FROM");
     }
 
     private Method findMethod(String name) {

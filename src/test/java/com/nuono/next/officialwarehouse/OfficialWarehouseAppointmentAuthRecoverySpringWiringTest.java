@@ -6,7 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
 import com.nuono.next.noonpull.NoonPullFailurePolicy;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -32,7 +32,7 @@ class OfficialWarehouseAppointmentAuthRecoverySpringWiringTest {
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(NoonRiskBackoffGuard.class, NoonRiskBackoffGuard::disabled)
                 .withBean(NoonPullFailurePolicy.class, NoonPullFailurePolicy::new)
-                .withBean(NoonProjectAuthRecoveryQueue.class, () -> mock(NoonProjectAuthRecoveryQueue.class))
+                .withBean(NoonAuthWaitQueue.class, () -> mock(NoonAuthWaitQueue.class))
                 .withBean(NoonPullProjectAuthGate.class, () -> mock(NoonPullProjectAuthGate.class))
                 .withUserConfiguration(WiringConfig.class)
                 .run(context -> {
@@ -45,6 +45,7 @@ class OfficialWarehouseAppointmentAuthRecoverySpringWiringTest {
     @Configuration
     @Import({
             OfficialWarehouseAppointmentAuthRecovery.class,
+            OfficialWarehouseAppointmentLifecycleModule.class,
             LocalDbOfficialWarehouseService.class
     })
     static class WiringConfig {

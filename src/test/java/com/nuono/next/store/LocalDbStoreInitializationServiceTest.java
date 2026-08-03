@@ -15,12 +15,16 @@ import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.product.ProductNoonCatalogContentService;
 import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,7 +63,6 @@ class LocalDbStoreInitializationServiceTest {
         noonSessionGateway = spy(new NoonSessionGateway(
                 objectMapper,
                 storeSyncMapper,
-                false,
                 0L,
                 true,
                 "",
@@ -67,8 +70,6 @@ class LocalDbStoreInitializationServiceTest {
                 "en-sa",
                 "en",
                 false,
-                false,
-                "",
                 "",
                 "",
                 "",
@@ -104,7 +105,6 @@ class LocalDbStoreInitializationServiceTest {
                 "AE",
                 "PRJ245027",
                 "xingyao-project-user",
-                "xingyao-password",
                 "xingyao-cookie"
         );
         StoreSyncStoreRecord siblingStore = store(
@@ -114,7 +114,6 @@ class LocalDbStoreInitializationServiceTest {
                 "SA",
                 "PRJ245027",
                 "xingyao-project-user",
-                "xingyao-password",
                 "xingyao-cookie"
         );
 
@@ -159,7 +158,6 @@ class LocalDbStoreInitializationServiceTest {
                 "AE",
                 "PRJ245027",
                 "xingyao-project-user",
-                "xingyao-password",
                 "xingyao-cookie"
         );
         LocalDbStoreInitializationService.StoreInitializationStatusView persisted =
@@ -198,13 +196,52 @@ class LocalDbStoreInitializationServiceTest {
         assertEquals("SGGRB113", view.getProductItems().get(0).getPartnerSku());
     }
 
+    @Test
+    void missingProjectCookieWaitsAndPreservesExactInitializationTaskForAutomaticResume() {
+        StoreSyncOwnerContext owner = ownerContext();
+        StoreSyncStoreRecord referenceStore = store(
+                51004L,
+                "xingyao",
+                "STR245027-NAE",
+                "AE",
+                "PRJ245027",
+                "xingyao-project-user",
+                null
+        );
+        when(bootstrapStatusService.inspect()).thenReturn(
+                new CoreTableInspection("nuonuoai", List.of("user"), List.of("user"), List.of())
+        );
+        when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(owner);
+        when(storeSyncMapper.selectOwnerStore(307L, "PRJ245027")).thenReturn(referenceStore);
+        when(storeSyncMapper.listOwnerStores(307L)).thenReturn(List.of(referenceStore));
+        when(storeInitializationSnapshotMapper.nextId()).thenReturn(40001L);
+        List<NoonAuthWaitRequest> requests = new ArrayList<>();
+        service.setAuthWaitQueue(request -> {
+            requests.add(request);
+            return Optional.of(91L);
+        });
+        LocalDbStoreInitializationService.StoreInitializationCommand command =
+                new LocalDbStoreInitializationService.StoreInitializationCommand();
+        command.setOwnerUserId(307L);
+        command.setStoreCode("PRJ245027");
+
+        LocalDbStoreInitializationService.StoreInitializationStatusView result = service.start(command);
+
+        assertEquals("WAITING_AUTHORIZATION", result.getStatus());
+        assertEquals(1, requests.size());
+        NoonAuthWaitRequest request = requests.get(0);
+        assertEquals("STORE_INITIALIZATION", request.getSourceDomain());
+        assertEquals(40001L, request.getSourceTaskId());
+        assertEquals("PROJECT_SESSION", request.getCheckpoint());
+        assertEquals(NoonAuthResumePolicy.AUTO_RESUME, request.getResumePolicy());
+    }
+
     private StoreSyncOwnerContext ownerContext() {
         StoreSyncOwnerContext context = new StoreSyncOwnerContext();
         context.setId(307L);
         context.setAccountNo("owner-307");
         context.setRealName("owner");
         context.setNoonPartnerProjectUser("wrong-aggregate-user");
-        context.setNoonPartnerPwd("wrong-aggregate-password");
         context.setNoonPartnerCookie("wrong-aggregate-cookie");
         return context;
     }
@@ -216,7 +253,6 @@ class LocalDbStoreInitializationServiceTest {
             String site,
             String projectCode,
             String projectUser,
-            String password,
             String cookie
     ) {
         StoreSyncStoreRecord record = new StoreSyncStoreRecord();
@@ -227,7 +263,6 @@ class LocalDbStoreInitializationServiceTest {
         record.setProjectCode(projectCode);
         record.setOwnerAuthorized(true);
         record.setNoonPartnerProjectUser(projectUser);
-        record.setNoonPartnerPwd(password);
         record.setNoonPartnerCookie(cookie);
         return record;
     }

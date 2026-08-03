@@ -2,6 +2,7 @@ package com.nuono.next.replenishmentplan;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -771,6 +772,9 @@ public final class ReplenishmentPlanRecords {
         private final String partnerSku;
         private final String sku;
         private final String productTitle;
+        private String activeState;
+        private String activeStateSource;
+        private LocalDateTime activeStateSyncedAt;
         private final String imageUrl;
         private final LocalDate listingAt;
         private final LocalDate latestFactDate;
@@ -870,6 +874,7 @@ public final class ReplenishmentPlanRecords {
             this.partnerSku = partnerSku;
             this.sku = sku;
             this.productTitle = productTitle;
+            this.activeState = "ACTIVE";
             this.imageUrl = imageUrl;
             this.listingAt = listingAt;
             this.latestFactDate = latestFactDate;
@@ -915,6 +920,17 @@ public final class ReplenishmentPlanRecords {
             this.explanation = explanation;
         }
 
+        PlanItemView withActiveState(
+                Boolean isActive,
+                String activeStateSource,
+                LocalDateTime activeStateSyncedAt
+        ) {
+            this.activeState = isActive == null ? "UNKNOWN" : Boolean.TRUE.equals(isActive) ? "ACTIVE" : "INACTIVE";
+            this.activeStateSource = activeStateSource;
+            this.activeStateSyncedAt = activeStateSyncedAt;
+            return this;
+        }
+
         public String getCalculationVersion() {
             return calculationVersion;
         }
@@ -933,6 +949,18 @@ public final class ReplenishmentPlanRecords {
 
         public String getProductTitle() {
             return productTitle;
+        }
+
+        public String getActiveState() {
+            return activeState;
+        }
+
+        public String getActiveStateSource() {
+            return activeStateSource;
+        }
+
+        public LocalDateTime getActiveStateSyncedAt() {
+            return activeStateSyncedAt;
         }
 
         public String getImageUrl() {
@@ -1129,62 +1157,6 @@ public final class ReplenishmentPlanRecords {
 
         public String getSiteCode() {
             return siteCode;
-        }
-    }
-
-    public static final class PlanOverviewView {
-        private final String state;
-        private final String storeCode;
-        private final String siteCode;
-        private final String calculationVersion;
-        private final ReplenishmentPlanConfig configSnapshot;
-        private final LocalDate anchorDate;
-        private final List<PlanItemView> rows;
-
-        public PlanOverviewView(
-                String state,
-                String storeCode,
-                String siteCode,
-                String calculationVersion,
-                ReplenishmentPlanConfig configSnapshot,
-                LocalDate anchorDate,
-                List<PlanItemView> rows
-        ) {
-            this.state = state;
-            this.storeCode = storeCode;
-            this.siteCode = siteCode;
-            this.calculationVersion = calculationVersion;
-            this.configSnapshot = configSnapshot;
-            this.anchorDate = anchorDate;
-            this.rows = immutableList(rows);
-        }
-
-        public String getState() {
-            return state;
-        }
-
-        public String getStoreCode() {
-            return storeCode;
-        }
-
-        public String getSiteCode() {
-            return siteCode;
-        }
-
-        public String getCalculationVersion() {
-            return calculationVersion;
-        }
-
-        public ReplenishmentPlanConfig getConfigSnapshot() {
-            return configSnapshot;
-        }
-
-        public LocalDate getAnchorDate() {
-            return anchorDate;
-        }
-
-        public List<PlanItemView> getRows() {
-            return rows;
         }
     }
 

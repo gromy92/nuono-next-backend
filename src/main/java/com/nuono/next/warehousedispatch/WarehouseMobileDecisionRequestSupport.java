@@ -124,7 +124,7 @@ protected List<ShippingBatchSourceRecord> buildMobileShippingDecisionSources(
         if (balances == null || balances.size() != request.requested.size()) {
             throw new IllegalArgumentException("可发运来源不存在或已被占用。");
         }
-        Long ownerUserId = ownerUserId(access);
+        Long ownerUserId = WarehouseBusinessScope.from(access).requireSingleBalanceOwner(balances);
         List<ShippingBatchSourceRecord> sources = new ArrayList<>();
         long transientSourceId = -1L;
         for (FulfillmentBalanceRecord balance : balances) {

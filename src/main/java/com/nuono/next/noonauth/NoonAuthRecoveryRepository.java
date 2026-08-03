@@ -82,9 +82,10 @@ public interface NoonAuthRecoveryRepository {
             LocalDateTime now
     );
 
-    int releaseChangedManualHolds(
+    int releaseEligibleManualHolds(
             String identityKey,
             String newConfigFingerprint,
+            LocalDateTime rateLimitCooldownCutoff,
             LocalDateTime nextAttemptAt,
             LocalDateTime now
     );
@@ -147,6 +148,14 @@ public interface NoonAuthRecoveryRepository {
     NoonProjectAuthStateRecord selectProjectAuthState(Long ownerUserId, String projectCode);
 
     NoonProjectAuthStateRecord selectProjectAuthStateForUpdate(Long ownerUserId, String projectCode);
+
+    boolean hasRecoveredSourceTaskAtCurrentAuthVersion(
+            Long ownerUserId,
+            String projectCode,
+            String sourceDomain,
+            Long sourceTaskId,
+            Long currentAuthVersion
+    );
 
     boolean markProjectRecovering(
             Long ownerUserId,

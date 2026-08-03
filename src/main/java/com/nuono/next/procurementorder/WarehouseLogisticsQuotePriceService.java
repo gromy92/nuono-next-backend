@@ -1,29 +1,19 @@
 package com.nuono.next.procurementorder;
 
-import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.CurrentCostRow;
-import java.util.Locale;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 public class WarehouseLogisticsQuotePriceService {
 
-    private static final String CONFIRMED = "CONFIRMED";
-    private static final String PENDING = "PENDING_QUOTE";
+    private static final String SUBMITTED = "SUBMITTED";
 
-    private final ProcurementPurchaseOrderMapper mapper;
     private final WarehouseProductLogisticsPriceBridge productPriceBridge;
 
-    public WarehouseLogisticsQuotePriceService(
-            ProcurementPurchaseOrderMapper mapper,
-            WarehouseProductLogisticsPriceBridge productPriceBridge
-    ) {
-        this.mapper = mapper;
+    public WarehouseLogisticsQuotePriceService(WarehouseProductLogisticsPriceBridge productPriceBridge) {
         this.productPriceBridge = productPriceBridge;
     }
 
@@ -39,9 +29,9 @@ public class WarehouseLogisticsQuotePriceService {
             ForwarderRouteRecommendationRecord candidate,
             PurchaseOrderLogisticsQuoteLineRecord channelConfirmation
     ) {
-        if (isOwnConfirmedSnapshot(channelConfirmation, candidate)) {
+        if (isOwnSnapshot(channelConfirmation, candidate)) {
             PurchaseOrderLogisticsQuoteChannelLineView view = baseView(line);
-            view.quoteStatus = CONFIRMED;
+            view.quoteStatus = WarehouseLogisticsQuoteAvailability.statusFor(channelConfirmation.unitPrice);
             view.unitPrice = channelConfirmation.unitPrice;
             view.currency = channelConfirmation.currency;
             view.billingUnit = channelConfirmation.billingUnit;
@@ -53,16 +43,18 @@ public class WarehouseLogisticsQuotePriceService {
                 line,
                 candidate == null ? null : candidate.forwarderCode
         );
-        if (current != null && current.unitCostCny != null) {
+        if (current != null && WarehouseLogisticsQuoteAvailability.hasUsablePrice(current.unitCostCny)) {
             PurchaseOrderLogisticsQuoteChannelLineView view = baseView(line);
-            view.quoteStatus = PENDING;
+            view.quoteStatus = WarehouseLogisticsQuoteAvailability.AVAILABLE;
             view.unitPrice = current.unitCostCny;
             view.currency = defaultText(current.currencyCode, "CNY");
             view.billingUnit = current.chargeUnit;
             view.priceSource = "PRODUCT_CURRENT";
             return view;
         }
-        return legacyView(line, selectLegacyCurrent(line, candidate));
+        PurchaseOrderLogisticsQuoteChannelLineView view = baseView(line);
+        view.quoteStatus = WarehouseLogisticsQuoteAvailability.MISSING;
+        return view;
     }
 
     public void syncConfirmedQuote(
@@ -71,46 +63,6 @@ public class WarehouseLogisticsQuotePriceService {
             String sourceType
     ) {
         productPriceBridge.syncConfirmedQuote(line, operatorUserId, sourceType);
-    }
-
-    private ProductForwarderChannelQuoteRecord selectLegacyCurrent(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ForwarderRouteRecommendationRecord candidate
-    ) {
-        if (line == null
-                || candidate == null
-                || line.ownerUserId == null
-                || line.productVariantId == null
-                || !StringUtils.hasText(candidate.forwarderCode)
-                || !StringUtils.hasText(candidate.routeCode)) {
-            return null;
-        }
-        return mapper.selectCurrentProductForwarderChannelQuote(
-                line.ownerUserId,
-                line.sourceStoreCode,
-                line.logicalStoreId,
-                line.partnerSku,
-                line.productVariantId,
-                candidate.forwarderCode,
-                normalize(firstText(candidate.siteCode, line.siteCode)),
-                candidate.routeCode,
-                candidate.serviceCode
-        );
-    }
-
-    private PurchaseOrderLogisticsQuoteChannelLineView legacyView(
-            PurchaseOrderLogisticsQuoteLineRecord line,
-            ProductForwarderChannelQuoteRecord current
-    ) {
-        PurchaseOrderLogisticsQuoteChannelLineView view = baseView(line);
-        view.quoteStatus = PENDING;
-        if (current != null && current.unitPrice != null) {
-            view.unitPrice = current.unitPrice;
-            view.currency = current.currency;
-            view.billingUnit = current.billingUnit;
-            view.priceSource = "LEGACY_CHANNEL_QUOTE";
-        }
-        return view;
     }
 
     private PurchaseOrderLogisticsQuoteChannelLineView baseView(PurchaseOrderLogisticsQuoteLineRecord line) {
@@ -125,14 +77,13 @@ public class WarehouseLogisticsQuotePriceService {
         return view;
     }
 
-    private boolean isOwnConfirmedSnapshot(
+    private boolean isOwnSnapshot(
             PurchaseOrderLogisticsQuoteLineRecord line,
             ForwarderRouteRecommendationRecord candidate
     ) {
         return line != null
                 && candidate != null
-                && CONFIRMED.equalsIgnoreCase(defaultText(line.quoteStatus, ""))
-                && line.unitPrice != null
+                && SUBMITTED.equalsIgnoreCase(defaultText(line.shippingSubmitStatus, ""))
                 && sameCode(line.forwarderCode, candidate.forwarderCode)
                 && sameCode(line.routeCode, candidate.routeCode)
                 && sameNullableCode(line.serviceCode, candidate.serviceCode);
@@ -146,14 +97,6 @@ public class WarehouseLogisticsQuotePriceService {
 
     private static boolean sameNullableCode(String left, String right) {
         return defaultText(left, "").equalsIgnoreCase(defaultText(right, ""));
-    }
-
-    private static String normalize(String value) {
-        return StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : null;
-    }
-
-    private static String firstText(String preferred, String fallback) {
-        return StringUtils.hasText(preferred) ? preferred : fallback;
     }
 
     private static String defaultText(String value, String fallback) {

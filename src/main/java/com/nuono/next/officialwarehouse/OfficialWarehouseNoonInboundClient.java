@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noon.NoonOperationException;
 import com.nuono.next.noon.NoonResponseClassifier;
@@ -14,6 +15,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDe
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.NoonAppointmentClient;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.SlotCapacity;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseAsnProductPreflightProof;
 import com.nuono.next.sales.NoonSalesReportBinding;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -40,7 +42,6 @@ public class OfficialWarehouseNoonInboundClient {
     private static final String RESCHEDULE_ASN_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/re-schedule";
     private static final String SEAL_ASN_URL = "https://fbn.noon.partners/_svc/inbound-partners/asn/seal";
     private static final String SCHEDULE_APPOINTMENT_URL = "https://fbn.noon.partners/_svc/inbound-scheduler/slot/fbn/v1/schedule";
-
     private final ObjectMapper objectMapper;
     private final NoonResponseClassifier responseClassifier;
 
@@ -56,14 +57,44 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
-            int totalQuantity
+            OfficialWarehouseAsnProductPreflightProof proof
     ) {
+        requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("totalQty", totalQuantity);
+        body.put("totalQty", proof.totalQuantity());
         return postNoonJson(session, binding, context.withOperation("CREATE_ASN"), CREATE_ASN_URL, body);
     }
 
+    JsonNode searchProductOffersPage(NoonSession session, NoonSalesReportBinding binding,
+                                     NoonCallContext context, JsonNode body) {
+        return postNoonJson(
+                session, binding, context.withOperation("PREFLIGHT_ASN_PRODUCT_IDENTITY"),
+                NoonCatalogApiRoutes.OFFER_LIST_NOON, body
+        );
+    }
+
     JsonNode routeWarehouse(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            NoonCallContext context,
+            String asnNr,
+            OfficialWarehouseAsnProductPreflightProof proof
+    ) {
+        requireAuthorizedProof(proof, binding, context);
+        return routeWarehouseRequest(session, binding, context, asnNr, proof.requestLineRows());
+    }
+
+    JsonNode routeWarehouseForExistingAsn(
+            NoonSession session,
+            NoonSalesReportBinding binding,
+            NoonCallContext context,
+            String asnNr,
+            List<AsnLineInsertRecord> lineRows
+    ) {
+        return routeWarehouseRequest(session, binding, context, asnNr, lineRows);
+    }
+
+    private JsonNode routeWarehouseRequest(
             NoonSession session,
             NoonSalesReportBinding binding,
             NoonCallContext context,
@@ -87,12 +118,13 @@ public class OfficialWarehouseNoonInboundClient {
             NoonSalesReportBinding binding,
             NoonCallContext context,
             String asnNr,
-            List<AsnLineInsertRecord> lineRows
+            OfficialWarehouseAsnProductPreflightProof proof
     ) {
+        requireAuthorizedProof(proof, binding, context);
         ObjectNode body = objectMapper.createObjectNode();
         body.put("asnNr", asnNr);
         ArrayNode lines = body.putArray("partnerAsnLineList");
-        for (AsnLineInsertRecord line : lineRows) {
+        for (AsnLineInsertRecord line : proof.requestLineRows()) {
             ObjectNode lineNode = lines.addObject();
             lineNode.put("psku_code", line.pskuCode);
             lineNode.put("qty", line.quantity == null ? 0 : line.quantity);
@@ -101,6 +133,17 @@ public class OfficialWarehouseNoonInboundClient {
             lineNode.put("sku", line.noonSku);
         }
         return postNoonJson(session, binding, context.withOperation("CREATE_ASN_LINES"), CREATE_LINES_URL, body);
+    }
+
+    private void requireAuthorizedProof(
+            OfficialWarehouseAsnProductPreflightProof proof,
+            NoonSalesReportBinding binding,
+            NoonCallContext context
+    ) {
+        if (proof == null || proof.lines().isEmpty() || proof.totalQuantity() <= 0) {
+            throw new IllegalArgumentException("官方仓商品身份尚未完成写前预检。");
+        }
+        proof.assertAuthorizes(binding, context);
     }
 
     AsnDetail queryAsnDetail(
@@ -168,39 +211,37 @@ public class OfficialWarehouseNoonInboundClient {
     }
 
     NoonAppointmentClient appointmentClient(
-            NoonSession session,
-            NoonSalesReportBinding binding,
-            NoonCallContext context,
-            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
+            NoonSession session, NoonSalesReportBinding binding, NoonCallContext context,
+            Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet,
+            Runnable executionGuard
     ) {
-        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet);
+        return new RealNoonAppointmentClient(session, binding, context, onWarehousesSet, executionGuard);
     }
-
     private class RealNoonAppointmentClient implements NoonAppointmentClient {
         private final NoonSession session;
         private final NoonSalesReportBinding binding;
         private final NoonCallContext context;
         private final Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet;
-
+        private final Runnable executionGuard;
         private RealNoonAppointmentClient(
-                NoonSession session,
-                NoonSalesReportBinding binding,
-                NoonCallContext context,
-                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet
+                NoonSession session, NoonSalesReportBinding binding, NoonCallContext context,
+                Consumer<OfficialWarehouseAppointmentRunner.AppointmentTask> onWarehousesSet,
+                Runnable executionGuard
         ) {
             this.session = session;
             this.binding = binding;
             this.context = context;
             this.onWarehousesSet = onWarehousesSet;
+            this.executionGuard = executionGuard;
         }
-
         @Override
         public AsnDetail queryAsnDetail(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             return OfficialWarehouseNoonInboundClient.this.queryAsnDetail(session, binding, context, task.noonAsnNr);
         }
-
         @Override
         public List<String> queryDayCapacity(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             JsonNode response = postNoonJson(
                     session,
                     binding,
@@ -210,9 +251,9 @@ public class OfficialWarehouseNoonInboundClient {
             );
             return readStringArray(response);
         }
-
         @Override
         public List<SlotCapacity> querySlotCapacity(OfficialWarehouseAppointmentRunner.AppointmentTask task, LocalDate capacityDate) {
+            guardExecution();
             JsonNode response = postNoonJson(
                     session,
                     binding,
@@ -229,9 +270,9 @@ public class OfficialWarehouseNoonInboundClient {
             }
             return slots;
         }
-
         @Override
         public boolean setWarehouses(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asnNr", task.noonAsnNr);
             body.put("warehouseTo", task.warehouseTo);
@@ -239,16 +280,15 @@ public class OfficialWarehouseNoonInboundClient {
             Integer status = intValue(response, "status");
             return "ok".equalsIgnoreCase(text(response, "data")) || status != null && status == 200;
         }
-
         @Override
         public void onWarehousesSet(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
             if (onWarehousesSet != null) {
                 onWarehousesSet.accept(task);
             }
         }
-
         @Override
         public boolean reschedule(OfficialWarehouseAppointmentRunner.AppointmentTask task) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asnNr", task.noonAsnNr);
             JsonNode response = postNoonJson(session, binding, context.withOperation("RESCHEDULE_ASN"), RESCHEDULE_ASN_URL, body);
@@ -256,9 +296,9 @@ public class OfficialWarehouseNoonInboundClient {
             String status = OfficialWarehouseStatusPolicy.normalizeNoonAsnStatus(firstText(detail, "asn_status", "status"));
             return "SEALED".equals(status) || StringUtils.hasText(text(detail, "asn_nr")) || StringUtils.hasText(text(detail, "asnNr"));
         }
-
         @Override
         public boolean schedule(OfficialWarehouseAppointmentRunner.AppointmentTask task, LocalDate capacityDate, SlotCapacity slot) {
+            guardExecution();
             ObjectNode body = objectMapper.createObjectNode();
             body.put("asn_nr", task.noonAsnNr);
             body.put("capacity_date", capacityDate.toString());
@@ -268,8 +308,12 @@ public class OfficialWarehouseNoonInboundClient {
             Integer status = intValue(response, "status");
             return status != null && status == 200 || "success".equalsIgnoreCase(text(response, "msg"));
         }
+        private void guardExecution() {
+            if (executionGuard != null) {
+                executionGuard.run();
+            }
+        }
     }
-
     private ObjectNode asnDetailBody(NoonSalesReportBinding binding, String asnNr) {
         ObjectNode body = objectMapper.createObjectNode();
         putPartnerId(body, "idPartnerSource", binding.getPartnerId());
@@ -297,49 +341,12 @@ public class OfficialWarehouseNoonInboundClient {
         body.put("total_units", task.totalUnits == null ? 0 : task.totalUnits);
         return body;
     }
-
-    private AsnDetail parseAsnDetail(JsonNode detail) {
-        return new AsnDetail(firstText(detail, "asn_status", "status"));
+    static AsnDetail parseAsnDetail(JsonNode detail) {
+        OfficialWarehouseAsnListSyncSupport.NoonAsnListRow row = OfficialWarehouseAsnListSyncSupport.parseRow(detail);
+        return new AsnDetail(row.remoteStatus, row.appointmentDate, row.appointmentTime);
     }
-
     static List<AsnLineInsertRecord> routingLineRowsFromAsnDetail(JsonNode detail) {
-        if (detail == null) {
-            return List.of();
-        }
-        JsonNode lines = detail.path("lines");
-        if (!lines.isArray()) {
-            lines = detail.path("partnerAsnLineList");
-        }
-        if (!lines.isArray()) {
-            return List.of();
-        }
-        List<AsnLineInsertRecord> result = new ArrayList<>();
-        for (JsonNode line : lines) {
-            String noonSku = firstText(line, "sku", "noon_sku", "noonSku");
-            Integer quantity = firstPositiveInt(
-                    line,
-                    "qty",
-                    "quantity",
-                    "total_qty",
-                    "totalQty",
-                    "expected_qty",
-                    "expectedQty",
-                    "qty_expected",
-                    "qtyExpected"
-            );
-            if (!StringUtils.hasText(noonSku) || quantity == null) {
-                continue;
-            }
-            AsnLineInsertRecord record = new AsnLineInsertRecord();
-            record.noonSku = noonSku;
-            record.quantity = quantity;
-            record.storageTypeCode = firstNonBlank(
-                    firstText(line, "storage_type_code", "storageTypeCode"),
-                    "standard"
-            );
-            result.add(record);
-        }
-        return result;
+        return OfficialWarehouseRoutingLineParser.parse(detail);
     }
 
     private JsonNode postNoonJson(
@@ -378,7 +385,8 @@ public class OfficialWarehouseNoonInboundClient {
         return "QUERY_ASN_DETAIL".equals(operation)
                 || "QUERY_DAY_CAPACITY".equals(operation)
                 || "QUERY_SLOT_CAPACITY".equals(operation)
-                || "SYNC_ASN_LIST".equals(operation);
+                || "SYNC_ASN_LIST".equals(operation)
+                || "PREFLIGHT_ASN_PRODUCT_IDENTITY".equals(operation);
     }
 
     private Map<String, String> noonHeaders(NoonSalesReportBinding binding) {
@@ -478,19 +486,6 @@ public class OfficialWarehouseNoonInboundClient {
     private static Integer intValue(JsonNode node, String fieldName) {
         Long value = longValue(node, fieldName);
         return value == null ? null : value.intValue();
-    }
-
-    private static Integer firstPositiveInt(JsonNode node, String... fieldNames) {
-        if (fieldNames == null) {
-            return null;
-        }
-        for (String fieldName : fieldNames) {
-            Integer value = intValue(node, fieldName);
-            if (value != null && value > 0) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private static Long longValue(JsonNode node, String fieldName) {

@@ -31,10 +31,10 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             expected_190_sha256="c" * 64,
             expected_204_sha256="d" * 64,
             expected_205_sha256="e" * 64,
+            approved_managed_migrations=("231_procurement_fulfillment_balance_quantity_invariant.sql",),
             app_dir="/app",
             release_name="schema-cutover-test",
         )
-
     def build_irreversible_script(self):
         module = load_module()
         return module.build_irreversible_schema_cutover_script(
@@ -223,7 +223,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
         self.assertIn("127.0.0.1", script)
         self.assertIn('maintenance_status="$(maintenance_response_status)"', script)
         self.assertIn('[ "$maintenance_status" = "503" ]', script)
-        self.assertIn('external_status="$(external_maintenance_status)"', script)
+        self.assertIn('capture_status external_status wait_for_external_maintenance', script)
         self.assertIn('[ "$external_status" = "503" ]', script)
 
     def test_embedded_responder_serves_json_503_on_loopback(self):

@@ -19,8 +19,6 @@ class NoonPullStoreBindingResolverTest {
         store.setNoonPartnerUser(null);
         store.setNoonPartnerProjectUser(null);
         store.setNoonPartnerUserCode("canonical-user-code");
-        store.setNoonPartnerPwd(null);
-        store.setNoonPartnerMailAuthCode(null);
         store.setNoonPartnerCookie("sid=persisted");
         when(mapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(store);
         NoonPullStoreBindingResolver resolver = new NoonPullStoreBindingResolver(mapper);
@@ -29,8 +27,6 @@ class NoonPullStoreBindingResolverTest {
 
         assertEquals("canonical-user-code", binding.getSessionProjectUser());
         assertEquals("sid=persisted", binding.getPersistedCookie());
-        assertNull(binding.getNoonPassword());
-        assertNull(binding.getNoonEmailAuthCode());
     }
 
     @Test
@@ -49,7 +45,7 @@ class NoonPullStoreBindingResolverTest {
         assertEquals(
                 true,
                 exception.getMessage().contains(
-                        "missing persisted Noon project session or recoverable login credential")
+                        "missing persisted Noon project session or shared email OTP recovery configuration")
         );
     }
 

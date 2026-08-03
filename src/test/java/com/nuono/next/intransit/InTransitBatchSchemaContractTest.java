@@ -325,7 +325,7 @@ class InTransitBatchSchemaContractTest {
     }
 
     @Test
-    void lineSelectMatchesProductsBySitePartnerSkuThenOwnerPartnerSkuFallback() {
+    void lineSelectMatchesProductsByExactUniqueBarcodeIdentityOnly() {
         String sql = InTransitGoodsMapper.LINE_SELECT;
 
         assertTrue(sql.contains("LEFT JOIN in_transit_package pkg"));
@@ -336,12 +336,12 @@ class InTransitBatchSchemaContractTest {
         assertTrue(sql.contains("pkg.measured_weight_kg AS measured_weight_kg"));
         assertTrue(sql.contains("pkg.package_status AS package_status"));
         assertTrue(sql.contains("pkg.logistics_status AS logistics_status"));
-        assertFalse(sql.contains("exact_pso.psku_code = line.psku"));
-        assertTrue(sql.contains("exact_pv.partner_sku IN (line.psku,"));
-        assertTrue(sql.contains("fallback_ls.owner_user_id = line.owner_user_id"));
-        assertTrue(sql.contains("fallback_pv.partner_sku IN (line.psku,"));
-        assertTrue(sql.contains("REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c')"));
-        assertTrue(sql.contains("CASE WHEN fallback_pv.partner_sku = line.psku THEN 0 ELSE 1 END"));
+        assertTrue(sql.contains("WHERE exact_pb.barcode = line.sku"));
+        assertTrue(sql.contains("BINARY exact_pb.barcode = BINARY line.sku"));
+        assertTrue(sql.contains("COALESCE(exact_pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
+        assertTrue(sql.contains("HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1"));
+        assertFalse(sql.contains("partner_sku IN (line.psku"));
+        assertFalse(sql.contains("fallback_pv"));
         assertTrue(sql.contains("pm.cover_image_url AS product_image_url"));
         assertFalse(sql.contains("line.source_image_url"));
     }

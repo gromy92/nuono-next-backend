@@ -9,8 +9,6 @@ public class NoonSalesReportBinding {
     private final String siteCode;
     private final String partnerId;
     private final String noonUser;
-    private final String noonPassword;
-    private final String noonEmailAuthCode;
     private final String persistedCookie;
 
     public NoonSalesReportBinding(
@@ -21,8 +19,6 @@ public class NoonSalesReportBinding {
             String siteCode,
             String partnerId,
             String noonUser,
-            String noonPassword,
-            String noonEmailAuthCode,
             String persistedCookie
     ) {
         this.ownerUserId = ownerUserId;
@@ -32,8 +28,6 @@ public class NoonSalesReportBinding {
         this.siteCode = siteCode;
         this.partnerId = partnerId;
         this.noonUser = noonUser;
-        this.noonPassword = noonPassword;
-        this.noonEmailAuthCode = noonEmailAuthCode;
         this.persistedCookie = persistedCookie;
     }
 
@@ -63,14 +57,6 @@ public class NoonSalesReportBinding {
 
     public String getNoonUser() {
         return noonUser;
-    }
-
-    public String getNoonPassword() {
-        return noonPassword;
-    }
-
-    public String getNoonEmailAuthCode() {
-        return noonEmailAuthCode;
     }
 
     public String getPersistedCookie() {

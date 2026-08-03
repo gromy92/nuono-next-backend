@@ -34,6 +34,14 @@ abstract class WarehouseDispatchProjectionContract extends WarehouseShippingLine
             CreateShippingBatchCommand command
     );
 
+    protected abstract ShippingBatchView createShippingBatchFromLockedBalances(
+            BusinessAccessContext access,
+            CreateShippingBatchCommand command,
+            Map<Long, Integer> requested,
+            List<FulfillmentBalanceRecord> balances,
+            Long ownerUserId
+    );
+
     public abstract ShippingSuggestionOptionView createShippingTargetOption(
             BusinessAccessContext access,
             String shippingBatchId,

@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class NoonProjectTransientFailureClassifierTest {
 
     @Test
-    void classifiesOnlyTheSevenApprovedTransientErrorTypes() {
+    void classifiesApprovedTransientErrorTypesIncludingProxy407() {
         Map<Throwable, NoonTransientErrorType> cases = new LinkedHashMap<>();
         cases.put(new EOFException("stream ended"), NoonTransientErrorType.NETWORK_EOF);
         cases.put(
@@ -29,6 +29,7 @@ class NoonProjectTransientFailureClassifierTest {
         );
         cases.put(new java.net.ConnectException("connect timeout"), NoonTransientErrorType.CONNECT_TIMEOUT);
         cases.put(new IOException("connection timeout"), NoonTransientErrorType.CONNECT_TIMEOUT);
+        cases.put(new NoonHttpException(407, "", "/catalog"), NoonTransientErrorType.HTTP_407);
         cases.put(new NoonHttpException(408, "", "/catalog"), NoonTransientErrorType.HTTP_408);
         cases.put(new NoonHttpException(500, "", "/catalog"), NoonTransientErrorType.HTTP_500);
         cases.put(new NoonHttpException(502, "", "/catalog"), NoonTransientErrorType.HTTP_502);

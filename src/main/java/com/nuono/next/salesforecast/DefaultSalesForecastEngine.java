@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class DefaultSalesForecastEngine {
 
-    public static final String CALCULATION_VERSION = "SALES_FORECAST_V1_4";
+    public static final String CALCULATION_VERSION = "SALES_FORECAST_V1_5";
     public static final String DEFAULT_CONFIG_VERSION = "DEFAULT_CALENDAR_CONFIG";
     public static final int FORECAST_HORIZON_DAYS = 120;
     private static final BigDecimal HISTORY_WEIGHT_7 = new BigDecimal("0.10");

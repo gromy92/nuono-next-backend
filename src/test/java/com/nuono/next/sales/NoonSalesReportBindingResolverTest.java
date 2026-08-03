@@ -37,8 +37,6 @@ class NoonSalesReportBindingResolverTest {
         assertEquals("AE", binding.getSiteCode());
         assertEquals("245027", binding.getPartnerId());
         assertEquals("unified@example.com", binding.getNoonUser());
-        assertEquals(null, binding.getNoonEmailAuthCode());
-        assertEquals(null, binding.getNoonPassword());
     }
 
     private NoonSalesReportRequest request() {

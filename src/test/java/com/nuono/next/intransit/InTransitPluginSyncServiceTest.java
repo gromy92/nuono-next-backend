@@ -670,8 +670,7 @@ class InTransitPluginSyncServiceTest {
         BatchView savedBatch = new BatchView();
         savedBatch.setBatchId(53001L);
         when(mapper.selectBatchByReferenceNo(10002L, "XGGEKSA04075")).thenReturn(existingBatch);
-        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYS031")).thenReturn(null);
-        lenient().when(mapper.selectLineByBoxNoAndPsku(10002L, 53001L, "NO1-1", "PAPERSAYSB031")).thenReturn(legacyLine);
+        lenient().when(mapper.selectLineByBoxNoAndBarcode(10002L, 53001L, "NO1-1", "PAPERSAYSB031")).thenReturn(legacyLine);
         when(batchService.saveBatch(any(SaveBatchCommand.class))).thenReturn(savedBatch);
 
         service.commit(command);
@@ -682,7 +681,7 @@ class InTransitPluginSyncServiceTest {
         assertNull(savedLine.getLineId());
         assertEquals("PAPERSAYSB031", savedLine.getSku());
         assertNull(savedLine.getPsku());
-        verify(mapper, never()).selectLineByBoxNoAndPsku(any(), any(), any(), any());
+        verify(mapper, never()).selectLineByBoxNoAndBarcode(any(), any(), any(), any());
     }
 
     @Test

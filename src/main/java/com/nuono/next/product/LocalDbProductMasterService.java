@@ -13,6 +13,8 @@ import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.product.noon.NoonProductGateway;
+import com.nuono.next.product.publish.ProductDeleteTaskSubmission;
+import com.nuono.next.product.publish.ProductDeleteTaskSubmissionResult;
 import com.nuono.next.product.publish.ProductPublishCommandService;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateCommand;
 import com.nuono.next.product.publish.ProductPublishCommandService.ProductPublishTaskCreateResult;
@@ -49,15 +51,12 @@ import org.springframework.util.StringUtils;
 @Service
 @Profile("local-db")
 public class LocalDbProductMasterService {
-
     private static final Logger log = LoggerFactory.getLogger(LocalDbProductMasterService.class);
     private static final ThreadLocal<Boolean> PUBLISH_TASK_WORKER_MODE =
             ThreadLocal.withInitial(() -> Boolean.FALSE);
-
     private static final DateTimeFormatter FETCH_TIME_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final int PRODUCT_DELETE_VERIFY_OFFER_PAGE_SIZE = 100;
-
     private final ProductManagementMapper productManagementMapper;
     private final ProductLiteMapper productLiteMapper;
     private final ProductPublicDetailMapper productPublicDetailMapper;
@@ -100,6 +99,7 @@ public class LocalDbProductMasterService {
     private final ProductCatalogContentFallbackApplier productCatalogContentFallbackApplier;
     private final ProductSnapshotGroupFetcher productSnapshotGroupFetcher;
     private final ProductSnapshotCoreFetcher productSnapshotCoreFetcher;
+    private final ProductDeletePreflightFetcher productDeletePreflightFetcher;
     private final ProductSnapshotTemplateFetcher productSnapshotTemplateFetcher;
     private final ProductStoreContextBuilder productStoreContextBuilder;
     private final ProductNoonCredentialResolver productNoonCredentialResolver = new ProductNoonCredentialResolver();
@@ -107,7 +107,6 @@ public class LocalDbProductMasterService {
             new ProductPublicDetailReadonlyWorkbenchFactory();
     private final ProductSnapshotMessageBuilder productSnapshotMessageBuilder = new ProductSnapshotMessageBuilder();
     private final ProductDeleteRequestBuilder productDeleteRequestBuilder;
-
     @Value("${nuono.product-management.publish-task.scheduler.enabled:true}")
     private boolean publishTaskSchedulerEnabled;
 
@@ -149,6 +148,8 @@ public class LocalDbProductMasterService {
         this.productSnapshotHydrator = new ProductSnapshotHydrator(effectiveObjectMapper);
         this.productSnapshotCoreFetcher = new ProductSnapshotCoreFetcher(effectiveObjectMapper, productNoonAdapter);
         this.productSnapshotSectionBuilder = new ProductSnapshotSectionBuilder(effectiveObjectMapper);
+        this.productDeletePreflightFetcher =
+                new ProductDeletePreflightFetcher(this.productSnapshotCoreFetcher, this.productSnapshotSectionBuilder);
         this.productKeyAttributeBuilder = new ProductKeyAttributeBuilder(effectiveObjectMapper);
         this.productStoreContextBuilder = new ProductStoreContextBuilder();
         this.productSnapshotGroupFetcher = new ProductSnapshotGroupFetcher(
@@ -338,13 +339,6 @@ public class LocalDbProductMasterService {
             ProductMasterSnapshotView siteOfferReuseSeed
     ) {
         return fetchSnapshot(command, reason, siteOfferReuseSeed, true);
-    }
-
-    private ProductMasterSnapshotView fetchSnapshotWithoutProjection(
-            ProductMasterFetchCommand command,
-            String reason
-    ) {
-        return fetchSnapshot(command, reason, null, false);
     }
 
     private ProductMasterSnapshotView fetchSnapshot(
@@ -945,21 +939,14 @@ public class LocalDbProductMasterService {
                 firstNonBlank(normalize(identity.getPartnerSku()), partnerSku),
                 "当前商品缺少系统 PSKU（partnerSku），暂时不能删除。"
         );
-
-        requirePublishCommandService().ensureNoForegroundBlockingActiveTask(
-                identity.getProductMasterId(),
-                "当前商品已有后台任务正在执行，请等待完成后再删除商品。"
-        );
-        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity);
-
+        ProductDeleteTaskSubmissionResult submission = queueProductDeleteTask(command, store, identity);
+        ProductPublishTaskRecord task = submission.getTask();
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
         reloadCommand.setStoreCode(storeCode);
-        reloadCommand.setNoonUser(command.getNoonUser());
-        reloadCommand.setNoonPassword(command.getNoonPassword());
         ProductListDatasetView view = loadListDataset(reloadCommand);
         attachProductDeleteTaskToListDataset(view, identity.getSkuParent(), identity.getPartnerSku(), task);
-        view.setMessage("商品删除已提交后台处理，请在发布状态和历史中查看进度。");
+        view.setMessage(submission.getMessage());
         return view;
     }
 
@@ -996,13 +983,11 @@ public class LocalDbProductMasterService {
                 "当前商品已有后台任务正在执行，请等待完成后再重建商品。"
         );
         ProductListingDraftCommand rebuildListingDraft = buildProductRebuildListingDraft(command, store, identity);
-        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity, rebuildListingDraft);
+        ProductPublishTaskRecord task = queueProductDeleteTask(command, store, identity, rebuildListingDraft).getTask();
 
         ProductMasterFetchCommand reloadCommand = new ProductMasterFetchCommand();
         reloadCommand.setOwnerUserId(command.getOwnerUserId());
         reloadCommand.setStoreCode(storeCode);
-        reloadCommand.setNoonUser(command.getNoonUser());
-        reloadCommand.setNoonPassword(command.getNoonPassword());
         ProductListDatasetView view = loadListDataset(reloadCommand);
         attachProductDeleteTaskToListDataset(view, identity.getSkuParent(), identity.getPartnerSku(), task);
         view.setMessage("商品重建已提交后台处理：系统会先删除 Noon 旧商品，确认删除后按当前本地数据重新上架。");
@@ -1394,15 +1379,14 @@ public class LocalDbProductMasterService {
         );
     }
 
-    private ProductPublishTaskRecord queueProductDeleteTask(
+    private ProductDeleteTaskSubmissionResult queueProductDeleteTask(
             ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
             ProductMasterIdentityRecord identity
     ) {
         return queueProductDeleteTask(command, store, identity, null);
     }
-
-    private ProductPublishTaskRecord queueProductDeleteTask(
+    private ProductDeleteTaskSubmissionResult queueProductDeleteTask(
             ProductMasterFetchCommand command,
             StoreSyncStoreRecord store,
             ProductMasterIdentityRecord identity,
@@ -1432,13 +1416,17 @@ public class LocalDbProductMasterService {
                 currentSiteCode,
                 rebuildListingDraft
         )));
+        if (rebuildListingDraft == null) {
+            return new ProductDeleteTaskSubmission(
+                    productManagementMapper, requirePublishCommandService()
+            ).submit(createCommand);
+        }
         createCommand.setIdempotencyKey(
                 "delete:" + productDeleteStoreIdentityKey(identity, createCommand.getStoreCode())
-                        + ":" + partnerSku
-                        + ":" + System.nanoTime()
+                        + ":" + partnerSku + ":" + System.nanoTime()
         );
-        ProductPublishTaskCreateResult createResult = requirePublishCommandService().createProductDeleteTask(createCommand);
-        return createResult.getTask();
+        return ProductDeleteTaskSubmissionResult.created(
+                requirePublishCommandService().createProductDeleteTask(createCommand).getTask());
     }
 
     private ProductListingDraftCommand buildProductRebuildListingDraft(
@@ -1603,6 +1591,7 @@ public class LocalDbProductMasterService {
         putIfNotNull(summary, "taskId", task.getId());
         putIfNotBlank(summary, "taskType", rebuildTask ? "product-rebuild" : normalize(task.getTaskType()));
         putIfNotBlank(summary, "status", normalize(task.getStatus()));
+        putIfNotNull(summary, "retryAllowed", com.nuono.next.product.publish.ProductDeleteRetrySafety.canResume(task));
         putIfNotBlank(summary, "statusLabel", rebuildTask
                 ? productRebuildDeleteListStatusLabel(task.getStatus())
                 : productDeleteListStatusLabel(task.getStatus()));
@@ -1615,7 +1604,6 @@ public class LocalDbProductMasterService {
         putIfNotBlank(summary, "partnerSku", task.getPartnerSku());
         return summary;
     }
-
     private boolean isProductRebuildDeleteTask(ProductPublishTaskRecord task) {
         JsonNode request = readTaskRequestNode(task);
         return "product-rebuild".equalsIgnoreCase(text(request, "rebuildAction"))
@@ -1729,7 +1717,8 @@ public class LocalDbProductMasterService {
 
         NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         List<String> actionWarnings = new ArrayList<>();
-        try {
+        try (ProductWriteAuthRecovery.TaskScope ignored =
+                     requirePublishCommandService().openAuthTaskScope(task)) {
             if (shouldCompleteRebuildDeleteWithoutNoonIdentity(task)) {
                 completeRebuildDeleteWithoutNoonIdentity(task, requestCountScope.snapshot(), actionWarnings);
                 return;
@@ -1746,7 +1735,7 @@ public class LocalDbProductMasterService {
             if (!isProductDeleteAfterDeleteStage(stage)) {
                 if (!isProductDeleteAfterUnmapStage(stage)) {
                     try {
-                        preDeleteSnapshot = fetchSnapshot(command, "product-delete.before");
+                        preDeleteSnapshot = productDeletePreflightFetcher.fetch(session, command);
                     } catch (IllegalStateException exception) {
                         if (!isNoonProductMissingAfterDelete(exception)) {
                             throw exception;
@@ -1857,30 +1846,6 @@ public class LocalDbProductMasterService {
             }
 
             int verifyAttempt = Math.max(1, task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1);
-            try {
-                fetchSnapshotWithoutProjection(command, "product-delete.after");
-                updatePublishTaskStatus(
-                        task,
-                        ProductPublishCommandService.PRODUCT_DELETE_STATUS_PENDING_EFFECTIVE,
-                        "product_delete_effect_pending",
-                        "商品删除已提交，Noon 仍能回读到商品，系统将稍后继续核对。",
-                        buildTaskResultJson(
-                                "pending_effective",
-                                requestCountScope.snapshot(),
-                                actionWarnings,
-                                productDeleteResultExtras("delete_submitted", preDeleteSnapshot, NoonProductGateway.PSKU_DELETE_URL)
-                        ),
-                        nextPublishVerifyRunAt(task),
-                        null,
-                        verifyAttempt
-                );
-                return;
-            } catch (IllegalStateException exception) {
-                if (!isNoonProductMissingAfterDelete(exception)) {
-                    throw exception;
-                }
-            }
-
             ProductDeleteNoonPresence noonPresence = findProductDeleteNoonPresenceAfterDelete(
                     session,
                     task,
@@ -2012,7 +1977,8 @@ public class LocalDbProductMasterService {
         Map<String, Integer> requestCounts = Map.of();
         NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         boolean writeSubmitted = false;
-        try {
+        try (ProductWriteAuthRecovery.TaskScope ignored =
+                     requirePublishCommandService().openAuthTaskScope(task)) {
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, currentSiteCode);
             ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, currentSiteCode);
             ProductMasterSnapshotView publishableDraft = productPublishSupportedSnapshotBuilder.build(preparedDraft, baseline, unsupportedChanges);
@@ -2358,7 +2324,8 @@ public class LocalDbProductMasterService {
         ProductMasterActionCommand command = buildTaskActionCommand(task, draft);
         NoonSessionGateway.RequestCountScope requestCountScope = productNoonAdapter.openRequestCountScope();
         int verifyAttempt = task.getVerifyAttemptCount() == null ? 1 : task.getVerifyAttemptCount() + 1;
-        try {
+        try (ProductWriteAuthRecovery.TaskScope ignored =
+                     requirePublishCommandService().openAuthTaskScope(task)) {
             ProductMasterSnapshotView liveAfterPublish = fetchSnapshot(command, "publish-task.verify");
             ProductMasterSnapshotView preparedDraft = prepareSnapshotForPublish(draft, baseline, task.getCurrentSiteCode());
             ProductPublishUnsupportedChanges unsupportedChanges = productPublishUnsupportedChangesDetector.detect(preparedDraft, baseline, task.getCurrentSiteCode());
@@ -2562,6 +2529,9 @@ public class LocalDbProductMasterService {
                 LocalDateTime.now(),
                 null
         );
+        requirePublishCommandService().enqueueAuthWait(task,
+                firstNonBlank(text(readTaskResultNode(task), "status"), "publish_start"),
+                authDecision.isWriteMayHaveOccurred());
         record.setDraftSnapshot(draft);
         record.setSyncStatus("failed");
         record.setNote(message);
@@ -2874,6 +2844,8 @@ public class LocalDbProductMasterService {
                     ProductPublishCommandService.ERROR_CODE_NOON_AUTH_RECOVERY_PENDING,
                     authDecision.getMessage(), stage, preDeleteSnapshot, authDecision.newResultMetadata()
             );
+            requirePublishCommandService().enqueueAuthWait(task,
+                    firstNonBlank(stage, "retry_scheduled"), authDecision.isWriteMayHaveOccurred());
             log.warn(
                     "product-management product delete suspended for auth recovery id={} owner={} store={} "
                             + "skuParent={} recoveryId={} writeMayHaveOccurred={}",

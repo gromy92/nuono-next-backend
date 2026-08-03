@@ -5,9 +5,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.nuono.next.infrastructure.mapper.ProcurementPurchaseOrderMapper;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ForwarderRouteRecommendationRecord;
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.ProductForwarderChannelQuoteRecord;
 import com.nuono.next.procurementorder.ProcurementPurchaseOrderRecords.PurchaseOrderLogisticsQuoteLineRecord;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.CurrentCostRow;
 import java.math.BigDecimal;
@@ -21,74 +19,126 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class WarehouseLogisticsQuotePriceServiceTest {
 
     @Mock
-    private ProcurementPurchaseOrderMapper mapper;
-
-    @Mock
     private WarehouseProductLogisticsPriceBridge productPriceBridge;
 
     private WarehouseLogisticsQuotePriceService service;
 
     @BeforeEach
     void setUp() {
-        service = new WarehouseLogisticsQuotePriceService(mapper, productPriceBridge);
+        service = new WarehouseLogisticsQuotePriceService(productPriceBridge);
     }
 
     @Test
-    void productCurrentCostIsAPendingWarehouseSuggestion() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line("PENDING_QUOTE");
-        ForwarderRouteRecommendationRecord candidate = candidate();
-        CurrentCostRow current = new CurrentCostRow();
-        current.unitCostCny = new BigDecimal("67.00");
-        current.currencyCode = "CNY";
-        current.chargeUnit = "KG";
+    void productCurrentCostIsImmediatelyUsableWithoutManualConfirmation() {
+        PurchaseOrderLogisticsQuoteLineRecord line = line("NOT_SUBMITTED");
+        CurrentCostRow current = current("67.00");
         when(productPriceBridge.findCurrentCost(line, "QIKE")).thenReturn(current);
 
-        var view = service.resolve(line, candidate);
+        PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate());
 
-        assertThat(view.quoteStatus).isEqualTo("PENDING_QUOTE");
+        assertThat(view.quoteStatus).isEqualTo("CONFIRMED");
+        assertThat(view.unitPrice).isEqualByComparingTo("67.00");
+        assertThat(view.currency).isEqualTo("CNY");
+        assertThat(view.billingUnit).isEqualTo("KG");
+        assertThat(view.priceSource).isEqualTo("PRODUCT_CURRENT");
+    }
+
+    @Test
+    void zeroAndNegativeProductCurrentCostsRemainMissingWithoutStaleFacts() {
+        PurchaseOrderLogisticsQuoteLineRecord line = line("NOT_SUBMITTED");
+        for (String value : new String[]{"0", "-1.00"}) {
+            when(productPriceBridge.findCurrentCost(line, "QIKE")).thenReturn(current(value));
+
+            PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate());
+
+            assertThat(view.quoteStatus).isEqualTo("PENDING_QUOTE");
+            assertThat(view.unitPrice).isNull();
+            assertThat(view.currency).isNull();
+            assertThat(view.billingUnit).isNull();
+            assertThat(view.priceSource).isNull();
+        }
+    }
+
+    @Test
+    void unsubmittedOwnPriceDoesNotOverrideLatestProductCurrentCost() {
+        PurchaseOrderLogisticsQuoteLineRecord line = exactSnapshot("NOT_SUBMITTED", "61.00");
+        when(productPriceBridge.findCurrentCost(line, "QIKE")).thenReturn(current("67.00"));
+
+        PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate(), line);
+
         assertThat(view.unitPrice).isEqualByComparingTo("67.00");
         assertThat(view.priceSource).isEqualTo("PRODUCT_CURRENT");
     }
 
     @Test
-    void ownConfirmedSnapshotWinsOverLaterProductCurrentCost() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line("CONFIRMED");
-        line.forwarderCode = "QIKE";
-        line.routeCode = "QIKE-SA-AIR";
-        line.serviceCode = "QIKE-SA-AIR";
-        line.unitPrice = new BigDecimal("67.00");
-        line.currency = "CNY";
-        line.billingUnit = "KG";
+    void submittedSnapshotWinsOverLaterProductCurrentCost() {
+        PurchaseOrderLogisticsQuoteLineRecord line = exactSnapshot("SUBMITTED", "61.00");
 
-        var view = service.resolve(line, candidate());
+        PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate(), line);
 
         assertThat(view.quoteStatus).isEqualTo("CONFIRMED");
-        assertThat(view.unitPrice).isEqualByComparingTo("67.00");
+        assertThat(view.unitPrice).isEqualByComparingTo("61.00");
         assertThat(view.priceSource).isEqualTo("SHIPPING_ORDER_SNAPSHOT");
         verify(productPriceBridge, never()).findCurrentCost(line, "QIKE");
     }
 
     @Test
-    void legacyExactChannelQuoteRemainsPendingUntilSaved() {
-        PurchaseOrderLogisticsQuoteLineRecord line = line("PENDING_QUOTE");
+    void submittedZdMissingSnapshotDoesNotAdoptALaterCurrentPrice() {
+        PurchaseOrderLogisticsQuoteLineRecord line = exactSnapshot("SUBMITTED", null);
+        line.forwarderCode = "ZD";
+        line.routeCode = "ZD-SA-AIR";
+        line.serviceCode = "ZD-SA-AIR";
+        line.currency = "CNY";
+        line.billingUnit = "KG";
         ForwarderRouteRecommendationRecord candidate = candidate();
-        ProductForwarderChannelQuoteRecord legacy = new ProductForwarderChannelQuoteRecord();
-        legacy.unitPrice = new BigDecimal("61.00");
-        legacy.currency = "CNY";
-        legacy.billingUnit = "KG";
-        when(mapper.selectCurrentProductForwarderChannelQuote(
-                307L, "STR69486-NSA", 301L, "SGGRB180", 54271L,
-                "QIKE", "SA", "QIKE-SA-AIR", "QIKE-SA-AIR"
-        )).thenReturn(legacy);
+        candidate.forwarderCode = "ZD";
+        candidate.routeCode = "ZD-SA-AIR";
+        candidate.serviceCode = "ZD-SA-AIR";
+        org.mockito.Mockito.lenient().when(productPriceBridge.findCurrentCost(line, "ZD"))
+                .thenReturn(current("67.00"));
 
-        var view = service.resolve(line, candidate);
+        PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate, line);
 
         assertThat(view.quoteStatus).isEqualTo("PENDING_QUOTE");
-        assertThat(view.unitPrice).isEqualByComparingTo("61.00");
-        assertThat(view.priceSource).isEqualTo("LEGACY_CHANNEL_QUOTE");
+        assertThat(view.unitPrice).isNull();
+        assertThat(view.currency).isEqualTo("CNY");
+        assertThat(view.billingUnit).isEqualTo("KG");
+        assertThat(view.priceSource).isEqualTo("SHIPPING_ORDER_SNAPSHOT");
+        verify(productPriceBridge, never()).findCurrentCost(line, "ZD");
     }
 
-    private PurchaseOrderLogisticsQuoteLineRecord line(String status) {
+    @Test
+    void submittedSnapshotFromAnotherChannelDoesNotOverrideCurrentCost() {
+        PurchaseOrderLogisticsQuoteLineRecord line = exactSnapshot("SUBMITTED", "61.00");
+        line.routeCode = "QIKE-SA-SEA";
+        when(productPriceBridge.findCurrentCost(line, "QIKE")).thenReturn(current("67.00"));
+
+        PurchaseOrderLogisticsQuoteChannelLineView view = service.resolve(line, candidate(), line);
+
+        assertThat(view.unitPrice).isEqualByComparingTo("67.00");
+        assertThat(view.priceSource).isEqualTo("PRODUCT_CURRENT");
+    }
+
+    private CurrentCostRow current(String value) {
+        CurrentCostRow current = new CurrentCostRow();
+        current.unitCostCny = new BigDecimal(value);
+        current.currencyCode = "CNY";
+        current.chargeUnit = "KG";
+        return current;
+    }
+
+    private PurchaseOrderLogisticsQuoteLineRecord exactSnapshot(String submitStatus, String unitPrice) {
+        PurchaseOrderLogisticsQuoteLineRecord line = line(submitStatus);
+        line.forwarderCode = "QIKE";
+        line.routeCode = "QIKE-SA-AIR";
+        line.serviceCode = "QIKE-SA-AIR";
+        line.unitPrice = unitPrice == null ? null : new BigDecimal(unitPrice);
+        line.currency = "CNY";
+        line.billingUnit = "KG";
+        return line;
+    }
+
+    private PurchaseOrderLogisticsQuoteLineRecord line(String submitStatus) {
         PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
         line.id = 280304L;
         line.ownerUserId = 307L;
@@ -99,7 +149,7 @@ class WarehouseLogisticsQuotePriceServiceTest {
         line.siteCode = "SA";
         line.plannedTransportMode = "AIR";
         line.shippingOrderLineId = 300106L;
-        line.quoteStatus = status;
+        line.shippingSubmitStatus = submitStatus;
         return line;
     }
 

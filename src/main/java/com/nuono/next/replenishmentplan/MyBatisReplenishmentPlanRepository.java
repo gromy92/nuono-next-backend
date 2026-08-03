@@ -20,7 +20,7 @@ public class MyBatisReplenishmentPlanRepository implements ReplenishmentPlanRepo
     }
 
     @Override
-    public List<StockRow> listFbnSupermallStock(Long ownerUserId, String storeCode, String siteCode) {
+    public List<ReplenishmentProductStockRow> listFbnSupermallStock(Long ownerUserId, String storeCode, String siteCode) {
         return mapper.selectFbnSupermallStock(ownerUserId, storeCode, siteCode);
     }
 

@@ -155,11 +155,11 @@ public class InTransitProductMatchService {
                 );
                 continue;
             }
-            LineRow existing = mapper.selectLineByBoxNoAndPsku(
+            LineRow existing = mapper.selectLineByBoxNoAndBarcode(
                     ownerUserId,
                     batchId,
                     candidate.getBoxNo(),
-                    identity.getPartnerSku()
+                    candidate.getSourceBarcode()
             );
             SaveLineCommand command = toLineCommand(candidate, existing, identity.getPartnerSku(), operatorUserId);
             accessScopeService.requireWritableLineScope(accessContext, command);

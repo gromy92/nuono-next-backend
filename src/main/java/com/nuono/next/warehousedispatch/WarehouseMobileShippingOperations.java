@@ -29,13 +29,14 @@ abstract class WarehouseMobileShippingOperations extends WarehouseDispatchPlanOp
         super(mapper, objectMapper);
     }
 
-@Transactional
+@Transactional(readOnly = true)
     public MobileShippingDecisionPreviewView previewMobileShippingDecision(
             BusinessAccessContext access,
             MobileShippingDecisionPreviewCommand command
     ) {
         MobileShippingDecisionRequest request = mobileShippingDecisionRequest(command);
-        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(new ArrayList<>(request.requested.keySet()));
+        List<FulfillmentBalanceRecord> balances =
+                selectAuthorizedBalances(access, new ArrayList<>(request.requested.keySet()));
         ShippingDecisionEvaluation evaluation = evaluateMobileShippingDecision(access, request, balances);
         return toMobileShippingDecisionPreviewView(evaluation);
     }
@@ -46,7 +47,11 @@ abstract class WarehouseMobileShippingOperations extends WarehouseDispatchPlanOp
             MobileShippingDecisionConfirmCommand command
     ) {
         MobileShippingDecisionRequest request = mobileShippingDecisionRequest(command);
-        List<FulfillmentBalanceRecord> balances = mapper.selectBalancesForUpdate(new ArrayList<>(request.requested.keySet()));
+        List<Long> balanceIds = new ArrayList<>(request.requested.keySet());
+        Long ownerUserId = resolveAggregateOwner(access, balanceIds);
+        requireRequestOwnerLock(ownerUserId);
+        List<FulfillmentBalanceRecord> balances =
+                selectAuthorizedBalancesForUpdate(access, balanceIds, ownerUserId);
         ShippingDecisionEvaluation evaluation = evaluateMobileShippingDecision(access, request, balances);
         ShippingDecisionOption accepted = acceptedMobileShippingDecisionOption(evaluation, command.acceptedOptionKey);
         if (accepted == null || "BLOCKED".equals(accepted.decisionStatus)) {
@@ -63,7 +68,13 @@ abstract class WarehouseMobileShippingOperations extends WarehouseDispatchPlanOp
             source.quantity = entry.getValue();
             batchCommand.sources.add(source);
         }
-        ShippingBatchView batch = createShippingBatch(access, batchCommand);
+        ShippingBatchView batch = createShippingBatchFromLockedBalances(
+                access,
+                batchCommand,
+                request.requested,
+                balances,
+                ownerUserId
+        );
 
         ShippingSuggestionOptionView persistedOption = persistedMobileDecisionOption(access, batch, accepted);
         ShippingBatchView selectedBatch = selectShippingOption(access, batch.id, persistedOption.id);

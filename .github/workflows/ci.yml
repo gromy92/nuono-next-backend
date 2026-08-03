@@ -16,6 +16,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0.36
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: nuono_schema_migration_ci
+          MYSQL_USER: migration_ci
+          MYSQL_PASSWORD: migration_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,6 +60,8 @@ jobs:
         run: >-
           python -m unittest
           scripts/tests/test_release_cutover_maintenance.py
+          scripts/tests/test_release_maintenance_probe.py
+          scripts/tests/test_release_trap_safety.py
           scripts/tests/test_release_database_idle.py
           scripts/tests/test_release_schema_drain.py
           scripts/tests/test_release_schema_cutover.py
@@ -57,7 +74,99 @@ jobs:
           cache: maven
 
       - name: Release artifact contract tests
-        run: python3 -m unittest scripts/ci/test_package_release_artifact.py
+        run: >-
+          python3 -m unittest
+          scripts/ci/test_package_release_artifact.py
+          scripts/tests/test_pre_catalog_baseline_gate.py
+          scripts/tests/test_official_warehouse_collation_migration_contract.py
+          scripts/tests/test_repository_migration_catalog.py
+          scripts/tests/test_release_schema_migrations.py
+          scripts/tests/test_schema_migration_artifact.py
+          scripts/tests/test_mysql_migration_client.py
+          scripts/tests/test_mysql_migration_database.py
+          scripts/tests/test_release_schema_jar_freeze.py
+          scripts/tests/test_rds_migration_ci_contract.py
+          scripts/tests/test_warehouse_shipping_plan_migration.py
+          scripts/tests/test_warehouse_forwarder_migration.py
+
+      - name: Verify release schema migrations against MySQL
+        env:
+          NUONO_MIGRATION_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/nuono-migration.cnf
+          NUONO_MIGRATION_EXPECTED_SCHEMA: nuono_schema_migration_ci
+        run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-client
+          }
+          MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3306 \
+            --user=root \
+            --execute="SET GLOBAL log_bin_trust_function_creators=ON;"
+          trigger_trust="$(
+            MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3306 \
+              --user=root --batch --skip-column-names \
+              --execute="SELECT @@GLOBAL.log_bin_trust_function_creators;"
+          )"
+          test "$trigger_trust" = "1"
+          umask 077
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3306' \
+            'user=migration_ci' \
+            'password=migration_ci' \
+            'database=nuono_schema_migration_ci' \
+            > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
+          python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py
+
+      - name: Verify migrations against production RDS engine policy
+        env:
+          NUONO_MIGRATION_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/nuono-rds-migration.cnf
+          NUONO_MIGRATION_EXPECTED_SCHEMA: nuono_schema_migration_rds_ci
+          NUONO_MIGRATION_EXPECTED_PORT: "3307"
+        run: |
+          container_name="nuono-mysql-rds-policy-${{ github.run_id }}-${{ github.run_attempt }}"
+          cleanup_rds_mysql() { docker rm --force "$container_name" >/dev/null 2>&1 || true; }
+          trap cleanup_rds_mysql EXIT
+          docker run --detach --rm --name "$container_name" \
+            --env MYSQL_ROOT_PASSWORD=root \
+            --env MYSQL_DATABASE=nuono_schema_migration_rds_ci \
+            --env MYSQL_USER=migration_ci \
+            --env MYSQL_PASSWORD=migration_ci \
+            --publish 3307:3306 \
+            mysql:8.0.36 \
+            --disabled-storage-engines=MyISAM,MEMORY,ARCHIVE
+          ready=0
+          attempt=1
+          while [ "$attempt" -le 30 ]; do
+            if docker exec "$container_name" \
+              mysqladmin ping --host=127.0.0.1 --user=root --password=root \
+              --silent >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 2
+            attempt=$((attempt + 1))
+          done
+          test "$ready" = "1"
+          MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3307 \
+            --user=root \
+            --execute="SET GLOBAL log_bin_trust_function_creators=ON;"
+          disabled_engines="$(
+            MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3307 \
+              --user=root --batch --skip-column-names \
+              --execute="SELECT LOWER(@@GLOBAL.disabled_storage_engines);"
+          )"
+          test "$disabled_engines" = "myisam,memory,archive"
+          umask 077
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3307' \
+            'user=migration_ci' \
+            'password=migration_ci' \
+            'database=nuono_schema_migration_rds_ci' \
+            > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
+          python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py
 
       - name: Test and package
         run: mvn -q package

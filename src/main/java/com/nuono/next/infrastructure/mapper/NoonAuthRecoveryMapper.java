@@ -13,10 +13,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
-
-public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenticationMapper {
-
-
+public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper {
     String RECOVERY_COLUMNS = ""
             + "id, predecessor_recovery_id AS predecessorRecoveryId, identity_key AS identityKey, "
             + "status, generation_no AS generationNo, "
@@ -32,7 +29,8 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
     String ITEM_COLUMNS = ""
             + "id, recovery_id AS recoveryId, owner_user_id AS ownerUserId, project_code AS projectCode, "
             + "store_code AS storeCode, site_code AS siteCode, source_task_id AS sourceTaskId, "
-            + "source_domain AS sourceDomain, expected_auth_version AS expectedAuthVersion, status, "
+            + "source_domain AS sourceDomain, source_checkpoint AS sourceCheckpoint, "
+            + "resume_policy AS resumePolicy, expected_auth_version AS expectedAuthVersion, status, "
             + "failure_code AS failureCode, diagnostic_summary AS diagnosticSummary, "
             + "recovered_at AS recoveredAt, gmt_create AS createdAt, gmt_updated AS updatedAt";
 
@@ -980,7 +978,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
     );
 
     @Select({
-            "SELECT " + PROJECT_BINDING_FINGERPRINT,
+            "SELECT " + NoonAuthRecoverySql.PROJECT_BINDING_FINGERPRINT,
             "FROM user_project up",
             "WHERE up.user_id = #{ownerUserId}",
             "  AND BINARY up.project_code = BINARY #{projectCode}",
@@ -1106,7 +1104,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             "  AND state.active_recovery_id = #{recoveryId}",
             "  AND state.auth_version = #{expectedAuthVersion}",
             "  AND state.status IN ('REAUTH_REQUIRED', 'RECOVERING')",
-            "  AND state.binding_fingerprint = " + PROJECT_BINDING_FINGERPRINT,
+            "  AND state.binding_fingerprint = " + NoonAuthRecoverySql.PROJECT_BINDING_FINGERPRINT,
             "  AND recovery.id = #{recoveryId}",
             "  AND recovery.status = #{expectedRecoveryStatus}",
             "  AND recovery.version_no = #{expectedRecoveryVersion}",
@@ -1165,12 +1163,17 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
     @Insert({
             "INSERT INTO noon_auth_identity_recovery_item (",
             "  recovery_id, owner_user_id, project_code, store_code, site_code, source_task_id,",
-            "  source_domain, expected_auth_version, status, gmt_create, gmt_updated",
+            "  source_domain, source_checkpoint, resume_policy, expected_auth_version, status,",
+            "  gmt_create, gmt_updated",
             ") VALUES (",
             "  #{recoveryId}, #{ownerUserId}, #{projectCode}, #{storeCode}, #{siteCode}, #{sourceTaskId},",
-            "  #{sourceDomain}, #{expectedAuthVersion}, 'PENDING', #{createdAt}, #{createdAt}",
+            "  #{sourceDomain}, #{sourceCheckpoint}, #{resumePolicy}, #{expectedAuthVersion}, 'PENDING',",
+            "  #{createdAt}, #{createdAt}",
             ") ON DUPLICATE KEY UPDATE",
-            "  id = LAST_INSERT_ID(id)"
+            "  id = LAST_INSERT_ID(id),",
+            "  source_checkpoint = VALUES(source_checkpoint),",
+            "  resume_policy = VALUES(resume_policy),",
+            "  gmt_updated = VALUES(gmt_updated)"
     })
     @SelectKey(
             statement = "SELECT LAST_INSERT_ID()",
@@ -1193,6 +1196,24 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             @Param("recoveryId") Long recoveryId,
             @Param("ownerUserId") Long ownerUserId,
             @Param("projectCode") String projectCode
+    );
+
+    @Select({
+            "SELECT COUNT(1)",
+            "FROM noon_auth_identity_recovery_item item",
+            "WHERE item.owner_user_id = #{ownerUserId}",
+            "  AND BINARY item.project_code = BINARY #{projectCode}",
+            "  AND UPPER(item.source_domain) = UPPER(#{sourceDomain})",
+            "  AND item.source_task_id = #{sourceTaskId}",
+            "  AND item.status = 'RECOVERED'",
+            "  AND item.expected_auth_version + 1 = #{currentAuthVersion}"
+    })
+    int countRecoveredSourceTaskAtCurrentAuthVersion(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("projectCode") String projectCode,
+            @Param("sourceDomain") String sourceDomain,
+            @Param("sourceTaskId") Long sourceTaskId,
+            @Param("currentAuthVersion") Long currentAuthVersion
     );
 
     @Select({
@@ -1273,18 +1294,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             "  AND recovery.version_no = #{expectedRecoveryVersion}",
             "  AND recovery.lease_token = #{expectedLeaseToken}",
             "  AND recovery.lease_until > #{now}",
-            "  AND recovery.active_identity_slot IS NOT NULL",
-            "  AND (",
-            "    #{targetStatus} IN ('PENDING', 'VALIDATING')",
-            "    OR item.source_task_id IS NULL",
-            "    OR NOT EXISTS (",
-            "      SELECT 1 FROM noon_pull_task task",
-            "      WHERE task.id = item.source_task_id",
-            "        AND task.status = 'BLOCKED_AUTH'",
-            "        AND task.auth_recovery_id = item.recovery_id",
-            "        AND task.is_deleted = b'0'",
-            "    )",
-            "  )"
+            "  AND recovery.active_identity_slot IS NOT NULL"
     })
     int transitionRecoveryItem(
             @Param("itemId") Long itemId,
@@ -1317,18 +1327,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRecoveryManualReauthenti
             "  AND recovery.version_no = #{expectedRecoveryVersion}",
             "  AND recovery.lease_token = #{expectedLeaseToken}",
             "  AND recovery.lease_until > #{now}",
-            "  AND recovery.active_identity_slot IS NOT NULL",
-            "  AND (",
-            "    #{targetStatus} IN ('PENDING', 'VALIDATING')",
-            "    OR item.source_task_id IS NULL",
-            "    OR NOT EXISTS (",
-            "      SELECT 1 FROM noon_pull_task task",
-            "      WHERE task.id = item.source_task_id",
-            "        AND task.status = 'BLOCKED_AUTH'",
-            "        AND task.auth_recovery_id = item.recovery_id",
-            "        AND task.is_deleted = b'0'",
-            "    )",
-            "  )"
+            "  AND recovery.active_identity_slot IS NOT NULL"
     })
     int transitionProjectItems(
             @Param("recoveryId") Long recoveryId,

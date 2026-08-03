@@ -26,6 +26,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -36,15 +37,32 @@ import org.apache.ibatis.annotations.Update;
 public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
 
 @Select({
+            "<script>",
             "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, order_no AS orderNo,",
             "       title, anchor_store_code_cache AS anchorStoreCodeCache, project_code_cache AS projectCodeCache,",
             "       project_name_cache AS projectNameCache",
             "FROM procurement_purchase_order",
             "WHERE id = #{purchaseOrderId}",
             "  AND is_deleted = b'0'",
-            "LIMIT 1"
+            "<choose>",
+            "<when test='storeOwnerUserIds != null and storeOwnerUserIds.size() &gt; 0'>",
+            "  AND (",
+            "  <foreach collection='storeOwnerUserIds' index='storeCode' item='ownerUserId' separator=' OR '>",
+            "    (owner_user_id = #{ownerUserId} AND anchor_store_code_cache = #{storeCode})",
+            "  </foreach>",
+            "  )",
+            "</when>",
+            "<otherwise>",
+            "  AND 1 = 0",
+            "</otherwise>",
+            "</choose>",
+            "LIMIT 1",
+            "</script>"
     })
-    PurchaseOrderAccessRecord selectOrderAccess(@Param("purchaseOrderId") Long purchaseOrderId);
+    PurchaseOrderAccessRecord selectOrderAccess(
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
             "SELECT id, purchase_order_id AS purchaseOrderId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
@@ -53,10 +71,17 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
             "       fulfillment_type AS fulfillmentType, fulfillment_source_name AS fulfillmentSourceName, total_quantity AS totalQuantity",
             "FROM procurement_purchase_order_item",
             "WHERE id = #{purchaseOrderItemId}",
+            "  AND purchase_order_id = #{purchaseOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'",
-            "LIMIT 1"
+            "LIMIT 1",
+            "FOR UPDATE"
     })
-    PurchaseOrderItemRecord selectPurchaseOrderItem(@Param("purchaseOrderItemId") Long purchaseOrderItemId);
+    PurchaseOrderItemRecord selectPurchaseOrderItem(
+            @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId
+    );
 
 @Select({
             "SELECT id, purchase_order_id AS purchaseOrderId, purchase_order_item_id AS purchaseOrderItemId,",
@@ -64,10 +89,16 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
             "       transport_mode AS transportMode, quantity",
             "FROM procurement_purchase_order_item_site",
             "WHERE purchase_order_item_id = #{purchaseOrderItemId}",
+            "  AND purchase_order_id = #{purchaseOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'",
             "ORDER BY id ASC"
     })
-    List<PurchaseOrderItemSiteRecord> listItemSitesForBalance(@Param("purchaseOrderItemId") Long purchaseOrderItemId);
+    List<PurchaseOrderItemSiteRecord> listItemSitesForBalance(
+            @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId
+    );
 
 @Insert({
             "INSERT INTO procurement_fulfillment_balance (",
@@ -85,6 +116,11 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
             "JOIN procurement_purchase_order_item item ON item.id = site.purchase_order_item_id AND item.is_deleted = b'0'",
             "JOIN procurement_purchase_order po ON po.id = site.purchase_order_id AND po.is_deleted = b'0'",
             "WHERE site.id = #{purchaseOrderItemSiteId}",
+            "  AND site.purchase_order_item_id = #{purchaseOrderItemId}",
+            "  AND site.purchase_order_id = #{purchaseOrderId}",
+            "  AND site.owner_user_id = #{ownerUserId}",
+            "  AND item.owner_user_id = #{ownerUserId}",
+            "  AND po.owner_user_id = #{ownerUserId}",
             "  AND site.is_deleted = b'0'",
             "ON DUPLICATE KEY UPDATE planned_quantity = VALUES(planned_quantity), source_store_code = VALUES(source_store_code),",
             "    source_store_name = VALUES(source_store_name), purchase_order_no = VALUES(purchase_order_no),",
@@ -95,18 +131,12 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
     })
     int upsertBalanceFromItemSite(
             @Param("purchaseOrderItemSiteId") Long purchaseOrderItemSiteId,
+            @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("fulfillmentType") String fulfillmentType,
             @Param("updatedBy") Long updatedBy
     );
-
-@Select({
-            "SELECT COUNT(1)",
-            "FROM procurement_fulfillment_balance",
-            "WHERE purchase_order_item_id = #{purchaseOrderItemId}",
-            "  AND is_deleted = b'0'",
-            "  AND (confirmed_quantity <> 0 OR abnormal_quantity <> 0 OR reserved_quantity <> 0 OR logistics_handoff_quantity <> 0)"
-    })
-    int countItemFulfillmentActivity(@Param("purchaseOrderItemId") Long purchaseOrderItemId);
 
 @Update({
             "UPDATE procurement_purchase_order_item",
@@ -115,10 +145,14 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE id = #{purchaseOrderItemId}",
+            "  AND purchase_order_id = #{purchaseOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'"
     })
     int updatePurchaseOrderItemFulfillment(
             @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("fulfillmentType") String fulfillmentType,
             @Param("sourceName") String sourceName,
             @Param("updatedBy") Long updatedBy
@@ -130,6 +164,9 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
             "    updated_by = #{updatedBy},",
             "    gmt_updated = NOW()",
             "WHERE purchase_order_item_id = #{purchaseOrderItemId}",
+            "  AND purchase_order_id = #{purchaseOrderId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND NOT (fulfillment_type <=> #{fulfillmentType})",
             "  AND is_deleted = b'0'",
             "  AND confirmed_quantity = 0",
             "  AND abnormal_quantity = 0",
@@ -138,6 +175,8 @@ public interface WarehouseProcurementMapper extends WarehouseSequenceMapper {
     })
     int updateActiveBalancesFulfillment(
             @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId,
             @Param("fulfillmentType") String fulfillmentType,
             @Param("updatedBy") Long updatedBy
     );

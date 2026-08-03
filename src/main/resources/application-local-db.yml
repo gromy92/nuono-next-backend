@@ -34,10 +34,9 @@ nuono:
       - user_menu
       - user_store
   noon:
-    chrome-cookie-fallback-enabled: true
     auth:
       partner-identity-enabled: true
-      signin-fallback-enabled: true
+      edge-access-hold-seconds: ${NUONO_NOON_EDGE_ACCESS_HOLD_SECONDS:1800}
     account-min-request-interval-millis: 1200
     max-concurrent-account-tasks: 3
     force-http11: true
@@ -45,11 +44,16 @@ nuono:
     locale-header: en-sa
     lang-header: en
     proxy:
+      mode: ${NUONO_NOON_PROXY_MODE:AUTO}
       enabled: false
       type: HTTP
       host:
       port: 0
       provider-url:
+      preflight:
+        max-attempts: ${NUONO_NOON_PROXY_PREFLIGHT_MAX_ATTEMPTS:3}
+        connect-timeout-ms: ${NUONO_NOON_PROXY_PREFLIGHT_CONNECT_TIMEOUT_MS:3000}
+        read-timeout-ms: ${NUONO_NOON_PROXY_PREFLIGHT_READ_TIMEOUT_MS:4000}
   procurement:
     ali-ai-bulk-inquiry:
       create-enabled: ${NUONO_PROCUREMENT_ALI_AI_CREATE_ENABLED:false}

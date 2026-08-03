@@ -7,6 +7,8 @@ public class WarehouseDispatchPlanRecords extends WarehouseProcurementRecords {
     public static class DispatchPlanRecord {
         public Long id;
         public Long ownerUserId;
+        public String clientRequestId;
+        public String requestFingerprint;
         public String planNo;
         public String status;
         public Integer itemCount;

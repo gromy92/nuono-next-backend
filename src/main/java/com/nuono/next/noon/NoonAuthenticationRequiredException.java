@@ -2,7 +2,7 @@ package com.nuono.next.noon;
 
 /**
  * Structured signal that a Noon operation cannot start or continue until the
- * owning Project session is reauthenticated.
+ * owning Project session is restored by the shared authorization worker.
  */
 public final class NoonAuthenticationRequiredException extends IllegalStateException {
 

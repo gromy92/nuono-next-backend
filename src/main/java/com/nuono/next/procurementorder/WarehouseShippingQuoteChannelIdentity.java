@@ -85,6 +85,38 @@ final class WarehouseShippingQuoteChannelIdentity {
         );
     }
 
+    static ForwarderRouteRecommendationRecord candidateFrom(ShippingOrderSegmentRecord segment) {
+        if (segment == null) {
+            return null;
+        }
+        ForwarderRouteRecommendationRecord candidate = new ForwarderRouteRecommendationRecord();
+        candidate.forwarderCode = segment.forwarderCode;
+        candidate.forwarderName = segment.forwarderName;
+        candidate.routeCode = segment.routeCode;
+        candidate.routeName = segment.routeName;
+        candidate.serviceCode = segment.serviceCode;
+        candidate.serviceName = segment.serviceName;
+        candidate.siteCode = segment.siteCode;
+        candidate.transportMode = segment.transportMode;
+        return candidate;
+    }
+
+    static ForwarderRouteRecommendationRecord candidateFrom(PurchaseOrderLogisticsQuoteLineRecord line) {
+        if (line == null) {
+            return null;
+        }
+        ForwarderRouteRecommendationRecord candidate = new ForwarderRouteRecommendationRecord();
+        candidate.forwarderCode = line.forwarderCode;
+        candidate.forwarderName = line.forwarderName;
+        candidate.routeCode = line.routeCode;
+        candidate.routeName = line.routeName;
+        candidate.serviceCode = line.serviceCode;
+        candidate.serviceName = line.serviceName;
+        candidate.siteCode = line.siteCode;
+        candidate.transportMode = line.plannedTransportMode;
+        return candidate;
+    }
+
     static void applyChannel(
             PurchaseOrderLogisticsQuoteLineRecord line,
             String forwarderCode,
@@ -113,11 +145,11 @@ final class WarehouseShippingQuoteChannelIdentity {
     }
 
     static boolean isZd(PurchaseOrderLogisticsQuoteLineRecord line) {
-        return line != null && isZd(line.forwarderCode, line.forwarderName, line.routeCode);
+        return line != null && isZd(line.forwarderCode, line.routeCode);
     }
 
     static boolean isZd(ShippingOrderSegmentRecord segment) {
-        return segment != null && isZd(segment.forwarderCode, segment.forwarderName, segment.routeCode);
+        return segment != null && isZd(segment.forwarderCode, segment.routeCode);
     }
 
     static String normalizeStatus(String value) {
@@ -132,14 +164,9 @@ final class WarehouseShippingQuoteChannelIdentity {
         return values == null ? List.of() : values;
     }
 
-    private static boolean isZd(String code, String name, String routeCode) {
-        String normalized = (defaultText(code, "") + " "
-                + defaultText(name, "") + " "
-                + defaultText(routeCode, "")).toUpperCase(Locale.ROOT);
+    private static boolean isZd(String code, String routeCode) {
         return "ZD".equalsIgnoreCase(defaultText(code, ""))
-                || defaultText(routeCode, "").toUpperCase(Locale.ROOT).startsWith("ZD-")
-                || normalized.contains("众鸫")
-                || normalized.contains("众东");
+                || defaultText(routeCode, "").toUpperCase(Locale.ROOT).startsWith("ZD-");
     }
 
     static boolean sameCode(String left, String right) {

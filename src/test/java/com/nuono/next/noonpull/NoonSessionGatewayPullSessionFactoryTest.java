@@ -1,8 +1,6 @@
 package com.nuono.next.noonpull;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -17,7 +15,7 @@ import org.junit.jupiter.api.Test;
 class NoonSessionGatewayPullSessionFactoryTest {
 
     @Test
-    void backgroundPullMustNotUseEmailOtpWhenCookieNeedsAuthentication() {
+    void backgroundPullUsesThePersistedProjectCookieSession() {
         NoonSessionGateway gateway = mock(NoonSessionGateway.class);
         NoonSessionGatewayPullSessionFactory factory = new NoonSessionGatewayPullSessionFactory(gateway);
         NoonPullStoreBinding binding = new NoonPullStoreBinding(
@@ -28,8 +26,6 @@ class NoonSessionGatewayPullSessionFactoryTest {
                 "313934",
                 "merchant@example.com",
                 "project-session-user",
-                "legacy-password",
-                "imap-secret",
                 "sid=expired"
         );
 
@@ -42,7 +38,6 @@ class NoonSessionGatewayPullSessionFactoryTest {
                 "PRJ313934",
                 "STR313934-NAE"
         );
-        verify(gateway, never()).login(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -58,8 +53,6 @@ class NoonSessionGatewayPullSessionFactoryTest {
                 "AE",
                 "313934",
                 "merchant@example.com",
-                null,
-                null,
                 "sid=expired"
         );
 

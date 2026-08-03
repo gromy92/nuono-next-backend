@@ -1,7 +1,6 @@
 package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -11,7 +10,6 @@ import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.web.server.ResponseStatusException;
 
 class ProductListingWorkflowControllerTest {
 
@@ -20,11 +18,9 @@ class ProductListingWorkflowControllerTest {
         ProductListingWorkflowService workflowService = mock(ProductListingWorkflowService.class);
         ProductListingCreateOutcomeService createOutcomeService =
                 mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
         BusinessAccessResolver accessResolver = mock(BusinessAccessResolver.class);
         ProductListingWorkflowController controller = new ProductListingWorkflowController(
-                workflowService, createOutcomeService, reauthenticationService, accessResolver
+                workflowService, createOutcomeService, accessResolver
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = ProductListingTestFixtures.businessContext(
@@ -47,11 +43,9 @@ class ProductListingWorkflowControllerTest {
         ProductListingWorkflowService workflowService = mock(ProductListingWorkflowService.class);
         ProductListingCreateOutcomeService createOutcomeService =
                 mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
         BusinessAccessResolver accessResolver = mock(BusinessAccessResolver.class);
         ProductListingWorkflowController controller = new ProductListingWorkflowController(
-                workflowService, createOutcomeService, reauthenticationService, accessResolver
+                workflowService, createOutcomeService, accessResolver
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
         BusinessAccessContext context = ProductListingTestFixtures.businessContext(
@@ -77,13 +71,10 @@ class ProductListingWorkflowControllerTest {
         ProductListingWorkflowService workflowService = mock(ProductListingWorkflowService.class);
         ProductListingCreateOutcomeService createOutcomeService =
                 mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
         BusinessAccessResolver accessResolver = mock(BusinessAccessResolver.class);
         ProductListingWorkflowController controller = new ProductListingWorkflowController(
                 workflowService,
                 createOutcomeService,
-                reauthenticationService,
                 accessResolver
         );
         MockHttpServletRequest request = new MockHttpServletRequest();
@@ -103,111 +94,4 @@ class ProductListingWorkflowControllerTest {
         verify(workflowService).loadWorkflow(context, 10001L);
     }
 
-    @Test
-    void listingScopedReauthenticationUsesProductListingContextAndReturnsWorkflow() {
-        ProductListingWorkflowService workflowService = mock(ProductListingWorkflowService.class);
-        ProductListingCreateOutcomeService createOutcomeService =
-                mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
-        BusinessAccessResolver accessResolver = mock(BusinessAccessResolver.class);
-        ProductListingWorkflowController controller = new ProductListingWorkflowController(
-                workflowService,
-                createOutcomeService,
-                reauthenticationService,
-                accessResolver
-        );
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
-                10002L, 90001L, "STR245027-NAE"
-        );
-        ProductListingWorkflowView expected = new ProductListingWorkflowView();
-        expected.setPhase(ProductListingWorkflowView.Phase.EDITING);
-        when(accessResolver.requireBusinessContext(
-                request, BusinessCapability.PRODUCT_LISTING)).thenReturn(context);
-        when(reauthenticationService.reauthenticate(context, 20002L)).thenReturn(expected);
-
-        assertEquals(expected, controller.reauthenticate(20002L, request));
-        verify(reauthenticationService).reauthenticate(context, 20002L);
-    }
-
-    @Test
-    void reauthenticationStatusPollUsesTheSameBusinessContextBoundary() {
-        ProductListingWorkflowService workflowService =
-                mock(ProductListingWorkflowService.class);
-        ProductListingCreateOutcomeService createOutcomeService =
-                mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
-        BusinessAccessResolver accessResolver =
-                mock(BusinessAccessResolver.class);
-        ProductListingWorkflowController controller =
-                new ProductListingWorkflowController(
-                        workflowService,
-                        createOutcomeService,
-                        reauthenticationService,
-                        accessResolver
-                );
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context =
-                ProductListingTestFixtures.businessContext(
-                        10002L,
-                        90001L,
-                        "STR245027-NAE"
-                );
-        ProductListingWorkflowView pending =
-                new ProductListingWorkflowView();
-        pending.setNextAction(
-                ProductListingWorkflowView.NextAction
-                        .WAIT_FOR_REAUTHENTICATION
-        );
-        when(accessResolver.requireBusinessContext(
-                request,
-                BusinessCapability.PRODUCT_LISTING
-        )).thenReturn(context);
-        when(reauthenticationService.reauthenticationStatus(
-                context,
-                20002L
-        )).thenReturn(pending);
-
-        assertEquals(
-                pending,
-                controller.reauthenticationStatus(20002L, request)
-        );
-        verify(reauthenticationService).reauthenticationStatus(
-                context,
-                20002L
-        );
-    }
-
-    @Test
-    void listingScopedReauthenticationFailureIsConflict() {
-        ProductListingWorkflowService workflowService = mock(ProductListingWorkflowService.class);
-        ProductListingCreateOutcomeService createOutcomeService =
-                mock(ProductListingCreateOutcomeService.class);
-        ProductListingReauthenticationService reauthenticationService =
-                mock(ProductListingReauthenticationService.class);
-        BusinessAccessResolver accessResolver = mock(BusinessAccessResolver.class);
-        ProductListingWorkflowController controller = new ProductListingWorkflowController(
-                workflowService,
-                createOutcomeService,
-                reauthenticationService,
-                accessResolver
-        );
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = ProductListingTestFixtures.businessContext(
-                10002L, 90001L, "STR245027-NAE"
-        );
-        when(accessResolver.requireBusinessContext(
-                request, BusinessCapability.PRODUCT_LISTING)).thenReturn(context);
-        when(reauthenticationService.reauthenticate(context, 20002L))
-                .thenThrow(new ProductListingReauthenticationException("授权未通过"));
-
-        ResponseStatusException exception = assertThrows(
-                ResponseStatusException.class,
-                () -> controller.reauthenticate(20002L, request)
-        );
-
-        assertEquals(409, exception.getStatus().value());
-    }
 }

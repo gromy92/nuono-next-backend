@@ -19,14 +19,16 @@ final class NoonAuthRecoveryWorkerValues {
     ) {
         List<NoonAuthRecoveryProjectTarget> targets = new ArrayList<>();
         for (NoonAuthRecoveryItemRecord item : uniqueProjectItems(items).values()) {
-            targets.add(new NoonAuthRecoveryProjectTarget(
-                    item.getOwnerUserId(),
-                    item.getProjectCode(),
-                    item.getStoreCode(),
-                    safeLong(item.getExpectedAuthVersion())
-            ));
+            targets.add(target(item));
         }
         return targets;
+    }
+
+    static NoonAuthRecoveryProjectTarget target(NoonAuthRecoveryItemRecord item) {
+        return new NoonAuthRecoveryProjectTarget(
+                item.getOwnerUserId(), item.getProjectCode(), item.getStoreCode(),
+                item.getSiteCode(), safeLong(item.getExpectedAuthVersion())
+        );
     }
 
     static Map<String, NoonAuthRecoveryItemRecord> uniqueProjectItems(

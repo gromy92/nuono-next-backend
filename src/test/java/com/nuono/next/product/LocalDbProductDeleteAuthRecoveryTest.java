@@ -50,6 +50,11 @@ class LocalDbProductDeleteAuthRecoveryTest {
         verify(fixture.commandService, never()).scheduleProductDeleteRetryOrManualCheck(
                 any(), anyString(), anyString(), anyString(), anyString(), anyString()
         );
+        verify(fixture.commandService).enqueueAuthWait(
+                fixture.task,
+                "retry_scheduled",
+                false
+        );
         verify(fixture.adapter, never()).postWriteJson(any(), anyString(), any(), anyBoolean());
         verify(fixture.productMapper, never()).markProductMasterDeletedById(any(), any());
     }
@@ -81,6 +86,11 @@ class LocalDbProductDeleteAuthRecoveryTest {
         verify(fixture.commandService, never()).scheduleProductDeleteRetryOrManualCheck(
                 any(), anyString(), anyString(), anyString(), anyString(), anyString()
         );
+        verify(fixture.commandService).enqueueAuthWait(
+                fixture.task,
+                "unmap_submitted",
+                true
+        );
     }
 
     @Test
@@ -111,7 +121,8 @@ class LocalDbProductDeleteAuthRecoveryTest {
                 eq(fixture.task),
                 eq("pending_manual_check"),
                 eq(ProductPublishCommandService.ERROR_CODE_NOON_AUTH_RECOVERY_PENDING),
-                argThat(message -> message.contains("不会自动继续删除或重建")),
+                argThat(message -> message.contains("自动继续原任务")
+                        || message.contains("不会自动继续删除或重建")),
                 resultCaptor.capture(),
                 isNull(),
                 any(),
@@ -193,8 +204,8 @@ class LocalDbProductDeleteAuthRecoveryTest {
 
     private NoonSessionGateway testGateway() {
         return new NoonSessionGateway(
-                objectMapper, null, false, 0, true, "", "", "en-sa", "en",
-                false, false, "", "", "", "", "", "", "", "", false,
+                objectMapper, null, 0, true, "", "", "en-sa", "en",
+                false, "", "", "", "", "", "", "", false,
                 "HTTP", "", 0, ""
         );
     }

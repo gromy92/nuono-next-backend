@@ -37,8 +37,6 @@ class RealNoonAdvertisingReportProviderTest {
                 "SA",
                 "69486",
                 "seller@example.com",
-                "secret",
-                "mail-auth-code",
                 "cookie=value"
         );
         RecordingGatewaySession session = new RecordingGatewaySession();
@@ -107,8 +105,6 @@ class RealNoonAdvertisingReportProviderTest {
                 "AE",
                 "108065",
                 "seller@example.com",
-                "secret",
-                "mail-auth-code",
                 "cookie=value"
         );
         EmptyCampaignMetricsSession session = new EmptyCampaignMetricsSession();

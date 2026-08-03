@@ -1,6 +1,7 @@
 package com.nuono.next.procurementorder;
 
-import com.nuono.next.procurementorder.ProcurementPurchaseOrderViews.PurchaseOrderLogisticsQuoteChannelLineView;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +11,8 @@ public class PurchaseOrderLogisticsQuoteChannelOptionView {
     public String serviceCode;
     public String serviceName;
     public String quoteVersionCode;
+    public LocalDate quoteEffectiveFrom;
+    public LocalDateTime quoteRecordedAt;
     public String siteCode;
     public String transportMode;
     public String transportModeLabel;
@@ -23,6 +26,9 @@ public class PurchaseOrderLogisticsQuoteChannelOptionView {
     public Integer pendingLineCount = 0;
     public Integer confirmedLineCount = 0;
     public Integer newProductLineCount = 0;
+    public Integer supportedLineCount = 0;
+    public Integer inquiryRequiredLineCount = 0;
+    public Integer unsupportedLineCount = 0;
     public List<PurchaseOrderLogisticsQuotePublishedPriceView> publishedPrices = new ArrayList<>();
     public List<PurchaseOrderLogisticsQuoteSurchargeView> surcharges = new ArrayList<>();
     public List<PurchaseOrderLogisticsQuoteChannelLineView> lineQuotes = new ArrayList<>();

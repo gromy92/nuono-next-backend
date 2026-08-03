@@ -182,10 +182,9 @@ class NoonAuthRecoveryPersistenceContractTest {
     @Test
     void explicitSharedEmailBindingInvalidatesAnyStaleProjectCookieBeforeQueueing() throws Exception {
         Method method = StoreSyncMapper.class.getDeclaredMethod(
-                "updateProjectEmailBinding",
+                "updateProjectSharedEmailBinding",
                 Long.class,
                 Long.class,
-                String.class,
                 String.class,
                 String.class,
                 Long.class
@@ -280,7 +279,7 @@ class NoonAuthRecoveryPersistenceContractTest {
     }
 
     @Test
-    void manualHoldCanOnlyBeReleasedByARealConfigurationChange() {
+    void deterministicManualHoldCanOnlyBeReleasedByARealConfigurationChange() {
         String sql = updateSql("releaseManualHoldOnConfigChange");
         String projectSql = updateSql("releaseProjectManualHolds");
         String itemSql = updateSql("reopenFailedRecoveryItems");
@@ -429,10 +428,10 @@ class NoonAuthRecoveryPersistenceContractTest {
                 .contains("#{targetStatus} NOT IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')")
                 .contains("item.status IN ('PENDING', 'VALIDATING')");
         assertThat(transitionItem)
-                .contains("#{targetStatus} IN ('PENDING', 'VALIDATING')")
-                .contains("item.source_task_id IS NULL")
-                .contains("task.status = 'BLOCKED_AUTH'")
-                .contains("task.auth_recovery_id = item.recovery_id");
+                .contains("item.status = #{expectedStatus}")
+                .contains("recovery.version_no = #{expectedRecoveryVersion}")
+                .contains("recovery.lease_token = #{expectedLeaseToken}")
+                .doesNotContain("noon_pull_task");
         assertThat(requeueTerminalTasks)
                 .contains("task.status = 'QUEUED'")
                 .contains("task.auth_recovery_id = NULL")

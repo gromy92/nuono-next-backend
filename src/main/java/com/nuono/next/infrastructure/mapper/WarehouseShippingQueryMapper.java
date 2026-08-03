@@ -1,24 +1,6 @@
 package com.nuono.next.infrastructure.mapper;
 
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.BalanceQuantityDelta;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanLineSourceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.DispatchPlanRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ForwarderRouteQuoteRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentBalanceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentConfirmationInsertRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.FulfillmentConfirmationLineInsertRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderLineSourceRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.OutboundOrderRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingBoxItemRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingBoxRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PackingListRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderAccessRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderItemRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseOrderItemSiteRecord;
-import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.PurchaseReceiptRow;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSourceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
@@ -26,11 +8,9 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
-import org.apache.ibatis.annotations.Delete;
-import org.apache.ibatis.annotations.Insert;
+import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
-import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapper {
@@ -52,7 +32,9 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             + "ELSE batch.status END AS status,";
 
 @Select({
-            "SELECT batch.id, batch.owner_user_id AS ownerUserId, batch.batch_no AS batchNo,",
+            "<script>",
+            "SELECT batch.id, batch.owner_user_id AS ownerUserId, batch.dispatch_plan_id AS dispatchPlanId,",
+            "       batch.batch_no AS batchNo,",
             SHIPPING_BATCH_EXECUTION_STATUS,
             "       batch.selected_option_id AS selectedOptionId,",
             "       batch.source_count AS sourceCount, batch.sku_count AS skuCount, batch.total_quantity AS totalQuantity,",
@@ -74,14 +56,17 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "           FROM warehouse_outbound_order outbound",
             "           LEFT JOIN warehouse_packing_list list ON list.outbound_order_id = outbound.id AND list.is_deleted = b'0'",
             "           WHERE outbound.is_deleted = b'0' GROUP BY outbound.batch_id) packing ON packing.batch_id = batch.id",
-            "WHERE batch.owner_user_id = #{ownerUserId}",
-            "  AND batch.is_deleted = b'0'",
-            "ORDER BY batch.gmt_updated DESC, batch.id DESC"
+            "WHERE batch.is_deleted = b'0'",
+            WarehouseAggregateSourceScopeMapper.SHIPPING_BATCH_SOURCE_SCOPE,
+            "ORDER BY batch.gmt_updated DESC, batch.id DESC",
+            "</script>"
     })
-    List<ShippingBatchRecord> listShippingBatches(@Param("ownerUserId") Long ownerUserId);
+    List<ShippingBatchRecord> listShippingBatches(
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
-            "SELECT id, owner_user_id AS ownerUserId, batch_no AS batchNo,",
+            "SELECT id, owner_user_id AS ownerUserId, dispatch_plan_id AS dispatchPlanId, batch_no AS batchNo,",
             SHIPPING_BATCH_EXECUTION_STATUS,
             "       selected_option_id AS selectedOptionId,",
             "       source_count AS sourceCount, sku_count AS skuCount, total_quantity AS totalQuantity,",
@@ -94,6 +79,15 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "LIMIT 1"
     })
     ShippingBatchRecord selectShippingBatchById(@Param("batchId") Long batchId);
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, dispatch_plan_id AS dispatchPlanId, batch_no AS batchNo, status,",
+            "       selected_option_id AS selectedOptionId, total_quantity AS totalQuantity",
+            "FROM warehouse_shipping_batch",
+            "WHERE id = #{batchId} AND is_deleted = b'0'",
+            "LIMIT 1 FOR UPDATE"
+    })
+    ShippingBatchRecord selectShippingBatchByIdForUpdate(@Param("batchId") Long batchId);
 
 @Select({
             "SELECT source.id, source.batch_id AS batchId, source.owner_user_id AS ownerUserId,",
@@ -119,18 +113,19 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "       CASE WHEN EXISTS (",
             "         SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "         WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            "           AND quote.quote_status = 'CONFIRMED' AND quote.is_deleted = b'0'",
+            ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_USABLE,
+            "           AND quote.is_deleted = b'0'",
             "       ) THEN 'CONFIRMED' ELSE 'PENDING_QUOTE' END AS logisticsQuoteStatus,",
             "       CASE WHEN EXISTS (",
             "         SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "         WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            "           AND quote.quote_status = 'CONFIRMED'",
+            ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE,
             "           AND quote.shipping_submit_status = 'SUBMITTED' AND quote.is_deleted = b'0'",
             "       ) THEN 'SUBMITTED' ELSE 'NOT_SUBMITTED' END AS logisticsShippingSubmitStatus,",
             "       NOT EXISTS (",
             "         SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "         WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            "           AND quote.quote_status = 'CONFIRMED'",
+            ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE,
             "           AND quote.shipping_submit_status = 'SUBMITTED' AND quote.is_deleted = b'0'",
             "       ) AS logisticsQuoteBlocking,",
             "       source.reserved_quantity AS reservedQuantity",
@@ -273,6 +268,9 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "JOIN forwarder_quote_version version",
             "  ON version.id = line.quote_version_id",
             " AND version.status = 'PUBLISHED'",
+            " AND version.effective_from IS NOT NULL",
+            " AND version.effective_from &lt;= CURRENT_DATE",
+            " AND (version.effective_to IS NULL OR version.effective_to >= CURRENT_DATE)",
             "JOIN forwarder",
             "  ON forwarder.id = version.forwarder_id",
             " AND forwarder.status = 'ACTIVE'",
@@ -280,11 +278,12 @@ public interface WarehouseShippingQueryMapper extends WarehouseShippingWriteMapp
             "  ON price.service_code = line.service_code",
             " AND price.quote_version_id = line.quote_version_id",
             " AND price.price_status IN ('NORMAL', 'STARTING_PRICE', 'ESTIMATE')",
-            " AND price.unit_price IS NOT NULL",
+            " AND price.unit_price > 0",
             "WHERE route.active_for_purchase_order = b'1'",
             "  AND route.route_code IN",
             "  <foreach collection='routeCodes' item='routeCode' open='(' separator=',' close=')'>#{routeCode}</foreach>",
-            "ORDER BY route.route_code ASC, price.cargo_category_code ASC, price.billing_unit ASC, price.unit_price ASC",
+            "ORDER BY route.route_code ASC, price.cargo_category_code ASC, price.billing_unit ASC,",
+            "         price.unit_price ASC",
             "</script>"
     })
     List<ForwarderRouteQuoteRecord> listForwarderRouteQuotes(@Param("routeCodes") Collection<String> routeCodes);

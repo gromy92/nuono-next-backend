@@ -5,6 +5,7 @@ import java.util.Objects;
 public final class NoonAuthRecoveryProjectResult {
     public enum Code {
         RECOVERED,
+        PROJECT_TARGET_INVALID,
         PROJECT_ACCESS_DENIED,
         SESSION_CREATE_FAILED,
         COOKIE_VALIDATION_FAILED,
@@ -65,6 +66,16 @@ public final class NoonAuthRecoveryProjectResult {
         }
         return new NoonAuthRecoveryProjectResult(
                 target, code, null, null, safeDiagnostic, null, null);
+    }
+
+    public static NoonAuthRecoveryProjectResult invalidTarget(
+            NoonAuthRecoveryProjectTarget target
+    ) {
+        return failed(
+                target,
+                Code.PROJECT_TARGET_INVALID,
+                "project recovery target has incomplete store/site identity"
+        );
     }
 
     public static NoonAuthRecoveryProjectResult transientFailure(

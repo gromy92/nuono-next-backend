@@ -116,7 +116,7 @@ final class ProductListingCreateOutcomeVerifier {
                 task.getId(), task.getOwnerUserId(), task.getNoonResultJson(),
                 support.writeJson(updated)) == 1) {
             return ProductListingCreateOutcomeVerificationView
-                    .reauthenticationRequired(task.getId(), partnerSku);
+                    .authorizationWaiting(task.getId(), partnerSku);
         }
         ProductListingTaskRecord latest =
                 mapper.selectTaskById(task.getId(), task.getOwnerUserId());
@@ -129,7 +129,7 @@ final class ProductListingCreateOutcomeVerifier {
         if (latest != null
                 && "noon_auth_required".equalsIgnoreCase(latest.getFailureCode())) {
             return ProductListingCreateOutcomeVerificationView
-                    .reauthenticationRequired(task.getId(), partnerSku);
+                    .authorizationWaiting(task.getId(), partnerSku);
         }
         throw changedTask();
     }

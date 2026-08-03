@@ -8,8 +8,6 @@ public class NoonPullStoreBinding {
     private final String partnerId;
     private final String noonUser;
     private final String sessionProjectUser;
-    private final String noonPassword;
-    private final String noonEmailAuthCode;
     private final String persistedCookie;
 
     public NoonPullStoreBinding(
@@ -19,8 +17,6 @@ public class NoonPullStoreBinding {
             String siteCode,
             String partnerId,
             String noonUser,
-            String noonPassword,
-            String noonEmailAuthCode,
             String persistedCookie
     ) {
         this(
@@ -31,8 +27,6 @@ public class NoonPullStoreBinding {
                 partnerId,
                 noonUser,
                 noonUser,
-                noonPassword,
-                noonEmailAuthCode,
                 persistedCookie
         );
     }
@@ -45,8 +39,6 @@ public class NoonPullStoreBinding {
             String partnerId,
             String noonUser,
             String sessionProjectUser,
-            String noonPassword,
-            String noonEmailAuthCode,
             String persistedCookie
     ) {
         this.ownerUserId = ownerUserId;
@@ -56,8 +48,6 @@ public class NoonPullStoreBinding {
         this.partnerId = partnerId;
         this.noonUser = noonUser;
         this.sessionProjectUser = sessionProjectUser;
-        this.noonPassword = noonPassword;
-        this.noonEmailAuthCode = noonEmailAuthCode;
         this.persistedCookie = persistedCookie;
     }
 
@@ -87,14 +77,6 @@ public class NoonPullStoreBinding {
 
     public String getSessionProjectUser() {
         return sessionProjectUser;
-    }
-
-    public String getNoonPassword() {
-        return noonPassword;
-    }
-
-    public String getNoonEmailAuthCode() {
-        return noonEmailAuthCode;
     }
 
     public String getPersistedCookie() {

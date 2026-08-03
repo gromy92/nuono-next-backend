@@ -17,7 +17,7 @@ class ProductListingAuthRecoveryMapperSqlTest {
 
         assertTrue(sql.contains("mode = 'REAL_RUN'"));
         assertTrue(sql.contains("status IN ('failed', 'written_verify_failed')"));
-        assertTrue(sql.contains("failure_code = 'noon_auth_required'"));
+        assertTrue(sql.contains("failure_code IN ('noon_auth_required', 'noon_auth_recovered')"));
         assertTrue(sql.contains("$.recoveryId"));
         assertTrue(sql.contains("IS NOT NULL"));
         assertTrue(sql.contains("ROW_NUMBER() OVER"));

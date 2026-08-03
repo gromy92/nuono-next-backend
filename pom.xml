@@ -76,6 +76,19 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>scripts</directory>
+                <targetPath>release/schema-migrations</targetPath>
+                <includes>
+                    <include>release_schema_migrations.py</include>
+                    <include>schema_migrations/**/*.py</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

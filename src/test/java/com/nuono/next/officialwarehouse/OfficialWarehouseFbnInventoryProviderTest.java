@@ -130,7 +130,6 @@ class OfficialWarehouseFbnInventoryProviderTest {
         record.setSite("SA");
         record.setNoonPartnerId("108065");
         record.setNoonPartnerProjectUser("project-user@example.com");
-        record.setNoonPartnerPwd("secret");
         record.setNoonPartnerCookie("session=already-present");
         return record;
     }
