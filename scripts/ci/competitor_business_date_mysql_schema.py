@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from competitor_business_date.mysql_cli import MysqlCli
+from competitor_business_date.mysql_cli import MysqlCli, MysqlCliError
 from competitor_business_date.preflight import (
     read_schema_fingerprint,
     validate_target_schema,
@@ -82,7 +82,21 @@ def run_migration(mysql: MysqlCli, backend_root: Path, name: str) -> None:
     if name not in MIGRATIONS:
         raise RuntimeError(f"unmanaged fixture migration: {name}")
     path = backend_root / "src/main/resources/db/init" / name
-    mysql.run_script(path.read_text(encoding="utf-8"), timeout_seconds=120)
+    try:
+        mysql.run_script(path.read_text(encoding="utf-8"), timeout_seconds=120)
+    except MysqlCliError as error:
+        if name != MIGRATIONS[1]:
+            raise
+        checks = mysql.run_script(
+            "SELECT constraint_name, HEX(check_clause), "
+            "HEX(REGEXP_REPLACE(REPLACE(REPLACE(LOWER(check_clause), "
+            "'`', ''), '_utf8mb4', ''), '[[:space:]()]', '')) "
+            "FROM information_schema.check_constraints "
+            "WHERE constraint_schema=DATABASE() "
+            "AND constraint_name LIKE 'chk_ops_comp_cwf_%' "
+            "ORDER BY constraint_name;"
+        ).strip()
+        raise MysqlCliError(f"{error}; writer fence checks: {checks}") from error
 
 
 def _extract_create_table(source: str, table_name: str) -> str:
