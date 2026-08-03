@@ -2,6 +2,7 @@ package com.nuono.next.competitoranalysis;
 
 import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
+import java.util.Objects;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -21,23 +22,46 @@ public class CompetitorKeywordRefreshTransactionRunner {
     private final CompetitorAnalysisMapper mapper;
     private final CompetitorKeywordRefreshRunner runner;
     private final CompetitorRefreshLeaseGuard leaseGuard;
+    private final CompetitorCorrectionWriterFenceGuard correctionFenceGuard;
 
     public CompetitorKeywordRefreshTransactionRunner(
             CompetitorAnalysisMapper mapper,
             CompetitorKeywordRefreshRunner runner
     ) {
-        this(mapper, runner, CompetitorRefreshLeaseGuard.disabled(mapper));
+        this(
+                mapper,
+                runner,
+                CompetitorRefreshLeaseGuard.disabled(mapper),
+                CompetitorCorrectionWriterFenceGuard.disabled()
+        );
+    }
+
+    public CompetitorKeywordRefreshTransactionRunner(
+            CompetitorAnalysisMapper mapper,
+            CompetitorKeywordRefreshRunner runner,
+            CompetitorRefreshLeaseGuard leaseGuard
+    ) {
+        this(
+                mapper,
+                runner,
+                leaseGuard,
+                CompetitorCorrectionWriterFenceGuard.disabled()
+        );
     }
 
     @Autowired
     public CompetitorKeywordRefreshTransactionRunner(
             CompetitorAnalysisMapper mapper,
             CompetitorKeywordRefreshRunner runner,
-            CompetitorRefreshLeaseGuard leaseGuard
+            CompetitorRefreshLeaseGuard leaseGuard,
+            CompetitorCorrectionWriterFenceGuard correctionFenceGuard
     ) {
         this.mapper = mapper;
         this.runner = runner == null ? new NoopCompetitorKeywordRefreshRunner() : runner;
         this.leaseGuard = leaseGuard;
+        this.correctionFenceGuard = Objects.requireNonNull(
+                correctionFenceGuard, "correctionFenceGuard"
+        );
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -48,6 +72,7 @@ public class CompetitorKeywordRefreshTransactionRunner {
             CompetitorKeywordRow keyword,
             Long actorUserId
     ) {
+        correctionFenceGuard.acquireForWrite();
         Long keywordRunId = mapper.nextKeywordRunId();
         try {
             CompetitorKeywordRefreshOutcome outcome = runner.refresh(CompetitorKeywordRefreshContext.builder()

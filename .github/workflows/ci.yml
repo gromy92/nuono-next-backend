@@ -67,6 +67,34 @@ jobs:
           scripts/tests/test_release_schema_cutover.py
           scripts/tests/test_file_parse_retirement_cutover.py
 
+      - name: Verify competitor business-date correction contracts
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: >-
+          python3 -m unittest discover
+          -s scripts/tests
+          -p 'test_competitor*.py'
+
+      - name: Verify competitor correction against MySQL 8
+        env:
+          COMPETITOR_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/competitor-mysql.cnf
+          COMPETITOR_MYSQL_SCHEMA: nuono_schema_migration_ci
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-client
+          }
+          umask 077
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3306' \
+            'user=migration_ci' \
+            'password=migration_ci' \
+            > "$COMPETITOR_MYSQL_DEFAULTS_FILE"
+          python3 -m unittest scripts/ci/test_competitor_business_date_mysql.py
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -78,6 +106,7 @@ jobs:
         run: >-
           python3 -m unittest
           scripts/ci/test_package_release_artifact.py
+          scripts/ci/test_competitor_release_artifact.py
           scripts/tests/test_pre_catalog_baseline_gate.py
           scripts/tests/test_official_warehouse_collation_migration_contract.py
           scripts/tests/test_repository_migration_catalog.py

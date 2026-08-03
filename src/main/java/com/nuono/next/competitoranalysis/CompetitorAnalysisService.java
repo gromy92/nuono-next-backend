@@ -1,5 +1,4 @@
 package com.nuono.next.competitoranalysis;
-
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.productkeyword.ProductKeywordCompetitorIndexer;
@@ -33,12 +32,10 @@ public class CompetitorAnalysisService {
     private final CompetitorBrowserRankFactWriter browserRankFactWriter;
     private final java.time.Clock businessClock;
     private ProductKeywordCompetitorIndexer productKeywordCompetitorIndexer;
-
     @Autowired
     public CompetitorAnalysisService(CompetitorAnalysisMapper mapper, CompetitorProductChangeService productChangeService) {
         this(mapper, productChangeService, java.time.Clock.system(BUSINESS_ZONE));
     }
-
     CompetitorAnalysisService(CompetitorAnalysisMapper mapper,
                               CompetitorProductChangeService productChangeService,
                               java.time.Clock businessClock) {
@@ -48,7 +45,10 @@ public class CompetitorAnalysisService {
         this.browserRankFactWriter = new CompetitorBrowserRankFactWriter(mapper);
         this.businessClock = (businessClock == null ? java.time.Clock.system(BUSINESS_ZONE) : businessClock).withZone(BUSINESS_ZONE);
     }
-
+    @Autowired
+    void setCorrectionFenceGuard(CompetitorCorrectionWriterFenceGuard guard) {
+        browserSearchEvidenceWriter.setCorrectionFenceGuard(guard);
+    }
     public CompetitorAnalysisService(CompetitorAnalysisMapper mapper) { this(mapper, null); }
 
     @Autowired(required = false)

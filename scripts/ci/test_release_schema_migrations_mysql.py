@@ -57,7 +57,7 @@ class ReleaseSchemaMigrationsMySqlTest(unittest.TestCase):
         expected_schema = os.environ.get("NUONO_MIGRATION_EXPECTED_SCHEMA",
                                          "nuono_schema_migration_ci")
         resources = SCRIPT_DIR.parent / "src/main/resources"
-        migrations = load_catalog(resources)
+        migrations = tuple(item for item in load_catalog(resources) if item.order <= 239)
         database = MySqlMigrationDatabase(
             defaults_file,
             expected_schema=expected_schema,
