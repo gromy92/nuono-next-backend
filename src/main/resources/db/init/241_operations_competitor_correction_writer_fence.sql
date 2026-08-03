@@ -242,13 +242,21 @@ SET @cwf_post_row_sql :=
 PREPARE migration_241_post_row FROM @cwf_post_row_sql;
 EXECUTE migration_241_post_row;
 DEALLOCATE PREPARE migration_241_post_row;
-SET @cwf_postcheck := IF(
-  @cwf_post_table = 1 AND @cwf_post_columns = 1
-    AND @cwf_post_index = 1 AND @cwf_post_constraints = 1
-    AND @cwf_post_checks = 1 AND @cwf_post_row = 1,
-  'SELECT ''migration_241_target_verified'' AS migration_241_state',
-  'SELECT `migration_241_postcheck_failed` FROM information_schema.tables'
-);
+SET @cwf_postcheck := CASE
+  WHEN @cwf_post_table <> 1 THEN
+    'SELECT `migration_241_post_table_failed` FROM information_schema.tables'
+  WHEN @cwf_post_columns <> 1 THEN
+    'SELECT `migration_241_post_columns_failed` FROM information_schema.tables'
+  WHEN @cwf_post_index <> 1 THEN
+    'SELECT `migration_241_post_index_failed` FROM information_schema.tables'
+  WHEN @cwf_post_constraints <> 1 THEN
+    'SELECT `migration_241_post_constraints_failed` FROM information_schema.tables'
+  WHEN @cwf_post_checks <> 1 THEN
+    'SELECT `migration_241_post_checks_failed` FROM information_schema.tables'
+  WHEN @cwf_post_row <> 1 THEN
+    'SELECT `migration_241_post_row_failed` FROM information_schema.tables'
+  ELSE 'SELECT ''migration_241_target_verified'' AS migration_241_state'
+END;
 PREPARE migration_241_verify FROM @cwf_postcheck;
 EXECUTE migration_241_verify;
 DEALLOCATE PREPARE migration_241_verify;

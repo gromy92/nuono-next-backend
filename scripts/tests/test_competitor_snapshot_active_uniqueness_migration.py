@@ -131,6 +131,13 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
         ):
             self.assertIn(marker, compact)
 
+    def test_writer_fence_migration_reports_the_exact_failed_postcheck(self):
+        migration = MIGRATION_PATH.with_name(
+            "241_operations_competitor_correction_writer_fence.sql"
+        ).read_text(encoding="utf-8")
+        for marker in ("table", "columns", "index", "constraints", "checks", "row"):
+            self.assertIn(f"migration_241_post_{marker}_failed", migration)
+
     def test_writer_fence_release_postcheck_is_readonly_and_exact(self):
         postcheck = FENCE_POSTCHECK_PATH.read_text(encoding="utf-8")
         compact = compact_sql(postcheck).lower()
