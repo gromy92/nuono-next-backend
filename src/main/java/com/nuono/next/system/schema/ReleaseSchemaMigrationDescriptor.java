@@ -6,19 +6,22 @@ final class ReleaseSchemaMigrationDescriptor {
     private final String kind;
     private final String checksum;
     private final String postcheckChecksum;
+    private final String livecheckChecksum;
 
     ReleaseSchemaMigrationDescriptor(
             int order,
             String key,
             String kind,
             String checksum,
-            String postcheckChecksum
+            String postcheckChecksum,
+            String livecheckChecksum
     ) {
         this.order = order;
         this.key = key;
         this.kind = kind;
         this.checksum = checksum;
         this.postcheckChecksum = postcheckChecksum;
+        this.livecheckChecksum = livecheckChecksum;
     }
 
     int getOrder() {
@@ -39,5 +42,9 @@ final class ReleaseSchemaMigrationDescriptor {
 
     String getPostcheckChecksum() {
         return postcheckChecksum;
+    }
+
+    String getLivecheckChecksum() {
+        return livecheckChecksum;
     }
 }
