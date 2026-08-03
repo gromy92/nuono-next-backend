@@ -10,6 +10,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from release_file_parse_retirement_cutover import (  # noqa: E402
     MIGRATION_KEY,
+    PREREQUISITE_MANAGED_MIGRATION_KEYS,
     build_file_parse_retirement_cutover_script,
 )
 
@@ -51,8 +52,21 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
         script = self.script()
 
         self.assertIn('--governed-jar-sha256 "$EXPECTED_JAR_SHA256"', script)
+        for migration_key in PREREQUISITE_MANAGED_MIGRATION_KEYS:
+            self.assertEqual(
+                script.count(f"--approve-managed {migration_key}"),
+                1,
+            )
         self.assertIn('--approve-managed "$DRAIN_MIGRATION_KEY"', script)
         self.assertIn('--approve-runtime-drain "$DRAIN_MIGRATION_KEY"', script)
+        self.assertNotIn(
+            '--approve-runtime-drain 240_operations_competitor_snapshot_active_uniqueness.sql',
+            script,
+        )
+        self.assertNotIn(
+            '--approve-runtime-drain 241_operations_competitor_correction_writer_fence.sql',
+            script,
+        )
         self.assertIn(f"DRAIN_MIGRATION_KEY={MIGRATION_KEY}", script)
         self.assertIn('stat -c \'%a\' "$DRAIN_MYSQL_CNF"', script)
 
