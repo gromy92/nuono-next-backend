@@ -239,7 +239,7 @@ def _normalize_default(value: Any) -> str | None:
 
 def _normalize_expression(value: str) -> str:
     normalized = (
-        re.sub(r"[`()'\s]", "", value)
+        re.sub(r"[`()'\s]", "", value.replace("\\'", "'"))
         .lower()
         .replace("_binary", "")
         .replace("_utf8mb4", "")

@@ -74,6 +74,12 @@ class CompetitorBusinessDateTableContractTest(unittest.TestCase):
                 )
                 self.assertEqual(expected, _normalize_expression(expression))
 
+    def test_mysql_escaped_check_literals_share_one_canonical_form(self):
+        self.assertEqual(
+            "fence_status=open",
+            _normalize_expression("(`fence_status` = _utf8mb4\\'OPEN\\')"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
