@@ -75,6 +75,13 @@ class FileParseRetirementContractTest {
         assertFalse(Pattern.compile(
                 "(?is)(?:^|;)\\s*(?:set|insert|update|delete|alter|create|drop|truncate)\\b"
         ).matcher(postcheck).find());
+        String catalog = Files.readString(DB_INIT.resolve("release-migrations.tsv"));
+        assertTrue(catalog.contains(String.join("\t",
+                "242", "242_file_management_parse_retirement.sql", "MANAGED",
+                "db/init/242_file_management_parse_retirement.sql",
+                "db/postcheck/242_file_management_parse_retirement.sql",
+                "db/postcheck/242_file_management_parse_retirement.sql"
+        )));
 
         String executableMigration = migration.lines()
                 .filter(line -> !line.stripLeading().startsWith("--"))
