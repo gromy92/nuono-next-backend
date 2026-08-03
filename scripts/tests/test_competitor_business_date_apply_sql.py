@@ -115,10 +115,7 @@ class CompetitorBusinessDateApplySqlTest(unittest.TestCase):
         self.assertIn("t.`id` IS NULL OR (NOT (", sql)
         self.assertIn("AND NOT (", sql)
         self.assertIn("WHERE s.`manifest_ordinal` = 1", sql)
-        self.assertIn(
-            "CAST(t.`subject_type` AS BINARY) <=> CAST(s.`subject_type` AS BINARY)",
-            sql,
-        )
+        self.assertIn("CAST(t.`subject_type` AS BINARY) <=> CAST(s.`subject_type` AS BINARY)", sql)
         self.assertLess(sql.rfind("INSERT INTO `_cbd_cas_guard`"), sql.index("COMMIT;"))
         sentinel = expected_success_sentinel([change])
         self.assertIn(sentinel.encode().hex().upper(), sql)
@@ -198,10 +195,7 @@ class CompetitorBusinessDateApplySqlTest(unittest.TestCase):
             "DELETE t FROM `operations_competitor_product_change_event` t",
             rollback_sql,
         )
-        self.assertIn(
-            "CAST(t.`field_key` AS BINARY) <=> CAST(p.`field_key` AS BINARY)",
-            rollback_sql,
-        )
+        self.assertIn("CAST(t.`field_key` AS BINARY) <=> CAST(p.`field_key` AS BINARY)", rollback_sql)
         self.assertIn("t.`id` IS NOT NULL", rollback_sql)
 
     def test_update_rollback_reverses_post_to_pre(self):
