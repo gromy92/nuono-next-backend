@@ -180,7 +180,11 @@ def _validate_source_metadata(metadata: dict[str, Any]) -> None:
         not isinstance(identity, dict)
         or set(identity)
         != {"database", "server_uuid", "hostname", "port", "version", "max_allowed_packet"}
-        or identity.get("database") != "nuonuoai"
+        or identity.get("database") != metadata.get("target_schema")
+        or not all(
+            isinstance(identity.get(key), str) and bool(identity[key].strip())
+            for key in ("server_uuid", "hostname", "version")
+        )
         or not _positive_int(identity.get("port"))
         or not _positive_int(identity.get("max_allowed_packet"))
     ):

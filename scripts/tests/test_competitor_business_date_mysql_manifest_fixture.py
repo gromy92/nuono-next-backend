@@ -78,6 +78,8 @@ class CompetitorBusinessDateMysqlManifestFixtureTest(unittest.TestCase):
                 validate_manifest_metadata(reader.metadata)
                 isolated = dict(reader.metadata)
                 isolated["target_schema"] = "nuono_schema_migration_ci"
+                isolated["database_identity"] = dict(isolated["database_identity"])
+                isolated["database_identity"]["database"] = isolated["target_schema"]
                 validate_manifest_metadata(isolated)
                 isolated["target_schema"] = "unsafe-schema;drop"
                 with self.assertRaises(ManifestContractError):
