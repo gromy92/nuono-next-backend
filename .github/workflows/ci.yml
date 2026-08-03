@@ -65,6 +65,7 @@ jobs:
           scripts/tests/test_release_database_idle.py
           scripts/tests/test_release_schema_drain.py
           scripts/tests/test_release_schema_cutover.py
+          scripts/tests/test_file_parse_retirement_cutover.py
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -84,6 +85,7 @@ jobs:
           scripts/tests/test_schema_migration_artifact.py
           scripts/tests/test_mysql_migration_client.py
           scripts/tests/test_mysql_migration_database.py
+          scripts/tests/test_runtime_drain_migration.py
           scripts/tests/test_release_schema_jar_freeze.py
           scripts/tests/test_rds_migration_ci_contract.py
           scripts/tests/test_warehouse_shipping_plan_migration.py

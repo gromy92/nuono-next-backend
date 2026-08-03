@@ -138,6 +138,21 @@ class MySqlMigrationDatabaseTest(unittest.TestCase):
 
         database.history.record_bootstrap.assert_not_called()
 
+    def test_runtime_drain_acknowledgement_is_exact_and_session_scoped(self):
+        client = FakeClient()
+        database = self.database(client)
+
+        database.acknowledge_runtime_drain(
+            "242_file_management_parse_retirement.sql"
+        )
+
+        self.assertEqual(
+            ["SET @nuono_242_all_legacy_parse_runtimes_drained = 1;"],
+            client.executed,
+        )
+        with self.assertRaisesRegex(MigrationError, "not allowed"):
+            database.acknowledge_runtime_drain("241_wrong.sql")
+
     @staticmethod
     def database(client):
         database = object.__new__(MySqlMigrationDatabase)

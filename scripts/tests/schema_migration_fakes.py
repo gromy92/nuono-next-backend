@@ -72,6 +72,9 @@ class FakeDatabase:
             self.postcheck_passes,
         )
 
+    def acknowledge_runtime_drain(self, migration_key):
+        self.events.append(("runtime-drain", migration_key))
+
     def mark_applied(self, migration, attempt_no):
         self.states[migration.key] = MigrationState(
             migration.key,

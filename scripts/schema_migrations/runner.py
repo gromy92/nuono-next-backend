@@ -11,6 +11,10 @@ from schema_migrations.state import (
     validate_repair_target,
 )
 
+RUNTIME_DRAIN_MIGRATIONS = frozenset({
+    "242_file_management_parse_retirement.sql",
+})
+
 
 class MigrationRunner:
     def __init__(
@@ -36,7 +40,12 @@ class MigrationRunner:
         self.installed_by = installed_by.strip()
         self.lock_timeout_seconds = lock_timeout_seconds
 
-    def apply(self, *, approved_managed: Sequence[str] = ()) -> list[str]:
+    def apply(
+        self,
+        *,
+        approved_managed: Sequence[str] = (),
+        approved_runtime_drains: Sequence[str] = (),
+    ) -> list[str]:
         self.database.acquire_lock(self.lock_timeout_seconds)
         try:
             self._bootstrap()
@@ -48,6 +57,7 @@ class MigrationRunner:
                 approved_managed,
                 allow_completed=True,
             )
+            self._acknowledge_runtime_drains(pending, approved_runtime_drains)
             for migration in pending:
                 if migration.kind == "BOOTSTRAP":
                     raise MigrationError("history bootstrap was not recorded")
@@ -62,7 +72,12 @@ class MigrationRunner:
         *,
         rerun: bool = False,
         approved_managed: Sequence[str] = (),
+        approved_runtime_drains: Sequence[str] = (),
     ) -> str:
+        if approved_runtime_drains and not rerun:
+            raise MigrationError(
+                "runtime-drain approval is only valid for repair-forward --rerun"
+            )
         migration = self._find(migration_key)
         self.database.acquire_lock(self.lock_timeout_seconds)
         try:
@@ -92,6 +107,9 @@ class MigrationRunner:
                 )
             if migration.kind == "BOOTSTRAP":
                 raise MigrationError(f"{migration.key}: bootstrap cannot be rerun here")
+            self._acknowledge_runtime_drains(
+                (migration,), approved_runtime_drains
+            )
             if state.state == "APPLYING":
                 self.database.mark_failed(
                     migration,
@@ -175,6 +193,35 @@ class MigrationRunner:
                 "migrations and contain only allowed catalog keys: "
                 + "; ".join(details)
             )
+
+    def _acknowledge_runtime_drains(
+        self,
+        pending: Sequence[Migration],
+        approved_runtime_drains: Sequence[str],
+    ) -> None:
+        approved = tuple(approved_runtime_drains)
+        required = {
+            migration.key
+            for migration in pending
+            if migration.key in RUNTIME_DRAIN_MIGRATIONS
+        }
+        supplied = set(approved)
+        if len(supplied) != len(approved):
+            raise MigrationError("runtime-drain approvals contain duplicates")
+        if supplied != required:
+            missing = sorted(required - supplied)
+            stale = sorted(supplied - required)
+            details = []
+            if missing:
+                details.append("missing " + ", ".join(missing))
+            if stale:
+                details.append("not allowed " + ", ".join(stale))
+            raise MigrationError(
+                "runtime-drain approvals must exactly cover pending drained-runtime "
+                "migrations: " + "; ".join(details)
+            )
+        for migration_key in approved:
+            self.database.acknowledge_runtime_drain(migration_key)
 
     def _find(self, migration_key: str) -> Migration:
         return self.migrations[migration_index(self.migrations, migration_key)]

@@ -21,6 +21,9 @@ class FileParseRetirementContractTest {
 
     private static final Path MAIN_JAVA = Path.of("src", "main", "java", "com", "nuono", "next");
     private static final Path DB_INIT = Path.of("src", "main", "resources", "db", "init");
+    private static final Path DB_POSTCHECK = Path.of(
+            "src", "main", "resources", "db", "postcheck"
+    );
 
     @Test
     void backendRuntimeAndDedicatedDependenciesStayRemoved() throws IOException {
@@ -61,6 +64,15 @@ class FileParseRetirementContractTest {
         assertFalse(migration.contains("drop table"));
         assertFalse(migration.contains("logistics_service_line"));
         assertFalse(migration.contains("official_outbound_"));
+
+        String postcheck = Files.readString(DB_POSTCHECK.resolve(
+                "242_file_management_parse_retirement.sql"
+        )).toLowerCase(Locale.ROOT);
+        assertTrue(postcheck.stripLeading().startsWith("select if("));
+        assertTrue(postcheck.contains("file_mgmt_parse_task"));
+        assertFalse(Pattern.compile(
+                "(?is)(?:^|;)\\s*(?:set|insert|update|delete|alter|create|drop|truncate)\\b"
+        ).matcher(postcheck).find());
 
         String executableMigration = migration.lines()
                 .filter(line -> !line.stripLeading().startsWith("--"))
