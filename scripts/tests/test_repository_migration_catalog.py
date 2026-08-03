@@ -296,6 +296,5 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
     def compact(sql: str) -> str:
         return re.sub(r"[\s`(){};]", "", sql.lower())
 
-
 if __name__ == "__main__":
     unittest.main()
