@@ -76,9 +76,8 @@ class MysqlAdvisoryLock:
             "SELECT CONCAT("
             f"IF(GET_LOCK(CONVERT(X'{lock_hex}' USING utf8mb4), 0)=1,"
             "'LOCKED','BUSY'),'|',CONNECTION_ID());\n"
-            "SELECT SLEEP(2147483);\n"
         )
-        self.process.stdin.close()
+        self.process.stdin.flush()
         response = self.process.stdout.readline().strip()
         match = re.fullmatch(r"LOCKED\|(\d+)", response)
         if match is None:
@@ -119,17 +118,52 @@ SELECT REPLACE(TO_BASE64(CAST(JSON_OBJECT(
         return " ".join(self.errors.read().strip().split())[-1000:]
 
     def close(self) -> None:
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+        release_error: str | None = None
+        process = self.process
+        if process is not None and process.poll() is None:
             try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+                if self.connection_id is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+                else:
+                    if process.stdin is None:
+                        raise GovernanceError("advisory-lock session has no input")
+                    lock_hex = ADVISORY_LOCK_NAME.encode("utf-8").hex()
+                    process.stdin.write(
+                        "SELECT CONCAT("
+                        f"IF(RELEASE_LOCK(CONVERT(X'{lock_hex}' USING utf8mb4))=1,"
+                        "'RELEASED','NOT_RELEASED'),'|',CONNECTION_ID());\n"
+                    )
+                    process.stdin.close()
+                    if process.stdout is None:
+                        raise GovernanceError("advisory-lock session has no output")
+                    response = process.stdout.readline().strip()
+                    if response != f"RELEASED|{self.connection_id}":
+                        raise GovernanceError(
+                            "database advisory lock release was not acknowledged: "
+                            f"{response}"
+                        )
+                    if process.wait(timeout=5) != 0:
+                        raise GovernanceError("advisory-lock client exited unsuccessfully")
+            except (BrokenPipeError, OSError, subprocess.TimeoutExpired, GovernanceError) as error:
+                release_error = str(error)
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+        for stream in (getattr(process, "stdin", None), getattr(process, "stdout", None)):
+            if stream is not None and not getattr(stream, "closed", False):
+                stream.close()
         if self.errors is not None:
             self.errors.close()
         self.process = None
         self.errors = None
+        self.connection_id = None
+        if release_error is not None:
+            raise GovernanceError(release_error)
 
     def __exit__(self, *_: object) -> None:
         self.close()
