@@ -46,6 +46,8 @@ class PackageReleaseArtifactTest(unittest.TestCase):
                 "204_product_listing_workflow_attempt_claim.sql",
                 "205_product_listing_reauthentication_attempt.sql",
                 "206_product_barcode_store_uniqueness.sql",
+                "240_operations_competitor_snapshot_active_uniqueness.sql",
+                "241_operations_competitor_correction_writer_fence.sql",
             ]
             for name in names:
                 (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")

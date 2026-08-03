@@ -16,6 +16,21 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: nuonuoai
+          MYSQL_USER: competitor_ci
+          MYSQL_PASSWORD: competitor_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,6 +64,34 @@ jobs:
           scripts/tests/test_release_schema_drain.py
           scripts/tests/test_release_schema_cutover.py
 
+      - name: Verify competitor business-date correction contracts
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: >-
+          python3 -m unittest discover
+          -s scripts/tests
+          -p 'test_competitor*.py'
+
+      - name: Verify competitor correction against MySQL 8
+        env:
+          COMPETITOR_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/competitor-mysql.cnf
+          COMPETITOR_MYSQL_SCHEMA: nuonuoai
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          command -v mysql >/dev/null || {
+            sudo apt-get update -qq
+            sudo apt-get install -y mysql-client
+          }
+          umask 077
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3306' \
+            'user=competitor_ci' \
+            'password=competitor_ci' \
+            > "$COMPETITOR_MYSQL_DEFAULTS_FILE"
+          python3 -m unittest scripts/ci/test_competitor_business_date_mysql.py
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
@@ -57,7 +100,10 @@ jobs:
           cache: maven
 
       - name: Release artifact contract tests
-        run: python3 -m unittest scripts/ci/test_package_release_artifact.py
+        run: >-
+          python3 -m unittest
+          scripts/ci/test_package_release_artifact.py
+          scripts/ci/test_competitor_release_artifact.py
 
       - name: Test and package
         run: mvn -q package

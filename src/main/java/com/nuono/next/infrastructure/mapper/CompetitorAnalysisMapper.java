@@ -1,10 +1,10 @@
 package com.nuono.next.infrastructure.mapper;
-
 import com.nuono.next.competitoranalysis.CompetitorDashboardAttributeChangeRow;
 import com.nuono.next.competitoranalysis.CompetitorDashboardProductRow;
 import com.nuono.next.competitoranalysis.CompetitorDashboardRankChangeRow;
 import com.nuono.next.competitoranalysis.CompetitorDashboardSummaryRow;
 import com.nuono.next.competitoranalysis.CompetitorDashboardTrendRow;
+import com.nuono.next.competitoranalysis.CompetitorCorrectionFenceMapper;
 import com.nuono.next.competitoranalysis.CompetitorKeywordProductRow;
 import com.nuono.next.competitoranalysis.CompetitorKeywordProductSearchCommand;
 import com.nuono.next.competitoranalysis.CompetitorKeywordInsertCommand;
@@ -40,7 +40,7 @@ import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
         CompetitorRefreshRetryMapper, CompetitorDetailTakeoverMapper, CompetitorProductDetailWriteMapper,
-        CompetitorListCoverageMapper {
+        CompetitorListCoverageMapper, CompetitorCorrectionFenceMapper {
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
