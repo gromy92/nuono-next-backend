@@ -10,8 +10,6 @@ import org.junit.jupiter.api.Test;
 
 class SchemaContractTest {
     private static final List<String> REQUIRED_OBJECTS = List.of(
-            "CREATE TABLE IF NOT EXISTS file_mgmt_parse_task",
-            "CREATE TABLE IF NOT EXISTS file_mgmt_parse_target_plan",
             "CREATE TABLE IF NOT EXISTS product_site_offer",
             "listing_started_at",
             "CREATE TABLE IF NOT EXISTS product_variant_spec",

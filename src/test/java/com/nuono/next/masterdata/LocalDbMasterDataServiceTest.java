@@ -164,10 +164,12 @@ class LocalDbMasterDataServiceTest {
         when(masterDataMapper.listRoles()).thenReturn(List.of(operator));
         when(masterDataMapper.listMenus()).thenReturn(List.of(
                 menu(7L, "商品管理", "/api/sku/manage"),
+                menu(9301L, "文件管理", "/system/file-management"),
                 menu(13L, "模型测试", "/ai/chat")
         ));
         when(masterDataMapper.listRoleMenuRows()).thenReturn(List.of(
                 roleMenu(4L, 7L),
+                roleMenu(4L, 9301L),
                 roleMenu(4L, 13L)
         ));
 
@@ -181,6 +183,7 @@ class LocalDbMasterDataServiceTest {
         when(masterDataMapper.listMenus()).thenReturn(List.of(
                 menu(3L, "商品", "/product"),
                 menu(7L, "商品管理", "/api/sku/manage"),
+                menu(9301L, "文件管理", "/system/file-management"),
                 menu(13L, "模型测试", "/ai/chat")
         ));
 

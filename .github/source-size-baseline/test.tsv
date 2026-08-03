@@ -4,10 +4,6 @@ src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisMaintenanceSer
 src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshServiceTest.java	693
 src/test/java/com/nuono/next/competitoranalysis/CompetitorAnalysisServiceTest.java	793
 src/test/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunnerTest.java	336
-src/test/java/com/nuono/next/filemanagement/parse/FileParseNaturalKeySupportTest.java	849
-src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceLogisticsTest.java	633
-src/test/java/com/nuono/next/filemanagement/parse/FileParseStructuredAiServiceOutboundFeeTest.java	553
-src/test/java/com/nuono/next/filemanagement/parse/LocalDbFileManagementParseServiceTest.java	3545
 src/test/java/com/nuono/next/intransit/InTransitBatchSchemaContractTest.java	427
 src/test/java/com/nuono/next/intransit/InTransitBatchServiceTest.java	1632
 src/test/java/com/nuono/next/intransit/InTransitFreightCostServiceTest.java	424
@@ -51,7 +47,6 @@ src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryServi
 src/test/java/com/nuono/next/operationsskin/OperationsSkinControllerTest.java	599
 src/test/java/com/nuono/next/operationsskin/OperationsSkinServiceTest.java	786
 src/test/java/com/nuono/next/outboundfee/OfficialOutboundFeeCalculatorTest.java	335
-src/test/java/com/nuono/next/outboundfee/OfficialOutboundFeeMutationVersionDiffTest.java	605
 src/test/java/com/nuono/next/permission/access/BusinessAccessResolverTest.java	538
 src/test/java/com/nuono/next/postsaleprofit/PostSaleProfitAttributionAdjustmentServiceTest.java	302
 src/test/java/com/nuono/next/postsaleprofit/PostSaleProfitMapperSqlTest.java	413

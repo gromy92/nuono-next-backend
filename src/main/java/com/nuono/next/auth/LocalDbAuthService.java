@@ -14,6 +14,9 @@ import org.springframework.util.StringUtils;
 public class LocalDbAuthService {
 
     private static final String INVALID_ACCOUNT_OR_PASSWORD = "账号或密码不正确。";
+    private static final long RETIRED_FILE_MANAGEMENT_MENU_ID = 9301L;
+    private static final String RETIRED_FILE_MANAGEMENT_PATH = "/system/file-management";
+    private static final String RETIRED_AI_FILE_PARSE_PATH = "/system/ai-file-parse";
 
     private final AuthMapper authMapper;
     private final UserPasswordService passwordService;
@@ -184,6 +187,7 @@ public class LocalDbAuthService {
 
     private List<AuthGrantedMenu> filterGrantedMenus(AuthLoginAccount account, List<AuthGrantedMenu> grantedMenus) {
         List<AuthGrantedMenu> result = new ArrayList<>(grantedMenus == null ? List.of() : grantedMenus);
+        result.removeIf(this::isRetiredFileManagementMenu);
         Integer level = account.getLevel();
         if (level == null || level != 0) {
             result.removeIf(menu -> Long.valueOf(10L).equals(menu.getMenuId()));
@@ -192,6 +196,20 @@ public class LocalDbAuthService {
             result.removeIf(menu -> Long.valueOf(25L).equals(menu.getMenuId()));
         }
         return result;
+    }
+
+    private boolean isRetiredFileManagementMenu(AuthGrantedMenu menu) {
+        if (menu == null) {
+            return false;
+        }
+        if (Long.valueOf(RETIRED_FILE_MANAGEMENT_MENU_ID).equals(menu.getMenuId())) {
+            return true;
+        }
+        if (!StringUtils.hasText(menu.getUrlPath())) {
+            return false;
+        }
+        String path = menu.getUrlPath().trim().toLowerCase();
+        return RETIRED_FILE_MANAGEMENT_PATH.equals(path) || RETIRED_AI_FILE_PARSE_PATH.equals(path);
     }
 
     private AuthUserStore resolveCurrentStore(List<AuthUserStore> userStores) {

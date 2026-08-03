@@ -117,6 +117,30 @@ class LocalDbAuthServiceTest {
     }
 
     @Test
+    void shouldHideRetiredFileManagementMenusFromLoginResult() {
+        AuthLoginCommand command = command("admin", "admin123");
+        AuthLoginAccount account = account(
+                "admin",
+                passwordService.encode("admin123"),
+                1,
+                "系统管理员",
+                null,
+                null
+        );
+        when(authMapper.selectLoginAccount("admin")).thenReturn(account);
+        when(authMapper.selectGrantedMenus(10004L)).thenReturn(List.of(
+                grantedMenu(9301L, "文件管理", "/system/file-management"),
+                grantedMenu(9302L, "旧文件解析", "/system/ai-file-parse"),
+                grantedMenu(24L, "采购", "/api/purchase/order")
+        ));
+
+        AuthLoginResult result = service.login(command);
+
+        assertEquals(1, result.getGrantedMenus().size());
+        assertEquals(24L, result.getGrantedMenus().get(0).getMenuId());
+    }
+
+    @Test
     void shouldRejectWrongPassword() {
         AuthLoginCommand command = command("admin", "wrong-pass");
         when(authMapper.selectLoginAccount("admin")).thenReturn(

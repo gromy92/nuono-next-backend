@@ -42,8 +42,7 @@ public class LocalDbMasterDataService {
             25L,
             27L,
             28L,
-            9202L,
-            9301L
+            9202L
     );
     private static final Set<Long> SYSTEM_PERMISSION_MENU_IDS = Set.of(
             6L,
@@ -54,8 +53,7 @@ public class LocalDbMasterDataService {
             25L,
             27L,
             28L,
-            9202L,
-            9301L
+            9202L
     );
 
     private final MasterDataMapper masterDataMapper;
@@ -271,8 +269,7 @@ public class LocalDbMasterDataService {
                 "/system/role",
                 "/api/system/role",
                 "/system/menu",
-                "/api/system/menu",
-                "/system/file-management"
+                "/api/system/menu"
         ).contains(path);
     }
 
@@ -289,8 +286,7 @@ public class LocalDbMasterDataService {
                 "/system/role",
                 "/api/system/role",
                 "/system/menu",
-                "/api/system/menu",
-                "/system/file-management"
+                "/api/system/menu"
         ).contains(path);
     }
 
@@ -314,10 +310,7 @@ public class LocalDbMasterDataService {
                 "角色分配",
                 "角色管理",
                 "角色维护",
-                "菜单维护",
-                "文件管理",
-                "官方文件管理",
-                "官方费用文件管理"
+                "菜单维护"
         ).contains(name);
     }
 
@@ -335,10 +328,7 @@ public class LocalDbMasterDataService {
                 "角色分配",
                 "角色管理",
                 "角色维护",
-                "菜单维护",
-                "文件管理",
-                "官方文件管理",
-                "官方费用文件管理"
+                "菜单维护"
         ).contains(name);
     }
 
