@@ -106,7 +106,7 @@ def verify_appointment_concurrency_migration(test_case, database, migrations):
         ("official_warehouse_asn", "owner_user_id BIGINT NULL", "owner_user_id BIGINT NOT NULL"),
         ("official_warehouse_asn", "store_code VARCHAR(99) NOT NULL", "store_code VARCHAR(100) NOT NULL"),
         ("official_warehouse_asn", "site_code VARCHAR(19) NOT NULL", "site_code VARCHAR(20) NOT NULL"),
-        ("official_warehouse_asn", "is_deleted BIT(2) DEFAULT b'0'", "is_deleted BIT(1) DEFAULT b'0'"),
+        ("official_warehouse_asn", "is_deleted BIT(2) DEFAULT b'0'", "is_deleted BIT(1) NOT NULL DEFAULT b'0'"),
     )
     for table_name, drift_definition, restored_definition in schema_drifts:
         database.client.execute(
