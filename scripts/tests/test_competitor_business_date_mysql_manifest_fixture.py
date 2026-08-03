@@ -21,6 +21,7 @@ from competitor_business_date.execution_plan import (  # noqa: E402
 )
 from competitor_business_date.manifest import ManifestReader  # noqa: E402
 from competitor_business_date.manifest_contract import (  # noqa: E402
+    ManifestContractError,
     validate_manifest_changes,
     validate_manifest_metadata,
 )
@@ -75,6 +76,12 @@ class CompetitorBusinessDateMysqlManifestFixtureTest(unittest.TestCase):
             )
             with ManifestReader(manifest, digest) as reader:
                 validate_manifest_metadata(reader.metadata)
+                isolated = dict(reader.metadata)
+                isolated["target_schema"] = "nuono_schema_migration_ci"
+                validate_manifest_metadata(isolated)
+                isolated["target_schema"] = "unsafe-schema;drop"
+                with self.assertRaises(ManifestContractError):
+                    validate_manifest_metadata(isolated)
                 self.assertEqual(
                     {
                         "event": 0,

@@ -62,7 +62,6 @@ def validate_manifest_metadata(metadata: dict[str, Any]) -> None:
     expected_scalars = {
         "schema_version": 1,
         "algorithm_version": 1,
-        "target_schema": "nuonuoai",
         "writer_cutover": "2026-07-28 20:00:50",
         "snapshot_legacy_max_id": 358244,
         "rank_legacy_max_id": 1001946,
@@ -74,6 +73,8 @@ def validate_manifest_metadata(metadata: dict[str, Any]) -> None:
     if (
         not isinstance(metadata.get("run_id"), str)
         or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}", metadata["run_id"])
+        or not isinstance(metadata.get("target_schema"), str)
+        or not re.fullmatch(r"[A-Za-z0-9_]{1,64}", metadata["target_schema"])
         or not _positive_int(metadata.get("actor_user_id"))
         or not _positive_int(metadata.get("fence_generation"))
     ):
