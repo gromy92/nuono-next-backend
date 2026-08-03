@@ -142,6 +142,12 @@ SET @cps_state := CASE
   WHEN @cps_table_exact = 1 AND @cps_base_columns_exact = 1
     AND @cps_preserved_indexes_exact = 1 AND @cps_index_count = 7
     AND @cps_active_column_count = 1 AND @cps_active_column_exact = 1
+    AND @cps_old_exact = 1 AND @cps_old_equivalent_count = 1
+    AND @cps_target_exact = 0 AND @cps_target_equivalent_count = 0
+    THEN 'COLUMN_ONLY'
+  WHEN @cps_table_exact = 1 AND @cps_base_columns_exact = 1
+    AND @cps_preserved_indexes_exact = 1 AND @cps_index_count = 7
+    AND @cps_active_column_count = 1 AND @cps_active_column_exact = 1
     AND @cps_old_exact = 0 AND @cps_old_equivalent_count = 0
     AND @cps_target_exact = 1 AND @cps_target_equivalent_count = 1
     THEN 'TARGET'
@@ -149,7 +155,9 @@ SET @cps_state := CASE
 END;
 SET @cps_ddl := CASE @cps_state
   WHEN 'LEGACY' THEN
-    'ALTER TABLE `operations_competitor_product_snapshot` ADD COLUMN `active_fact_date` DATE GENERATED ALWAYS AS (CASE WHEN `is_deleted` = b''0'' THEN `fact_date` ELSE NULL END) VIRTUAL AFTER `fact_date`, DROP INDEX `uk_ops_comp_snapshot_daily`, ADD UNIQUE INDEX `uk_ops_comp_snapshot_active_daily` (`watch_product_id`, `subject_type`, `noon_product_code`, `active_fact_date`), ALGORITHM=INPLACE, LOCK=NONE'
+    'ALTER TABLE `operations_competitor_product_snapshot` ADD COLUMN `active_fact_date` DATE GENERATED ALWAYS AS (CASE WHEN `is_deleted` = b''0'' THEN `fact_date` ELSE NULL END) VIRTUAL AFTER `fact_date`, ALGORITHM=INPLACE, LOCK=NONE'
+  WHEN 'COLUMN_ONLY' THEN
+    'SELECT ''migration_240_column_already_added'' AS migration_240_state'
   WHEN 'TARGET' THEN
     'SELECT ''migration_240_already_target'' AS migration_240_state'
   ELSE
@@ -158,6 +166,19 @@ END;
 PREPARE migration_240_ddl FROM @cps_ddl;
 EXECUTE migration_240_ddl;
 DEALLOCATE PREPARE migration_240_ddl;
+
+SET @cps_index_ddl := IF(
+  @cps_state IN ('LEGACY', 'COLUMN_ONLY'),
+    'ALTER TABLE `operations_competitor_product_snapshot` DROP INDEX `uk_ops_comp_snapshot_daily`, ADD UNIQUE INDEX `uk_ops_comp_snapshot_active_daily` (`watch_product_id`, `subject_type`, `noon_product_code`, `active_fact_date`), ALGORITHM=INPLACE, LOCK=NONE',
+  IF(
+    @cps_state = 'TARGET',
+    'SELECT ''migration_240_indexes_already_target'' AS migration_240_state',
+    'SELECT `migration_240_unsupported_schema_state` FROM information_schema.tables'
+  )
+);
+PREPARE migration_240_index_ddl FROM @cps_index_ddl;
+EXECUTE migration_240_index_ddl;
+DEALLOCATE PREPARE migration_240_index_ddl;
 
 TRUNCATE TABLE `_migration_240_indexes`;
 INSERT INTO `_migration_240_indexes`

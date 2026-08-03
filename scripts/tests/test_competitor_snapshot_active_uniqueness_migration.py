@@ -35,6 +35,7 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
     def test_accepts_only_exact_legacy_or_exact_target_state(self):
         self.assertIn("@cps_state", self.sql)
         self.assertIn("'LEGACY'", self.sql)
+        self.assertIn("'COLUMN_ONLY'", self.sql)
         self.assertIn("'TARGET'", self.sql)
         self.assertIn("'UNSUPPORTED'", self.sql)
         self.assertIn("@cps_base_columns_exact = 1", self.sql)
@@ -53,27 +54,37 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
         self.assertIn("(0|0b0|0x00)", self.sql)
         self.assertEqual(2, self.sql.count("REGEXP_REPLACE(") // 2)
 
-    def test_atomic_online_ddl_replaces_only_the_unique_guard(self):
-        ddl_match = re.search(
+    def test_resumable_online_ddl_separates_virtual_column_and_index_changes(self):
+        column_ddl_match = re.search(
             r"'ALTER TABLE `operations_competitor_product_snapshot` "
             r"ADD COLUMN `active_fact_date`.*?ALGORITHM=INPLACE, LOCK=NONE'",
             self.compact,
         )
-        self.assertIsNotNone(ddl_match)
-        ddl = ddl_match.group(0)
+        self.assertIsNotNone(column_ddl_match)
+        column_ddl = column_ddl_match.group(0)
 
         self.assertIn(
             "DATE GENERATED ALWAYS AS "
             "(CASE WHEN `is_deleted` = b''0'' THEN `fact_date` ELSE NULL END) VIRTUAL",
-            ddl,
+            column_ddl,
         )
-        self.assertIn("DROP INDEX `uk_ops_comp_snapshot_daily`", ddl)
+        self.assertNotIn("DROP INDEX", column_ddl)
+        self.assertNotIn("ADD UNIQUE INDEX", column_ddl)
+
+        index_ddl_match = re.search(
+            r"'ALTER TABLE `operations_competitor_product_snapshot` "
+            r"DROP INDEX `uk_ops_comp_snapshot_daily`.*?ALGORITHM=INPLACE, LOCK=NONE'",
+            self.compact,
+        )
+        self.assertIsNotNone(index_ddl_match)
+        index_ddl = index_ddl_match.group(0)
         self.assertIn(
             "ADD UNIQUE INDEX `uk_ops_comp_snapshot_active_daily` "
             "(`watch_product_id`, `subject_type`, `noon_product_code`, `active_fact_date`)",
-            ddl,
+            index_ddl,
         )
-        self.assertEqual(1, ddl.count("DROP INDEX"))
+        self.assertNotIn("ADD COLUMN", index_ddl)
+        self.assertEqual(1, self.sql.count("DROP INDEX `uk_ops_comp_snapshot_daily`"))
 
     def test_existing_lookup_indexes_are_prechecked_and_never_dropped(self):
         preserved = (
