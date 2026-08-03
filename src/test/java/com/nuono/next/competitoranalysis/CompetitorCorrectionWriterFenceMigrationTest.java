@@ -65,7 +65,11 @@ class CompetitorCorrectionWriterFenceMigrationTest {
         assertTrue(sql.contains("@cwf_state in ('legacy', 'target_empty')"));
         assertTrue(sql.contains("migration_241_already_target"));
         assertTrue(sql.contains("migration_241_target_verified"));
-        assertTrue(sql.contains("migration_241_postcheck_failed"));
+        for (String surface : new String[]{
+                "table", "columns", "index", "constraints", "checks", "row"
+        }) {
+            assertTrue(sql.contains("migration_241_post_" + surface + "_failed"));
+        }
         assertTrue(Files.readAllLines(MIGRATION).size() <= 300);
     }
 

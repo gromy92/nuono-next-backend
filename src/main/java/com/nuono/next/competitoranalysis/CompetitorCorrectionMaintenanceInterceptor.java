@@ -3,7 +3,6 @@ package com.nuono.next.competitoranalysis;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatus;
-import org.springframework.stereotype.Component;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionStatus;
@@ -11,7 +10,6 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.HandlerInterceptor;
 
-@Component
 class CompetitorCorrectionMaintenanceInterceptor implements HandlerInterceptor {
     private static final String TRANSACTION_ATTRIBUTE =
             CompetitorCorrectionMaintenanceInterceptor.class.getName()
