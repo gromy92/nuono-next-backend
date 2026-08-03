@@ -17,12 +17,16 @@ class OfficialWarehouseNoonInboundClientAppointmentDetailTest {
         JsonNode detail = objectMapper.createObjectNode()
                 .put("status", "scheduled")
                 .put("schedule_date", "2026-08-01")
-                .put("schedule_slot", "11am-2pm");
+                .put("schedule_slot", "11am-2pm")
+                .put("warehouse_to", "JED01")
+                .put("warehouse_code_to", "W00000004A");
 
         AsnDetail result = OfficialWarehouseNoonInboundClient.parseAsnDetail(detail);
 
         assertThat(result.status).isEqualTo("scheduled");
         assertThat(result.appointmentDate).isEqualTo(LocalDate.parse("2026-08-01"));
         assertThat(result.appointmentTime).isEqualTo("11am-2pm");
+        assertThat(result.warehouseToPartnerCode).isEqualTo("JED01");
+        assertThat(result.warehouseToCode).isEqualTo("W00000004A");
     }
 }

@@ -30,9 +30,12 @@ final class OfficialWarehouseAppointmentTestFixtures {
     static class FakeNoonAppointmentClient implements NoonAppointmentClient {
         String asnStatus;
         String asnStatusAfterSchedule = "scheduled";
+        String currentWarehouseToPartnerCode = "JED01";
+        String currentWarehouseToCode = "W00000004A";
         LocalDate appointmentDate;
         String appointmentTime;
         boolean setWarehousesAccepted = true;
+        boolean updateWarehouseAfterSet = true;
         boolean rescheduleAccepted = true;
         boolean scheduleAccepted = true;
         boolean retainAppointmentAfterSchedule;
@@ -44,7 +47,13 @@ final class OfficialWarehouseAppointmentTestFixtures {
         @Override
         public AsnDetail queryAsnDetail(AppointmentTask task) {
             calls.add("detail");
-            return new AsnDetail(asnStatus, appointmentDate, appointmentTime);
+            return new AsnDetail(
+                    asnStatus,
+                    appointmentDate,
+                    appointmentTime,
+                    currentWarehouseToPartnerCode,
+                    currentWarehouseToCode
+            );
         }
 
         @Override
@@ -66,8 +75,12 @@ final class OfficialWarehouseAppointmentTestFixtures {
         @Override
         public boolean setWarehouses(AppointmentTask task) {
             calls.add("set-warehouses:" + task.warehouseTo);
-            if (setWarehousesAccepted && "created".equals(asnStatus)) {
-                asnStatus = "sealed";
+            if (setWarehousesAccepted && updateWarehouseAfterSet) {
+                currentWarehouseToPartnerCode = task.warehouseTo;
+                currentWarehouseToCode = task.warehouseToCode;
+                if ("created".equals(asnStatus)) {
+                    asnStatus = "sealed";
+                }
             }
             return setWarehousesAccepted;
         }

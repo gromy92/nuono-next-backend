@@ -70,6 +70,35 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
+    void reroutesSealedAsnToRequestedWarehouseBeforeCapacityQuery() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "sealed";
+        client.currentWarehouseToPartnerCode = "JED01";
+        client.currentWarehouseToCode = "W00000004A";
+        client.dayCapacity = List.of("2026-06-16");
+        client.slotsByDate.add(new DatedSlots(
+                "2026-06-16",
+                List.of(new SlotCapacity(9, "9am-10am"))
+        ));
+        AppointmentTask task = task("");
+        task.warehouseTo = "RUH01S";
+        task.warehouseToCode = "W00105371A";
+
+        RunResult result = runner.runOnce(task, client);
+
+        assertThat(result.status).isEqualTo("SCHEDULED");
+        assertThat(client.calls).containsExactly(
+                "detail",
+                "set-warehouses:RUH01S",
+                "detail",
+                "days",
+                "slots:2026-06-16",
+                "schedule:2026-06-16:9",
+                "detail"
+        );
+    }
+
+    @Test
     void availabilityQueryReturnsMatchingSlotsWithoutScheduling() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "sealed";
@@ -105,6 +134,23 @@ class OfficialWarehouseAppointmentRunnerTest {
     }
 
     @Test
+    void availabilityQueryDoesNotAskNoonCapacityForDifferentCurrentWarehouse() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "sealed";
+        client.currentWarehouseToPartnerCode = "JED01";
+        client.currentWarehouseToCode = "W00000004A";
+        AppointmentTask task = task("");
+        task.warehouseTo = "RUH01S";
+        task.warehouseToCode = "W00105371A";
+
+        List<OfficialWarehouseAppointmentRunner.AvailableSlot> slots =
+                runner.queryAvailability(task, client);
+
+        assertThat(slots).isEmpty();
+        assertThat(client.calls).containsExactly("detail");
+    }
+
+    @Test
     void availabilityQueryForScheduledAsnIsAlsoReadOnly() {
         FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
         client.asnStatus = "scheduled";
@@ -129,6 +175,60 @@ class OfficialWarehouseAppointmentRunnerTest {
                 "set-warehouses:JED01",
                 "detail",
                 "schedule:2026-06-16:9",
+                "detail"
+        );
+    }
+
+    @Test
+    void selectedSlotReroutesSealedAsnToRequestedWarehouseBeforeScheduling() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "sealed";
+        client.currentWarehouseToPartnerCode = "JED01";
+        client.currentWarehouseToCode = "W00000004A";
+        AppointmentTask task = task("");
+        task.warehouseTo = "RUH01S";
+        task.warehouseToCode = "W00105371A";
+
+        RunResult result = runner.scheduleSelectedSlot(
+                task,
+                client,
+                LocalDate.parse("2026-06-16"),
+                new SlotCapacity(9, "9am-10am")
+        );
+
+        assertThat(result.status).isEqualTo("SCHEDULED");
+        assertThat(client.calls).containsExactly(
+                "detail",
+                "set-warehouses:RUH01S",
+                "detail",
+                "schedule:2026-06-16:9",
+                "detail"
+        );
+    }
+
+    @Test
+    void doesNotReadCapacityUntilNoonConfirmsRequestedWarehouse() {
+        FakeNoonAppointmentClient client = new FakeNoonAppointmentClient();
+        client.asnStatus = "sealed";
+        client.currentWarehouseToPartnerCode = "JED01";
+        client.currentWarehouseToCode = "W00000004A";
+        client.updateWarehouseAfterSet = false;
+        AppointmentTask task = task("");
+        task.warehouseTo = "RUH01S";
+        task.warehouseToCode = "W00105371A";
+
+        RunResult result = runner.runOnce(task, client);
+
+        assertThat(result.status).isEqualTo("FAILED");
+        assertThat(result.failureType).isEqualTo("ASN_WAREHOUSE_NOT_CONFIRMED");
+        assertThat(result.reconciliationRequired).isTrue();
+        assertThat(client.calls).containsExactly(
+                "detail",
+                "set-warehouses:RUH01S",
+                "detail",
+                "detail",
+                "detail",
+                "detail",
                 "detail"
         );
     }

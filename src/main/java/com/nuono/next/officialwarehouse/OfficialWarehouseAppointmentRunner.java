@@ -1,6 +1,5 @@
 package com.nuono.next.officialwarehouse;
 
-import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.MAX_SEALED_CHECK_ATTEMPTS;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.inRange;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonFailureStatus;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.isNoonPostAppointmentStatus;
@@ -12,9 +11,10 @@ import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecu
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.parseAcceptedHours;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.rescheduleAndWaitUntilReady;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.scheduleAndConfirm;
-import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentExecution.sleepBeforeNextSealedCheck;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentScheduleMatch.automaticDecision;
 import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentScheduleMatch.selectedDecision;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentWarehouseReadiness.isWarehouseChangeRequired;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentWarehouseReadiness.setWarehousesAndWaitUntilReady;
 
 import java.time.Clock;
 import java.time.LocalDate;
@@ -60,7 +60,8 @@ public class OfficialWarehouseAppointmentRunner {
             status = "SEALED";
             oldScheduleReleased = true;
         }
-        boolean warehousesChanged = !isNoonReadyForScheduleStatus(status);
+        boolean warehousesChanged = !isNoonReadyForScheduleStatus(status)
+                || isWarehouseChangeRequired(task, detail);
         RunResult readiness = warehousesChanged ? setWarehousesAndWaitUntilReady(task, client, false) : null;
         if (readiness != null) {
             return readiness;
@@ -106,6 +107,9 @@ public class OfficialWarehouseAppointmentRunner {
             return List.of();
         }
         if (!isNoonReadyForScheduleStatus(status) && !isNoonScheduledStatus(status)) {
+            return List.of();
+        }
+        if (isWarehouseChangeRequired(task, detail)) {
             return List.of();
         }
         List<LocalDate> capacityDates = client.queryDayCapacity(task).stream()
@@ -161,51 +165,13 @@ public class OfficialWarehouseAppointmentRunner {
             }
             status = "SEALED";
         }
-        RunResult readiness = isNoonReadyForScheduleStatus(status) ? null
+        RunResult readiness = isNoonReadyForScheduleStatus(status)
+                && !isWarehouseChangeRequired(task, detail) ? null
                 : setWarehousesAndWaitUntilReady(task, client, true);
         if (readiness != null) {
             return readiness;
         }
         return scheduleAndConfirm(task, client, appointmentDate, slot);
-    }
-    private static RunResult waitUntilReadyForSchedule(AppointmentTask task,
-            NoonAppointmentClient client, boolean selectedSlot) {
-        for (int attempt = 0; attempt < MAX_SEALED_CHECK_ATTEMPTS; attempt++) {
-            AsnDetail detail = client.queryAsnDetail(task);
-            String status = normalize(detail == null ? null : detail.status);
-            if (isNoonFailureStatus(status)) {
-                return RunResult.failed("NOON_ASN_" + status, "Noon ASN 状态不可约仓：" + status);
-            }
-            if (isNoonReadyForScheduleStatus(status)) {
-                return null;
-            }
-            if (isNoonScheduledStatus(status)) {
-                return selectedSlot
-                        ? RunResult.reconciliationRequired("NOON_ALREADY_SCHEDULED_DURING_PREPARATION",
-                            "等待 Noon 仓库准备期间 ASN 已被约仓，请核对后再显式改约。")
-                        : RunResult.alreadyScheduled(detail);
-            }
-            if (attempt + 1 < MAX_SEALED_CHECK_ATTEMPTS) {
-                sleepBeforeNextSealedCheck();
-            }
-        }
-        return RunResult.failed("ASN_NOT_SEALED", "Noon 已设置仓库，但 ASN 尚未 sealed，稍后再点立即约仓。");
-    }
-    private static RunResult setWarehousesAndWaitUntilReady(AppointmentTask task,
-            NoonAppointmentClient client, boolean selectedSlot) {
-        try {
-            if (!client.setWarehouses(task)) {
-                return RunResult.reconciliationRequired("SET_WAREHOUSES", "Noon 设置仓库请求已发出，但结果未确认，请先在 Noon 后台核对。");
-            }
-            client.onWarehousesSet(task);
-            RunResult readiness = waitUntilReadyForSchedule(task, client, selectedSlot);
-            if (readiness != null && !readiness.alreadyScheduled) {
-                readiness.reconciliationRequired = true;
-            }
-            return readiness;
-        } catch (RuntimeException exception) {
-            return RunResult.reconciliationRequired("SET_WAREHOUSES", "Noon 设置仓库请求已发出，但结果未确认，请先在 Noon 后台核对。");
-        }
     }
     private static LocalDate parseDate(String value) {
         if (!StringUtils.hasText(value)) {
@@ -247,9 +213,20 @@ public class OfficialWarehouseAppointmentRunner {
 
     public static class AsnDetail {
         public final String status; public final LocalDate appointmentDate; public final String appointmentTime;
-        public AsnDetail(String status) { this(status, null, null); }
+        public final String warehouseToPartnerCode; public final String warehouseToCode;
+        public AsnDetail(String status) { this(status, null, null, null, null); }
         public AsnDetail(String status, LocalDate appointmentDate, String appointmentTime) {
+            this(status, appointmentDate, appointmentTime, null, null);
+        }
+        public AsnDetail(
+                String status,
+                LocalDate appointmentDate,
+                String appointmentTime,
+                String warehouseToPartnerCode,
+                String warehouseToCode
+        ) {
             this.status = status; this.appointmentDate = appointmentDate; this.appointmentTime = appointmentTime;
+            this.warehouseToPartnerCode = warehouseToPartnerCode; this.warehouseToCode = warehouseToCode;
         }
     }
 
