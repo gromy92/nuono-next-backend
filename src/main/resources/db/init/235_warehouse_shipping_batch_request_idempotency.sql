@@ -63,7 +63,7 @@ CREATE TEMPORARY TABLE `nuono_235_shipping_batch_schema_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_235_shipping_batch_schema`
         CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_235_shipping_batch_schema_guard`
 VALUES (IF(
     @shipping_batch_table_exact
@@ -143,7 +143,7 @@ CREATE TEMPORARY TABLE `nuono_235_shipping_batch_data_guard` (
     `invalid_data_count` BIGINT NOT NULL,
     CONSTRAINT `chk_235_shipping_batch_data`
         CHECK (`invalid_data_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_235_shipping_batch_data_guard`
 VALUES (
     @shipping_batch_idempotency_invalid_row_count
@@ -191,7 +191,7 @@ CREATE TEMPORARY TABLE `nuono_235_shipping_batch_index_guard` (
     `conflicting_index_count` BIGINT NOT NULL,
     CONSTRAINT `chk_235_shipping_batch_index`
         CHECK (`conflicting_index_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_235_shipping_batch_index_guard`
 VALUES (@shipping_batch_request_key_drift);
 DROP TEMPORARY TABLE `nuono_235_shipping_batch_index_guard`;

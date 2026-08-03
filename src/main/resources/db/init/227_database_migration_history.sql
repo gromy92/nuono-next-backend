@@ -119,7 +119,7 @@ CREATE TEMPORARY TABLE `nuono_227_pre_catalog_baseline_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_227_pre_catalog_baseline`
         CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_227_pre_catalog_baseline_guard`
 VALUES (IF(
     @pre_catalog_table_count = 2

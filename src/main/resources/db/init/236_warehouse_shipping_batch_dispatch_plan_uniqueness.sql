@@ -110,7 +110,7 @@ CREATE TEMPORARY TABLE `nuono_236_shipping_plan_link_base_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_236_shipping_plan_link_base`
         CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_236_shipping_plan_link_base_guard`
 VALUES (IF(
     @shipping_plan_link_table_count = 2
@@ -203,7 +203,7 @@ CREATE TEMPORARY TABLE `nuono_236_shipping_plan_link_target_guard` (
     `invalid_schema_count` BIGINT NOT NULL,
     CONSTRAINT `chk_236_shipping_plan_link_target`
         CHECK (`invalid_schema_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_236_shipping_plan_link_target_guard`
 VALUES (IF(
     (
@@ -257,7 +257,7 @@ CREATE TEMPORARY TABLE `nuono_236_shipping_plan_link_data_guard` (
     `invalid_data_count` BIGINT NOT NULL,
     CONSTRAINT `chk_236_shipping_plan_link_data`
         CHECK (`invalid_data_count` = 0)
-) ENGINE=MEMORY;
+) ENGINE=InnoDB;
 INSERT INTO `nuono_236_shipping_plan_link_data_guard`
 VALUES (
     @shipping_plan_duplicate_active_count
