@@ -128,66 +128,6 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             database.events,
         )
 
-    def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):
-        migration = self.migrations[1]
-        next_migration = replace(
-            migration,
-            order=229,
-            key="229_next.sql",
-        )
-        applied = MigrationState(
-            migration.key,
-            migration.checksum,
-            migration.postcheck_checksum,
-            "APPLIED",
-            1,
-        )
-        database = FakeDatabase({migration.key: applied})
-        database.postcheck_results[migration.key] = False
-        database.livecheck_results[migration.key] = True
-        runner = MigrationRunner(
-            database,
-            (*self.migrations, next_migration),
-            release_commit="a" * 40,
-            installed_by="unit-test",
-        )
-
-        runner.apply()
-
-        self.assertIn(("livecheck", migration.key), database.events)
-        self.assertNotIn(("postcheck", migration.key), database.events)
-        self.assertIn(("script", next_migration.key), database.events)
-        self.assertIn(("postcheck", next_migration.key), database.events)
-
-    def test_failed_livecheck_still_blocks_before_pending_script(self):
-        migration = self.migrations[1]
-        next_migration = replace(
-            migration,
-            order=229,
-            key="229_next.sql",
-        )
-        applied = MigrationState(
-            migration.key,
-            migration.checksum,
-            migration.postcheck_checksum,
-            "APPLIED",
-            1,
-        )
-        database = FakeDatabase({migration.key: applied})
-        database.postcheck_results[migration.key] = True
-        database.livecheck_results[migration.key] = False
-        runner = MigrationRunner(
-            database,
-            (*self.migrations, next_migration),
-            release_commit="a" * 40,
-            installed_by="unit-test",
-        )
-
-        with self.assertRaisesRegex(MigrationError, "live schema drift"):
-            runner.apply()
-
-        self.assertNotIn(("script", next_migration.key), database.events)
-
     def test_failure_is_recorded_and_blocks_automatic_replay(self):
         database = FakeDatabase()
         database.script_error = RuntimeError("ddl failed")

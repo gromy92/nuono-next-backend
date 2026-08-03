@@ -9,6 +9,12 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from schema_migrations.catalog import load_catalog  # noqa: E402
+from schema_migrations.core import (  # noqa: E402
+    MigrationError,
+    MigrationRunner,
+    MigrationState,
+)
+from tests.schema_migration_fakes import FakeDatabase  # noqa: E402
 
 
 class MigrationLivecheckContractTest(unittest.TestCase):
@@ -70,6 +76,49 @@ class MigrationLivecheckContractTest(unittest.TestCase):
             "product_management_id_sequence",
         ):
             self.assertIn(durable_marker, livecheck)
+
+    def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):
+        completed, pending = self.migrations[1:3]
+        database = self.database_with_completed(completed)
+        database.postcheck_results[completed.key] = False
+        database.livecheck_results[completed.key] = True
+
+        self.runner(database).apply()
+
+        self.assertIn(("livecheck", completed.key), database.events)
+        self.assertNotIn(("postcheck", completed.key), database.events)
+        self.assertIn(("script", pending.key), database.events)
+        self.assertIn(("postcheck", pending.key), database.events)
+
+    def test_failed_livecheck_still_blocks_before_pending_script(self):
+        completed, pending = self.migrations[1:3]
+        database = self.database_with_completed(completed)
+        database.postcheck_results[completed.key] = True
+        database.livecheck_results[completed.key] = False
+
+        with self.assertRaisesRegex(MigrationError, "live schema drift"):
+            self.runner(database).apply()
+
+        self.assertNotIn(("script", pending.key), database.events)
+
+    @staticmethod
+    def database_with_completed(migration):
+        state = MigrationState(
+            migration.key,
+            migration.checksum,
+            migration.postcheck_checksum,
+            "APPLIED",
+            1,
+        )
+        return FakeDatabase({migration.key: state})
+
+    def runner(self, database):
+        return MigrationRunner(
+            database,
+            self.migrations[:3],
+            release_commit="a" * 40,
+            installed_by="unit-test",
+        )
 
 
 if __name__ == "__main__":
