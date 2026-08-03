@@ -100,7 +100,8 @@ DRAINED_RUNTIME_MIGRATION_STARTED=0
 DRAIN_RUNNER_FILES=({runner_files})
 backend_jvm_count() {{
   ps -eo args= | awk -v prefix="-jar $APP_DIR/" '
-    index($0, prefix) > 0 {{ count += 1 }} END {{ print count + 0 }}'
+    $1 ~ /(^|\\/)java$/ && index($0, prefix) > 0 {{ count += 1 }}
+    END {{ print count + 0 }}'
 }}
 prepare_runtime_drain_runner() {{
   command -v unzip >/dev/null

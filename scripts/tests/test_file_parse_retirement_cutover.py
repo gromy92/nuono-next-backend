@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -47,6 +50,32 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
         self.assertLess(stop, zero_jvms)
         self.assertLess(zero_jvms, migration)
         self.assertLess(migration, new_start)
+
+    def test_backend_jvm_count_ignores_the_counting_process_command_line(self):
+        script = self.script()
+        start = script.index("backend_jvm_count() {")
+        end = script.index("\n}\nprepare_runtime_drain_runner", start) + 2
+        function = script[start:end]
+
+        with tempfile.TemporaryDirectory() as directory:
+            fake_ps = Path(directory) / "ps"
+            fake_ps.write_text(
+                "#!/bin/sh\n"
+                "printf '%s\\n' "
+                "'java -jar /srv/nuono/blue-green/blue/app.jar' "
+                "'awk -v prefix=-jar /srv/nuono/ count matching process'\n",
+                encoding="utf-8",
+            )
+            fake_ps.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-c", f'{function}\nAPP_DIR=/srv/nuono\nbackend_jvm_count'],
+                check=True,
+                capture_output=True,
+                text=True,
+                env={**os.environ, "PATH": f"{directory}:{os.environ['PATH']}"},
+            )
+
+        self.assertEqual(result.stdout.strip(), "1")
 
     def test_runner_uses_exact_same_session_ack_and_governed_jar(self):
         script = self.script()
