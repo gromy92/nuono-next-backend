@@ -34,14 +34,40 @@ def validate_defaults_file(path: Path) -> Path:
     return candidate.resolve()
 
 
-def build_mysql_command(defaults_file: Path, schema: str) -> list[str]:
+def mysql_supports_no_login_paths(mysql_bin: str = "mysql") -> bool:
+    try:
+        result = subprocess.run(
+            [mysql_bin, "--no-login-paths", "--version"],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise MysqlCliError("cannot inspect MySQL client capabilities") from error
+    if result.returncode == 0:
+        return True
+    output = (result.stderr or result.stdout).lower()
+    if "unknown option" in output and "no-login-paths" in output:
+        return False
+    raise MysqlCliError(
+        "MySQL client capability probe failed before opening a database connection"
+    )
+
+
+def build_mysql_command(
+    defaults_file: Path,
+    schema: str,
+    *,
+    no_login_paths_supported: bool = True,
+) -> list[str]:
     defaults = validate_defaults_file(defaults_file)
     if not re.fullmatch(r"[A-Za-z0-9_]+", schema):
         raise MysqlCliError(f"unsafe MySQL schema name: {schema!r}")
     return [
         "mysql",
         f"--defaults-file={defaults}",
-        "--no-login-paths",
+        *(["--no-login-paths"] if no_login_paths_supported else []),
         f"--database={schema}",
         "--batch",
         "--quick",
@@ -64,7 +90,11 @@ class MysqlCli:
         self.defaults_file = validate_defaults_file(defaults_file)
         self.schema = schema
         self.timeout_seconds = timeout_seconds
-        self.command = build_mysql_command(self.defaults_file, schema)
+        self.command = build_mysql_command(
+            self.defaults_file,
+            schema,
+            no_login_paths_supported=mysql_supports_no_login_paths(),
+        )
 
     def run_script(self, sql: str, *, timeout_seconds: int | None = None) -> str:
         if "\x00" in sql:

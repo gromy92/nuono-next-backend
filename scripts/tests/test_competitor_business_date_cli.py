@@ -143,6 +143,21 @@ class CompetitorBusinessDateCliTest(unittest.TestCase):
         self.assertNotIn("secret-value", rendered)
         self.assertIn("password=<redacted>", rendered)
 
+    def test_mysql_command_omits_unsupported_no_login_paths_option(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "mysql.cnf"
+            path.write_text("[client]\nuser=test\n", encoding="utf-8")
+            path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+            command = build_mysql_command(
+                path,
+                "nuonuoai",
+                no_login_paths_supported=False,
+            )
+
+        self.assertNotIn("--no-login-paths", command)
+        self.assertIn("--skip-reconnect", command)
+
 
 if __name__ == "__main__":
     unittest.main()
