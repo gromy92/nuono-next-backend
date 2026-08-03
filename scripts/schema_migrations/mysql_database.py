@@ -106,8 +106,14 @@ class MySqlMigrationDatabase:
         self.client.execute(migration.script_sql)
 
     def postcheck(self, migration: Migration) -> bool:
+        return self._check(migration.postcheck_sql)
+
+    def livecheck(self, migration: Migration) -> bool:
+        return self._check(migration.livecheck_sql)
+
+    def _check(self, sql: str) -> bool:
         try:
-            output = self.client.execute_readonly(migration.postcheck_sql)
+            output = self.client.execute_readonly(sql)
         except MySqlExecutionError as error:
             if error.error_code == 1146:
                 return False

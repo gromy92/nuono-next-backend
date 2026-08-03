@@ -158,6 +158,9 @@ def _verify_forward_descriptors(
             "postcheck_path": migration.postcheck_path.as_posix(),
             "postcheck_sha256": migration.postcheck_checksum,
             "postcheck_size": len(migration.postcheck_bytes),
+            "livecheck_path": migration.livecheck_path.as_posix(),
+            "livecheck_sha256": migration.livecheck_checksum,
+            "livecheck_size": len(migration.livecheck_bytes),
         }
         if descriptor != expected:
             raise MigrationError(

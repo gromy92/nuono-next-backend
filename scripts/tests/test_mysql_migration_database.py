@@ -155,10 +155,13 @@ class MySqlMigrationDatabaseTest(unittest.TestCase):
             kind="AUTO_ADDITIVE",
             script_path=PurePosixPath("db/init/211_test.sql"),
             postcheck_path=PurePosixPath("db/postcheck/211_test.sql"),
+            livecheck_path=PurePosixPath("db/postcheck/211_test.sql"),
             checksum=sha256_bytes(script),
             postcheck_checksum=sha256_bytes(postcheck),
+            livecheck_checksum=sha256_bytes(postcheck),
             script_bytes=script,
             postcheck_bytes=postcheck,
+            livecheck_bytes=postcheck,
         )
 
 

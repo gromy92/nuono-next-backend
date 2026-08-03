@@ -33,21 +33,25 @@ class SchemaMigrationArtifactTest(unittest.TestCase):
         self.resources = self.root / "resources"
         (self.resources / "db/init").mkdir(parents=True)
         (self.resources / "db/postcheck").mkdir(parents=True)
+        (self.resources / "db/livecheck").mkdir(parents=True)
         self.script = self.resources / "db/init/227_history.sql"
         self.postcheck = self.resources / "db/postcheck/227_history.sql"
+        self.livecheck = self.resources / "db/livecheck/227_history.sql"
         self.script.write_text("SELECT 227;\n", encoding="utf-8")
         self.postcheck.write_text("SELECT 1;\n", encoding="utf-8")
+        self.livecheck.write_text("SELECT 2;\n", encoding="utf-8")
         self.catalog = self.resources.joinpath(*CATALOG_PATH.parts)
         self.catalog.write_text(
-            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+            "livecheck_path\n"
             "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
-            "db/postcheck/227_history.sql\n",
+            "db/postcheck/227_history.sql\tdb/livecheck/227_history.sql\n",
             encoding="utf-8",
         )
         self.migrations = load_catalog(self.resources)
         self.jar = self.root / "backend.jar"
         with zipfile.ZipFile(self.jar, "w") as archive:
-            for path in (self.catalog, self.script, self.postcheck):
+            for path in (self.catalog, self.script, self.postcheck, self.livecheck):
                 relative = path.relative_to(self.resources).as_posix()
                 archive.write(path, "BOOT-INF/classes/" + relative)
             for relative in RUNNER_RELATIVE_PATHS:
@@ -62,7 +66,7 @@ class SchemaMigrationArtifactTest(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def test_accepts_catalog_scripts_and_postchecks_bound_to_same_jar(self):
+    def test_accepts_all_migration_checks_bound_to_same_jar(self):
         verify_release_inputs(
             self.manifest,
             self.jar,
@@ -81,6 +85,7 @@ class SchemaMigrationArtifactTest(unittest.TestCase):
         )
 
         self.assertEqual(b"SELECT 1;\n", migrations[0].postcheck_bytes)
+        self.assertEqual(b"SELECT 2;\n", migrations[0].livecheck_bytes)
 
     def test_never_reopens_a_jar_path_after_freezing_its_bytes(self):
         original = self.jar.read_bytes()
@@ -144,6 +149,9 @@ class SchemaMigrationArtifactTest(unittest.TestCase):
                     "postcheck_path": migration.postcheck_path.as_posix(),
                     "postcheck_sha256": migration.postcheck_checksum,
                     "postcheck_size": len(migration.postcheck_bytes),
+                    "livecheck_path": migration.livecheck_path.as_posix(),
+                    "livecheck_sha256": migration.livecheck_checksum,
+                    "livecheck_size": len(migration.livecheck_bytes),
                 }
             ],
             "migration_runner": runner_descriptors(SCRIPT_DIR),

@@ -134,7 +134,7 @@ class MigrationRunner:
 
     def _validate_live(self, migrations: Sequence[Migration]) -> None:
         for migration in migrations:
-            if not self.database.postcheck(migration):
+            if not self.database.livecheck(migration):
                 raise MigrationError(
                     f"{migration.key}: live schema drift; add a new forward migration"
                 )

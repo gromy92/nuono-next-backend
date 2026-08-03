@@ -30,11 +30,12 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
         self.write_migration("227_history.sql", "BOOTSTRAP", "SELECT 227;\n")
         self.write_migration("228_feature.sql", "AUTO_ADDITIVE", "SELECT 228;\n")
         (self.root / "db/init/release-migrations.tsv").write_text(
-            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+            "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+            "livecheck_path\n"
             "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
-            "db/postcheck/227_history.sql\n"
+            "db/postcheck/227_history.sql\tdb/postcheck/227_history.sql\n"
             "228\t228_feature.sql\tAUTO_ADDITIVE\tdb/init/228_feature.sql\t"
-            "db/postcheck/228_feature.sql\n",
+            "db/postcheck/228_feature.sql\tdb/postcheck/228_feature.sql\n",
             encoding="utf-8",
         )
         self.migrations = load_catalog(self.root)
@@ -62,14 +63,14 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             (
                 "wrong start",
                 "228\t228_history.sql\tBOOTSTRAP\tdb/init/228_history.sql\t"
-                "db/postcheck/228_history.sql\n",
+                "db/postcheck/228_history.sql\tdb/postcheck/228_history.sql\n",
             ),
             (
                 "gap",
                 "227\t227_history.sql\tBOOTSTRAP\tdb/init/227_history.sql\t"
-                "db/postcheck/227_history.sql\n"
+                "db/postcheck/227_history.sql\tdb/postcheck/227_history.sql\n"
                 "229\t229_feature.sql\tAUTO_ADDITIVE\tdb/init/229_feature.sql\t"
-                "db/postcheck/229_feature.sql\n",
+                "db/postcheck/229_feature.sql\tdb/postcheck/229_feature.sql\n",
             ),
         )
         for label, rows in cases:
@@ -81,7 +82,8 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
                 ):
                     self.write_migration(name, "ignored", f"SELECT {order};\n")
                 (self.root / "db/init/release-migrations.tsv").write_text(
-                    "order\tmigration_key\tkind\tscript_path\tpostcheck_path\n"
+                    "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+                    "livecheck_path\n"
                     + rows,
                     encoding="utf-8",
                 )
@@ -116,7 +118,7 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             [
                 ("lock", 30),
                 ("bootstrap", "227_history.sql"),
-                ("postcheck", "227_history.sql"),
+                ("livecheck", "227_history.sql"),
                 ("begin", "228_feature.sql", 1, "APPLY"),
                 ("script", "228_feature.sql"),
                 ("postcheck", "228_feature.sql"),
@@ -125,6 +127,66 @@ class ReleaseSchemaMigrationTest(unittest.TestCase):
             ],
             database.events,
         )
+
+    def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):
+        migration = self.migrations[1]
+        next_migration = replace(
+            migration,
+            order=229,
+            key="229_next.sql",
+        )
+        applied = MigrationState(
+            migration.key,
+            migration.checksum,
+            migration.postcheck_checksum,
+            "APPLIED",
+            1,
+        )
+        database = FakeDatabase({migration.key: applied})
+        database.postcheck_results[migration.key] = False
+        database.livecheck_results[migration.key] = True
+        runner = MigrationRunner(
+            database,
+            (*self.migrations, next_migration),
+            release_commit="a" * 40,
+            installed_by="unit-test",
+        )
+
+        runner.apply()
+
+        self.assertIn(("livecheck", migration.key), database.events)
+        self.assertNotIn(("postcheck", migration.key), database.events)
+        self.assertIn(("script", next_migration.key), database.events)
+        self.assertIn(("postcheck", next_migration.key), database.events)
+
+    def test_failed_livecheck_still_blocks_before_pending_script(self):
+        migration = self.migrations[1]
+        next_migration = replace(
+            migration,
+            order=229,
+            key="229_next.sql",
+        )
+        applied = MigrationState(
+            migration.key,
+            migration.checksum,
+            migration.postcheck_checksum,
+            "APPLIED",
+            1,
+        )
+        database = FakeDatabase({migration.key: applied})
+        database.postcheck_results[migration.key] = True
+        database.livecheck_results[migration.key] = False
+        runner = MigrationRunner(
+            database,
+            (*self.migrations, next_migration),
+            release_commit="a" * 40,
+            installed_by="unit-test",
+        )
+
+        with self.assertRaisesRegex(MigrationError, "live schema drift"):
+            runner.apply()
+
+        self.assertNotIn(("script", next_migration.key), database.events)
 
     def test_failure_is_recorded_and_blocks_automatic_replay(self):
         database = FakeDatabase()

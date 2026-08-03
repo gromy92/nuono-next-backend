@@ -56,13 +56,15 @@ class PackageReleaseArtifactTest(unittest.TestCase):
             postcheck_dir = root / "db" / "postcheck"
             postcheck_dir.mkdir()
             catalog_lines = [
-                "order\tmigration_key\tkind\tscript_path\tpostcheck_path"
+                "order\tmigration_key\tkind\tscript_path\tpostcheck_path\t"
+                "livecheck_path"
             ]
             for order, (name, kind) in enumerate(forward, start=227):
                 (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
                 (postcheck_dir / name).write_text("SELECT 1;\n", encoding="utf-8")
                 catalog_lines.append(
-                    f"{order}\t{name}\t{kind}\tdb/init/{name}\tdb/postcheck/{name}"
+                    f"{order}\t{name}\t{kind}\tdb/init/{name}\t"
+                    f"db/postcheck/{name}\tdb/postcheck/{name}"
                 )
             (migration_dir / "release-migrations.tsv").write_text(
                 "\n".join(catalog_lines) + "\n",
@@ -106,6 +108,16 @@ class PackageReleaseArtifactTest(unittest.TestCase):
                 ],
                 [
                     item["postcheck_sha256"]
+                    for item in manifest["forward_migrations"]
+                ],
+            )
+            self.assertEqual(
+                [
+                    module.sha256_file(postcheck_dir / name)
+                    for name, _ in forward
+                ],
+                [
+                    item["livecheck_sha256"]
                     for item in manifest["forward_migrations"]
                 ],
             )
