@@ -60,7 +60,7 @@ src/main/java/com/nuono/next/intransit/autosync/ZdLogisticsProviderAdapter.java	
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteFactPublisher.java	600
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchService.java	1156
 src/main/java/com/nuono/next/logisticsquote/LogisticsQuoteWorkbenchView.java	1086
-src/main/java/com/nuono/next/masterdata/LocalDbMasterDataService.java	1435
+src/main/java/com/nuono/next/masterdata/LocalDbMasterDataService.java	1425
 src/main/java/com/nuono/next/masterdata/MasterDataController.java	462
 src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
