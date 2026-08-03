@@ -101,6 +101,7 @@ public interface InTransitSuperSearchMapper {
             "line.owner_user_id AS owner_user_id,",
             "batch.id AS batch_id,",
             "line.psku AS psku,",
+            "CASE WHEN COUNT(*) = COUNT(pm.id) AND COUNT(DISTINCT pm.id) = 1 THEN MIN(pm.id) END AS matched_product_id,",
             "MAX(NULLIF(TRIM(line.product_name), '')) AS product_name,",
             "MAX(line.store_code) AS store_code,",
             "MAX(line.site_code) AS site_code,",
@@ -127,6 +128,7 @@ public interface InTransitSuperSearchMapper {
             "AND batch.id = line.batch_id AND batch.is_deleted = b'0'",
             "LEFT JOIN in_transit_forwarder forwarder ON forwarder.id = batch.standard_forwarder_id",
             "AND forwarder.owner_user_id = batch.owner_user_id AND forwarder.is_deleted = b'0'",
+            PRODUCT_MASTER_JOIN,
             "WHERE line.owner_user_id = #{query.ownerUserId}",
             "AND line.is_deleted = b'0'",
             "<if test='query.includeHistory == false'>",
@@ -191,6 +193,7 @@ public interface InTransitSuperSearchMapper {
             "line.owner_user_id AS owner_user_id,",
             "batch.id AS batch_id,",
             "line.psku AS psku,",
+            "CASE WHEN COUNT(DISTINCT title_match.product_master_id) = 1 THEN MIN(title_match.product_master_id) END AS matched_product_id,",
             "MAX(NULLIF(TRIM(line.product_name), '')) AS product_name,",
             "MAX(line.store_code) AS store_code,",
             "MAX(line.site_code) AS site_code,",
@@ -213,24 +216,41 @@ public interface InTransitSuperSearchMapper {
             "SUM(line.received_quantity) AS received_quantity_total,",
             "SUM(line.remaining_quantity) AS remaining_quantity_total",
             "FROM (",
-            "SELECT pv.partner_sku AS partner_sku,",
-            TITLE_MATCH_LEGACY_LINE_PSKU + " AS legacy_line_psku",
+            "SELECT DISTINCT title_pb.barcode AS barcode, title_pm.id AS product_master_id",
             "FROM logical_store title_ls",
             "JOIN product_master title_pm ON title_pm.logical_store_id = title_ls.id",
             "AND title_pm.is_deleted = b'0'",
-            "JOIN product_variant pv ON pv.product_master_id = title_pm.id AND pv.is_deleted = b'0'",
+            "JOIN product_barcode title_pb ON title_pb.product_master_id = title_pm.id",
+            "AND title_pb.logical_store_id = title_pm.logical_store_id",
+            "AND BINARY title_pb.partner_sku = BINARY title_pm.partner_sku",
+            "AND title_pb.is_deleted = b'0'",
+            "AND COALESCE(title_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
             "WHERE title_ls.owner_user_id = #{query.ownerUserId} AND title_ls.is_deleted = b'0'",
             "<if test='query.projectCode != null and query.projectCode != \"\"'>",
             "AND title_ls.project_code = #{query.projectCode}",
             "</if>",
             "AND (title_pm.title_cache LIKE CONCAT('%', #{query.keyword}, '%')",
             "OR title_pm.title_cn_cache LIKE CONCAT('%', #{query.keyword}, '%'))",
-            "GROUP BY pv.partner_sku",
+            "AND 1 = (",
+            "SELECT COUNT(DISTINCT identity_pb.logical_store_id, BINARY identity_pb.partner_sku)",
+            "FROM product_barcode identity_pb",
+            "JOIN product_master identity_pm ON identity_pm.id = identity_pb.product_master_id",
+            "AND identity_pm.logical_store_id = identity_pb.logical_store_id",
+            "AND BINARY identity_pm.partner_sku = BINARY identity_pb.partner_sku",
+            "AND identity_pm.is_deleted = b'0'",
+            "JOIN logical_store identity_ls ON identity_ls.id = identity_pb.logical_store_id",
+            "AND identity_ls.owner_user_id = #{query.ownerUserId} AND identity_ls.is_deleted = b'0'",
+            "WHERE identity_pb.barcode = title_pb.barcode",
+            "AND BINARY identity_pb.barcode = BINARY title_pb.barcode",
+            "AND identity_pb.is_deleted = b'0'",
+            "AND COALESCE(identity_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
+            ")",
             "LIMIT 500",
             ") title_match",
             "JOIN in_transit_goods_line line ON line.owner_user_id = #{query.ownerUserId}",
             "AND line.is_deleted = b'0'",
-            "AND (line.psku = title_match.partner_sku OR line.psku = title_match.legacy_line_psku)",
+            "AND line.sku = title_match.barcode",
+            "AND BINARY line.sku = BINARY title_match.barcode",
             "JOIN in_transit_batch batch ON batch.owner_user_id = line.owner_user_id",
             "AND batch.id = line.batch_id AND batch.is_deleted = b'0'",
             "LEFT JOIN in_transit_forwarder forwarder ON forwarder.id = batch.standard_forwarder_id",
@@ -290,52 +310,24 @@ public interface InTransitSuperSearchMapper {
             + "LIMIT 1) "
             + "</if> ";
 
-    String LINE_LEGACY_PSKU_ALIAS = "CASE WHEN line.psku REGEXP '^[A-Za-z]+B[0-9]+$' "
-            + "THEN CONCAT(REGEXP_REPLACE(line.psku, 'B[0-9]+$', '', 1, 1, 'c'), "
-            + "REGEXP_SUBSTR(line.psku, '[0-9]+$')) ELSE line.psku END";
-
-    String MATCHED_LEGACY_PSKU_ALIAS = "CASE WHEN matched.psku REGEXP '^[A-Za-z]+B[0-9]+$' "
-            + "THEN CONCAT(REGEXP_REPLACE(matched.psku, 'B[0-9]+$', '', 1, 1, 'c'), "
-            + "REGEXP_SUBSTR(matched.psku, '[0-9]+$')) ELSE matched.psku END";
-
-    String TITLE_MATCH_LEGACY_LINE_PSKU = "CASE WHEN pv.partner_sku REGEXP '^[A-Za-z]+[0-9]+$' "
-            + "THEN CONCAT(REGEXP_REPLACE(pv.partner_sku, '[0-9]+$', '', 1, 1, 'c'), "
-            + "'B', REGEXP_SUBSTR(pv.partner_sku, '[0-9]+$')) ELSE pv.partner_sku END";
-
     String PRODUCT_MASTER_JOIN = ""
-            + "LEFT JOIN product_master pm ON pm.id = COALESCE( "
-            + "(SELECT exact_pm.id "
-            + "FROM logical_store_site exact_lss "
-            + "JOIN logical_store exact_ls ON exact_ls.id = exact_lss.logical_store_id "
+            + "LEFT JOIN product_master pm ON pm.id = ( "
+            + "SELECT MIN(exact_pb.product_master_id) "
+            + "FROM product_barcode exact_pb "
+            + "JOIN product_master exact_pm ON exact_pm.id = exact_pb.product_master_id "
+            + "AND exact_pm.logical_store_id = exact_pb.logical_store_id "
+            + "AND BINARY exact_pm.partner_sku = BINARY exact_pb.partner_sku "
+            + "AND exact_pm.is_deleted = b'0' "
+            + "JOIN logical_store exact_ls ON exact_ls.id = exact_pb.logical_store_id "
             + "AND exact_ls.owner_user_id = line.owner_user_id AND exact_ls.is_deleted = b'0' "
             + "<if test='query.projectCode != null and query.projectCode != \"\"'> "
             + "AND exact_ls.project_code = #{query.projectCode} "
             + "</if> "
-            + "JOIN product_site_offer exact_pso ON exact_pso.site_id = exact_lss.id "
-            + "AND exact_pso.is_deleted = b'0' "
-            + "JOIN product_variant exact_pv ON exact_pv.id = exact_pso.variant_id "
-            + "AND exact_pv.partner_sku IN (line.psku, " + LINE_LEGACY_PSKU_ALIAS + ") "
-            + "AND exact_pv.is_deleted = b'0' "
-            + "JOIN product_master exact_pm ON exact_pm.id = exact_pv.product_master_id "
-            + "AND exact_pm.logical_store_id = exact_ls.id AND exact_pm.is_deleted = b'0' "
-            + "WHERE exact_lss.store_code = line.store_code "
-            + "AND exact_lss.site = line.site_code AND exact_lss.is_deleted = b'0' "
-            + "ORDER BY exact_pm.cover_image_url IS NULL ASC, exact_pm.gmt_updated DESC, exact_pm.id DESC "
-            + "LIMIT 1), "
-            + "(SELECT fallback_pm.id "
-            + "FROM logical_store fallback_ls "
-            + "JOIN product_master fallback_pm ON fallback_pm.logical_store_id = fallback_ls.id "
-            + "AND fallback_pm.is_deleted = b'0' "
-            + "JOIN product_variant fallback_pv ON fallback_pv.product_master_id = fallback_pm.id "
-            + "AND fallback_pv.partner_sku IN (line.psku, " + LINE_LEGACY_PSKU_ALIAS + ") "
-            + "AND fallback_pv.is_deleted = b'0' "
-            + "WHERE fallback_ls.owner_user_id = line.owner_user_id AND fallback_ls.is_deleted = b'0' "
-            + "<if test='query.projectCode != null and query.projectCode != \"\"'> "
-            + "AND fallback_ls.project_code = #{query.projectCode} "
-            + "</if> "
-            + "ORDER BY CASE WHEN fallback_pv.partner_sku = line.psku THEN 0 ELSE 1 END, "
-            + "fallback_pm.cover_image_url IS NULL ASC, fallback_pm.gmt_updated DESC, fallback_pm.id DESC "
-            + "LIMIT 1)) "
+            + "WHERE exact_pb.barcode = line.sku "
+            + "AND BINARY exact_pb.barcode = BINARY line.sku "
+            + "AND exact_pb.is_deleted = b'0' "
+            + "AND COALESCE(exact_pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS' "
+            + "HAVING COUNT(DISTINCT exact_pb.logical_store_id, BINARY exact_pb.partner_sku) = 1) "
             + "AND pm.is_deleted = b'0' ";
 
     String MATCHED_PROJECT_CODE_CONDITIONS = ""
@@ -351,38 +343,6 @@ public interface InTransitSuperSearchMapper {
             + "</if> ";
 
     String MATCHED_PRODUCT_MASTER_JOIN = ""
-            + "LEFT JOIN product_master pm ON pm.id = COALESCE( "
-            + "(SELECT exact_pm.id "
-            + "FROM logical_store_site exact_lss "
-            + "JOIN logical_store exact_ls ON exact_ls.id = exact_lss.logical_store_id "
-            + "AND exact_ls.owner_user_id = matched.owner_user_id AND exact_ls.is_deleted = b'0' "
-            + "<if test='query.projectCode != null and query.projectCode != \"\"'> "
-            + "AND exact_ls.project_code = #{query.projectCode} "
-            + "</if> "
-            + "JOIN product_site_offer exact_pso ON exact_pso.site_id = exact_lss.id "
-            + "AND exact_pso.is_deleted = b'0' "
-            + "JOIN product_variant exact_pv ON exact_pv.id = exact_pso.variant_id "
-            + "AND exact_pv.partner_sku IN (matched.psku, " + MATCHED_LEGACY_PSKU_ALIAS + ") "
-            + "AND exact_pv.is_deleted = b'0' "
-            + "JOIN product_master exact_pm ON exact_pm.id = exact_pv.product_master_id "
-            + "AND exact_pm.logical_store_id = exact_ls.id AND exact_pm.is_deleted = b'0' "
-            + "WHERE exact_lss.store_code = matched.store_code "
-            + "AND exact_lss.site = matched.site_code AND exact_lss.is_deleted = b'0' "
-            + "ORDER BY exact_pm.cover_image_url IS NULL ASC, exact_pm.gmt_updated DESC, exact_pm.id DESC "
-            + "LIMIT 1), "
-            + "(SELECT fallback_pm.id "
-            + "FROM logical_store fallback_ls "
-            + "JOIN product_master fallback_pm ON fallback_pm.logical_store_id = fallback_ls.id "
-            + "AND fallback_pm.is_deleted = b'0' "
-            + "JOIN product_variant fallback_pv ON fallback_pv.product_master_id = fallback_pm.id "
-            + "AND fallback_pv.partner_sku IN (matched.psku, " + MATCHED_LEGACY_PSKU_ALIAS + ") "
-            + "AND fallback_pv.is_deleted = b'0' "
-            + "WHERE fallback_ls.owner_user_id = matched.owner_user_id AND fallback_ls.is_deleted = b'0' "
-            + "<if test='query.projectCode != null and query.projectCode != \"\"'> "
-            + "AND fallback_ls.project_code = #{query.projectCode} "
-            + "</if> "
-            + "ORDER BY CASE WHEN fallback_pv.partner_sku = matched.psku THEN 0 ELSE 1 END, "
-            + "fallback_pm.cover_image_url IS NULL ASC, fallback_pm.gmt_updated DESC, fallback_pm.id DESC "
-            + "LIMIT 1)) "
+            + "LEFT JOIN product_master pm ON pm.id = matched.matched_product_id "
             + "AND pm.is_deleted = b'0' ";
 }

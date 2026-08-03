@@ -11,6 +11,7 @@ import com.nuono.next.product.noon.NoonProductException;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -38,7 +39,6 @@ public class ProductPublishCommandService {
     public static final String PRODUCT_DELETE_STATUS_WRITE_RETRY_SCHEDULED = "product_delete_write_retry_scheduled";
     public static final String PRODUCT_DELETE_STATUS_VERIFY_TIMEOUT = "product_delete_verify_timeout";
     public static final String ERROR_CODE_NOON_AUTH_RECOVERY_PENDING = "noon_auth_recovery_pending";
-
     private static final Set<String> ACTIVE_STATUSES = Set.of(
             "queued",
             PRODUCT_DELETE_STATUS_QUEUED,
@@ -83,7 +83,6 @@ public class ProductPublishCommandService {
     public ProductPublishCommandService(ProductManagementMapper productManagementMapper) {
         this.productManagementMapper = productManagementMapper;
     }
-
     @Autowired(required = false)
     public void setProductWriteAuthRecovery(ProductWriteAuthRecovery productWriteAuthRecovery) {
         if (productWriteAuthRecovery != null) {
@@ -91,6 +90,17 @@ public class ProductPublishCommandService {
         }
     }
 
+    public Optional<Long> enqueueAuthWait(
+            ProductPublishTaskRecord task,
+            String checkpoint,
+            boolean writeMayHaveOccurred
+    ) {
+        return productWriteAuthRecovery.enqueueTask(task, checkpoint, writeMayHaveOccurred);
+    }
+
+    public ProductWriteAuthRecovery.TaskScope openAuthTaskScope(ProductPublishTaskRecord task) {
+        return productWriteAuthRecovery.openTaskScope(task);
+    }
     public ProductPublishTaskView loadTask(
             Long taskId,
             Long ownerUserId,
@@ -121,10 +131,13 @@ public class ProductPublishCommandService {
             throw new IllegalArgumentException("发布任务不存在或已删除。");
         }
         ensureOwner(task, ownerUserId);
-        authRetryGuard.requireSafeToRetry(task, productWriteAuthRecovery);
         ProductPublishTaskRecord activeTask = task.getProductMasterId() == null
-                ? null
-                : productManagementMapper.selectActiveProductPublishTask(task.getProductMasterId());
+                ? null : productManagementMapper.selectActiveProductPublishTask(task.getProductMasterId());
+        if (isActiveStatus(task.getStatus()) && activeTask != null
+                && Objects.equals(activeTask.getId(), taskId)) {
+            return buildTaskView(task, true, terminalWorkbenchBuilder, changedDomainsResolver);
+        }
+        authRetryGuard.requireSafeToRetry(task, productWriteAuthRecovery);
         if (activeTask != null && !Objects.equals(activeTask.getId(), taskId)) {
             throw new IllegalStateException("当前商品已有发布任务正在执行，请等待完成后再重试。");
         }
@@ -436,6 +449,7 @@ public class ProductPublishCommandService {
         view.setChangedDomains(changedDomains);
         view.setRetryCount(task.getRetryCount());
         view.setVerifyAttemptCount(task.getVerifyAttemptCount());
+        view.setRetryAllowed(isProductDeleteTask(task) ? ProductDeleteRetrySafety.canResume(task) : null);
         view.setNextRunAt(task.getNextRunAt());
         view.setFinishedAt(task.getFinishedAt());
         view.setPollAfterMillis(pollAfterMillis(task));
@@ -448,7 +462,6 @@ public class ProductPublishCommandService {
         }
         return view;
     }
-
     public String message(ProductPublishTaskRecord task, Function<ProductPublishTaskRecord, List<String>> changedDomainsResolver) {
         return message(task, resolveChangedDomains(task, changedDomainsResolver));
     }
@@ -686,134 +699,7 @@ public class ProductPublishCommandService {
         return StringUtils.hasText(first) ? first : second;
     }
 
-    public static class ProductPublishTaskCreateCommand {
-        private Long ownerUserId;
-        private Long productMasterId;
-        private String storeCode;
-        private String projectCode;
-        private String skuParent;
-        private String partnerSku;
-        private String pskuCode;
-        private String currentSiteCode;
-        private String draftJson;
-        private String baselineJson;
-        private String draftHash;
-        private String changedDomainsJson;
-        private String requestJson;
-        private String idempotencyKey;
-
-        public Long getOwnerUserId() {
-            return ownerUserId;
-        }
-
-        public void setOwnerUserId(Long ownerUserId) {
-            this.ownerUserId = ownerUserId;
-        }
-
-        public Long getProductMasterId() {
-            return productMasterId;
-        }
-
-        public void setProductMasterId(Long productMasterId) {
-            this.productMasterId = productMasterId;
-        }
-
-        public String getStoreCode() {
-            return storeCode;
-        }
-
-        public void setStoreCode(String storeCode) {
-            this.storeCode = storeCode;
-        }
-
-        public String getProjectCode() {
-            return projectCode;
-        }
-
-        public void setProjectCode(String projectCode) {
-            this.projectCode = projectCode;
-        }
-
-        public String getSkuParent() {
-            return skuParent;
-        }
-
-        public void setSkuParent(String skuParent) {
-            this.skuParent = skuParent;
-        }
-
-        public String getPartnerSku() {
-            return partnerSku;
-        }
-
-        public void setPartnerSku(String partnerSku) {
-            this.partnerSku = partnerSku;
-        }
-
-        public String getPskuCode() {
-            return pskuCode;
-        }
-
-        public void setPskuCode(String pskuCode) {
-            this.pskuCode = pskuCode;
-        }
-
-        public String getCurrentSiteCode() {
-            return currentSiteCode;
-        }
-
-        public void setCurrentSiteCode(String currentSiteCode) {
-            this.currentSiteCode = currentSiteCode;
-        }
-
-        public String getDraftJson() {
-            return draftJson;
-        }
-
-        public void setDraftJson(String draftJson) {
-            this.draftJson = draftJson;
-        }
-
-        public String getBaselineJson() {
-            return baselineJson;
-        }
-
-        public void setBaselineJson(String baselineJson) {
-            this.baselineJson = baselineJson;
-        }
-
-        public String getDraftHash() {
-            return draftHash;
-        }
-
-        public void setDraftHash(String draftHash) {
-            this.draftHash = draftHash;
-        }
-
-        public String getChangedDomainsJson() {
-            return changedDomainsJson;
-        }
-
-        public void setChangedDomainsJson(String changedDomainsJson) {
-            this.changedDomainsJson = changedDomainsJson;
-        }
-
-        public String getRequestJson() {
-            return requestJson;
-        }
-
-        public void setRequestJson(String requestJson) {
-            this.requestJson = requestJson;
-        }
-
-        public String getIdempotencyKey() {
-            return idempotencyKey;
-        }
-
-        public void setIdempotencyKey(String idempotencyKey) {
-            this.idempotencyKey = idempotencyKey;
-        }
-    }
+    public static class ProductPublishTaskCreateCommand extends ProductPublishTaskCreateCommandData { }
 
     public static class ProductPublishTaskCreateResult {
         private final ProductPublishTaskRecord task;

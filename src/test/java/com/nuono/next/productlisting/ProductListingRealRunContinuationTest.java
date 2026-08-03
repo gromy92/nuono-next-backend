@@ -170,7 +170,7 @@ class ProductListingRealRunContinuationTest extends ProductListingRealRunService
     }
 
     @Test
-    void unknownCreateAuthenticationFailureStaysLockedForReauthentication() {
+    void unknownCreateAuthenticationFailureStaysLockedForAuthorizationRecovery() {
         ProductListingTestFixtures.FakeProductListingMapper mapper =
                 new ProductListingTestFixtures.FakeProductListingMapper();
         ProductListingTestFixtures.TrackingNoonWriteAdapter adapter =
@@ -205,7 +205,7 @@ class ProductListingRealRunContinuationTest extends ProductListingRealRunService
                 workflow.getWriteCertainty()
         );
         assertEquals(
-                ProductListingWorkflowView.NextAction.REAUTHENTICATE,
+                ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION,
                 workflow.getNextAction()
         );
     }
@@ -246,7 +246,7 @@ class ProductListingRealRunContinuationTest extends ProductListingRealRunService
                 workflow.getWriteCertainty()
         );
         assertEquals(
-                ProductListingWorkflowView.NextAction.REAUTHENTICATE,
+                ProductListingWorkflowView.NextAction.WAIT_FOR_AUTHORIZATION,
                 workflow.getNextAction()
         );
     }

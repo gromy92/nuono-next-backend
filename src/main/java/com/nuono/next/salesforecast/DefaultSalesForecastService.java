@@ -181,15 +181,16 @@ public class DefaultSalesForecastService implements SalesForecastService {
                 query.getStoreCode(),
                 query.getSiteCode()
         );
-        if (latestFactDate == null) {
+        List<SalesForecastStockSnapshot> stockSnapshots = stockRepository.listCurrentStock(query);
+        if (latestFactDate == null && (stockSnapshots == null || stockSnapshots.isEmpty())) {
             return SalesForecastOverviewView.missingSalesData(query.getStoreCode(), query.getSiteCode());
         }
+        LocalDate forecastAnchorDate = latestFactDate == null ? LocalDate.now(clock) : latestFactDate;
 
         ActivityImpact activityImpact = resolveActivityImpact(query);
-        List<SalesForecastStockSnapshot> stockSnapshots = stockRepository.listCurrentStock(query);
         SalesForecastRunRecord existingRun = forecastRunRepository.findLatestCompleted(query);
         if (existingRun != null
-                && latestFactDate.equals(existingRun.getSourceDataDate())
+                && forecastAnchorDate.equals(existingRun.getSourceDataDate())
                 && activityImpact.configVersion.equals(existingRun.getConfigVersion())
                 && sameVersionEvidence(existingRun, activityImpact)) {
             List<SalesForecastResultRecord> existingResults = forecastRunRepository.listResults(existingRun.getId());
@@ -200,7 +201,7 @@ public class DefaultSalesForecastService implements SalesForecastService {
             }
         }
 
-        SalesForecastRunRecord savedRun = calculateAndSaveRun(query, latestFactDate, activityImpact, stockSnapshots);
+        SalesForecastRunRecord savedRun = calculateAndSaveRun(query, forecastAnchorDate, activityImpact, stockSnapshots);
         if (savedRun == null) {
             return SalesForecastOverviewView.missingSalesData(query.getStoreCode(), query.getSiteCode());
         }
@@ -231,17 +232,14 @@ public class DefaultSalesForecastService implements SalesForecastService {
                 query.getStoreCode(),
                 query.getSiteCode()
         );
-        if (latestFactDate == null) {
-            return SalesForecastRunStatusView.failed("当前店铺还没有可用销量事实，无法重算销量预测。");
+        List<SalesForecastStockSnapshot> stockSnapshots = stockRepository.listCurrentStock(query);
+        if (latestFactDate == null && (stockSnapshots == null || stockSnapshots.isEmpty())) {
+            return SalesForecastRunStatusView.failed("当前店铺既没有维护商品，也没有可用销量事实，无法重算销量预测。");
         }
+        LocalDate forecastAnchorDate = latestFactDate == null ? LocalDate.now(clock) : latestFactDate;
         try {
             ActivityImpact activityImpact = resolveActivityImpact(query);
-            SalesForecastRunRecord savedRun = calculateAndSaveRun(
-                    query,
-                    latestFactDate,
-                    activityImpact,
-                    stockRepository.listCurrentStock(query)
-            );
+            SalesForecastRunRecord savedRun = calculateAndSaveRun(query, forecastAnchorDate, activityImpact, stockSnapshots);
             if (savedRun == null) {
                 return SalesForecastRunStatusView.failed("当前店铺销量事实不足，无法生成预测结果。");
             }

@@ -47,6 +47,7 @@ public class WarehouseProcurementViews {
     }
 
     public static class ReadyItemView {
+        public Long ownerUserId;
         public String productVariantId;
         public String partnerSku;
         public String skuParent;
@@ -97,6 +98,7 @@ public class WarehouseProcurementViews {
     }
 
     public static class ReadySourceView {
+        public Long ownerUserId;
         public Long fulfillmentBalanceId;
         public String sourceStoreCode;
         public String sourceStoreName;

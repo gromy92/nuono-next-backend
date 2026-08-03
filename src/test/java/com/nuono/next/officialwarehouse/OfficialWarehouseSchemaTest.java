@@ -46,7 +46,7 @@ class OfficialWarehouseSchemaTest {
                 .contains("throttleMapper.release(");
         assertThat(service)
                 .contains("asnListRemoteExecutor.execute(")
-                .contains("openNoonSession(ownerUserId, binding)");
+                .contains("openNoonSession(ownerUserId, binding)").contains("loginWithPersistedCookiePinnedEgress(").contains("\"fbn.noon.partners\", 443");
         assertThat(service.indexOf("openNoonSession(ownerUserId, binding)"))
                 .isLessThan(service.indexOf("asnListRemoteExecutor.execute("));
     }
@@ -117,46 +117,6 @@ class OfficialWarehouseSchemaTest {
 
         assertThat(normalized).doesNotContain("authorization");
         assertThat(normalized).doesNotContain("`cookie`");
-    }
-
-    @Test
-    void officialWarehouseShippingBatchCandidatesKeepAppointedBatchesVisibleAfterAvailableBatches() throws Exception {
-        String mapper = Files.readString(Path.of("src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java"));
-        String records = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseRecords.java"));
-        String views = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseViews.java"));
-        String service = Files.readString(Path.of("src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"));
-
-        assertThat(mapper)
-                .contains("official_warehouse_asn_shipping_batch_link")
-                .contains("JOIN official_warehouse_asn linkedAsn")
-                .contains("UPPER(COALESCE(linkedAsn.status, '')) NOT IN ('FAILED', 'CANCELED', 'CANCELLED')")
-                .contains("scheduledAppointmentQuantity")
-                .contains("official_warehouse_appointment scheduledAppointment")
-                .contains("scheduledAppointment.status = 'SCHEDULED'")
-                .contains("remainingQuantity")
-                .contains("COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0)), 0) AS remainingQuantity")
-                .contains("COUNT(DISTINCT COALESCE(NULLIF(line.psku, ''), NULLIF(line.sku, ''), NULLIF(line.msku, ''))) AS skuCount")
-                .contains("alreadyAppointed")
-                .contains("batchUsedByAsn")
-                .contains("batchUsageLabel")
-                .contains("ORDER BY batchUsedByAsn ASC, b.gmt_updated DESC, b.id DESC")
-                .doesNotContain("HAVING remainingQuantity &gt; 0");
-        assertThat(records)
-                .contains("public Boolean alreadyAppointed;")
-                .contains("public Integer scheduledAppointmentQuantity;")
-                .contains("public Boolean batchUsedByAsn;")
-                .contains("public String batchUsageLabel;");
-        assertThat(views)
-                .contains("public Boolean alreadyAppointed;")
-                .contains("public Integer scheduledAppointmentQuantity;")
-                .contains("public Boolean batchUsedByAsn;")
-                .contains("public String batchUsageLabel;");
-        assertThat(service)
-                .contains("view.alreadyAppointed = row.alreadyAppointed")
-                .contains("view.batchUsedByAsn = row.batchUsedByAsn")
-                .contains("view.scheduledAppointmentQuantity = row.scheduledAppointmentQuantity;")
-                .contains("view.batchUsageLabel = firstNonBlank(")
-                .contains("row.batchUsageLabel");
     }
 
     @Test
@@ -327,9 +287,9 @@ class OfficialWarehouseSchemaTest {
                 .contains("client.onWarehousesSet(task);")
                 .contains("default void onWarehousesSet(AppointmentTask task)");
         assertThat(mapper)
-                .contains("int updateAsnCurrentWarehouse(")
-                .contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
-                .contains("AND owner_user_id = #{ownerUserId}");
+                .contains("int updateAsnCurrentWarehouseForAppointment(").contains("selected_warehouse_partner_code = #{warehouseToPartnerCode}")
+                .contains("AND owner_user_id = #{ownerUserId}")
+                .contains("appointment.status = 'RUNNING'").contains("appointment.execution_version = #{runExecutionVersion}");
         assertThat(service)
                 .contains("persistAsnCurrentWarehouse(")
                 .contains("task.warehouseToCode = appointment.warehouseToCode")

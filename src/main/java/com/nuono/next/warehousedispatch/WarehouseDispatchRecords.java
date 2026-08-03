@@ -24,23 +24,78 @@ public final class WarehouseDispatchRecords extends WarehousePackingRecords {
             super();
         }
 
-        public BalanceQuantityDelta(Long balanceId, Integer confirmedDelta, Integer abnormalDelta, Long operatorUserId) {
-            super(balanceId, confirmedDelta, abnormalDelta, operatorUserId);
+        public BalanceQuantityDelta(
+                Long balanceId,
+                Long purchaseOrderItemId,
+                Long purchaseOrderId,
+                Long ownerUserId,
+                Integer confirmedDelta,
+                Integer abnormalDelta,
+                Long operatorUserId
+        ) {
+            super(
+                    balanceId,
+                    purchaseOrderItemId,
+                    purchaseOrderId,
+                    ownerUserId,
+                    confirmedDelta,
+                    abnormalDelta,
+                    operatorUserId
+            );
         }
     }
 
     public static class DispatchPlanRecord extends WarehouseDispatchPlanRecords.DispatchPlanRecord {}
     public static class DispatchPlanLineRecord extends WarehouseDispatchPlanRecords.DispatchPlanLineRecord {}
-    public static class DispatchPlanLineSourceRecord extends WarehouseDispatchPlanRecords.DispatchPlanLineSourceRecord {}
+    public static class DispatchPlanLineSourceRecord
+            extends WarehouseDispatchPlanRecords.DispatchPlanLineSourceRecord
+            implements WarehouseInventoryHandoffSource {
+
+        @Override
+        public Long fulfillmentBalanceId() {
+            return fulfillmentBalanceId;
+        }
+
+        @Override
+        public Integer handoffQuantity() {
+            return quantity;
+        }
+    }
     public static class ShippingBatchRecord extends WarehouseShippingBatchRecords.ShippingBatchRecord {}
-    public static class ShippingBatchSourceRecord extends WarehouseShippingBatchRecords.ShippingBatchSourceRecord {}
+    public static class ShippingBatchSourceRecord
+            extends WarehouseShippingBatchRecords.ShippingBatchSourceRecord
+            implements WarehouseInventoryHandoffSource {
+
+        @Override
+        public Long fulfillmentBalanceId() {
+            return fulfillmentBalanceId;
+        }
+
+        @Override
+        public Integer handoffQuantity() {
+            return reservedQuantity;
+        }
+    }
     public static class ShippingSuggestionOptionRecord extends WarehouseShippingOptionRecords.ShippingSuggestionOptionRecord {}
     public static class ShippingSuggestionLineRecord extends WarehouseShippingOptionRecords.ShippingSuggestionLineRecord {}
     public static class ForwarderRouteQuoteRecord extends WarehouseShippingOptionRecords.ForwarderRouteQuoteRecord {}
     public static class ShippingSuggestionLineSourceRecord extends WarehouseShippingOptionRecords.ShippingSuggestionLineSourceRecord {}
     public static class OutboundOrderRecord extends WarehouseOutboundRecords.OutboundOrderRecord {}
     public static class OutboundOrderLineRecord extends WarehouseOutboundRecords.OutboundOrderLineRecord {}
-    public static class OutboundOrderLineSourceRecord extends WarehouseOutboundRecords.OutboundOrderLineSourceRecord {}
+    public static class OutboundOrderLineSourceRecord
+            extends WarehouseOutboundRecords.OutboundOrderLineSourceRecord
+            implements WarehouseInventoryHandoffSource {
+
+        @Override
+        public Long fulfillmentBalanceId() {
+            return fulfillmentBalanceId;
+        }
+
+        @Override
+        public Integer handoffQuantity() {
+            return quantity;
+        }
+    }
     public static class PackingListRecord extends WarehousePackingRecords.PackingListRecord {}
     public static class PackingBoxRecord extends WarehousePackingRecords.PackingBoxRecord {}
     public static class PackingBoxItemRecord extends WarehousePackingRecords.PackingBoxItemRecord {}

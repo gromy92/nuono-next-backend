@@ -33,9 +33,9 @@ class NoonOwner308ProjectCookieIsolationTest {
     private static final Instant ATTEMPTED_AT = Instant.parse("2026-07-23T07:00:00Z");
     // These are stable owner 308 business keys; all provider state in this test is local and synthetic.
     private static final List<NoonAuthRecoveryProjectTarget> OWNER_308_TARGETS = List.of(
-            new NoonAuthRecoveryProjectTarget(308L, "PRJ100085", "STR100085-NAE", 2L),
-            new NoonAuthRecoveryProjectTarget(308L, "PRJ101128", "STR101128-NAE", 5L),
-            new NoonAuthRecoveryProjectTarget(308L, "PRJ102858", "STR102858-NAE", 8L)
+            new NoonAuthRecoveryProjectTarget(308L, "PRJ100085", "STR100085-NAE", "AE", 2L),
+            new NoonAuthRecoveryProjectTarget(308L, "PRJ101128", "STR101128-NAE", "AE", 5L),
+            new NoonAuthRecoveryProjectTarget(308L, "PRJ102858", "STR102858-NAE", "AE", 8L)
     );
 
     @Test
@@ -82,7 +82,6 @@ class NoonOwner308ProjectCookieIsolationTest {
         NoonSessionGateway gateway = new NoonSessionGateway(
                 new ObjectMapper(),
                 mock(StoreSyncMapper.class),
-                false,
                 0L,
                 true,
                 "",
@@ -90,8 +89,6 @@ class NoonOwner308ProjectCookieIsolationTest {
                 "",
                 "",
                 true,
-                false,
-                "",
                 server.url("/whoami"),
                 server.url("/lookup"),
                 server.url("/pkce"),

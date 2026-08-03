@@ -1,6 +1,6 @@
 package com.nuono.next.noonauth;
 
-import com.nuono.next.noonpull.NoonPullTaskRecord;
+import java.time.LocalDateTime;
 import java.util.Objects;
 import org.springframework.util.StringUtils;
 
@@ -9,18 +9,17 @@ final class NoonAuthRecoveryQueuePolicy {
     }
 
     static boolean sourceTaskPredatesCurrentAuth(
-            NoonPullTaskRecord sourceTask,
+            LocalDateTime sourceStartedAt,
             NoonProjectAuthStateRecord stateBeforeEnqueue
     ) {
-        return sourceTask != null
-                && sourceTask.getStartedAt() != null
+        return sourceStartedAt != null
                 && stateBeforeEnqueue != null
                 && stateBeforeEnqueue.getStatus() == NoonProjectAuthStatus.HEALTHY
                 && stateBeforeEnqueue.getActiveRecoveryId() == null
                 && stateBeforeEnqueue.getAuthVersion() != null
                 && stateBeforeEnqueue.getAuthVersion() > 0L
                 && stateBeforeEnqueue.getLastSuccessAt() != null
-                && !stateBeforeEnqueue.getLastSuccessAt().isBefore(sourceTask.getStartedAt());
+                && !stateBeforeEnqueue.getLastSuccessAt().isBefore(sourceStartedAt);
     }
 
     static NoonAuthRecoveryItemRecord resolveCommittedProjectJoin(

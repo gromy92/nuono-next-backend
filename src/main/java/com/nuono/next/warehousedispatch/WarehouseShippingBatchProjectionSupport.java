@@ -79,6 +79,7 @@ protected ShippingBatchView toShippingBatchView(ShippingBatchRecord record) {
         }
         view.id = String.valueOf(record.id);
         view.ownerUserId = record.ownerUserId;
+        view.dispatchPlanId = record.dispatchPlanId == null ? null : String.valueOf(record.dispatchPlanId);
         view.batchNo = record.batchNo;
         view.status = record.status;
         view.selectedOptionId = record.selectedOptionId == null ? null : String.valueOf(record.selectedOptionId);
@@ -125,6 +126,7 @@ protected ShippingBatchView toShippingBatchDetail(ShippingBatchRecord record) {
             }
             view.options.add(optionView);
         }
+        view.optionCount = view.options.size();
         return view;
     }
 

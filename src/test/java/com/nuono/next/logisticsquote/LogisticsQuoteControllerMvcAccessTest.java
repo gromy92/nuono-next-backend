@@ -72,7 +72,7 @@ class LogisticsQuoteControllerMvcAccessTest {
                         || method.isAnnotationPresent(PutMapping.class))
                 .toArray(Method[]::new);
 
-        assertThat(endpoints).hasSize(13);
+        assertThat(endpoints).hasSize(12);
         for (Method endpoint : endpoints) {
             RequiredBusinessAccess[] declarations = Arrays.stream(endpoint.getParameters())
                     .filter(parameter -> parameter.getType().equals(BusinessAccessContext.class))
@@ -82,35 +82,6 @@ class LogisticsQuoteControllerMvcAccessTest {
             assertThat(declarations).hasSize(1);
             assertThat(declarations[0].capability()).isEqualTo(BusinessCapability.LOGISTICS_QUOTE);
         }
-    }
-
-    @Test
-    void priceAdjustmentUsesTheAuthenticatedSessionAsOperator() throws Exception {
-        when(businessAccessResolver.requireBusinessContext(
-                any(HttpServletRequest.class),
-                eq(BusinessCapability.LOGISTICS_QUOTE)
-        )).thenReturn(context());
-        when(operationService.savePriceAdjustment(
-                eq(90001L),
-                any(LogisticsQuoteOperationPriceAdjustmentCommand.class)
-        )).thenReturn(new LogisticsQuoteOperationPriceAdjustmentView());
-
-        mockMvc.perform(post("/api/logistics-quote/operations/price-adjustments")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{"
-                                + "\"targetType\":\"BASE_PRICE\","
-                                + "\"targetId\":912001,"
-                                + "\"numericField\":\"unit_price\","
-                                + "\"adjustedValue\":70,"
-                                + "\"reason\":\"market change\","
-                                + "\"operatorUserId\":2"
-                                + "}"))
-                .andExpect(status().isOk());
-
-        verify(operationService).savePriceAdjustment(
-                eq(90001L),
-                any(LogisticsQuoteOperationPriceAdjustmentCommand.class)
-        );
     }
 
     @Test

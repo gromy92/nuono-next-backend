@@ -58,9 +58,9 @@ class ProductImageNoonPublisherTest {
     private NoonSession noonSession(String storeCode) {
         try {
             NoonSessionGateway gateway = new NoonSessionGateway(
-                    objectMapper, storeSyncMapper, false, 0L, true,
-                    "", "", "", "", false, false,
-                    "", "", "", "", "", "", "", "",
+                    objectMapper, storeSyncMapper, 0L, true,
+                    "", "", "", "", false,
+                    "", "", "", "", "", "", "",
                     false, "", "", 0, ""
             );
             for (Constructor<?> constructor : NoonSession.class.getDeclaredConstructors()) {

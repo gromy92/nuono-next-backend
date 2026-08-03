@@ -85,18 +85,12 @@ public class ProductDetailBaselineBackfillService {
         return "preparing";
     }
     public BackfillState state(Long ownerUserId, String storeCode, String skuParent) {
-        if (operationalTaskService == null) {
-            return null;
-        }
-        String naturalKey = naturalKey(ownerUserId, storeCode, skuParent);
-        return stateByNaturalKey(naturalKey);
+        if (operationalTaskService == null) return null;
+        return stateByNaturalKey(naturalKey(ownerUserId, storeCode, skuParent));
     }
     public BackfillState stateForLogicalStore(Long ownerUserId, Long logicalStoreId, String skuParent) {
-        if (operationalTaskService == null) {
-            return null;
-        }
-        String naturalKey = naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent);
-        return stateByNaturalKey(naturalKey);
+        if (operationalTaskService == null) return null;
+        return stateByNaturalKey(naturalKeyForLogicalStore(ownerUserId, logicalStoreId, skuParent));
     }
     private BackfillState stateByNaturalKey(String naturalKey) {
         if (!StringUtils.hasText(naturalKey)) {
@@ -249,8 +243,6 @@ public class ProductDetailBaselineBackfillService {
         }
         copy.setOwnerUserId(source.getOwnerUserId());
         copy.setStoreCode(source.getStoreCode());
-        copy.setNoonUser(source.getNoonUser());
-        copy.setNoonPassword(source.getNoonPassword());
         copy.setSkuParent(source.getSkuParent());
         copy.setPartnerSku(source.getPartnerSku());
         copy.setPskuCode(source.getPskuCode());

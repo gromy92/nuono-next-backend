@@ -19,6 +19,9 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("pso.fbn_stock AS currentStockUnits"));
         assertTrue(sql.contains("pso.fbn_stock AS fbnStockUnits"));
         assertTrue(sql.contains("pso.supermall_stock AS supermallStockUnits"));
+        assertTrue(sql.contains("pso.is_active AS isActive"));
+        assertTrue(sql.contains("pso.active_state_source AS activeStateSource"));
+        assertTrue(sql.contains("pso.active_state_synced_at AS activeStateSyncedAt"));
         assertTrue(sql.contains("DATE(pso.listing_started_at) AS listingAt"));
         assertFalse(sql.contains("COALESCE(pso.fbn_stock, 0) + COALESCE(pso.supermall_stock, 0)"));
         assertTrue(sql.contains("COALESCE("));
@@ -34,6 +37,7 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("WHERE ls.owner_user_id = #{ownerUserId}"));
         assertTrue(sql.contains("AND lss.store_code = #{storeCode}"));
         assertTrue(sql.contains("AND lss.site = #{siteCode}"));
+        assertTrue(sql.contains("AND pso.maintenance_enabled = b'1'"));
         assertFalse(sql.toLowerCase().contains("fbp_stock"));
     }
 
@@ -44,10 +48,12 @@ class ReplenishmentPlanMapperSqlTest {
         assertTrue(sql.contains("line.id AS lineId"));
         assertTrue(sql.contains("pb.partner_sku AS partnerSku"));
         assertTrue(sql.contains("JOIN product_barcode pb ON pb.barcode = line.sku"));
+        assertTrue(sql.contains("BINARY pb.barcode = BINARY line.sku"));
         assertTrue(sql.contains("pb.logical_store_id IS NOT NULL"));
         assertTrue(sql.contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'"));
         assertTrue(sql.contains("pm.logical_store_id = pb.logical_store_id"));
         assertTrue(sql.contains("BINARY pm.partner_sku = BINARY pb.partner_sku"));
+        assertTrue(sql.contains("COUNT(DISTINCT identity_pb.logical_store_id, BINARY identity_pb.partner_sku)"));
         assertTrue(sql.contains("requested_site.store_code = #{storeCode}"));
         assertTrue(sql.contains("requested_site.site = #{siteCode}"));
         assertTrue(sql.contains("batch.id AS batchId"));

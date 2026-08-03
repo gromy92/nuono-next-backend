@@ -26,6 +26,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggest
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -33,7 +34,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
+public interface WarehouseOutboundMapper extends WarehouseLinkedShippingMapper {
 
 @Insert({
             "INSERT INTO warehouse_outbound_order (",
@@ -68,12 +69,14 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
 
 @Insert({
             "INSERT INTO warehouse_outbound_order_line_source (",
-            "id, outbound_order_id, outbound_order_line_id, batch_source_id, fulfillment_balance_id, purchase_order_id,",
-            "purchase_order_no, purchase_order_title, purchase_order_item_id, purchase_order_item_site_id,",
+            "id, outbound_order_id, outbound_order_line_id, batch_source_id, fulfillment_balance_id,",
+            "source_store_code, source_store_name, purchase_order_id, purchase_order_no, purchase_order_title,",
+            "purchase_order_item_id, purchase_order_item_site_id,",
             "planned_transport_mode, quantity, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.outboundOrderId}, #{row.outboundOrderLineId}, #{row.batchSourceId}, #{row.fulfillmentBalanceId},",
-            "#{row.purchaseOrderId}, #{row.purchaseOrderNo}, #{row.purchaseOrderTitle}, #{row.purchaseOrderItemId},",
+            "#{row.sourceStoreCode}, #{row.sourceStoreName}, #{row.purchaseOrderId}, #{row.purchaseOrderNo},",
+            "#{row.purchaseOrderTitle}, #{row.purchaseOrderItemId},",
             "#{row.purchaseOrderItemSiteId}, #{row.plannedTransportMode}, #{row.quantity}, b'0',",
             "#{operatorUserId}, #{operatorUserId}, NOW(), NOW())"
     })
@@ -90,11 +93,13 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "WHERE id = #{batchId}",
             "  AND owner_user_id = #{ownerUserId}",
             "  AND status = 'OPTION_SELECTED'",
+            "  AND selected_option_id = #{expectedOptionId}",
             "  AND is_deleted = b'0'"
     })
     int updateShippingBatchOutboundCreated(
             @Param("batchId") Long batchId,
             @Param("ownerUserId") Long ownerUserId,
+            @Param("expectedOptionId") Long expectedOptionId,
             @Param("operatorUserId") Long operatorUserId
     );
 
@@ -116,11 +121,33 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "       site_summary_json AS siteSummaryJson, transport_summary_json AS transportSummaryJson, remark,",
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
             "FROM warehouse_outbound_order",
-            "WHERE batch_id = #{batchId}",
+            "WHERE id = #{outboundOrderId}",
             "  AND is_deleted = b'0'",
-            "ORDER BY id ASC"
+            "LIMIT 1",
+            "FOR UPDATE"
     })
-    List<OutboundOrderRecord> listOutboundOrdersByBatch(@Param("batchId") Long batchId);
+    OutboundOrderRecord selectOutboundOrderByIdForUpdate(@Param("outboundOrderId") Long outboundOrderId);
+
+@Select({
+            "<script>",
+            "SELECT outbound.id, outbound.batch_id AS batchId, outbound.option_id AS optionId,",
+            "       outbound.owner_user_id AS ownerUserId, outbound.outbound_no AS outboundNo,",
+            "       outbound.status, outbound.origin_type AS originType, outbound.origin_name AS originName,",
+            "       outbound.sku_count AS skuCount, outbound.total_quantity AS totalQuantity,",
+            "       outbound.site_summary_json AS siteSummaryJson, outbound.transport_summary_json AS transportSummaryJson,",
+            "       outbound.remark, DATE_FORMAT(outbound.gmt_create, '%Y-%m-%d %H:%i') AS createdAt,",
+            "       DATE_FORMAT(outbound.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
+            "FROM warehouse_outbound_order outbound",
+            "WHERE outbound.batch_id = #{batchId}",
+            "  AND outbound.is_deleted = b'0'",
+            WarehouseAggregateSourceScopeMapper.OUTBOUND_SOURCE_SCOPE,
+            "ORDER BY outbound.id ASC",
+            "</script>"
+    })
+    List<OutboundOrderRecord> listOutboundOrdersByBatch(
+            @Param("batchId") Long batchId,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
+    );
 
 @Select({
             "SELECT id, outbound_order_id AS outboundOrderId, batch_id AS batchId, option_line_id AS optionLineId,",
@@ -139,8 +166,8 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "SELECT source.id, source.outbound_order_id AS outboundOrderId, source.outbound_order_line_id AS outboundOrderLineId,",
             "       source.batch_source_id AS batchSourceId, source.fulfillment_balance_id AS fulfillmentBalanceId,",
             "       balance.logical_store_id AS logicalStoreId,",
-            "       COALESCE(batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode,",
-            "       COALESCE(batch_source.source_store_name, balance.source_store_name) AS sourceStoreName,",
+            "       COALESCE(source.source_store_code, batch_source.source_store_code, balance.source_store_code) AS sourceStoreCode,",
+            "       COALESCE(source.source_store_name, batch_source.source_store_name, balance.source_store_name) AS sourceStoreName,",
             "       source.purchase_order_id AS purchaseOrderId, source.purchase_order_no AS purchaseOrderNo,",
             "       source.purchase_order_title AS purchaseOrderTitle, source.purchase_order_item_id AS purchaseOrderItemId,",
             "       source.purchase_order_item_site_id AS purchaseOrderItemSiteId,",
@@ -166,7 +193,7 @@ public interface WarehouseOutboundMapper extends WarehouseShippingQueryMapper {
             "  AND NOT EXISTS (",
             "      SELECT 1 FROM procurement_purchase_order_logistics_quote_line quote",
             "      WHERE quote.purchase_order_item_site_id = source.purchase_order_item_site_id",
-            "        AND quote.quote_status = 'CONFIRMED'",
+            ProcurementShippingQuoteChannelMapper.SHIPPING_QUOTE_SUBMITTABLE,
             "        AND quote.shipping_submit_status = 'SUBMITTED'",
             "        AND quote.is_deleted = b'0'",
             "  )"

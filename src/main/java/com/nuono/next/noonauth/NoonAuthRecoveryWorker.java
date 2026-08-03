@@ -39,7 +39,6 @@ public class NoonAuthRecoveryWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(NoonAuthRecoveryWorker.class);
     private static final int MAX_RECOVERIES_PER_TICK = 4;
     private static final int ALL_PENDING_ITEMS = Integer.MAX_VALUE;
-
     private final NoonAuthRecoveryRepository repository;
     private final NoonAuthRecoveryProperties properties;
     private final NoonAuthRecoveryGateway gateway;
@@ -125,6 +124,10 @@ public class NoonAuthRecoveryWorker {
                 : null;
     }
 
+    @Autowired(required = false)
+    void setWaitingTaskHandlers(List<NoonAuthWaitingTaskHandler> handlers) {
+        projectOutcomeHandler.setWaitingTaskHandlers(handlers);
+    }
     NoonAuthRecoveryWorker(
             NoonAuthRecoveryRepository repository,
             NoonAuthRecoveryProperties properties,
@@ -602,12 +605,7 @@ public class NoonAuthRecoveryWorker {
             )) {
                 return;
             }
-            NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                    item.getOwnerUserId(),
-                    item.getProjectCode(),
-                    item.getStoreCode(),
-                    safeLong(item.getExpectedAuthVersion())
-            );
+            NoonAuthRecoveryProjectTarget target = NoonAuthRecoveryWorkerValues.target(item);
             if (!failSnapshotItemsTaskFirst(
                     pending,
                     target,
@@ -673,12 +671,8 @@ public class NoonAuthRecoveryWorker {
                 String diagnostic = StringUtils.hasText(state.getManualHoldReason())
                         ? state.getManualHoldReason()
                         : "project recovery is already held";
-                NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                        representative.getOwnerUserId(),
-                        representative.getProjectCode(),
-                        representative.getStoreCode(),
-                        safeLong(representative.getExpectedAuthVersion())
-                );
+                NoonAuthRecoveryProjectTarget target =
+                        NoonAuthRecoveryWorkerValues.target(representative);
                 if (!failSnapshotItemsTaskFirst(
                         pending,
                         target,
@@ -698,12 +692,7 @@ public class NoonAuthRecoveryWorker {
                     || safeLong(state.getAuthVersion()) <= safeLong(representative.getExpectedAuthVersion())) {
                 continue;
             }
-            NoonAuthRecoveryProjectTarget target = new NoonAuthRecoveryProjectTarget(
-                    representative.getOwnerUserId(),
-                    representative.getProjectCode(),
-                    representative.getStoreCode(),
-                    safeLong(representative.getExpectedAuthVersion())
-            );
+            NoonAuthRecoveryProjectTarget target = NoonAuthRecoveryWorkerValues.target(representative);
             try {
                 Long logicalStoreId = transientOrchestrator.resolveLogicalStoreId(target);
                 if (logicalStoreId != null
@@ -864,17 +853,14 @@ public class NoonAuthRecoveryWorker {
                 return false;
             }
             now = now();
-            boolean failed = repository.failBlockedTaskAfterRecovery(
-                    item.getSourceTaskId(),
-                    recoveryId,
-                    fence.status,
-                    fence.version,
-                    fence.leaseToken,
+            NoonAuthWaitingTaskOutcome outcome = projectOutcomeHandler.failWaitingTask(
+                    item,
+                    fence,
                     failureCode,
                     safeDiagnostic(diagnostic),
                     now
             );
-            if (!failed && !renewFence(fence)) {
+            if (outcome == NoonAuthWaitingTaskOutcome.STALE && !renewFence(fence)) {
                 return false;
             }
             // Always attempt the per-item terminal CAS after a live recovery-fence check.

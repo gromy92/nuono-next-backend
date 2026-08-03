@@ -352,7 +352,6 @@ class OfficialWarehouseInventorySyncServiceTest {
         @Override
         public List<ProductStockSourceCandidateRecord> listProductStockSourceCandidates(
                 Long ownerUserId,
-                Collection<String> storeCodes,
                 String storeCode,
                 String siteCode,
                 Long productSiteOfferId,

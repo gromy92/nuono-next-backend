@@ -51,13 +51,15 @@ class NoonSalesSyncBridgeServiceTest {
                 LocalDate.of(2026, 5, 24),
                 10003L,
                 "no_data_backfill",
+                "CONFIRMED_EMPTY_SITE",
                 "empty",
                 10012L,
                 0,
                 0,
                 0,
                 null,
-                "empty"
+                "empty",
+                null
         );
     }
 }

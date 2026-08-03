@@ -6,7 +6,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import com.nuono.next.infrastructure.mapper.ReplenishmentPlanMapper;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundLineRow;
 import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.InboundRow;
-import com.nuono.next.replenishmentplan.ReplenishmentPlanRepository.StockRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -116,11 +115,11 @@ class MyBatisReplenishmentPlanRepositoryTest {
     }
 
     private static final class FakeMapper implements ReplenishmentPlanMapper {
-        private List<StockRow> stockRows = List.of();
+        private List<ReplenishmentProductStockRow> stockRows = List.of();
         private List<InboundLineRow> inboundLines = List.of();
 
         @Override
-        public List<StockRow> selectFbnSupermallStock(Long ownerUserId, String storeCode, String siteCode) {
+        public List<ReplenishmentProductStockRow> selectFbnSupermallStock(Long ownerUserId, String storeCode, String siteCode) {
             return stockRows;
         }
 

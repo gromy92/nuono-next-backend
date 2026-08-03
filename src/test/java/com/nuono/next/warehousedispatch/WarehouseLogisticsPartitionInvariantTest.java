@@ -17,6 +17,7 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSo
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineSourceRecord;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,15 +31,23 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         FulfillmentBalanceRecord sea = balance("CONFIRMED", "SUBMITTED");
         sea.id = 900002L;
         sea.plannedTransportMode = "SEA";
-        when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(air, sea));
+        when(mapper.selectBalanceScopes(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(air, sea));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(air, sea));
 
         CreateDispatchPlanCommand command = new CreateDispatchPlanCommand();
+        command.clientRequestId = "dispatch-mixed-partition-test";
         command.sources = List.of(dispatchSource(900001L, "SA", "AIR"), dispatchSource(900002L, "SA", "SEA"));
 
         assertThatThrownBy(() -> service.createDispatchPlan(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同一物流分区");
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
     @Test
@@ -47,15 +56,23 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         FulfillmentBalanceRecord ae = balance("CONFIRMED", "SUBMITTED");
         ae.id = 900002L;
         ae.siteCode = "AE";
-        when(mapper.selectBalancesForUpdate(List.of(900001L, 900002L))).thenReturn(List.of(sa, ae));
+        when(mapper.selectBalanceScopes(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(sa, ae));
+        when(mapper.selectAuthorizedBalancesForUpdate(
+                List.of(900001L, 900002L),
+                Map.of("STR69486-NSA", 307L)
+        )).thenReturn(List.of(sa, ae));
 
         CreateShippingBatchCommand command = new CreateShippingBatchCommand();
+        command.clientRequestId = "shipping-mixed-partition-test";
         command.sources = List.of(shippingSource(900001L), shippingSource(900002L));
 
         assertThatThrownBy(() -> service.createShippingBatch(access(), command))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("同一物流分区");
-        verify(mapper, never()).reserveBalance(anyLong(), anyInt(), anyLong());
+        verify(mapper, never()).reserveBalance(anyLong(), anyLong(), anyInt(), anyLong());
     }
 
     @Test
@@ -77,7 +94,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         seaLineSource.fulfillmentBalanceId = 900002L;
         seaLineSource.plannedTransportMode = "SEA";
 
-        when(mapper.selectShippingBatchById(700001L)).thenReturn(shippingBatch());
+        when(mapper.selectShippingBatchByIdForUpdate(700001L)).thenReturn(shippingBatch());
         when(mapper.selectShippingSuggestionOptionById(710001L)).thenReturn(selectedOption());
         when(mapper.listShippingBatchSources(700001L)).thenReturn(List.of(airSource, seaSource));
         when(mapper.listShippingSuggestionLines(700001L)).thenReturn(List.of(airLine, seaLine));
@@ -85,7 +102,7 @@ class WarehouseLogisticsPartitionInvariantTest extends WarehouseDispatchServiceT
         when(mapper.nextOutboundOrderId()).thenReturn(800001L, 800002L);
         when(mapper.nextOutboundOrderLineId()).thenReturn(820001L, 820002L);
         when(mapper.nextOutboundOrderLineSourceId()).thenReturn(825001L, 825002L);
-        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 307L)).thenReturn(1);
+        when(mapper.updateShippingBatchOutboundCreated(700001L, 307L, 710001L, 307L)).thenReturn(1);
 
         var orders = service.createOutboundOrders(access(), "700001");
 

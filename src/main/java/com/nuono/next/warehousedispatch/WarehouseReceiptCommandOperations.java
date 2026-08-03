@@ -23,7 +23,7 @@ import java.util.stream.Collectors;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueSupport {
+abstract class WarehouseReceiptCommandOperations extends WarehouseRequestIdempotencySupport {
 
     protected WarehouseReceiptCommandOperations(WarehouseDispatchMapper mapper, ObjectMapper objectMapper) {
         super(mapper, objectMapper);
@@ -46,14 +46,39 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         String fulfillmentType = normalizeFulfillmentType(command.fulfillmentType);
         String sourceName = trimToNull(command.sourceName);
 
-        ensureItemBalances(item, fulfillmentType, access.getSessionUserId());
-        if (mapper.countItemFulfillmentActivity(item.id) > 0) {
-            throw new IllegalArgumentException("该商品已经收货、预留或交接物流，不能修改履约方式。");
+        boolean fulfillmentChanged = !fulfillmentType.equals(normalizeFulfillmentType(item.fulfillmentType))
+                || !java.util.Objects.equals(sourceName, trimToNull(item.fulfillmentSourceName));
+        if (fulfillmentChanged) {
+            List<FulfillmentBalanceRecord> balances =
+                    mapper.listBalancesForItemForUpdate(item.id, order.id, order.ownerUserId);
+            if (balances.stream().anyMatch(this::hasFulfillmentActivity)) {
+                throw new IllegalArgumentException("该商品已经收货、预留或交接物流，不能修改履约方式。");
+            }
+            if (mapper.updatePurchaseOrderItemFulfillment(
+                        item.id,
+                        order.id,
+                        order.ownerUserId,
+                        fulfillmentType,
+                        sourceName,
+                        access.getSessionUserId()
+                ) != 1) {
+                throw new WarehouseInventoryStateConflictException("采购单商品状态已变化，请刷新后重试。");
+            }
+            long expectedBalanceUpdates = balances.stream()
+                    .filter(balance -> !fulfillmentType.equals(balance.fulfillmentType))
+                    .count();
+            if (expectedBalanceUpdates > 0 && mapper.updateActiveBalancesFulfillment(
+                    item.id,
+                    order.id,
+                    order.ownerUserId,
+                    fulfillmentType,
+                    access.getSessionUserId()
+            ) != expectedBalanceUpdates) {
+                throw new WarehouseInventoryStateConflictException("采购单商品库存状态已变化，请刷新后重试。");
+            }
+            ensureItemBalances(item, fulfillmentType, access.getSessionUserId());
+            log(null, "UPDATE_ITEM_FULFILLMENT", access.getSessionUserId(), null, null, item.partnerSku);
         }
-
-        mapper.updatePurchaseOrderItemFulfillment(item.id, fulfillmentType, sourceName, access.getSessionUserId());
-        mapper.updateActiveBalancesFulfillment(item.id, fulfillmentType, access.getSessionUserId());
-        log(null, "UPDATE_ITEM_FULFILLMENT", access.getSessionUserId(), null, null, item.partnerSku);
 
         FulfillmentItemView view = new FulfillmentItemView();
         view.purchaseOrderId = String.valueOf(order.id);
@@ -63,17 +88,51 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         return view;
     }
 
+private boolean hasFulfillmentActivity(FulfillmentBalanceRecord balance) {
+        return balance != null
+                && (nonNull(balance.confirmedQuantity) != 0
+                || nonNull(balance.abnormalQuantity) != 0
+                || nonNull(balance.reservedQuantity) != 0
+                || nonNull(balance.logisticsHandoffQuantity) != 0);
+    }
+
 @Transactional
     public ConfirmationView createConfirmation(BusinessAccessContext access, ConfirmationCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("缺少收货确认参数。");
         }
+        String clientRequestId = normalizeReceiptClientRequestId(command.clientRequestId);
+        RequestFingerprint requestFingerprint = confirmationRequestFingerprint(command);
         Long purchaseOrderId = parseLongId(command.purchaseOrderId, "采购单不存在或已删除。");
-        PurchaseOrderAccessRecord order = requireOrderAccess(access, purchaseOrderId);
         String confirmationType = normalizeConfirmationType(command.confirmationType);
         List<ConfirmationLineCommand> lines = command.lines == null ? List.of() : command.lines;
         if (lines.isEmpty()) {
             throw new IllegalArgumentException("请选择至少一个确认商品。");
+        }
+        Map<Long, ConfirmationLineCommand> linesByItem = new LinkedHashMap<>();
+        for (ConfirmationLineCommand line : lines) {
+            Long itemId = parseLongId(
+                    line == null ? null : line.purchaseOrderItemId,
+                    "采购单商品不存在或已删除。"
+            );
+            if (linesByItem.putIfAbsent(itemId, line) != null) {
+                throw new IllegalArgumentException("同一采购单商品不能重复确认，请合并数量后重试。");
+            }
+        }
+
+        PurchaseOrderAccessRecord order = requireOrderAccess(access, purchaseOrderId);
+        requireRequestOwnerLock(order.ownerUserId);
+        FulfillmentConfirmationInsertRecord existing = mapper.selectConfirmationByClientRequestId(
+                order.ownerUserId,
+                clientRequestId
+        );
+        if (existing != null) {
+            requireMatchingRequestFingerprint(
+                    existing.requestFingerprint,
+                    requestFingerprint,
+                    "同一客户端请求号不能提交不同的收货数据。"
+            );
+            return toConfirmationView(existing, mapper.listConfirmationLines(existing.id));
         }
 
         Long confirmationId = mapper.nextConfirmationId();
@@ -88,8 +147,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         int expectedTotal = 0;
         int confirmedTotal = 0;
         int abnormalTotal = 0;
-        for (ConfirmationLineCommand lineCommand : lines) {
-            Long itemId = parseLongId(lineCommand == null ? null : lineCommand.purchaseOrderItemId, "采购单商品不存在或已删除。");
+        for (Map.Entry<Long, ConfirmationLineCommand> entry : linesByItem.entrySet()) {
+            Long itemId = entry.getKey();
+            ConfirmationLineCommand lineCommand = entry.getValue();
             PurchaseOrderItemRecord item = requireItem(order, itemId);
             int confirmedDelta = nonNull(lineCommand.confirmedQuantity);
             int abnormalDelta = nonNull(lineCommand.abnormalQuantity);
@@ -101,7 +161,8 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
             }
 
             ensureItemBalances(item, normalizeFulfillmentType(item.fulfillmentType), access.getSessionUserId());
-            List<FulfillmentBalanceRecord> balances = mapper.listBalancesForItemForUpdate(item.id);
+            List<FulfillmentBalanceRecord> balances =
+                    mapper.listBalancesForItemForUpdate(item.id, order.id, order.ownerUserId);
             if (balances.isEmpty()) {
                 throw new IllegalArgumentException("采购单商品缺少站点计划，不能确认收货。");
             }
@@ -129,6 +190,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
                 if (allocatedConfirmed != 0 || allocatedAbnormal != 0) {
                     balanceDeltas.add(new BalanceQuantityDelta(
                             balance.id,
+                            item.id,
+                            order.id,
+                            order.ownerUserId,
                             allocatedConfirmed,
                             allocatedAbnormal,
                             access.getSessionUserId()
@@ -180,6 +244,8 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
         FulfillmentConfirmationInsertRecord header = new FulfillmentConfirmationInsertRecord();
         header.id = confirmationId;
         header.ownerUserId = order.ownerUserId;
+        header.clientRequestId = clientRequestId;
+        header.requestFingerprint = requestFingerprint.persistedValue();
         header.logicalStoreId = order.logicalStoreId;
         header.purchaseOrderId = order.id;
         header.confirmationNo = view.confirmationNo;
@@ -196,7 +262,9 @@ abstract class WarehouseReceiptCommandOperations extends WarehouseDispatchValueS
             mapper.insertConfirmationLine(row);
         }
         for (BalanceQuantityDelta delta : balanceDeltas) {
-            mapper.updateBalanceQuantities(delta);
+            if (mapper.updateBalanceQuantities(delta) != 1) {
+                throw new WarehouseInventoryStateConflictException("收货库存状态已变化，请刷新后重试。");
+            }
         }
         log(null, "CREATE_FULFILLMENT_CONFIRMATION", access.getSessionUserId(), null, "CONFIRMED", view.confirmationNo);
         view.expectedQuantity = expectedTotal;

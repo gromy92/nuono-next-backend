@@ -1,5 +1,6 @@
 package com.nuono.next.product;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -106,6 +107,10 @@ class ProductPublishRetryMapperSqlTest {
         assertTrue(sql.contains("WHEN target.error_code = 'noon_auth_recovery_pending' THEN target.retry_count"));
         assertTrue(sql.contains("target.status = 'pending_manual_check'"));
         assertTrue(sql.contains("OR target.retry_count < target.max_retry_count"));
+        assertTrue(sql.contains("NOT (LOWER(TRIM(COALESCE(target.task_type, ''))) = 'product-delete'"));
+        assertTrue(sql.contains("'retry_scheduled', 'pre_delete_unavailable', 'pre_delete_captured'"));
+        assertTrue(sql.contains("'unmap_submitted', 'delete_submitted', 'current_psku_delete_submitted'"));
+        assertTrue(sql.contains("!= 'product_delete_result_unknown'"));
         assertTrue(sql.contains("target.error_code, ''))) NOT IN ("));
         assertTrue(sql.contains("'product_write_outcome_unknown'"));
         assertTrue(sql.contains("'group_partial_write_unknown'"));
@@ -118,6 +123,10 @@ class ProductPublishRetryMapperSqlTest {
         assertTrue(sql.contains("LEFT JOIN product_publish_task newer"));
         assertTrue(sql.contains("newer.id > target.id"));
         assertTrue(sql.contains("newer.id IS NULL"));
+        assertEquals(
+                ProductPublishRetryMapper.SAFE_MANUAL_RETRY_PREDICATE.chars().filter(value -> value == '(').count(),
+                ProductPublishRetryMapper.SAFE_MANUAL_RETRY_PREDICATE.chars().filter(value -> value == ')').count()
+        );
     }
 
     @Test

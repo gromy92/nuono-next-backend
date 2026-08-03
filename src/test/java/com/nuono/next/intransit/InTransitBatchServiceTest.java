@@ -1,5 +1,9 @@
 package com.nuono.next.intransit;
 
+import static com.nuono.next.intransit.InTransitBarcodeIdentityTestSupport.aggregate;
+import static com.nuono.next.intransit.InTransitBarcodeIdentityTestSupport.batch;
+import static com.nuono.next.intransit.InTransitBarcodeIdentityTestSupport.line;
+import static com.nuono.next.intransit.InTransitBarcodeIdentityTestSupport.stubDefaultProductIdentityLookup;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -60,6 +64,7 @@ class InTransitBatchServiceTest {
     @BeforeEach
     void setUp() {
         service = new InTransitBatchService(mapper, forwarderService, auditService);
+        stubDefaultProductIdentityLookup(mapper);
     }
 
     @Test
@@ -807,7 +812,7 @@ class InTransitBatchServiceTest {
     }
 
     @Test
-    void shouldAllowSourceSkuToBeBlankWhenPskuIsProvided() {
+    void shouldRejectLineWhenLogisticsBarcodeIsBlankEvenIfPskuIsProvided() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);
         command.setOperatorUserId(90001L);
@@ -818,40 +823,64 @@ class InTransitBatchServiceTest {
         command.setReceivedQuantity(0);
 
         when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
-        when(mapper.nextLineId()).thenReturn(54004L);
-        LineRow persisted = line(54004L, 53001L, null, 4, 0, 4);
-        persisted.setPsku("PSKU-AE-ONLY");
-        when(mapper.selectLineById(10002L, 53001L, 54004L)).thenReturn(persisted);
-        when(mapper.aggregateLines(10002L, 53001L)).thenReturn(aggregate(1, 1, 4, 0, 4, null, null, null));
+        IllegalArgumentException exception = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.saveLine(command)
+        );
 
-        LineView result = service.saveLine(command);
-
-        assertEquals("PSKU-AE-ONLY", result.getPsku());
-        ArgumentCaptor<LineRow> lineCaptor = ArgumentCaptor.forClass(LineRow.class);
-        verify(mapper).insertLine(lineCaptor.capture());
-        assertEquals(null, lineCaptor.getValue().getSku());
-        assertEquals("PSKU-AE-ONLY", lineCaptor.getValue().getPsku());
+        assertEquals("物流商品 barcode 不能为空。", exception.getMessage());
+        verify(mapper, never()).insertLine(any(LineRow.class));
     }
 
     @Test
-    void shouldRejectLineWhenPskuIsMissing() {
+    void shouldDerivePskuFromBarcodeInsteadOfTrustingTheSourcePsku() {
         SaveLineCommand command = new SaveLineCommand();
         command.setOwnerUserId(10002L);
         command.setOperatorUserId(90001L);
         command.setBatchId(53001L);
         command.setBoxNo("BATCH-001-BOX-1");
         command.setSku("SOURCE-SKU-ONLY");
+        command.setPsku("STALE-SOURCE-PSKU");
         command.setShippedQuantity(5);
         command.setReceivedQuantity(0);
 
         when(mapper.selectBatchById(10002L, 53001L)).thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.nextLineId()).thenReturn(54006L);
+        LineRow persisted = line(54006L, 53001L, "SOURCE-SKU-ONLY", 5, 0, 5);
+        persisted.setPsku("PSKU-DERIVED");
+        when(mapper.selectLineById(10002L, 53001L, 54006L)).thenReturn(persisted);
+        when(mapper.aggregateLines(10002L, 53001L)).thenReturn(aggregate(1, 1, 5, 0, 5, null, null, null));
+
+        LineView result = service.saveLine(command);
+
+        assertEquals("PSKU-DERIVED", result.getPsku());
+        ArgumentCaptor<LineRow> lineCaptor = ArgumentCaptor.forClass(LineRow.class);
+        verify(mapper).insertLine(lineCaptor.capture());
+        assertEquals("SOURCE-SKU-ONLY", lineCaptor.getValue().getSku());
+        assertEquals("PSKU-DERIVED", lineCaptor.getValue().getPsku());
+    }
+
+    @Test
+    void shouldRejectLineWhenBarcodeDoesNotUniquelyMatchAnOwnedProduct() {
+        SaveLineCommand command = new SaveLineCommand();
+        command.setOwnerUserId(10002L);
+        command.setOperatorUserId(90001L);
+        command.setBatchId(53001L);
+        command.setBoxNo("BATCH-001-BOX-1");
+        command.setSku("UNKNOWN-BARCODE");
+        command.setPsku("PSKU-FALLBACK-MUST-NOT-BE-USED");
+        command.setShippedQuantity(1);
+        command.setReceivedQuantity(0);
+        when(mapper.selectBatchById(10002L, 53001L))
+                .thenReturn(batch(53001L, "in_transit", "义特物流", "forwarder_matched"));
+        when(mapper.selectProductIdentityByBarcode(10002L, "UNKNOWN-BARCODE")).thenReturn(null);
 
         IllegalArgumentException exception = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.saveLine(command)
         );
 
-        assertEquals("PSKU不能为空。", exception.getMessage());
+        assertEquals("物流商品 barcode 未唯一匹配当前货主商品：UNKNOWN-BARCODE", exception.getMessage());
         verify(mapper, never()).insertLine(any(LineRow.class));
     }
 
@@ -1522,73 +1551,6 @@ class InTransitBatchServiceTest {
         assertEquals(55002L, result.getItems().get(0).getNodeId());
         assertEquals("in_transit", result.getItems().get(0).getNodeStatus());
         assertEquals(55001L, result.getItems().get(1).getNodeId());
-    }
-
-    private BatchRow batch(Long id, String status, String rawForwarderName, String qualityStatus) {
-        BatchRow row = new BatchRow();
-        row.setId(id);
-        row.setOwnerUserId(10002L);
-        row.setStandardForwarderId("forwarder_matched".equals(qualityStatus) ? 51001L : null);
-        row.setStandardForwarderCode("forwarder_matched".equals(qualityStatus) ? "YITE" : null);
-        row.setStandardForwarderName("forwarder_matched".equals(qualityStatus) ? "义特" : null);
-        row.setRawForwarderName(rawForwarderName);
-        row.setNormalizedRawForwarderName(rawForwarderName == null ? null : rawForwarderName.toLowerCase());
-        row.setForwarderQualityStatus(qualityStatus);
-        row.setTransportMode("AIR");
-        row.setBatchStatus(status);
-        row.setTargetStoreCode("DB");
-        row.setTargetSiteCode("AE");
-        row.setTargetWarehouseName("FBN-DXB");
-        row.setDepartureDate(LocalDate.parse("2026-05-20"));
-        row.setEtaDate(LocalDate.parse("2026-06-08"));
-        row.setTrackingNo("TRK-001");
-        row.setContainerNo("CONT-001");
-        row.setBatchReferenceNo("BATCH-001");
-        row.setMissingFieldsJson("[\"transportMode\",\"targetStoreCode\",\"targetWarehouseName\"]");
-        return row;
-    }
-
-    private LineRow line(Long id, Long batchId, String sku, Integer shippedQuantity, Integer receivedQuantity, Integer remainingQuantity) {
-        LineRow row = new LineRow();
-        row.setId(id);
-        row.setOwnerUserId(10002L);
-        row.setBatchId(batchId);
-        row.setSku(sku);
-        row.setMsku("MSKU-" + sku);
-        row.setPsku("PSKU-" + sku);
-        row.setProductName("折叠手机壳");
-        row.setStoreCode("STR245027-NAE");
-        row.setSiteCode("AE");
-        row.setShippedQuantity(shippedQuantity);
-        row.setReceivedQuantity(receivedQuantity);
-        row.setRemainingQuantity(remainingQuantity);
-        row.setCartonCount(2);
-        row.setUnitsPerCarton(5);
-        row.setCartonWeightKg(new BigDecimal("12.500000"));
-        row.setCartonVolumeCbm(new BigDecimal("0.250000"));
-        return row;
-    }
-
-    private BatchAggregateRow aggregate(
-            Integer skuCount,
-            Integer boxCount,
-            Integer shippedQuantityTotal,
-            Integer receivedQuantityTotal,
-            Integer remainingQuantityTotal,
-            Integer cartonCountTotal,
-            BigDecimal totalWeightKg,
-            BigDecimal totalVolumeCbm
-    ) {
-        BatchAggregateRow row = new BatchAggregateRow();
-        row.setSkuCount(skuCount);
-        row.setBoxCount(boxCount);
-        row.setShippedQuantityTotal(shippedQuantityTotal);
-        row.setReceivedQuantityTotal(receivedQuantityTotal);
-        row.setRemainingQuantityTotal(remainingQuantityTotal);
-        row.setCartonCountTotal(cartonCountTotal);
-        row.setTotalWeightKg(totalWeightKg);
-        row.setTotalVolumeCbm(totalVolumeCbm);
-        return row;
     }
 
     private NodeRow node(Long id, Long batchId, String nodeStatus, LocalDateTime happenedAt, String description) {

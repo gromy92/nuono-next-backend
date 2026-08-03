@@ -2,10 +2,9 @@
 """Generate the single-scheduler cutover with a loopback JSON 503 bridge."""
 from __future__ import annotations
 import shlex
+from release_maintenance_probe import external_maintenance_retry_function, trap_safe_capture_functions, trap_safe_health_function
 def _q(value: str | int) -> str:
     return shlex.quote(str(value))
-
-
 def build_single_scheduler_cutover_script(
     *,
     staged_jar: str,
@@ -63,16 +62,11 @@ emit() {{ printf '%s=%s\\n' "$1" "$2"; }}
 sha256_file() {{ sha256sum "$1" | awk '{{print $1}}'; }}
 pid_for_port() {{ lsof -tiTCP:"$1" -sTCP:LISTEN 2>/dev/null | head -n 1 || true; }}
 slot_pid() {{ [ -f "$1/nuono-next.pid" ] && grep -Eo '^[0-9]+' "$1/nuono-next.pid" | head -n 1 || true; }}
-health_status() {{
-  local body=""
-  body="$(curl -fsS --max-time 5 "http://127.0.0.1:$1/actuator/health" 2>/dev/null || true)"
-  [ -n "$body" ] || {{ printf UNAVAILABLE; return 0; }}
-  printf '%s' "$body" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' | head -n 1
-}}
+{trap_safe_health_function()}
 wait_for_health() {{
   local attempt
-  for attempt in $(seq 1 80); do
-    [ "$(health_status "$1")" = UP ] && {{ printf '%s' "$attempt"; return 0; }}
+  for attempt in {{1..80}}; do
+    [ "$(health_status "$1")" = UP ] && {{ READY_ATTEMPT="$attempt"; return 0; }}
     sleep 1
   done
   return 1
@@ -86,8 +80,8 @@ from pathlib import Path
 import re, sys
 path = Path(sys.argv[1])
 original = path.read_text()
-updated = re.sub(r"127\\.0\\.0\\.1:[0-9]+", f"127.0.0.1:{{sys.argv[2]}}", original, count=1)
-if updated == original:
+updated, replacements = re.subn(r"127\\.0\\.0\\.1:[0-9]+", f"127.0.0.1:{{sys.argv[2]}}", original, count=1)
+if replacements != 1:
     raise SystemExit("no managed loopback upstream found")
 path.write_text(updated)
 PY
@@ -97,7 +91,8 @@ switch_nginx_to_port() {{
   nginx -t
   nginx -s reload
   sleep 1
-  [ "$(current_upstream_port)" = "$1" ]
+  local current_port=""; capture_status current_port current_upstream_port
+  [ "$current_port" = "$1" ]
 }}
 maintenance_response_status() {{
   curl -sS --max-time 2 -o "$MAINTENANCE_DIR/response.json" -w '%{{http_code}}' \
@@ -107,6 +102,8 @@ external_maintenance_status() {{
   curl -sS --max-time 10 -o "$MAINTENANCE_DIR/external-response.json" -w '%{{http_code}}' \
     "$EXTERNAL_HEALTH_URL" 2>/dev/null || true
 }}
+{external_maintenance_retry_function()}
+{trap_safe_capture_functions()}
 start_maintenance_responder() {{
   mkdir -p "$MAINTENANCE_DIR"
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ] || {{
@@ -135,7 +132,7 @@ PY
   MAINTENANCE_PID="$!"
   echo "$MAINTENANCE_PID" > "$MAINTENANCE_DIR/server.pid"
   local maintenance_status=""
-  for _ in $(seq 1 20); do
+  for _ in {{1..20}}; do
     maintenance_status="$(maintenance_response_status)"
     [ "$maintenance_status" = "503" ] && break
     sleep 1
@@ -151,28 +148,27 @@ stop_maintenance_responder() {{
   local pid="${{MAINTENANCE_PID:-}}"
   [ -n "$pid" ] || pid="$(cat "$MAINTENANCE_DIR/server.pid" 2>/dev/null || true)"
   [ -z "$pid" ] || kill "$pid" 2>/dev/null || true
-  for _ in $(seq 1 10); do
+  for _ in {{1..10}}; do
     [ -z "$pid" ] || ! kill -0 "$pid" 2>/dev/null && break
     sleep 1
   done
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ]
 }}
 switch_nginx_to_maintenance() {{
-  switch_nginx_to_port "$MAINTENANCE_PORT"
+  switch_nginx_to_port "$MAINTENANCE_PORT" || return 1
   local maintenance_status=""
   maintenance_status="$(maintenance_response_status)"
-  [ "$maintenance_status" = "503" ]
+  [ "$maintenance_status" = "503" ] || return 1
   local external_status=""
-  external_status="$(external_maintenance_status)"
-  [ "$external_status" = "503" ]
-  grep -F -q "服务正在更新，请稍后重试" "$MAINTENANCE_DIR/external-response.json"
+  capture_status external_status wait_for_external_maintenance || return 1
+  [ "$external_status" = "503" ] || return 1
   MAINTENANCE_ROUTED=1
   emit NGINX_CURRENT_PORT "$MAINTENANCE_PORT"
   emit MAINTENANCE_EXTERNAL_STATUS "$external_status"
 }}
 stop_pid() {{
   [ -z "$1" ] || kill "$1" 2>/dev/null || true
-  for _ in $(seq 1 45); do
+  for _ in {{1..45}}; do
     [ -z "$1" ] || ! kill -0 "$1" 2>/dev/null && return 0
     sleep 1
   done
@@ -276,21 +272,20 @@ OLD_STOPPED=1
 rm -f "$TARGET_SLOT_DIR/nuono-next.pid"
 NEW_START_ATTEMPTED=1
 start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
-ready_attempt="$(wait_for_health "$TARGET_PORT")"
+wait_for_health "$TARGET_PORT"
 NEW_PID="$(pid_for_port "$TARGET_PORT")"
 [ -n "$NEW_PID" ]
 process_uses_jar "$NEW_PID" "$TARGET_SLOT_DIR/$JAR_NAME"
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 switch_nginx_to_port "$TARGET_PORT"
 [ "$(health_status "$TARGET_PORT")" = UP ]
-external_health="$(curl -fsS --max-time 10 "$EXTERNAL_HEALTH_URL" |
-  sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p' | head -n 1)"
+external_health=""; capture_status external_health post_switch_external_health
 [ "$external_health" = UP ]
 stop_maintenance_responder
 trap - ERR
 emit CUTOVER_RESULT PASS
 emit SINGLE_SCHEDULER_GUARD PASS
-emit TARGET_READY_ATTEMPT "$ready_attempt"
+emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"
 emit TARGET_PID "$NEW_PID"
 emit ACTIVE_PORT "$TARGET_PORT"
 emit ACTIVE_JAR_PATH "$ACTIVE_JAR_PATH"

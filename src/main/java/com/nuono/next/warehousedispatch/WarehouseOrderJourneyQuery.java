@@ -20,9 +20,8 @@ public class WarehouseOrderJourneyQuery {
         if (access == null) {
             throw new IllegalArgumentException("缺少业务访问上下文。");
         }
-        Long ownerUserId = access.getBusinessOwnerUserId() == null
-                ? access.getSessionUserId()
-                : access.getBusinessOwnerUserId();
-        return mapper.listWarehouseOrderJourneys(ownerUserId, access.getStoreCodes());
+        return mapper.listWarehouseOrderJourneys(
+                WarehouseBusinessScope.from(access).storeOwnerUserIds()
+        );
     }
 }

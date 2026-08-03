@@ -3,6 +3,7 @@ package com.nuono.next.productlogisticscost;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
+import com.nuono.next.infrastructure.mapper.WarehouseProductLogisticsPriceMapper;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostCommands.ProductMatchRow;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.CostHistoryRow;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostRecords.CurrentCostRow;
@@ -72,6 +73,24 @@ class ProductLogisticsCostMapperSqlTest {
     }
 
     @Test
+    void archivedStoreFallbackReadsOnlyActiveLogicalStores() throws Exception {
+        String archivedSql = mapperSql(WarehouseProductLogisticsPriceMapper.class,
+                "selectLogicalStoreArchived", Long.class, Long.class);
+        String fallbackSql = mapperSql(WarehouseProductLogisticsPriceMapper.class,
+                "listCurrentCostsFromActiveStores",
+                Long.class, String.class, String.class, String.class, String.class);
+
+        assertThat(archivedSql).contains("ls.id = #{logicalStoreId}")
+                .contains("ls.owner_user_id = #{ownerUserId}")
+                .contains("ls.is_deleted = b'1'");
+        assertThat(fallbackSql).contains("JOIN logical_store active_store")
+                .contains("active_store.is_deleted = b'0'")
+                .contains("cost.partner_sku = #{partnerSku}")
+                .doesNotContain("LIMIT")
+                .doesNotContain("cost.logical_store_id = #{logicalStoreId}");
+    }
+
+    @Test
     void openExceptionReadIsDisplayOnly() throws Exception {
         String sql = mapperSql("listOpenExceptions", Long.class, Integer.class);
 
@@ -121,7 +140,11 @@ class ProductLogisticsCostMapperSqlTest {
     }
 
     private static String mapperSql(String methodName, Class<?>... parameterTypes) throws Exception {
-        Method method = ProductLogisticsCostMapper.class.getMethod(methodName, parameterTypes);
+        return mapperSql(ProductLogisticsCostMapper.class, methodName, parameterTypes);
+    }
+
+    private static String mapperSql(Class<?> mapperType, String methodName, Class<?>... parameterTypes) throws Exception {
+        Method method = mapperType.getMethod(methodName, parameterTypes);
         Select select = method.getAnnotation(Select.class);
         if (select != null) {
             return normalizeSql(String.join(" ", select.value()));

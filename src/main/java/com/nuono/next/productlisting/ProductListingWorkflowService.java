@@ -2,11 +2,9 @@ package com.nuono.next.productlisting;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.ProductListingMapper;
-import com.nuono.next.infrastructure.mapper.ProductListingReauthenticationAttemptMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,35 +15,8 @@ public class ProductListingWorkflowService {
     private final ProductListingService listingService;
     private final ProductListingWorkflowProjector projector;
     private final ProductListingDryRunFreshness freshness;
-    private final ProductListingReauthenticationAttemptMapper
-            reauthenticationAttemptMapper;
-    private final ProductListingReauthenticationAttemptProjector
-            reauthenticationAttemptProjector;
 
     @Autowired
-    public ProductListingWorkflowService(
-            ProductListingMapper mapper,
-            ProductListingService listingService,
-            ObjectMapper objectMapper,
-            ObjectProvider<ProductListingReauthenticationAttemptMapper>
-                    attemptMapperProvider,
-            ObjectProvider<ProductListingReauthenticationAttemptProjector>
-                    attemptProjectorProvider
-    ) {
-        this(
-                mapper,
-                listingService,
-                new ProductListingWorkflowProjector(),
-                new ProductListingDryRunFreshness(objectMapper),
-                attemptMapperProvider == null
-                        ? null
-                        : attemptMapperProvider.getIfAvailable(),
-                attemptProjectorProvider == null
-                        ? null
-                        : attemptProjectorProvider.getIfAvailable()
-        );
-    }
-
     public ProductListingWorkflowService(
             ProductListingMapper mapper,
             ProductListingService listingService,
@@ -55,9 +26,7 @@ public class ProductListingWorkflowService {
                 mapper,
                 listingService,
                 new ProductListingWorkflowProjector(),
-                new ProductListingDryRunFreshness(objectMapper),
-                null,
-                null
+                new ProductListingDryRunFreshness(objectMapper)
         );
     }
 
@@ -67,23 +36,10 @@ public class ProductListingWorkflowService {
             ProductListingWorkflowProjector projector,
             ProductListingDryRunFreshness freshness
     ) {
-        this(mapper, listingService, projector, freshness, null, null);
-    }
-
-    ProductListingWorkflowService(
-            ProductListingMapper mapper,
-            ProductListingService listingService,
-            ProductListingWorkflowProjector projector,
-            ProductListingDryRunFreshness freshness,
-            ProductListingReauthenticationAttemptMapper attemptMapper,
-            ProductListingReauthenticationAttemptProjector attemptProjector
-    ) {
         this.mapper = mapper;
         this.listingService = listingService;
         this.projector = projector;
         this.freshness = freshness;
-        this.reauthenticationAttemptMapper = attemptMapper;
-        this.reauthenticationAttemptProjector = attemptProjector;
     }
 
     public ProductListingWorkflowView loadWorkflow(BusinessAccessContext context, Long draftId) {
@@ -136,29 +92,7 @@ public class ProductListingWorkflowService {
             editable.setRealRunTask(realRun);
             return editable;
         }
-        return overlayReauthenticationAttempt(projected, realRun);
-    }
-
-    private ProductListingWorkflowView overlayReauthenticationAttempt(
-            ProductListingWorkflowView workflow,
-            ProductListingTaskView realRun
-    ) {
-        if (reauthenticationAttemptMapper == null
-                || reauthenticationAttemptProjector == null
-                || realRun == null
-                || realRun.getTaskId() == null
-                || realRun.getOwnerUserId() == null
-                || workflow.getNextAction()
-                != ProductListingWorkflowView.NextAction.REAUTHENTICATE) {
-            return workflow;
-        }
-        return reauthenticationAttemptProjector.overlay(
-                workflow,
-                reauthenticationAttemptMapper.selectAttemptState(
-                        realRun.getTaskId(),
-                        realRun.getOwnerUserId()
-                )
-        );
+        return projected;
     }
 
     public List<ProductListingDraftView> attachWorkflowSummaries(

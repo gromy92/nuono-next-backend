@@ -49,7 +49,7 @@ class ProductListingCreateOutcomeAuthClassificationTest
     }
 
     @Test
-    void typedAuthenticationSignalStillTransitionsToReauthentication()
+    void typedAuthenticationSignalTransitionsToSharedAuthorizationWait()
             throws Exception {
         Fixture fixture = fixture(wrapped(
                 new NoonAuthenticationRequiredException(
@@ -65,7 +65,7 @@ class ProductListingCreateOutcomeAuthClassificationTest
         ProductListingCreateOutcomeVerificationView view =
                 fixture.service.verify(fixture.context, 20002L);
 
-        assertEquals("reauthentication_required", view.getStatus());
+        assertEquals("authorization_waiting", view.getStatus());
         assertEquals("noon_auth_required", view.getFailureCode());
         verify(fixture.mapper).markCreateOutcomeLookupAuthenticationRequired(
                 eq(20002L),

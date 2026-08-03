@@ -81,7 +81,9 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 "STR69486-NSA",
                 List.of(new ProductProjectionPersistenceService.SiteSeed("STR69486-NSA", "SA", "ACTIVE", true)),
                 List.of(seed),
-                new ArrayList<>()
+                new ArrayList<>(),
+                true,
+                false
         );
 
         verify(productManagementMapper, times(2)).selectProductMasterIdByStorePartnerSku(logicalStoreId, "SGGRB113");
@@ -122,6 +124,8 @@ class ProductProjectionPersistenceServicePskuMasterTest {
                 eq(51003L),
                 eq("SA"),
                 eq("external-noon-psku-code"),
+                any(),
+                any(),
                 any(),
                 any(),
                 any(),

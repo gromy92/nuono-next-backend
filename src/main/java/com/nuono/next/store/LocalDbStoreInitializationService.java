@@ -13,9 +13,15 @@ import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
+import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import com.nuono.next.product.ProductNoonCatalogContentService;
@@ -32,10 +38,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.context.annotation.Profile;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -76,6 +84,8 @@ public class LocalDbStoreInitializationService {
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final Map<String, InitializationState> stateMap = new ConcurrentHashMap<>();
+    private NoonAuthWaitQueue authWaitQueue = request -> Optional.empty();
+    private NoonPullProjectAuthGate projectAuthGate = (ownerUserId, projectCode) -> false;
 
     public LocalDbStoreInitializationService(
             StoreSyncMapper storeSyncMapper,
@@ -95,6 +105,20 @@ public class LocalDbStoreInitializationService {
         this.noonSessionGateway = noonSessionGateway;
         this.productProjectionPersistenceService = productProjectionPersistenceService;
         this.productNoonCatalogContentService = productNoonCatalogContentService;
+    }
+
+    @Autowired(required = false)
+    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
+        if (authWaitQueue != null) {
+            this.authWaitQueue = authWaitQueue;
+        }
+    }
+
+    @Autowired(required = false)
+    void setProjectAuthGate(NoonPullProjectAuthGate projectAuthGate) {
+        if (projectAuthGate != null) {
+            this.projectAuthGate = projectAuthGate;
+        }
     }
 
     public StoreInitializationStatusView getStatus(Long ownerUserId, String storeCode) {
@@ -140,9 +164,17 @@ public class LocalDbStoreInitializationService {
 
         String noonUser = resolveNoonUser(context);
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
-        requireText(resolveNoonCookie(context), "当前店铺会话待恢复，请稍后重试。");
 
         InitializationState state = new InitializationState(buildIdleView(context));
+        String projectCode = firstNonBlank(
+                context.referenceStore.getProjectCode(),
+                context.owner.getNoonPartnerId()
+        );
+        if (!StringUtils.hasText(resolveNoonCookie(context))
+                || projectAuthGate.isBlocked(command.getOwnerUserId(), projectCode)) {
+            stateMap.put(key, state);
+            return waitForAuthorization(context, state, "PROJECT_SESSION");
+        }
         state.markRunning("开始初始化", 5, 1, 8, "正在识别项目和站点结构...");
         stateMap.put(key, state);
         persistSnapshot(command.getOwnerUserId(), storeCode, state.snapshot());
@@ -153,6 +185,16 @@ public class LocalDbStoreInitializationService {
                 noonUser
         ));
         return state.snapshot();
+    }
+
+    void resumeQueued(StoreInitializationSnapshotRecord record) {
+        if (record == null || record.getOwnerUserId() == null || !StringUtils.hasText(record.getStoreCode())) {
+            throw new IllegalArgumentException("缺少待恢复的店铺初始化任务上下文。");
+        }
+        StoreInitializationCommand command = new StoreInitializationCommand();
+        command.setOwnerUserId(record.getOwnerUserId());
+        command.setStoreCode(record.getStoreCode());
+        start(command);
     }
 
     public StoreInitializationPreflightView preflight(StoreInitializationCommand command) {
@@ -556,6 +598,12 @@ public class LocalDbStoreInitializationService {
             persistSnapshot(context.owner.getId(), context.referenceStore.getStoreCode(), state.snapshot());
         } catch (Exception exception) {
             state.setNoonRequestCounts(requestCountScope.snapshot());
+            if (NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)
+                    && !NoonAuthenticationFailureClassifier
+                            .hasPermanentAuthenticationFailureEvidence(exception)) {
+                waitForAuthorization(context, state, "INITIALIZATION_READ");
+                return;
+            }
             if (StringUtils.hasText(exception.getMessage())) {
                 state.mutableWarnings().add(exception.getMessage());
             }
@@ -741,9 +789,9 @@ public class LocalDbStoreInitializationService {
         }
     }
 
-    private void persistSnapshot(Long ownerUserId, String storeCode, StoreInitializationStatusView view) {
+    private Long persistSnapshot(Long ownerUserId, String storeCode, StoreInitializationStatusView view) {
         if (ownerUserId == null || !StringUtils.hasText(storeCode) || view == null) {
-            return;
+            return null;
         }
 
         try {
@@ -763,9 +811,54 @@ public class LocalDbStoreInitializationService {
                     parseDateTime(view.getLastInitializedAt()),
                     snapshotJson
             );
+            return id;
         } catch (IOException exception) {
             throw new IllegalStateException("写入店铺初始化快照失败。", exception);
         }
+    }
+
+    private StoreInitializationStatusView waitForAuthorization(
+            StoreContext context,
+            InitializationState state,
+            String checkpoint
+    ) {
+        state.markWaitingAuthorization(
+                "Noon Project 会话待恢复，授权完成后将自动继续本次初始化。"
+        );
+        Long snapshotId = persistSnapshot(
+                context.owner.getId(),
+                context.referenceStore.getStoreCode(),
+                state.snapshot()
+        );
+        try {
+            Optional<Long> recoveryId = authWaitQueue.enqueue(NoonAuthWaitRequest.task(
+                    context.owner.getId(),
+                    firstNonBlank(
+                            context.referenceStore.getProjectCode(),
+                            context.owner.getNoonPartnerId()
+                    ),
+                    context.referenceStore.getStoreCode(),
+                    context.referenceStore.getSite(),
+                    "STORE_INITIALIZATION",
+                    snapshotId,
+                    checkpoint,
+                    NoonAuthResumePolicy.AUTO_RESUME
+            ));
+            if (recoveryId.isPresent()) {
+                return state.snapshot();
+            }
+            state.markFailed("统一 Noon 授权恢复队列暂不可用，请稍后重试。");
+        } catch (NoonAuthRetrySuppressedException suppressed) {
+            state.markFailed(suppressed.getMessage());
+        } catch (RuntimeException queueFailure) {
+            state.markFailed("统一 Noon 授权恢复队列暂不可用，请稍后重试。");
+        }
+        persistSnapshot(
+                context.owner.getId(),
+                context.referenceStore.getStoreCode(),
+                state.snapshot()
+        );
+        return state.snapshot();
     }
 
     private List<ProductProjectionPersistenceService.SiteSeed> buildProjectionSiteSeeds(
@@ -1603,11 +1696,7 @@ public class LocalDbStoreInitializationService {
 
     private String resolveNoonCookie(StoreContext context) {
         StoreSyncStoreRecord referenceStore = context == null ? null : context.referenceStore;
-        StoreSyncOwnerContext owner = context == null ? null : context.owner;
-        return firstNonBlank(
-                referenceStore == null ? null : referenceStore.getNoonPartnerCookie(),
-                owner == null ? null : owner.getNoonPartnerCookie()
-        );
+        return referenceStore == null ? null : normalize(referenceStore.getNoonPartnerCookie());
     }
 
     private NoonSession openInitializationNoonSession(
@@ -2177,6 +2266,17 @@ public class LocalDbStoreInitializationService {
             view.setMessage(message);
         }
 
+        private synchronized void markWaitingAuthorization(String message) {
+            int activeStepIndex = resolveActiveStepIndex();
+            updateSteps(view.getSteps().size(), activeStepIndex, "waiting", message);
+            view.setStatus("WAITING_AUTHORIZATION");
+            view.setPhaseLabel("等待 Noon 授权");
+            view.setMessage(message);
+            if (!StringUtils.hasText(view.getStartedAt())) {
+                view.setStartedAt(nowText());
+            }
+        }
+
         private synchronized boolean hasProductItems() {
             return view.getProductItems() != null && !view.getProductItems().isEmpty();
         }
@@ -2346,7 +2446,6 @@ public class LocalDbStoreInitializationService {
     public static class StoreInitializationCommand {
         private Long ownerUserId;
         private String storeCode;
-        private String noonPassword;
 
         public Long getOwnerUserId() {
             return ownerUserId;
@@ -2364,233 +2463,9 @@ public class LocalDbStoreInitializationService {
             this.storeCode = storeCode;
         }
 
-        public String getNoonPassword() {
-            return noonPassword;
-        }
-
-        public void setNoonPassword(String noonPassword) {
-            this.noonPassword = noonPassword;
-        }
     }
 
-    public static class StoreInitializationStatusView {
-        private String mode;
-        private boolean ready;
-        private String status;
-        private String message;
-        private Long ownerUserId;
-        private String projectName;
-        private String projectCode;
-        private String storeCode;
-        private Integer siteCount;
-        private Integer uniqueProductCount;
-        private Integer siteOfferCount;
-        private Integer progressPercent;
-        private String phaseLabel;
-        private String startedAt;
-        private String lastInitializedAt;
-        private Integer noonRequestTotalCount = 0;
-        private Map<String, Integer> noonRequestCounts = new LinkedHashMap<>();
-        private Boolean canEnterProductWorkbench = false;
-        private List<String> missingCoreTables = new ArrayList<>();
-        private List<String> warnings = new ArrayList<>();
-        private List<StoreInitializationStepView> steps = new ArrayList<>();
-        private List<StoreInitializationSiteSummaryView> siteSummaries = new ArrayList<>();
-        private List<StoreInitializationProductSampleView> sampleProducts = new ArrayList<>();
-        private List<StoreInitializationProductListItemView> productItems = new ArrayList<>();
-
-        public String getMode() {
-            return mode;
-        }
-
-        public void setMode(String mode) {
-            this.mode = mode;
-        }
-
-        public boolean isReady() {
-            return ready;
-        }
-
-        public void setReady(boolean ready) {
-            this.ready = ready;
-        }
-
-        public String getStatus() {
-            return status;
-        }
-
-        public void setStatus(String status) {
-            this.status = status;
-        }
-
-        public String getMessage() {
-            return message;
-        }
-
-        public void setMessage(String message) {
-            this.message = message;
-        }
-
-        public Long getOwnerUserId() {
-            return ownerUserId;
-        }
-
-        public void setOwnerUserId(Long ownerUserId) {
-            this.ownerUserId = ownerUserId;
-        }
-
-        public String getProjectName() {
-            return projectName;
-        }
-
-        public void setProjectName(String projectName) {
-            this.projectName = projectName;
-        }
-
-        public String getProjectCode() {
-            return projectCode;
-        }
-
-        public void setProjectCode(String projectCode) {
-            this.projectCode = projectCode;
-        }
-
-        public String getStoreCode() {
-            return storeCode;
-        }
-
-        public void setStoreCode(String storeCode) {
-            this.storeCode = storeCode;
-        }
-
-        public Integer getSiteCount() {
-            return siteCount;
-        }
-
-        public void setSiteCount(Integer siteCount) {
-            this.siteCount = siteCount;
-        }
-
-        public Integer getUniqueProductCount() {
-            return uniqueProductCount;
-        }
-
-        public void setUniqueProductCount(Integer uniqueProductCount) {
-            this.uniqueProductCount = uniqueProductCount;
-        }
-
-        public Integer getSiteOfferCount() {
-            return siteOfferCount;
-        }
-
-        public void setSiteOfferCount(Integer siteOfferCount) {
-            this.siteOfferCount = siteOfferCount;
-        }
-
-        public Integer getProgressPercent() {
-            return progressPercent;
-        }
-
-        public void setProgressPercent(Integer progressPercent) {
-            this.progressPercent = progressPercent;
-        }
-
-        public String getPhaseLabel() {
-            return phaseLabel;
-        }
-
-        public void setPhaseLabel(String phaseLabel) {
-            this.phaseLabel = phaseLabel;
-        }
-
-        public String getStartedAt() {
-            return startedAt;
-        }
-
-        public void setStartedAt(String startedAt) {
-            this.startedAt = startedAt;
-        }
-
-        public String getLastInitializedAt() {
-            return lastInitializedAt;
-        }
-
-        public void setLastInitializedAt(String lastInitializedAt) {
-            this.lastInitializedAt = lastInitializedAt;
-        }
-
-        public Integer getNoonRequestTotalCount() {
-            return noonRequestTotalCount;
-        }
-
-        public void setNoonRequestTotalCount(Integer noonRequestTotalCount) {
-            this.noonRequestTotalCount = noonRequestTotalCount;
-        }
-
-        public Map<String, Integer> getNoonRequestCounts() {
-            return noonRequestCounts;
-        }
-
-        public void setNoonRequestCounts(Map<String, Integer> noonRequestCounts) {
-            this.noonRequestCounts = noonRequestCounts;
-        }
-
-        public Boolean getCanEnterProductWorkbench() {
-            return canEnterProductWorkbench;
-        }
-
-        public void setCanEnterProductWorkbench(Boolean canEnterProductWorkbench) {
-            this.canEnterProductWorkbench = canEnterProductWorkbench;
-        }
-
-        public List<String> getMissingCoreTables() {
-            return missingCoreTables;
-        }
-
-        public void setMissingCoreTables(List<String> missingCoreTables) {
-            this.missingCoreTables = missingCoreTables;
-        }
-
-        public List<String> getWarnings() {
-            return warnings;
-        }
-
-        public void setWarnings(List<String> warnings) {
-            this.warnings = warnings;
-        }
-
-        public List<StoreInitializationStepView> getSteps() {
-            return steps;
-        }
-
-        public void setSteps(List<StoreInitializationStepView> steps) {
-            this.steps = steps;
-        }
-
-        public List<StoreInitializationSiteSummaryView> getSiteSummaries() {
-            return siteSummaries;
-        }
-
-        public void setSiteSummaries(List<StoreInitializationSiteSummaryView> siteSummaries) {
-            this.siteSummaries = siteSummaries;
-        }
-
-        public List<StoreInitializationProductSampleView> getSampleProducts() {
-            return sampleProducts;
-        }
-
-        public void setSampleProducts(List<StoreInitializationProductSampleView> sampleProducts) {
-            this.sampleProducts = sampleProducts;
-        }
-
-        public List<StoreInitializationProductListItemView> getProductItems() {
-            return productItems;
-        }
-
-        public void setProductItems(List<StoreInitializationProductListItemView> productItems) {
-            this.productItems = productItems;
-        }
-    }
+    public static class StoreInitializationStatusView extends StoreInitializationStatusViewData { }
 
     public static class StoreInitializationPreflightView {
         private String mode;

@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.AnnotationTransactionAttributeSource;
 
 class WarehouseDispatchTransactionContractTest {
@@ -21,11 +22,13 @@ class WarehouseDispatchTransactionContractTest {
             "previewMobileShippingDecision",
             "confirmMobileShippingDecision",
             "createShippingBatch",
+            "createShippingBatchFromDispatchPlan",
             "listShippingBatches",
             "getShippingBatch",
             "createShippingTargetOption",
             "selectShippingOption",
             "createOutboundOrders",
+            "issueShippingBatch",
             "listOutboundOrders",
             "createPackingList",
             "listPackingLists",
@@ -38,7 +41,6 @@ class WarehouseDispatchTransactionContractTest {
             "readyForLogistics",
             "getLogisticsHandoff",
             "reopenDraft",
-            "markLogisticsHandoffSuccess",
             "markLogisticsHandoffFailure"
     );
 
@@ -55,8 +57,16 @@ class WarehouseDispatchTransactionContractTest {
     }
 
     private void assertTransactional(AnnotationTransactionAttributeSource attributes, Method method) {
-        assertThat(attributes.getTransactionAttribute(method, LocalDbWarehouseDispatchService.class))
+        var attribute = attributes.getTransactionAttribute(
+                method,
+                LocalDbWarehouseDispatchService.class
+        );
+        assertThat(attribute)
                 .as(method.getName())
                 .isNotNull();
+        if ("shipPackingList".equals(method.getName())) {
+            assertThat(attribute.getIsolationLevel())
+                    .isEqualTo(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        }
     }
 }

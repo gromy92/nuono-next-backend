@@ -9,7 +9,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.ProductWriteAuthRecovery;
 import java.lang.reflect.Constructor;
@@ -37,7 +37,7 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
             ));
             AtomicInteger writeAttempts = new AtomicInteger();
             Throwable propagated = propagatedCookieOnlyWriteFailure(responseBody, writeAttempts);
-            NoonProjectAuthRecoveryQueue recoveryQueue = mock(NoonProjectAuthRecoveryQueue.class);
+            NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
             ProductWriteAuthRecovery recovery = new ProductWriteAuthRecovery(
                     recoveryQueue,
                     mock(NoonPullProjectAuthGate.class)
@@ -52,7 +52,7 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
                     propagated,
                     false
             ));
-            verify(recoveryQueue, never()).enqueueProject(any(), anyString(), anyString());
+            verify(recoveryQueue, never()).enqueue(any());
         }
     }
 

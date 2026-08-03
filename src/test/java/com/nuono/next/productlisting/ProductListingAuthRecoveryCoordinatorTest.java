@@ -28,7 +28,7 @@ class ProductListingAuthRecoveryCoordinatorTest {
         when(fixture.adapter.isAuthorizationRecoveryPending(any()))
                 .thenReturn(true, false);
         stubAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.RETRY_CREATE,
+                ProductListingAuthContinuationService.ResumeAction.RETRY_CREATE,
                 ProductListingWorkflowView.NextAction.WAIT);
 
         assertFalse(fixture.coordinator.resumeIfAuthorizationRestored(
@@ -37,7 +37,7 @@ class ProductListingAuthRecoveryCoordinatorTest {
                 fixture.context, task));
 
         verifyAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.RETRY_CREATE);
+                ProductListingAuthContinuationService.ResumeAction.RETRY_CREATE);
         verify(fixture.service).executeSubmittedRealRunTask(88003L);
         verify(fixture.outcomeService, never()).verify(any(), any());
     }
@@ -48,14 +48,14 @@ class ProductListingAuthRecoveryCoordinatorTest {
         Fixture fixture = fixture(task);
         when(fixture.adapter.isAuthorizationRecoveryPending(any())).thenReturn(false);
         stubAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.VERIFY_READBACK,
+                ProductListingAuthContinuationService.ResumeAction.VERIFY_READBACK,
                 ProductListingWorkflowView.NextAction.VERIFY_READBACK);
 
         assertTrue(fixture.coordinator.resumeIfAuthorizationRestored(
                 fixture.context, task));
 
         verifyAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.VERIFY_READBACK);
+                ProductListingAuthContinuationService.ResumeAction.VERIFY_READBACK);
         verify(fixture.service).verifyRealRunReadBack(fixture.context, 88003L);
         verify(fixture.service, never()).continueRealRunAfterCreate(any(), any());
     }
@@ -66,14 +66,14 @@ class ProductListingAuthRecoveryCoordinatorTest {
         Fixture fixture = fixture(task);
         when(fixture.adapter.isAuthorizationRecoveryPending(any())).thenReturn(false);
         stubAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.CHECK_CREATE_RESULT,
+                ProductListingAuthContinuationService.ResumeAction.CHECK_CREATE_RESULT,
                 ProductListingWorkflowView.NextAction.CHECK_CREATE_RESULT);
 
         assertTrue(fixture.coordinator.resumeIfAuthorizationRestored(
                 fixture.context, task));
 
         verifyAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.CHECK_CREATE_RESULT);
+                ProductListingAuthContinuationService.ResumeAction.CHECK_CREATE_RESULT);
         verify(fixture.outcomeService).verify(fixture.context, 88003L);
         verify(fixture.service, never()).continueRealRunAfterCreate(any(), any());
     }
@@ -84,14 +84,14 @@ class ProductListingAuthRecoveryCoordinatorTest {
         Fixture fixture = fixture(task);
         when(fixture.adapter.isAuthorizationRecoveryPending(any())).thenReturn(false);
         stubAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.CONTINUE_AFTER_CREATE,
+                ProductListingAuthContinuationService.ResumeAction.CONTINUE_AFTER_CREATE,
                 ProductListingWorkflowView.NextAction.CONTINUE_AFTER_CREATE);
 
         assertTrue(fixture.coordinator.resumeIfAuthorizationRestored(
                 fixture.context, task));
 
         verifyAdvance(fixture, task,
-                ProductListingReauthenticationCommitter.ResumeAction.CONTINUE_AFTER_CREATE);
+                ProductListingAuthContinuationService.ResumeAction.CONTINUE_AFTER_CREATE);
         verify(fixture.service, never()).continueRealRunAfterCreate(any(), any());
         verify(fixture.service, never()).verifyRealRunReadBack(any(), any());
         verify(fixture.outcomeService, never()).verify(any(), any());
@@ -106,9 +106,9 @@ class ProductListingAuthRecoveryCoordinatorTest {
                 fixture.context, task));
 
         verify(fixture.adapter, never()).isAuthorizationRecoveryPending(any());
-        verify(fixture.committer, never()).advanceSharedRecovery(
+        verify(fixture.continuationService, never()).advance(
                 any(), any(), any(), anyString(), any(),
-                any(ProductListingReauthenticationCommitter.ResumeAction.class));
+                any(ProductListingAuthContinuationService.ResumeAction.class));
     }
 
     @Test
@@ -127,9 +127,9 @@ class ProductListingAuthRecoveryCoordinatorTest {
                 fixture.context, task));
 
         verify(fixture.adapter, never()).isAuthorizationRecoveryPending(any());
-        verify(fixture.committer, never()).advanceSharedRecovery(
+        verify(fixture.continuationService, never()).advance(
                 any(), any(), any(), anyString(), any(),
-                any(ProductListingReauthenticationCommitter.ResumeAction.class));
+                any(ProductListingAuthContinuationService.ResumeAction.class));
     }
 
     @Test
@@ -154,13 +154,13 @@ class ProductListingAuthRecoveryCoordinatorTest {
                     ProductListingNoonWriteRequest request = invocation.getArgument(0);
                     return !"STR-RESTORED".equals(request.getStoreCode());
                 });
-        when(fixture.committer.advanceSharedRecovery(
+        when(fixture.continuationService.advance(
                 any(BusinessAccessContext.class),
                 eq(restored.getId()),
                 eq(restored.getOwnerUserId()),
                 eq(restored.getNoonResultJson()),
                 eq(991L),
-                eq(ProductListingReauthenticationCommitter.ResumeAction.CONTINUE_AFTER_CREATE)
+                eq(ProductListingAuthContinuationService.ResumeAction.CONTINUE_AFTER_CREATE)
         )).thenReturn(workflow(ProductListingWorkflowView.NextAction.CONTINUE_AFTER_CREATE));
 
         assertEquals(0, fixture.coordinator.resumePendingTasks(2));
@@ -179,10 +179,10 @@ class ProductListingAuthRecoveryCoordinatorTest {
     private void stubAdvance(
             Fixture fixture,
             ProductListingTaskRecord task,
-            ProductListingReauthenticationCommitter.ResumeAction action,
+            ProductListingAuthContinuationService.ResumeAction action,
             ProductListingWorkflowView.NextAction nextAction
     ) {
-        when(fixture.committer.advanceSharedRecovery(
+        when(fixture.continuationService.advance(
                 fixture.context, task.getId(), task.getOwnerUserId(),
                 task.getNoonResultJson(), 991L, action
         )).thenReturn(workflow(nextAction));
@@ -191,9 +191,9 @@ class ProductListingAuthRecoveryCoordinatorTest {
     private void verifyAdvance(
             Fixture fixture,
             ProductListingTaskRecord task,
-            ProductListingReauthenticationCommitter.ResumeAction action
+            ProductListingAuthContinuationService.ResumeAction action
     ) {
-        verify(fixture.committer).advanceSharedRecovery(
+        verify(fixture.continuationService).advance(
                 fixture.context, task.getId(), task.getOwnerUserId(),
                 task.getNoonResultJson(), 991L, action);
     }
@@ -281,8 +281,8 @@ class ProductListingAuthRecoveryCoordinatorTest {
         private final ProductListingNoonWriteAdapter adapter =
                 mock(ProductListingNoonWriteAdapter.class);
         private final ProductListingService service = mock(ProductListingService.class);
-        private final ProductListingReauthenticationCommitter committer =
-                mock(ProductListingReauthenticationCommitter.class);
+        private final ProductListingAuthContinuationService continuationService =
+                mock(ProductListingAuthContinuationService.class);
         private final ProductListingCreateOutcomeService outcomeService =
                 mock(ProductListingCreateOutcomeService.class);
         private final BusinessAccessContext context;
@@ -293,7 +293,7 @@ class ProductListingAuthRecoveryCoordinatorTest {
                     10002L, 90001L, task.getStoreCode());
             coordinator = new ProductListingAuthRecoveryCoordinator(
                     authMapper, listingMapper, adapter, service,
-                    committer, outcomeService, objectMapper);
+                    continuationService, outcomeService, objectMapper);
         }
     }
 }

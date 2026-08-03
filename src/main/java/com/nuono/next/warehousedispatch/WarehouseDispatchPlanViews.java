@@ -23,6 +23,7 @@ public class WarehouseDispatchPlanViews extends WarehouseProcurementViews {
     public static class DispatchPlanView {
         public String id;
         public Long ownerUserId;
+        public String clientRequestId;
         public String planNo;
         public String status;
         public Integer itemCount;
@@ -33,12 +34,14 @@ public class WarehouseDispatchPlanViews extends WarehouseProcurementViews {
         public String handoffErrorMessage;
         public String createdAt;
         public String updatedAt;
+        public WarehouseDispatchViews.ShippingBatchView currentShippingBatch;
         public List<WarehouseDispatchViews.DispatchPlanLineView> lines = new ArrayList<>();
 
         public DispatchPlanRecord toRecord() {
             DispatchPlanRecord record = new DispatchPlanRecord();
             record.id = id == null ? null : Long.valueOf(id);
             record.ownerUserId = ownerUserId;
+            record.clientRequestId = clientRequestId;
             record.planNo = planNo;
             record.status = status;
             record.itemCount = itemCount;

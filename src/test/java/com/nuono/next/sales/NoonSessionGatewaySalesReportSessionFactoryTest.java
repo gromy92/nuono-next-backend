@@ -1,8 +1,6 @@
 package com.nuono.next.sales;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.nuono.next.noon.NoonSessionGateway;
@@ -11,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class NoonSessionGatewaySalesReportSessionFactoryTest {
 
     @Test
-    void backgroundSalesReportMustNotUseEmailOtpWhenCookieNeedsAuthentication() {
+    void backgroundSalesReportUsesThePersistedProjectCookieSession() {
         NoonSessionGateway gateway = mock(NoonSessionGateway.class);
         NoonSessionGatewaySalesReportSessionFactory factory = new NoonSessionGatewaySalesReportSessionFactory(gateway);
         NoonSalesReportBinding binding = new NoonSalesReportBinding(
@@ -22,8 +20,6 @@ class NoonSessionGatewaySalesReportSessionFactoryTest {
                 "AE",
                 "313934",
                 "merchant@example.com",
-                "legacy-password",
-                "imap-secret",
                 "sid=expired"
         );
 
@@ -36,6 +32,5 @@ class NoonSessionGatewaySalesReportSessionFactoryTest {
                 "PRJ313934",
                 "STR313934-NAE"
         );
-        verify(gateway, never()).login(any(), any(), any(), any(), any(), any());
     }
 }

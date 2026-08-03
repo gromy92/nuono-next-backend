@@ -71,7 +71,7 @@ public interface ProductListingMapper extends
             "SET noon_result_json = #{newNoonResultJson},",
             "    failure_category = 'authentication',",
             "    failure_code = 'noon_auth_required',",
-            "    failure_message = '核对 Noon 创建结果时授权已失效；请重新授权后继续只读核对，禁止重复创建。',",
+            "    failure_message = '核对 Noon 创建结果时授权已失效；任务已等待统一授权恢复，恢复后自动继续只读核对，禁止重复创建。',",
             "    gmt_updated = NOW()",
             "WHERE id = #{taskId}",
             "  AND owner_user_id = #{ownerUserId}",

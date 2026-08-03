@@ -51,6 +51,25 @@ class PackageReleaseArtifactTest(unittest.TestCase):
             ]
             for name in names:
                 (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
+            forward = [
+                ("227_database_migration_history.sql", "BOOTSTRAP"),
+                ("228_noon_pull_runtime_schema_convergence.sql", "AUTO_ADDITIVE"),
+            ]
+            postcheck_dir = root / "db" / "postcheck"
+            postcheck_dir.mkdir()
+            catalog_lines = [
+                "order\tmigration_key\tkind\tscript_path\tpostcheck_path"
+            ]
+            for order, (name, kind) in enumerate(forward, start=227):
+                (migration_dir / name).write_text(f"-- {name}\n", encoding="utf-8")
+                (postcheck_dir / name).write_text("SELECT 1;\n", encoding="utf-8")
+                catalog_lines.append(
+                    f"{order}\t{name}\t{kind}\tdb/init/{name}\tdb/postcheck/{name}"
+                )
+            (migration_dir / "release-migrations.tsv").write_text(
+                "\n".join(catalog_lines) + "\n",
+                encoding="utf-8",
+            )
 
             manifest = module.build_manifest(
                 artifact,
@@ -63,6 +82,34 @@ class PackageReleaseArtifactTest(unittest.TestCase):
             self.assertEqual(
                 [module.sha256_file(migration_dir / name) for name in names],
                 [item["sha256"] for item in manifest["migrations"]],
+            )
+            self.assertEqual(
+                [name for name, _ in forward],
+                [item["migration_key"] for item in manifest["forward_migrations"]],
+            )
+            self.assertEqual(
+                [kind for _, kind in forward],
+                [item["kind"] for item in manifest["forward_migrations"]],
+            )
+            self.assertEqual(
+                [
+                    module.sha256_file(migration_dir / name)
+                    for name, _ in forward
+                ],
+                [
+                    item["script_sha256"]
+                    for item in manifest["forward_migrations"]
+                ],
+            )
+            self.assertEqual(
+                [
+                    module.sha256_file(postcheck_dir / name)
+                    for name, _ in forward
+                ],
+                [
+                    item["postcheck_sha256"]
+                    for item in manifest["forward_migrations"]
+                ],
             )
 
     def test_packages_one_jar_and_binds_it_to_the_workflow(self):

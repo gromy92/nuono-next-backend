@@ -13,7 +13,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.ProductWriteAuthRecovery;
@@ -48,7 +49,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         }
 
         verify(fixture.queue, times(7))
-                .enqueueProject(OWNER_USER_ID, PROJECT_CODE, STORE_CODE);
+                .enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE));
     }
 
     @Test
@@ -77,7 +78,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         }
 
         verify(fixture.queue, times(8))
-                .enqueueProject(OWNER_USER_ID, PROJECT_CODE, STORE_CODE);
+                .enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE));
     }
 
     @Test
@@ -96,7 +97,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(fixture.queue, never()).enqueue(any());
     }
 
     @Test
@@ -117,7 +118,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(fixture.queue, never()).enqueue(any());
     }
 
     @Test
@@ -137,7 +138,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueueProject(any(), anyString(), anyString());
+        verify(fixture.queue, never()).enqueue(any());
     }
 
     private ObjectNode nestedStatus(int status) {
@@ -156,8 +157,8 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
     }
 
     private RecoveryFixture fixture() {
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
-        when(queue.enqueueProject(OWNER_USER_ID, PROJECT_CODE, STORE_CODE))
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
+        when(queue.enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE)))
                 .thenReturn(Optional.of(991L));
         ProductNoonAdapter adapter = new ProductNoonAdapter(
                 mock(NoonSessionGateway.class),
@@ -172,11 +173,11 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
 
     private static final class RecoveryFixture {
         private final ProductNoonAdapter adapter;
-        private final NoonProjectAuthRecoveryQueue queue;
+        private final NoonAuthWaitQueue queue;
 
         private RecoveryFixture(
                 ProductNoonAdapter adapter,
-                NoonProjectAuthRecoveryQueue queue
+                NoonAuthWaitQueue queue
         ) {
             this.adapter = adapter;
             this.queue = queue;

@@ -77,15 +77,7 @@ class OfficialWarehouseAsnListPullServiceTest {
         when(executor.syncNoonAsnListForTask(any(), eq("STR65267-NSA"), eq("SA")))
                 .thenThrow(new IllegalStateException("auth_required: cookie expired"))
                 .thenReturn(success);
-        foundationService.setAuthRecoveryQueue((task, rawFailure) -> {
-            repository.blockTaskForAuth(
-                    task.getId(),
-                    88001L,
-                    rawFailure,
-                    LocalDateTime.of(2026, 7, 28, 4, 0)
-            );
-            return Optional.of(88001L);
-        });
+        foundationService.setAuthWaitQueue(request -> Optional.of(88001L));
 
         assertThatThrownBy(() -> service.sync(access, "STR65267-NSA", "SA"))
                 .isInstanceOfSatisfying(ApiProblemException.class, problem -> {

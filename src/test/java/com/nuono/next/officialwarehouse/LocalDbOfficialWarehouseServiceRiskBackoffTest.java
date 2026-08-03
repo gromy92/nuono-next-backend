@@ -1,6 +1,7 @@
 package com.nuono.next.officialwarehouse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
@@ -26,6 +27,7 @@ import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -65,17 +67,22 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         );
 
         AppointmentRecord appointment = appointment();
-        when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
-        when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(1);
+        AppointmentRecord running = runningAppointment();
+        when(mapper.selectAuthorizedAppointment(Map.of("STR108065-NSA", 307L), 611049L))
+                .thenReturn(appointment);
+        when(mapper.selectAppointment(307L, 611049L)).thenReturn(running);
+        when(mapper.markAppointmentRunning(307L, 611049L, 0L, 901L)).thenReturn(1);
         when(bindingResolver.resolve(any())).thenReturn(binding());
-        when(noonSessionGateway.loginWithPersistedCookie(
+        when(noonSessionGateway.loginWithPersistedCookiePinnedEgress(
                 eq(307L),
                 eq("merchant@example.com"),
                 eq("persisted-cookie"),
                 eq("PRJ108065"),
-                eq("STR108065-NSA")
+                eq("STR108065-NSA"),
+                eq("fbn.noon.partners"),
+                eq(443)
         )).thenThrow(new IllegalStateException(
-                "auth_required: Noon Cookie 无效或已过期，请人工重新授权; project=PRJ108065"
+                "auth_required: Noon Cookie 无效或已过期，等待自动授权恢复; project=PRJ108065"
         ));
 
         service.runAppointmentOnce(access(), "611049");
@@ -85,7 +92,9 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         );
         assertThat(hold).isNull();
         verify(mapper).markAppointmentFailed(
+                eq(307L),
                 eq(611049L),
+                eq(1L),
                 eq("NOON_CALL"),
                 eq("IllegalStateException"),
                 contains("auth_required"),
@@ -112,10 +121,13 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
         AppointmentRecord appointment = appointment();
+        when(mapper.selectAuthorizedAppointment(Map.of("STR108065-NSA", 307L), 611049L))
+                .thenReturn(appointment);
         when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
-        when(mapper.markAppointmentRunning(611049L, 901L)).thenReturn(0);
+        when(mapper.markAppointmentRunning(307L, 611049L, 0L, 901L)).thenReturn(0);
 
-        service.runAppointmentOnce(access(), "611049");
+        assertThatThrownBy(() -> service.runAppointmentOnce(access(), "611049"))
+                .isInstanceOf(OfficialWarehouseAppointmentStateConflictException.class);
 
         verify(bindingResolver, never()).resolve(any());
     }
@@ -140,12 +152,12 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         );
         AppointmentRecord appointment = appointment();
         when(mapper.listDueAppointments(1)).thenReturn(List.of(appointment));
-        when(mapper.claimDueAppointmentForRun(611049L, 307L)).thenReturn(0);
+        when(mapper.claimDueAppointmentForRun(307L, 611049L, 0L, 307L)).thenReturn(0);
         ReflectionTestUtils.setField(service, "appointmentSchedulerEnabled", true);
 
         service.runAppointmentScheduler();
 
-        verify(mapper).claimDueAppointmentForRun(611049L, 307L);
+        verify(mapper).claimDueAppointmentForRun(307L, 611049L, 0L, 307L);
         verify(bindingResolver, never()).resolve(any());
     }
 
@@ -170,7 +182,11 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 OfficialWarehouseAppointmentAuthRecovery.disabled()
         );
         AppointmentRecord appointment = appointment();
-        when(mapper.selectAppointment(307L, 611049L)).thenReturn(appointment);
+        AppointmentRecord running = runningAppointment();
+        when(mapper.selectAuthorizedAppointment(Map.of("STR108065-NSA", 307L), 611049L))
+                .thenReturn(appointment);
+        when(mapper.selectAppointment(307L, 611049L)).thenReturn(running);
+        when(mapper.markAppointmentRunning(307L, 611049L, 0L, 901L)).thenReturn(1);
         riskBackoffGuard.recordRiskSignal(
                 NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA"),
                 "rate_limited",
@@ -182,9 +198,11 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
 
         service.runAppointmentOnce(access(), "611049");
 
-        verify(mapper, never()).markAppointmentRunning(eq(611049L), eq(901L));
+        verify(mapper).markAppointmentRunning(307L, 611049L, 0L, 901L);
         verify(mapper).markAppointmentPendingRetry(
+                eq(307L),
                 eq(611049L),
+                eq(1L),
                 intThat(seconds -> seconds > 0),
                 eq("NOON_RISK_BACKOFF"),
                 eq("rate_limited"),
@@ -211,8 +229,6 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 "SA",
                 "PARTNER",
                 "merchant@example.com",
-                null,
-                "mail-auth-code",
                 "persisted-cookie"
         );
     }
@@ -235,6 +251,15 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
         record.apEndDateValue = LocalDate.now().plusDays(2);
         record.status = "PENDING";
         record.attemptCount = 7;
+        record.executionVersion = 0L;
+        return record;
+    }
+
+    private static AppointmentRecord runningAppointment() {
+        AppointmentRecord record = appointment();
+        record.status = "RUNNING";
+        record.attemptCount = 8;
+        record.executionVersion = 1L;
         return record;
     }
 }

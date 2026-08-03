@@ -3,6 +3,7 @@ package com.nuono.next.productlisting;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,7 +13,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noonauth.NoonProjectAuthRecoveryQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
@@ -24,6 +27,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class RealProductListingProviderSafetyTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -33,8 +37,8 @@ class RealProductListingProviderSafetyTest {
         RecordingSession session = new RecordingSession();
         session.preflightResponse = objectMapper.createObjectNode()
                 .set("error", objectMapper.createObjectNode().put("status", 403));
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
-        when(queue.enqueueProject(10002L, "PRJ240053", "STR245027-NAE"))
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
+        when(queue.enqueue(any(NoonAuthWaitRequest.class)))
                 .thenReturn(Optional.of(801L));
         RealProductListingNoonWriteAdapter adapter = adapter(session, queue, (owner, project) -> false);
 
@@ -46,7 +50,13 @@ class RealProductListingProviderSafetyTest {
         assertEquals(1, session.loginCalls.get());
         assertEquals(1, session.preflightCalls.get());
         assertEquals(0, session.writeCalls.get());
-        verify(queue).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        ArgumentCaptor<NoonAuthWaitRequest> waitRequest =
+                ArgumentCaptor.forClass(NoonAuthWaitRequest.class);
+        verify(queue).enqueue(waitRequest.capture());
+        assertEquals("PRODUCT_LISTING", waitRequest.getValue().getSourceDomain());
+        assertEquals(88003L, waitRequest.getValue().getSourceTaskId());
+        assertEquals("LISTING_WRITE", waitRequest.getValue().getCheckpoint());
+        assertEquals(NoonAuthResumePolicy.AUTO_RESUME, waitRequest.getValue().getResumePolicy());
     }
 
     @Test
@@ -54,7 +64,7 @@ class RealProductListingProviderSafetyTest {
         RecordingSession session = new RecordingSession();
         session.preflightResponse = objectMapper.createObjectNode()
                 .set("data", objectMapper.createObjectNode().putArray("hits"));
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         RealProductListingNoonWriteAdapter adapter = adapter(session, queue, (owner, project) -> false);
 
         ProductListingNoonWriteResult result = adapter.execute(request());
@@ -64,7 +74,7 @@ class RealProductListingProviderSafetyTest {
         assertTrue(result.getFailureMessage().contains("结构异常"));
         assertEquals(1, session.preflightCalls.get());
         assertEquals(0, session.writeCalls.get());
-        verify(queue, never()).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        verify(queue, never()).enqueue(NoonAuthWaitRequest.binding(10002L, "PRJ240053", "STR245027-NAE"));
     }
 
     @Test
@@ -86,7 +96,7 @@ class RealProductListingProviderSafetyTest {
         session.preflightResponse = firstPage;
         session.secondPreflightResponse = secondPage;
         RealProductListingNoonWriteAdapter adapter = adapter(
-                session, mock(NoonProjectAuthRecoveryQueue.class), (owner, project) -> false);
+                session, mock(NoonAuthWaitQueue.class), (owner, project) -> false);
 
         ProductListingNoonWriteResult result = adapter.execute(request());
 
@@ -108,7 +118,7 @@ class RealProductListingProviderSafetyTest {
         ((ObjectNode) root.path("data")).put("total", 1);
         session.preflightResponse = root;
         RealProductListingNoonWriteAdapter adapter = adapter(
-                session, mock(NoonProjectAuthRecoveryQueue.class), (owner, project) -> false);
+                session, mock(NoonAuthWaitQueue.class), (owner, project) -> false);
 
         ProductListingNoonWriteResult result = adapter.execute(request());
 
@@ -124,7 +134,7 @@ class RealProductListingProviderSafetyTest {
         NoonPullProjectAuthGate gate =
                 (owner, project) -> gateChecks.incrementAndGet() >= 3;
         RealProductListingNoonWriteAdapter adapter = adapter(
-                session, mock(NoonProjectAuthRecoveryQueue.class), gate);
+                session, mock(NoonAuthWaitQueue.class), gate);
 
         ProductListingNoonWriteResult result = adapter.execute(request());
 
@@ -137,7 +147,7 @@ class RealProductListingProviderSafetyTest {
     @Test
     void gateBlockedAfterCreateStopsTheNextProviderCall() {
         RecordingSession session = new RecordingSession();
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = (owner, project) -> session.writeCalls.get() >= 1;
         RealProductListingNoonWriteAdapter adapter = adapter(session, queue, gate);
 
@@ -147,13 +157,13 @@ class RealProductListingProviderSafetyTest {
         assertEquals(Boolean.TRUE, result.getWriteMayHaveOccurred());
         assertEquals(1, session.preflightCalls.get());
         assertEquals(1, session.writeCalls.get());
-        verify(queue, never()).enqueueProject(10002L, "PRJ240053", "STR245027-NAE");
+        verify(queue, never()).enqueue(NoonAuthWaitRequest.binding(10002L, "PRJ240053", "STR245027-NAE"));
     }
 
     @Test
     void authorizationPendingCheckDoesNotLoginOrCallProvider() {
         RecordingSession session = new RecordingSession();
-        NoonProjectAuthRecoveryQueue queue = mock(NoonProjectAuthRecoveryQueue.class);
+        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         RealProductListingNoonWriteAdapter adapter = adapter(session, queue, (owner, project) -> true);
 
         boolean pending = adapter.isAuthorizationRecoveryPending(request());
@@ -166,7 +176,7 @@ class RealProductListingProviderSafetyTest {
 
     private RealProductListingNoonWriteAdapter adapter(
             RecordingSession session,
-            NoonProjectAuthRecoveryQueue queue,
+            NoonAuthWaitQueue queue,
             NoonPullProjectAuthGate gate
     ) {
         RealProductListingNoonWriteAdapter adapter = new RealProductListingNoonWriteAdapter(
@@ -260,7 +270,7 @@ class RealProductListingProviderSafetyTest {
         public NoonPullStoreBinding resolve(NoonInterfacePullRequest request) {
             return new NoonPullStoreBinding(
                     request.getOwnerUserId(), "PRJ240053", request.getStoreCode(), "AE",
-                    "240053", "merchant@example.test", "secret", null, "sid=test");
+                    "240053", "merchant@example.test", "sid=test");
         }
     }
 }

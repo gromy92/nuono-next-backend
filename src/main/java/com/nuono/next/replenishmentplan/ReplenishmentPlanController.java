@@ -28,7 +28,7 @@ public class ReplenishmentPlanController {
     }
 
     @GetMapping("/overview")
-    public ReplenishmentPlanRecords.PlanOverviewView overview(
+    public ReplenishmentPlanOverviewView overview(
             @RequestParam String storeCode,
             @RequestParam String siteCode,
             HttpServletRequest request

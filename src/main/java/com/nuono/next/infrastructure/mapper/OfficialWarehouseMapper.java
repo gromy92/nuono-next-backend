@@ -18,14 +18,15 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.IdSequenceCommand;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectProvider;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface OfficialWarehouseMapper {
-
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
@@ -249,176 +250,7 @@ public interface OfficialWarehouseMapper {
             @Param("limit") int limit
     );
 
-    @Select({
-            "<script>",
-            "SELECT b.id, 'IN_TRANSIT_BATCH' AS sourceKind,",
-            "       COALESCE(NULLIF(b.batch_reference_no, ''), NULLIF(b.tracking_no, ''), NULLIF(b.external_shipment_no, ''), CAST(b.id AS CHAR)) AS batchNo,",
-            "       b.tracking_no AS trackingNo, b.external_shipment_no AS externalShipmentNo,",
-            "       COALESCE(f.forwarder_name, b.raw_forwarder_name) AS forwarderName,",
-            "       b.transport_mode AS transportMode, b.batch_status AS status, b.latest_node_status AS latestNodeStatus,",
-            "       NULL AS selectedOptionId,",
-            "       COALESCE(SUM(CASE WHEN allocationScope.scopedQuantity IS NOT NULL",
-            "                         THEN LEAST(GREATEST(COALESCE(line.shipped_quantity, 0), 0), allocationScope.scopedQuantity)",
-            "                         ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END), 0) AS totalQuantity,",
-            "       COALESCE(SUM(CASE WHEN allocationScope.scopedQuantity IS NOT NULL",
-            "                         THEN LEAST(GREATEST(COALESCE(line.shipped_quantity, 0), 0), allocationScope.scopedQuantity)",
-            "                         ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END), 0) AS storeSiteQuantity,",
-            "       COALESCE(SUM(LEAST(GREATEST(COALESCE(linked.linkedQuantity, 0), 0),",
-            "                         CASE WHEN allocationScope.scopedQuantity IS NOT NULL",
-            "                              THEN LEAST(GREATEST(COALESCE(line.shipped_quantity, 0), 0), allocationScope.scopedQuantity)",
-            "                              ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END)), 0) AS linkedQuantity,",
-            "       COALESCE(SUM(GREATEST((CASE WHEN allocationScope.scopedQuantity IS NOT NULL",
-            "                                      THEN LEAST(GREATEST(COALESCE(line.shipped_quantity, 0), 0), allocationScope.scopedQuantity)",
-            "                                      ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END)",
-            "                                   - GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0), 0)), 0) AS remainingQuantity,",
-            "       COALESCE(SUM(LEAST(GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0),",
-            "                         CASE WHEN allocationScope.scopedQuantity IS NOT NULL",
-            "                              THEN LEAST(GREATEST(COALESCE(line.shipped_quantity, 0), 0), allocationScope.scopedQuantity)",
-            "                              ELSE GREATEST(COALESCE(line.shipped_quantity, 0), 0) END)), 0) AS scheduledAppointmentQuantity,",
-            "       CASE WHEN COALESCE(SUM(GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0)), 0) &gt; 0 THEN 1 ELSE 0 END AS alreadyAppointed,",
-            "       CASE WHEN COALESCE(SUM(GREATEST(COALESCE(linked.linkedQuantity, 0), 0)), 0) &gt; 0 THEN 1 ELSE 0 END AS batchUsedByAsn,",
-            "       CASE WHEN COALESCE(SUM(GREATEST(COALESCE(linked.scheduledAppointmentQuantity, 0), 0)), 0) &gt; 0 THEN '已约仓'",
-            "            WHEN COALESCE(SUM(GREATEST(COALESCE(linked.linkedQuantity, 0), 0)), 0) &gt; 0 THEN '已建ASN'",
-            "            ELSE '可约仓' END AS batchUsageLabel,",
-            "       COUNT(DISTINCT COALESCE(NULLIF(line.psku, ''), NULLIF(line.sku, ''), NULLIF(line.msku, ''))) AS skuCount,",
-            "       COALESCE(SUM(COALESCE(purchase.purchaseOrderCount, 0)), 0) AS purchaseOrderCount,",
-            "       NULL AS storeSummaryJson, NULL AS siteSummaryJson, NULL AS transportSummaryJson,",
-            "       DATE_FORMAT(b.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
-            "FROM in_transit_batch b",
-            "JOIN in_transit_goods_line line",
-            "  ON line.batch_id = b.id",
-            " AND line.owner_user_id = b.owner_user_id",
-            " AND line.is_deleted = b'0'",
-            "LEFT JOIN (",
-            "  SELECT owner_user_id, in_transit_goods_line_id,",
-            "         CAST(FLOOR(SUM(GREATEST(COALESCE(allocated_quantity, 0), 0))) AS SIGNED) AS scopedQuantity,",
-            "         MIN(product_variant_id) AS productVariantId",
-            "  FROM procurement_logistics_shipment_allocation",
-            "  WHERE is_deleted = b'0'",
-            "    AND confirmation_status = 'CONFIRMED'",
-            "    AND UPPER(target_store_code) = UPPER(#{storeCode})",
-            "    AND UPPER(target_site_code) = UPPER(#{siteCode})",
-            "  GROUP BY owner_user_id, in_transit_goods_line_id",
-            ") allocationScope",
-            "  ON allocationScope.owner_user_id = line.owner_user_id",
-            " AND allocationScope.in_transit_goods_line_id = line.id",
-            "JOIN logical_store_site lss",
-            "  ON UPPER(lss.store_code) = UPPER(#{storeCode})",
-            " AND UPPER(lss.site) = UPPER(#{siteCode})",
-            " AND lss.is_deleted = b'0'",
-            "JOIN logical_store ls",
-            "  ON ls.id = lss.logical_store_id",
-            " AND ls.owner_user_id = b.owner_user_id",
-            " AND ls.is_deleted = b'0'",
-            "JOIN product_site_offer pso",
-            "  ON pso.site_id = lss.id",
-            " AND pso.is_deleted = b'0'",
-            "JOIN product_variant pv",
-            "  ON pv.id = pso.variant_id",
-            " AND pv.is_deleted = b'0'",
-            "JOIN product_master pm",
-            "  ON pm.id = pv.product_master_id",
-            " AND pm.logical_store_id = ls.id",
-            " AND pm.is_deleted = b'0'",
-            " AND pv.id = COALESCE(allocationScope.productVariantId, (",
-            "   SELECT MIN(pvScope.id)",
-            "   FROM product_variant pvScope",
-            "   JOIN product_master pmScope ON pmScope.id = pvScope.product_master_id AND pmScope.logical_store_id = ls.id AND pmScope.is_deleted = b'0'",
-            "   JOIN product_site_offer psoScope ON psoScope.variant_id = pvScope.id AND psoScope.site_id = lss.id AND psoScope.is_deleted = b'0'",
-            "   WHERE pvScope.is_deleted = b'0'",
-            "     AND (UPPER(COALESCE(line.psku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))) ",
-            "       OR UPPER(COALESCE(line.sku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))) ",
-            "       OR UPPER(COALESCE(line.msku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))))",
-            " ))",
-            "LEFT JOIN in_transit_forwarder f",
-            "  ON f.id = b.standard_forwarder_id",
-            " AND f.owner_user_id = b.owner_user_id",
-            " AND f.is_deleted = b'0'",
-            "LEFT JOIN (",
-            "  SELECT link.owner_user_id, link.in_transit_goods_line_id,",
-            "         SUM(GREATEST(COALESCE(link.quantity, 0), 0)) AS linkedQuantity,",
-            "         SUM(CASE WHEN EXISTS (",
-            "           SELECT 1",
-            "           FROM official_warehouse_appointment scheduledAppointment",
-            "           WHERE scheduledAppointment.asn_id = link.asn_id",
-            "             AND scheduledAppointment.owner_user_id = link.owner_user_id",
-            "             AND scheduledAppointment.is_deleted = b'0'",
-            "             AND scheduledAppointment.status = 'SCHEDULED'",
-            "         ) THEN GREATEST(COALESCE(link.quantity, 0), 0) ELSE 0 END) AS scheduledAppointmentQuantity",
-            "  FROM official_warehouse_asn_shipping_batch_link link",
-            "  JOIN official_warehouse_asn linkedAsn",
-            "    ON linkedAsn.id = link.asn_id",
-            "   AND linkedAsn.owner_user_id = link.owner_user_id",
-            "   AND linkedAsn.is_deleted = b'0'",
-            "   AND UPPER(COALESCE(linkedAsn.status, '')) NOT IN ('FAILED', 'CANCELED', 'CANCELLED')",
-            "  WHERE link.is_deleted = b'0'",
-            "    AND link.in_transit_goods_line_id IS NOT NULL",
-            "  GROUP BY link.owner_user_id, link.in_transit_goods_line_id",
-            ") linked",
-            "  ON linked.owner_user_id = b.owner_user_id",
-            " AND linked.in_transit_goods_line_id = line.id",
-            "LEFT JOIN (",
-            "  SELECT owner_user_id, in_transit_goods_line_id, COUNT(DISTINCT source_id) AS purchaseOrderCount",
-            "  FROM procurement_logistics_shipment_allocation",
-            "  WHERE is_deleted = b'0'",
-            "    AND confirmation_status = 'CONFIRMED'",
-            "  GROUP BY owner_user_id, in_transit_goods_line_id",
-            ") purchase",
-            "  ON purchase.owner_user_id = b.owner_user_id",
-            " AND purchase.in_transit_goods_line_id = line.id",
-            "WHERE b.owner_user_id = #{ownerUserId}",
-            "  AND b.is_deleted = b'0'",
-            "  AND (",
-            "    (b.target_site_code IS NOT NULL AND b.target_site_code &lt;&gt; '' AND UPPER(b.target_site_code) = UPPER(#{siteCode}))",
-            "    OR (UPPER(#{siteCode}) = 'SA' AND (",
-            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'RUH%'",
-            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'JED%'",
-            "    ))",
-            "    OR (UPPER(#{siteCode}) = 'AE' AND (",
-            "      UPPER(COALESCE(b.target_store_code, '')) LIKE 'DB%'",
-            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'DXB%'",
-            "      OR UPPER(COALESCE(b.target_store_code, '')) LIKE 'AUH%'",
-            "    ))",
-            "  )",
-            "  AND (allocationScope.in_transit_goods_line_id IS NOT NULL OR (UPPER(line.store_code) = UPPER(#{storeCode}) AND UPPER(line.site_code) = UPPER(#{siteCode}))",
-            OfficialWarehouseSqlFragments.BARCODE_SCOPE + ")",
-            "  AND (",
-            "    (line.psku IS NOT NULL AND line.psku &lt;&gt; '' AND (",
-            "      UPPER(line.psku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.psku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "    OR (line.sku IS NOT NULL AND line.sku &lt;&gt; '' AND (",
-            "      UPPER(line.sku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.sku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "    OR (line.msku IS NOT NULL AND line.msku &lt;&gt; '' AND (",
-            "      UPPER(line.msku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.msku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "  )",
-            "  AND (",
-            "    b.batch_status IN ('shipped', 'in_transit', 'customs_clearance', 'delivering', 'warehouse_received')",
-            "    OR b.latest_node_status IN ('departed_origin', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_released', 'delivering', 'warehouse_received')",
-            "  )",
-            "<if test='keywordLike != null and keywordLike != \"\"'>",
-            "  AND (b.batch_reference_no LIKE #{keywordLike}",
-            "       OR b.tracking_no LIKE #{keywordLike}",
-            "       OR b.external_shipment_no LIKE #{keywordLike}",
-            "       OR b.raw_forwarder_name LIKE #{keywordLike}",
-            "       OR f.forwarder_name LIKE #{keywordLike})",
-            "</if>",
-            "GROUP BY b.id, b.batch_reference_no, b.tracking_no, b.external_shipment_no, f.forwarder_name, b.raw_forwarder_name,",
-            "         b.transport_mode, b.batch_status, b.latest_node_status, b.gmt_updated",
-            "ORDER BY batchUsedByAsn ASC, b.gmt_updated DESC, b.id DESC",
-            "LIMIT #{limit}",
-            "</script>"
-    })
+    @SelectProvider(type = OfficialWarehouseShippingBatchSqlProvider.class, method = "listShippingBatchCandidates")
     List<ShippingBatchCandidateRecord> listShippingBatchCandidates(
             @Param("ownerUserId") Long ownerUserId,
             @Param("storeCode") String storeCode,
@@ -437,7 +269,7 @@ public interface OfficialWarehouseMapper {
             "       b.id AS inTransitBatchId, b.batch_reference_no AS batchReferenceNo, b.tracking_no AS trackingNo,",
             "       b.external_shipment_no AS externalShipmentNo, COALESCE(f.forwarder_name, b.raw_forwarder_name) AS forwarderName,",
             "       b.transport_mode AS transportMode, b.latest_node_status AS latestNodeStatus, line.id AS inTransitGoodsLineId,",
-            "       NULL AS fulfillmentBalanceId, #{storeCode} AS sourceStoreCode,",
+            "       line.sku AS sourceBarcode, NULL AS fulfillmentBalanceId, #{storeCode} AS sourceStoreCode,",
             "       ls.project_name AS sourceStoreName,",
             "       purchase.purchaseBatchId AS purchaseOrderId, purchase.sourceId AS purchaseOrderNo,",
             "       NULL AS purchaseOrderTitle, NULL AS purchaseOrderItemId, NULL AS purchaseOrderItemSiteId,",
@@ -457,7 +289,7 @@ public interface OfficialWarehouseMapper {
             "LEFT JOIN (",
             "  SELECT owner_user_id, in_transit_goods_line_id,",
             "         CAST(FLOOR(SUM(GREATEST(COALESCE(allocated_quantity, 0), 0))) AS SIGNED) AS scopedQuantity,",
-            "         MIN(product_variant_id) AS productVariantId",
+            "         MIN(product_variant_id) AS productVariantId, COUNT(DISTINCT product_variant_id) AS productVariantCount",
             "  FROM procurement_logistics_shipment_allocation",
             "  WHERE is_deleted = b'0'",
             "    AND confirmation_status = 'CONFIRMED'",
@@ -485,16 +317,17 @@ public interface OfficialWarehouseMapper {
             "  ON pm.id = pv.product_master_id",
             " AND pm.logical_store_id = ls.id",
             " AND pm.is_deleted = b'0'",
-            " AND pv.id = COALESCE(allocationScope.productVariantId, (",
-            "   SELECT MIN(pvScope.id)",
-            "   FROM product_variant pvScope",
-            "   JOIN product_master pmScope ON pmScope.id = pvScope.product_master_id AND pmScope.logical_store_id = ls.id AND pmScope.is_deleted = b'0'",
-            "   JOIN product_site_offer psoScope ON psoScope.variant_id = pvScope.id AND psoScope.site_id = lss.id AND psoScope.is_deleted = b'0'",
-            "   WHERE pvScope.is_deleted = b'0'",
-            "     AND (UPPER(COALESCE(line.psku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))) ",
-            "       OR UPPER(COALESCE(line.sku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))) ",
-            "       OR UPPER(COALESCE(line.msku, '')) IN (UPPER(COALESCE(psoScope.psku_code, '')), UPPER(COALESCE(pmScope.partner_sku, '')), UPPER(COALESCE(pvScope.partner_sku, '')), UPPER(COALESCE(pvScope.child_sku, '')), UPPER(COALESCE(pmScope.sku_parent, ''))))",
-            " ))",
+            "JOIN product_barcode pb",
+            "  ON pb.logical_store_id = ls.id",
+            " AND pb.product_master_id = pm.id",
+            " AND pb.is_deleted = b'0'",
+            " AND COALESCE(pb.barcode_type, '') &lt;&gt; 'PARTNER_SKU_ALIAS'",
+            " AND pb.barcode = line.sku",
+            " AND BINARY pb.barcode = BINARY line.sku",
+            " AND pb.partner_sku = pm.partner_sku",
+            " AND BINARY pb.partner_sku = BINARY pm.partner_sku",
+            " AND pv.partner_sku = pb.partner_sku",
+            " AND BINARY pv.partner_sku = BINARY pb.partner_sku",
             "LEFT JOIN in_transit_forwarder f",
             "  ON f.id = b.standard_forwarder_id",
             " AND f.owner_user_id = b.owner_user_id",
@@ -525,26 +358,12 @@ public interface OfficialWarehouseMapper {
             "  )",
             "  AND (allocationScope.in_transit_goods_line_id IS NOT NULL OR (UPPER(line.store_code) = UPPER(#{storeCode}) AND UPPER(line.site_code) = UPPER(#{siteCode}))",
             OfficialWarehouseSqlFragments.BARCODE_SCOPE + ")",
-            "  AND (",
-            "    (line.psku IS NOT NULL AND line.psku &lt;&gt; '' AND (",
-            "      UPPER(line.psku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.psku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.psku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "    OR (line.sku IS NOT NULL AND line.sku &lt;&gt; '' AND (",
-            "      UPPER(line.sku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.sku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.sku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "    OR (line.msku IS NOT NULL AND line.msku &lt;&gt; '' AND (",
-            "      UPPER(line.msku) = UPPER(COALESCE(pso.psku_code, '')) OR UPPER(line.msku) = UPPER(COALESCE(pm.partner_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.partner_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pv.child_sku, ''))",
-            "      OR UPPER(line.msku) = UPPER(COALESCE(pm.sku_parent, ''))",
-            "    ))",
-            "  )",
+            OfficialWarehouseSqlFragments.OWNER_UNIQUE_BARCODE_IDENTITY,
+            OfficialWarehouseSqlFragments.UNIQUE_SITE_VARIANT,
+            "  AND line.psku = pm.partner_sku",
+            "  AND BINARY line.psku = BINARY pm.partner_sku",
+            "  AND (allocationScope.in_transit_goods_line_id IS NULL OR (",
+            "       allocationScope.productVariantCount = 1 AND allocationScope.productVariantId = pv.id))",
             "  AND (",
             "    b.batch_status IN ('shipped', 'in_transit', 'customs_clearance', 'delivering', 'warehouse_received')",
             "    OR b.latest_node_status IN ('departed_origin', 'in_transit', 'arrived_port', 'customs_clearance', 'customs_released', 'delivering', 'warehouse_received')",
@@ -575,7 +394,7 @@ public interface OfficialWarehouseMapper {
             "GROUP BY b.id, b.batch_reference_no, b.tracking_no, b.external_shipment_no, b.batch_status, b.transport_mode,",
             "         b.latest_node_status, f.forwarder_name, b.raw_forwarder_name, line.id, line.store_code, line.site_code,",
             "         ls.project_name, purchase.purchaseBatchId, purchase.sourceId, pm.id, pv.id, pv.partner_sku, pm.sku_parent, pm.title_cn_cache,",
-            "         pm.title_cache, pm.cover_image_url, line.shipped_quantity, allocationScope.scopedQuantity",
+            "         pm.title_cache, pm.cover_image_url, line.sku, line.shipped_quantity, allocationScope.scopedQuantity",
             "HAVING quantity &gt; 0",
             "ORDER BY b.gmt_updated DESC, b.id DESC, line.id ASC",
             "</script>"
@@ -707,13 +526,18 @@ public interface OfficialWarehouseMapper {
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{asnId}",
             "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
+            "  AND is_deleted = b'0'",
+            "  AND EXISTS (",
+            "      SELECT 1 FROM official_warehouse_appointment appointment WHERE appointment.id = #{appointmentId}",
+            "        AND appointment.asn_id = official_warehouse_asn.id AND appointment.owner_user_id = official_warehouse_asn.owner_user_id",
+            "        AND appointment.is_deleted = b'0' AND appointment.status = 'RUNNING'",
+            "        AND appointment.execution_version = #{runExecutionVersion}",
+            "  )"
     })
-    int updateAsnCurrentWarehouse(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("asnId") Long asnId,
-            @Param("warehouseToPartnerCode") String warehouseToPartnerCode,
-            @Param("warehouseToCode") String warehouseToCode,
+    int updateAsnCurrentWarehouseForAppointment(
+            @Param("ownerUserId") Long ownerUserId, @Param("asnId") Long asnId,
+            @Param("appointmentId") Long appointmentId, @Param("runExecutionVersion") Long runExecutionVersion,
+            @Param("warehouseToPartnerCode") String warehouseToPartnerCode, @Param("warehouseToCode") String warehouseToCode,
             @Param("warehouseName") String warehouseName,
             @Param("operatorUserId") Long operatorUserId
     );
@@ -943,27 +767,12 @@ public interface OfficialWarehouseMapper {
             @Param("limit") int limit
     );
 
-    @Select({
-            "SELECT id, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId, store_code AS storeCode,",
-            "       store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
-            "       local_asn_no AS localAsnNo, source_type AS sourceType, status, noon_asn_nr AS noonAsnNr,",
-            "       noon_partner_asn_id AS noonPartnerAsnId, noon_total_qty AS noonTotalQty, noon_asn_status AS noonAsnStatus, noon_updated_at AS noonUpdatedAt,",
-            "       routing_response_json AS routingResponseJson, routing_is_transfer AS routingIsTransfer,",
-            "       selected_warehouse_partner_code AS selectedWarehousePartnerCode, selected_warehouse_code AS selectedWarehouseCode,",
-            "       selected_warehouse_name AS selectedWarehouseName, product_count AS productCount, total_quantity AS totalQuantity,",
-            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
-            "       DATE_FORMAT(submitted_at, '%Y-%m-%d %H:%i:%s') AS submittedAt,",
-            "       DATE_FORMAT(finished_at, '%Y-%m-%d %H:%i:%s') AS finishedAt,",
-            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt,",
-            "       DATE_FORMAT(COALESCE(noon_updated_at, gmt_updated), '%Y-%m-%d %H:%i:%s') AS updatedAt",
-            "FROM official_warehouse_asn",
-            "WHERE id = #{asnId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'",
-            "LIMIT 1"
-    })
-    AsnRecord selectAsn(
-            @Param("ownerUserId") Long ownerUserId,
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectAsnByOwner")
+    AsnRecord selectAsn(@Param("ownerUserId") Long ownerUserId, @Param("asnId") Long asnId);
+
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectAuthorizedAsn")
+    AsnRecord selectAuthorizedAsn(
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds,
             @Param("asnId") Long asnId
     );
 
@@ -1038,6 +847,12 @@ public interface OfficialWarehouseMapper {
             "LEFT JOIN product_master pm ON pm.id = awl.product_master_id AND pm.is_deleted = b'0'",
             "WHERE awl.asn_id = #{asnId}",
             "  AND awl.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "      SELECT 1 FROM official_warehouse_asn parent_asn",
+            "      WHERE parent_asn.id = awl.asn_id AND parent_asn.owner_user_id = awl.owner_user_id",
+            "        AND UPPER(parent_asn.store_code) = UPPER(awl.store_code)",
+            "        AND UPPER(parent_asn.site_code) = UPPER(awl.site_code) AND parent_asn.is_deleted = b'0'",
+            "  )",
             "ORDER BY awl.id ASC"
     })
     List<AsnLineRecord> listAsnLines(@Param("asnId") Long asnId);
@@ -1056,10 +871,20 @@ public interface OfficialWarehouseMapper {
             "       product_variant_id AS productVariantId, partner_sku AS partnerSku, psku_code AS pskuCode,",
             "       quantity, relation_status AS relationStatus, relation_basis AS relationBasis,",
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt",
-            "FROM official_warehouse_asn_shipping_batch_link",
-            "WHERE asn_id = #{asnId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY asn_line_id ASC, shipping_batch_id ASC, id ASC"
+            "FROM official_warehouse_asn_shipping_batch_link link",
+            "WHERE link.asn_id = #{asnId}",
+            "  AND link.is_deleted = b'0'",
+            "  AND EXISTS (",
+            "      SELECT 1 FROM official_warehouse_asn parent_asn",
+            "      JOIN official_warehouse_asn_line parent_line ON parent_line.id = link.asn_line_id",
+            "       AND parent_line.asn_id = parent_asn.id AND parent_line.owner_user_id = parent_asn.owner_user_id",
+            "       AND UPPER(parent_line.store_code) = UPPER(parent_asn.store_code)",
+            "       AND UPPER(parent_line.site_code) = UPPER(parent_asn.site_code) AND parent_line.is_deleted = b'0'",
+            "      WHERE parent_asn.id = link.asn_id AND parent_asn.owner_user_id = link.owner_user_id",
+            "        AND UPPER(parent_asn.store_code) = UPPER(link.store_code)",
+            "        AND UPPER(parent_asn.site_code) = UPPER(link.site_code) AND parent_asn.is_deleted = b'0'",
+            "  )",
+            "ORDER BY link.asn_line_id ASC, link.shipping_batch_id ASC, link.id ASC"
     })
     List<AsnShippingBatchLinkRecord> listAsnShippingBatchLinks(@Param("asnId") Long asnId);
 
@@ -1124,220 +949,182 @@ public interface OfficialWarehouseMapper {
     @Insert({
             "INSERT INTO official_warehouse_appointment (",
             "id, asn_id, owner_user_id, logical_store_id, store_code, store_name, site_code, project_code, partner_id,",
-            "local_asn_no, noon_asn_nr, total_units, warehouse_to_partner_code, warehouse_to_code,",
-            "ap_start_date, ap_end_date, ap_time_range, is_available_today, status, gate, docks, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
+            "local_asn_no, noon_asn_nr, total_units, warehouse_to_partner_code, warehouse_to_code, ap_start_date, ap_end_date,",
+            "ap_time_range, is_available_today, status, execution_version, gate, docks, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.asnId}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.storeCode}, #{row.storeName}, #{row.siteCode},",
-            "#{row.projectCode}, #{row.partnerId}, #{row.localAsnNo}, #{row.noonAsnNr}, #{row.totalUnits},",
-            "#{row.warehouseToPartnerCode}, #{row.warehouseToCode},",
-            "#{row.apStartDate}, #{row.apEndDate}, #{row.apTimeRange}, #{row.availableToday}, #{row.status}, #{row.gate}, #{row.docks},",
+            "#{row.projectCode}, #{row.partnerId}, #{row.localAsnNo}, #{row.noonAsnNr}, #{row.totalUnits}, #{row.warehouseToPartnerCode}, #{row.warehouseToCode},",
+            "#{row.apStartDate}, #{row.apEndDate}, #{row.apTimeRange}, #{row.availableToday}, #{row.status}, 0, #{row.gate}, #{row.docks},",
             "b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
     int insertAppointment(@Param("row") AppointmentInsertRecord row);
 
     @Update({
+            "<script>",
             "UPDATE official_warehouse_appointment",
             "SET warehouse_to_partner_code = #{row.warehouseToPartnerCode}, warehouse_to_code = #{row.warehouseToCode},",
             "    ap_start_date = #{row.apStartDate}, ap_end_date = #{row.apEndDate},",
             "    ap_time_range = #{row.apTimeRange}, is_available_today = #{row.availableToday}, status = #{row.status},",
-            "    appointment_date = NULL, appointment_slot_id = NULL, appointment_time = NULL, gate = NULL, docks = NULL,",
-            "    next_attempt_at = NULL, ap_success_time = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
-            "    updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
+            "    next_attempt_at = NULL, error_stage = NULL, failure_type = NULL, error_message = NULL,",
+            "    execution_version = execution_version + 1, updated_by = #{row.operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{row.id}",
             "  AND owner_user_id = #{row.ownerUserId}",
-            "  AND is_deleted = b'0'"
+            "  AND is_deleted = b'0' AND execution_version = #{expectedExecutionVersion}",
+            "  AND (status IN ('PENDING', 'FAILED') OR (#{allowScheduled} = TRUE AND status = 'SCHEDULED'))",
+            "  AND NOT (status = 'FAILED' AND failure_type = 'STALE_EXECUTION_RECONCILIATION_REQUIRED')",
+            "</script>"
     })
-    int updateAppointmentRequest(@Param("row") AppointmentInsertRecord row);
-
-    @Update({
-            "UPDATE official_warehouse_appointment",
-            "SET gate = COALESCE(NULLIF(#{gate}, ''), gate),",
-            "    docks = COALESCE(NULLIF(#{docks}, ''), docks),",
-            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateAppointmentGateDocks(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("appointmentId") Long appointmentId,
-            @Param("gate") String gate,
-            @Param("docks") String docks,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int updateAppointmentRequest(@Param("row") AppointmentInsertRecord row,
+            @Param("expectedExecutionVersion") Long expectedExecutionVersion, @Param("allowScheduled") boolean allowScheduled);
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'RUNNING', attempt_count = attempt_count + 1, last_attempt_at = NOW(), next_attempt_at = NULL,",
-            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND is_deleted = b'0'",
-            "  AND status IN ('PENDING', 'FAILED')"
+            "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId} AND owner_user_id = #{ownerUserId} AND is_deleted = b'0'",
+            "  AND execution_version = #{expectedExecutionVersion}",
+            "  AND status IN ('PENDING', 'FAILED')",
+            "  AND NOT (status = 'FAILED' AND failure_type = 'STALE_EXECUTION_RECONCILIATION_REQUIRED')"
     })
-    int markAppointmentRunning(
-            @Param("appointmentId") Long appointmentId,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int markAppointmentRunning(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("expectedExecutionVersion") Long expectedExecutionVersion, @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'RUNNING', attempt_count = attempt_count + 1, last_attempt_at = NOW(), next_attempt_at = NULL,",
-            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND is_deleted = b'0'",
-            "  AND status = 'PENDING'",
+            "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId} AND owner_user_id = #{ownerUserId} AND is_deleted = b'0'",
+            "  AND execution_version = #{expectedExecutionVersion} AND status = 'PENDING'",
             "  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())"
     })
-    int claimDueAppointmentForRun(
-            @Param("appointmentId") Long appointmentId,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int claimDueAppointmentForRun(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("expectedExecutionVersion") Long expectedExecutionVersion, @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
-            "SET status = 'SCHEDULED', appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
-            "    appointment_time = #{appointmentTime}, ap_success_time = NOW(), next_attempt_at = NULL, attempt_count = 0,",
-            "    error_stage = NULL, failure_type = NULL, error_message = NULL, updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND is_deleted = b'0'"
+            "SET gmt_updated = NOW(), updated_by = #{operatorUserId}",
+            "WHERE id = #{appointmentId} AND owner_user_id = #{ownerUserId} AND is_deleted = b'0'",
+            "  AND status = 'RUNNING' AND execution_version = #{runExecutionVersion}"
     })
-    int markAppointmentScheduled(
-            @Param("appointmentId") Long appointmentId,
-            @Param("appointmentDate") java.time.LocalDate appointmentDate,
-            @Param("slotId") Integer slotId,
-            @Param("appointmentTime") String appointmentTime,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int heartbeatAppointmentExecution(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("runExecutionVersion") Long runExecutionVersion, @Param("operatorUserId") Long operatorUserId);
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'SCHEDULED', appointment_date = COALESCE(#{appointmentDate}, appointment_date), appointment_slot_id = COALESCE(#{slotId}, appointment_slot_id),",
+            "    appointment_time = COALESCE(#{appointmentTime}, appointment_time), ap_success_time = COALESCE(ap_success_time, NOW()), next_attempt_at = NULL, attempt_count = 0,",
+            "    error_stage = NULL, failure_type = NULL, error_message = NULL,",
+            "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "  AND status = 'RUNNING'",
+            "  AND execution_version = #{runExecutionVersion}"
+    })
+    int markAppointmentScheduled(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("runExecutionVersion") Long runExecutionVersion, @Param("appointmentDate") java.time.LocalDate appointmentDate,
+            @Param("slotId") Integer slotId, @Param("appointmentTime") String appointmentTime,
+            @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'PENDING', next_attempt_at = DATE_ADD(NOW(), INTERVAL #{retrySeconds} SECOND),",
             "    error_stage = #{errorStage}, failure_type = #{failureType}, error_message = #{errorMessage},",
-            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
-            "  AND is_deleted = b'0'"
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "  AND status = 'RUNNING'",
+            "  AND execution_version = #{runExecutionVersion}"
     })
-    int markAppointmentPendingRetry(
-            @Param("appointmentId") Long appointmentId,
-            @Param("retrySeconds") int retrySeconds,
-            @Param("errorStage") String errorStage,
-            @Param("failureType") String failureType,
-            @Param("errorMessage") String errorMessage,
-            @Param("operatorUserId") Long operatorUserId
-    );
+    int markAppointmentPendingRetry(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("runExecutionVersion") Long runExecutionVersion, @Param("retrySeconds") int retrySeconds,
+            @Param("errorStage") String errorStage, @Param("failureType") String failureType,
+            @Param("errorMessage") String errorMessage, @Param("operatorUserId") Long operatorUserId);
 
     @Update({
             "UPDATE official_warehouse_appointment",
-            "SET status = 'PENDING', next_attempt_at = NOW(),",
-            "    error_stage = 'SCHEDULE', failure_type = 'NO_CAPACITY',",
-            "    error_message = COALESCE(NULLIF(error_message, ''), '没有匹配的 Noon 可约仓日期或时段。'),",
+            "SET status = 'FAILED', next_attempt_at = NULL,",
+            "    error_stage = 'RECONCILIATION',",
+            "    failure_type = 'STALE_EXECUTION_RECONCILIATION_REQUIRED',",
+            "    error_message = '执行超时且远端结果未知，请先与 Noon 对账后再订正。',",
+            "    execution_version = execution_version + 1,",
             "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE is_deleted = b'0'",
             "  AND status = 'RUNNING'",
-            "  AND failure_type = 'NO_CAPACITY'",
             "  AND gmt_updated <= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)"
     })
-    int markStaleNoCapacityAppointmentsPending(
-            @Param("staleMinutes") int staleMinutes,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int markStaleAppointmentsForReconciliation(@Param("staleMinutes") int staleMinutes,
+            @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = 'FAILED', next_attempt_at = NULL, error_stage = #{errorStage}, failure_type = #{failureType},",
-            "    error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "    error_message = #{errorMessage}, execution_version = execution_version + 1,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
-            "  AND is_deleted = b'0'"
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "  AND status = 'RUNNING'",
+            "  AND execution_version = #{runExecutionVersion}"
     })
-    int markAppointmentFailed(
-            @Param("appointmentId") Long appointmentId,
-            @Param("errorStage") String errorStage,
-            @Param("failureType") String failureType,
-            @Param("errorMessage") String errorMessage,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
+    int markAppointmentFailed(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("runExecutionVersion") Long runExecutionVersion, @Param("errorStage") String errorStage,
+            @Param("failureType") String failureType, @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId);
     @Update({
             "UPDATE official_warehouse_appointment",
             "SET status = #{status}, appointment_date = #{appointmentDate}, appointment_slot_id = #{slotId},",
             "    appointment_time = #{appointmentTime},",
             "    ap_success_time = CASE WHEN #{status} = 'SCHEDULED' THEN NOW() ELSE NULL END,",
             "    next_attempt_at = NULL, error_stage = #{errorStage}, failure_type = #{failureType},",
-            "    error_message = #{errorMessage}, updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
-    })
-    int correctAppointment(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("appointmentId") Long appointmentId,
-            @Param("status") String status,
-            @Param("appointmentDate") java.time.LocalDate appointmentDate,
-            @Param("slotId") Integer slotId,
-            @Param("appointmentTime") String appointmentTime,
-            @Param("failureType") String failureType,
-            @Param("errorStage") String errorStage,
-            @Param("errorMessage") String errorMessage,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
-    @Update({
-            "UPDATE official_warehouse_appointment",
-            "SET status = 'CANCELED', next_attempt_at = NULL, updated_by = #{operatorUserId}, gmt_updated = NOW()",
-            "WHERE id = #{appointmentId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
-    })
-    int cancelAppointment(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("appointmentId") Long appointmentId,
-            @Param("operatorUserId") Long operatorUserId
-    );
-
-    @Select({
-            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
-            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
-            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
-            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
-            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
-            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
-            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
-            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
-            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
-            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
-            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
-            "FROM official_warehouse_appointment",
+            "    error_message = #{errorMessage},",
+            "    gate = COALESCE(NULLIF(#{gate}, ''), gate), docks = COALESCE(NULLIF(#{docks}, ''), docks),",
+            "    execution_version = execution_version + 1, updated_by = #{operatorUserId}, gmt_updated = NOW()",
             "WHERE id = #{appointmentId}",
             "  AND owner_user_id = #{ownerUserId}",
             "  AND is_deleted = b'0'",
-            "LIMIT 1"
+            "  AND status = #{expectedStatus}",
+            "  AND execution_version = #{expectedExecutionVersion}"
     })
+    int correctAppointment(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("expectedStatus") String expectedStatus, @Param("expectedExecutionVersion") Long expectedExecutionVersion,
+            @Param("status") String status, @Param("appointmentDate") java.time.LocalDate appointmentDate,
+            @Param("slotId") Integer slotId, @Param("appointmentTime") String appointmentTime,
+            @Param("gate") String gate, @Param("docks") String docks, @Param("failureType") String failureType,
+            @Param("errorStage") String errorStage, @Param("errorMessage") String errorMessage,
+            @Param("operatorUserId") Long operatorUserId);
+    @Update({
+            "UPDATE official_warehouse_appointment",
+            "SET status = 'CANCELED', next_attempt_at = NULL, execution_version = execution_version + 1,",
+            "    updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{appointmentId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "  AND execution_version = #{expectedExecutionVersion}",
+            "  AND status IN ('PENDING', 'FAILED')"
+    })
+    int cancelAppointment(@Param("ownerUserId") Long ownerUserId, @Param("appointmentId") Long appointmentId,
+            @Param("expectedExecutionVersion") Long expectedExecutionVersion, @Param("operatorUserId") Long operatorUserId);
+    @Select({
+            "SELECT id",
+            "FROM official_warehouse_asn",
+            "WHERE id = #{asnId}",
+            "  AND owner_user_id = #{ownerUserId}",
+            "  AND is_deleted = b'0'",
+            "FOR UPDATE"
+    })
+    Long lockAsnForAppointment(@Param("ownerUserId") Long ownerUserId, @Param("asnId") Long asnId);
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectActiveAppointmentByAsnForUpdate")
+    AppointmentRecord selectActiveAppointmentByAsnForUpdate(@Param("ownerUserId") Long ownerUserId,
+            @Param("asnId") Long asnId);
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectAppointmentByOwner")
     AppointmentRecord selectAppointment(
             @Param("ownerUserId") Long ownerUserId,
             @Param("appointmentId") Long appointmentId
     );
 
-    @Select({
-            "SELECT id, asn_id AS asnId, owner_user_id AS ownerUserId, logical_store_id AS logicalStoreId,",
-            "       store_code AS storeCode, store_name AS storeName, site_code AS siteCode, project_code AS projectCode, partner_id AS partnerId,",
-            "       local_asn_no AS localAsnNo, noon_asn_nr AS noonAsnNr, total_units AS totalUnits,",
-            "       warehouse_to_partner_code AS warehouseToPartnerCode, warehouse_to_code AS warehouseToCode,",
-            "       ap_start_date AS apStartDateValue, ap_end_date AS apEndDateValue,",
-            "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
-            "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
-            "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
-            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
-            "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
-            "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
-            "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
-            "FROM official_warehouse_appointment",
-            "WHERE asn_id = #{asnId}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY id DESC",
-            "LIMIT 1"
-    })
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectAuthorizedAppointment")
+    AppointmentRecord selectAuthorizedAppointment(
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds,
+            @Param("appointmentId") Long appointmentId
+    );
+
+    @SelectProvider(type = OfficialWarehouseObjectScopeSql.class, method = "selectLatestAppointmentByAsn")
     AppointmentRecord selectLatestAppointmentByAsn(
             @Param("ownerUserId") Long ownerUserId,
             @Param("asnId") Long asnId
@@ -1353,13 +1140,20 @@ public interface OfficialWarehouseMapper {
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
             "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
-            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       attempt_count AS attemptCount, execution_version AS executionVersion,",
+            "       DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
             "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
             "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
             "FROM official_warehouse_appointment",
             "WHERE is_deleted = b'0'",
             "  AND owner_user_id = #{ownerUserId}",
+            "  AND EXISTS (SELECT 1 FROM official_warehouse_asn parent_asn",
+            "      WHERE parent_asn.id = official_warehouse_appointment.asn_id",
+            "        AND parent_asn.owner_user_id = official_warehouse_appointment.owner_user_id",
+            "        AND UPPER(parent_asn.store_code) = UPPER(official_warehouse_appointment.store_code)",
+            "        AND UPPER(parent_asn.site_code) = UPPER(official_warehouse_appointment.site_code)",
+            "        AND parent_asn.is_deleted = b'0')",
             "<if test='storeCodes != null and storeCodes.size() > 0'>",
             "  AND UPPER(store_code) IN",
             "  <foreach item='storeCode' collection='storeCodes' open='(' separator=',' close=')'>",
@@ -1401,7 +1195,8 @@ public interface OfficialWarehouseMapper {
             "       DATE_FORMAT(ap_start_date, '%Y-%m-%d') AS apStartDate, DATE_FORMAT(ap_end_date, '%Y-%m-%d') AS apEndDate,",
             "       ap_time_range AS apTimeRange, is_available_today AS availableToday, status,",
             "       DATE_FORMAT(appointment_date, '%Y-%m-%d') AS appointmentDate, appointment_slot_id AS appointmentSlotId, appointment_time AS appointmentTime, gate, docks,",
-            "       attempt_count AS attemptCount, DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
+            "       attempt_count AS attemptCount, execution_version AS executionVersion,",
+            "       DATE_FORMAT(last_attempt_at, '%Y-%m-%d %H:%i:%s') AS lastAttemptAt,",
             "       DATE_FORMAT(next_attempt_at, '%Y-%m-%d %H:%i:%s') AS nextAttemptAt, DATE_FORMAT(ap_success_time, '%Y-%m-%d %H:%i:%s') AS apSuccessTime,",
             "       error_stage AS errorStage, failure_type AS failureType, error_message AS errorMessage,",
             "       DATE_FORMAT(gmt_create, '%Y-%m-%d %H:%i:%s') AS createdAt, DATE_FORMAT(gmt_updated, '%Y-%m-%d %H:%i:%s') AS updatedAt",
@@ -1409,6 +1204,12 @@ public interface OfficialWarehouseMapper {
             "WHERE is_deleted = b'0'",
             "  AND status = 'PENDING'",
             "  AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())",
+            "  AND EXISTS (SELECT 1 FROM official_warehouse_asn parent_asn",
+            "      WHERE parent_asn.id = official_warehouse_appointment.asn_id",
+            "        AND parent_asn.owner_user_id = official_warehouse_appointment.owner_user_id",
+            "        AND UPPER(parent_asn.store_code) = UPPER(official_warehouse_appointment.store_code)",
+            "        AND UPPER(parent_asn.site_code) = UPPER(official_warehouse_appointment.site_code)",
+            "        AND parent_asn.is_deleted = b'0')",
             "ORDER BY COALESCE(next_attempt_at, gmt_updated) ASC, id ASC",
             "LIMIT #{limit}"
     })

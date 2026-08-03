@@ -7,6 +7,14 @@ MIGRATION_PATH = (
     Path(__file__).parents[2]
     / "src/main/resources/db/init/240_operations_competitor_snapshot_active_uniqueness.sql"
 )
+SNAPSHOT_POSTCHECK_PATH = (
+    Path(__file__).parents[2]
+    / "src/main/resources/db/postcheck/240_operations_competitor_snapshot_active_uniqueness.sql"
+)
+FENCE_POSTCHECK_PATH = (
+    Path(__file__).parents[2]
+    / "src/main/resources/db/postcheck/241_operations_competitor_correction_writer_fence.sql"
+)
 
 
 def compact_sql(sql: str) -> str:
@@ -91,6 +99,43 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
         self.assertIn("index_name = 'uk_ops_comp_snapshot_active_daily'", self.sql)
         self.assertIn("migration_240_postcheck_failed", self.sql)
         self.assertIn("migration_240_target_verified", self.sql)
+
+    def test_release_postcheck_is_readonly_and_revalidates_exact_target(self):
+        postcheck = SNAPSHOT_POSTCHECK_PATH.read_text(encoding="utf-8")
+        compact = compact_sql(postcheck).lower()
+
+        self.assertTrue(compact.startswith("select if("))
+        self.assertNotRegex(
+            compact,
+            r"(?:^|;)\s*(?:set|insert|update|delete|alter|create|drop|truncate)\b",
+        )
+        for marker in (
+            "uk_ops_comp_snapshot_active_daily",
+            "active_fact_date",
+            "virtual generated",
+            "having count(*) > 1",
+            "count(*) = 7",
+        ):
+            self.assertIn(marker, compact)
+
+    def test_writer_fence_release_postcheck_is_readonly_and_exact(self):
+        postcheck = FENCE_POSTCHECK_PATH.read_text(encoding="utf-8")
+        compact = compact_sql(postcheck).lower()
+
+        self.assertTrue(compact.startswith("select if("))
+        self.assertNotRegex(
+            compact,
+            r"(?:^|;)\s*(?:set|insert|update|delete|alter|create|drop|truncate)\b",
+        )
+        for marker in (
+            "competitor correction writer fence v1",
+            "chk_ops_comp_cwf_name",
+            "chk_ops_comp_cwf_status",
+            "chk_ops_comp_cwf_active_audit",
+            "historical_business_date_correction",
+            "count(*) = 10",
+        ):
+            self.assertIn(marker, compact)
 
 
 if __name__ == "__main__":

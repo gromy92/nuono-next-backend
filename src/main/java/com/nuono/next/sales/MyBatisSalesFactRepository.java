@@ -3,7 +3,6 @@ package com.nuono.next.sales;
 import com.nuono.next.infrastructure.mapper.SalesDataMapper;
 import com.nuono.next.infrastructure.mapper.ProductManagementMapper;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
@@ -43,7 +42,6 @@ public class MyBatisSalesFactRepository implements SalesFactRepository {
     public void upsert(DailySalesFact fact) {
         Long id = mapper.nextDailySalesFactId();
         mapper.upsertDailySalesFact(id, fact);
-        refreshListingStartedAt(fact);
     }
 
     @Override
@@ -100,28 +98,4 @@ public class MyBatisSalesFactRepository implements SalesFactRepository {
         );
     }
 
-    private void refreshListingStartedAt(DailySalesFact fact) {
-        if (productManagementMapper == null || fact == null) {
-            return;
-        }
-        if (fact.getOwnerUserId() == null || isBlank(fact.getStoreCode()) || isBlank(fact.getSiteCode())) {
-            return;
-        }
-        if (isBlank(fact.getPartnerSku()) && isBlank(fact.getSku())) {
-            return;
-        }
-        productManagementMapper.refreshProductSiteOfferListingStartedAtBySalesFact(
-                fact.getOwnerUserId(),
-                fact.getStoreCode(),
-                fact.getSiteCode(),
-                fact.getPartnerSku(),
-                fact.getSku(),
-                LocalDateTime.now(),
-                fact.getOwnerUserId()
-        );
-    }
-
-    private static boolean isBlank(String value) {
-        return value == null || value.trim().isEmpty();
-    }
 }

@@ -5,7 +5,6 @@ import com.nuono.next.infrastructure.mapper.NoonPullSmokeRunMapper;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,7 +18,6 @@ public class MyBatisNoonPullSmokeRunRepository implements NoonPullSmokeRunReposi
     private static final long EVIDENCE_INITIAL_ID = 141000L;
 
     private final NoonPullSmokeRunMapper mapper;
-    private final AtomicBoolean schemaEnsured = new AtomicBoolean(false);
 
     public MyBatisNoonPullSmokeRunRepository(NoonPullSmokeRunMapper mapper) {
         this.mapper = mapper;
@@ -28,7 +26,6 @@ public class MyBatisNoonPullSmokeRunRepository implements NoonPullSmokeRunReposi
     @Override
     @Transactional
     public NoonPullSmokeRunRecord save(NoonPullSmokeRunRecord run) {
-        ensureSchema();
         NoonPullSmokeRunRecord persisted = run.copy();
         LocalDateTime now = LocalDateTime.now();
         if (persisted.getId() == null) {
@@ -62,7 +59,6 @@ public class MyBatisNoonPullSmokeRunRepository implements NoonPullSmokeRunReposi
 
     @Override
     public List<NoonPullSmokeRunRecord> listRecent(int limit) {
-        ensureSchema();
         int safeLimit = Math.max(1, Math.min(limit, 100));
         List<NoonPullSmokeRunRecord> runs = mapper.selectRecentRuns(safeLimit);
         for (NoonPullSmokeRunRecord run : runs) {
@@ -81,12 +77,4 @@ public class MyBatisNoonPullSmokeRunRepository implements NoonPullSmokeRunReposi
         return allocatedId;
     }
 
-    private void ensureSchema() {
-        if (!schemaEnsured.compareAndSet(false, true)) {
-            return;
-        }
-        mapper.ensureNoonPullIdSequence();
-        mapper.ensureSmokeRunTable();
-        mapper.ensureSmokeEvidenceTable();
-    }
 }

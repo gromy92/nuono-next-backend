@@ -1,7 +1,9 @@
 package com.nuono.next.infrastructure.mapper;
 
+import com.nuono.next.noonauth.NoonAuthRecoveryStatus;
 import com.nuono.next.product.ProductImageSuiteRecord;
 import com.nuono.next.product.ProductImageSuiteStatus;
+import java.time.LocalDateTime;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.ResultMap;
 import org.apache.ibatis.annotations.Select;
@@ -166,6 +168,70 @@ public interface ProductImagePublishWorkflowMapper {
             @Param("failureStage") String failureStage,
             @Param("failureReason") String failureReason,
             @Param("updatedBy") Long updatedBy
+    );
+
+    @Update({
+            "UPDATE product_image_suite suite",
+            "JOIN noon_auth_identity_recovery_item item ON item.source_task_id = suite.id",
+            "JOIN noon_auth_identity_recovery recovery ON recovery.id = item.recovery_id",
+            "SET suite.failure_stage = 'PUBLISH_AUTH_RECOVERED',",
+            "    suite.failure_reason = 'Noon 授权已恢复；图片发布不会自动重放，请人工确认后重试一次。',",
+            "    suite.updated_at = #{now}",
+            "WHERE item.id = #{itemId}",
+            "  AND item.recovery_id = #{recoveryId}",
+            "  AND item.source_domain = 'PRODUCT_IMAGE_SUITE'",
+            "  AND item.resume_policy = 'READBACK_REQUIRED'",
+            "  AND item.status = 'PENDING'",
+            "  AND suite.suite_status = 'FAILED'",
+            "  AND suite.failure_stage = 'PUBLISH_AUTH_RECOVERY'",
+            "  AND JSON_UNQUOTE(JSON_EXTRACT(",
+            "      IF(JSON_VALID(suite.publish_manifest_json), suite.publish_manifest_json, NULL),",
+            "      '$.attemptId'",
+            "  )) = item.source_checkpoint",
+            "  AND suite.deleted = b'0'",
+            "  AND recovery.status = #{expectedRecoveryStatus}",
+            "  AND recovery.version_no = #{expectedRecoveryVersion}",
+            "  AND recovery.lease_token = #{expectedLeaseToken}",
+            "  AND recovery.lease_until > #{now}",
+            "  AND recovery.active_identity_slot IS NOT NULL"
+    })
+    int markSuiteAuthorizationRecovered(
+            @Param("itemId") Long itemId,
+            @Param("recoveryId") Long recoveryId,
+            @Param("expectedRecoveryStatus") NoonAuthRecoveryStatus expectedRecoveryStatus,
+            @Param("expectedRecoveryVersion") Long expectedRecoveryVersion,
+            @Param("expectedLeaseToken") String expectedLeaseToken,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update({
+            "UPDATE product_image_suite suite",
+            "JOIN noon_auth_identity_recovery_item item ON item.source_task_id = suite.id",
+            "JOIN noon_auth_identity_recovery recovery ON recovery.id = item.recovery_id",
+            "SET suite.failure_stage = 'PUBLISH_AUTH_FAILED',",
+            "    suite.failure_reason = #{diagnostic},",
+            "    suite.updated_at = #{now}",
+            "WHERE item.id = #{itemId}",
+            "  AND item.recovery_id = #{recoveryId}",
+            "  AND item.source_domain = 'PRODUCT_IMAGE_SUITE'",
+            "  AND item.status = 'PENDING'",
+            "  AND suite.suite_status = 'FAILED'",
+            "  AND suite.failure_stage = 'PUBLISH_AUTH_RECOVERY'",
+            "  AND suite.deleted = b'0'",
+            "  AND recovery.status = #{expectedRecoveryStatus}",
+            "  AND recovery.version_no = #{expectedRecoveryVersion}",
+            "  AND recovery.lease_token = #{expectedLeaseToken}",
+            "  AND recovery.lease_until > #{now}",
+            "  AND recovery.active_identity_slot IS NOT NULL"
+    })
+    int markSuiteAuthorizationRecoveryFailed(
+            @Param("itemId") Long itemId,
+            @Param("recoveryId") Long recoveryId,
+            @Param("expectedRecoveryStatus") NoonAuthRecoveryStatus expectedRecoveryStatus,
+            @Param("expectedRecoveryVersion") Long expectedRecoveryVersion,
+            @Param("expectedLeaseToken") String expectedLeaseToken,
+            @Param("diagnostic") String diagnostic,
+            @Param("now") LocalDateTime now
     );
 
     @Update({

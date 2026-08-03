@@ -149,6 +149,14 @@ public interface NoonAuthRecoveryRepository {
 
     NoonProjectAuthStateRecord selectProjectAuthStateForUpdate(Long ownerUserId, String projectCode);
 
+    boolean hasRecoveredSourceTaskAtCurrentAuthVersion(
+            Long ownerUserId,
+            String projectCode,
+            String sourceDomain,
+            Long sourceTaskId,
+            Long currentAuthVersion
+    );
+
     boolean markProjectRecovering(
             Long ownerUserId,
             String projectCode,

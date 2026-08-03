@@ -4,14 +4,21 @@ public class NoonAuthRecoveryProjectCandidate {
     private Long ownerUserId;
     private String projectCode;
     private String storeCode;
+    private String siteCode;
 
     public NoonAuthRecoveryProjectCandidate() {
     }
 
-    public NoonAuthRecoveryProjectCandidate(Long ownerUserId, String projectCode, String storeCode) {
+    public NoonAuthRecoveryProjectCandidate(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode,
+            String siteCode
+    ) {
         this.ownerUserId = ownerUserId;
         this.projectCode = projectCode;
         this.storeCode = storeCode;
+        this.siteCode = siteCode;
     }
 
     public Long getOwnerUserId() {
@@ -36,5 +43,13 @@ public class NoonAuthRecoveryProjectCandidate {
 
     public void setStoreCode(String storeCode) {
         this.storeCode = storeCode;
+    }
+
+    public String getSiteCode() {
+        return siteCode;
+    }
+
+    public void setSiteCode(String siteCode) {
+        this.siteCode = siteCode;
     }
 }

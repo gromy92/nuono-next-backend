@@ -82,8 +82,12 @@ public class LocalDbOfficialWarehouseStatisticsService {
 
     public StockStatisticsView stockStatistics(BusinessAccessContext access, StockStatisticsQuery query) {
         StockStatisticsQuery safeQuery = query == null ? new StockStatisticsQuery() : query;
-        Long ownerUserId = requireOwnerUserId(access, safeQuery.storeCode);
-        Collection<String> storeCodes = storeCodes(access, safeQuery.storeCode);
+        OfficialWarehouseBusinessScope scope = OfficialWarehouseBusinessScope.resolve(access, safeQuery.storeCode);
+        Long ownerUserId = scope.ownerUserId();
+        Collection<String> storeCodes = scope.storeCodes();
+        if (!scope.hasStores()) {
+            return new StockStatisticsView();
+        }
         ProductListDatasetView productDataset = loadProductDataset(ownerUserId, safeQuery);
         StockStatisticsQuery stockSourceQuery = productDataset == null
                 ? safeQuery
@@ -500,8 +504,14 @@ public class LocalDbOfficialWarehouseStatisticsService {
             String warehouseCode,
             String receiptStatus
     ) {
-        Long ownerUserId = requireOwnerUserId(access, storeCode);
-        Collection<String> storeCodes = storeCodes(access, storeCode);
+        OfficialWarehouseBusinessScope scope = OfficialWarehouseBusinessScope.resolve(access, storeCode);
+        Long ownerUserId = scope.ownerUserId();
+        Collection<String> storeCodes = scope.storeCodes();
+        InboundStatisticsView view = new InboundStatisticsView();
+        view.summary.lineReceiptReportConnected = false;
+        if (!scope.hasStores()) {
+            return view;
+        }
         List<InboundStageRecord> rows = mapper.listInboundStageRows(
                 ownerUserId,
                 storeCodes,
@@ -513,8 +523,6 @@ public class LocalDbOfficialWarehouseStatisticsService {
                 trimToNull(receiptStatus)
         );
 
-        InboundStatisticsView view = new InboundStatisticsView();
-        view.summary.lineReceiptReportConnected = false;
         for (InboundStageRecord row : rows) {
             InboundStageRowView item = toInboundRow(row);
             view.rows.add(item);
@@ -577,8 +585,10 @@ public class LocalDbOfficialWarehouseStatisticsService {
         String normalizedProductRef = requireText(productRef, "请选择商品。");
         Long parsedProductSiteOfferId = tryParseLong(normalizedProductRef);
         String partnerSku = parsedProductSiteOfferId == null ? normalize(normalizedProductRef) : null;
-        Long ownerUserId = requireOwnerUserId(access, normalizedStoreCode);
-        Collection<String> storeCodes = storeCodes(access, normalizedStoreCode);
+        OfficialWarehouseBusinessScope scope = OfficialWarehouseBusinessScope.resolve(access, normalizedStoreCode);
+        normalizedStoreCode = scope.requestedStoreCode();
+        Long ownerUserId = scope.ownerUserId();
+        Collection<String> storeCodes = scope.storeCodes();
         List<InboundReceiptHistoryRecord> records = mapper.listProductInboundReceiptHistory(
                 ownerUserId,
                 storeCodes,
@@ -603,7 +613,6 @@ public class LocalDbOfficialWarehouseStatisticsService {
         }
         List<ProductStockSourceCandidateRecord> sourceCandidates = mapper.listProductStockSourceCandidates(
                 ownerUserId,
-                storeCodes,
                 normalizedStoreCode,
                 normalizedSiteCode,
                 parsedProductSiteOfferId,
@@ -620,7 +629,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
         if (command == null) {
             throw new IllegalArgumentException("缺少库存订正参数。");
         }
-        Long ownerUserId = requireOwnerUserId(access, command.storeCode);
+        Long ownerUserId = OfficialWarehouseBusinessScope.resolve(access, command.storeCode).ownerUserId();
         StockStatisticsQuery query = new StockStatisticsQuery();
         query.storeCode = command.storeCode;
         query.siteCode = command.siteCode;
@@ -685,7 +694,7 @@ public class LocalDbOfficialWarehouseStatisticsService {
         String storeCode = requireText(command.storeCode, "请选择要重匹配的店铺。");
         String siteCode = normalizeSite(requireText(command.siteCode, "请选择要重匹配的站点。"));
         Long parsedImportId = parseLong(requireText(importId, "缺少报表导入批次 ID。"), "报表导入批次 ID");
-        Long ownerUserId = requireOwnerUserId(access, storeCode);
+        Long ownerUserId = OfficialWarehouseBusinessScope.resolve(access, storeCode).ownerUserId();
         Long operatorUserId = access.getSessionUserId() == null ? ownerUserId : access.getSessionUserId();
 
         DeliveryAccuracyRematchSummaryRecord before = mapper.selectDeliveryAccuracyRematchSummary(
@@ -1045,29 +1054,6 @@ public class LocalDbOfficialWarehouseStatisticsService {
             return row.failedOrExceptionStock > 0;
         }
         return true;
-    }
-
-    private Collection<String> storeCodes(BusinessAccessContext access, String storeCode) {
-        String safeStoreCode = trimToNull(storeCode);
-        if (safeStoreCode != null) {
-            return List.of(safeStoreCode);
-        }
-        return access.getStoreCodes();
-    }
-
-    private Long requireOwnerUserId(BusinessAccessContext access, String storeCode) {
-        if (access == null) {
-            throw new IllegalArgumentException("缺少业务访问上下文。");
-        }
-        String safeStoreCode = trimToNull(storeCode);
-        Long ownerUserId = safeStoreCode == null ? null : access.resolveOwnerUserIdForStore(safeStoreCode);
-        if (ownerUserId == null) {
-            ownerUserId = access.getBusinessOwnerUserId();
-        }
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("无法识别当前业务老板账号。");
-        }
-        return ownerUserId;
     }
 
     private boolean isReverseCorrection(StockCorrectionCommand command) {

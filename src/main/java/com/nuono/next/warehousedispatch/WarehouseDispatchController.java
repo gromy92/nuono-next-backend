@@ -1,6 +1,7 @@
 package com.nuono.next.warehousedispatch;
 
 import com.nuono.next.permission.access.BusinessAccessContext;
+import com.nuono.next.permission.access.BusinessAccessDeniedException;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
 import com.nuono.next.warehousedispatch.WarehouseDispatchCommands.ConfirmationCommand;
@@ -58,6 +59,10 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
     ) {
         try {
             return service().updateItemFulfillment(access(request), purchaseOrderId, purchaseOrderItemId, command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -70,8 +75,14 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
     ) {
         try {
             return service().createConfirmation(access(request), command);
+        } catch (BusinessAccessDeniedException exception) {
+            throw forbidden(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseRequestConflictException exception) {
+            throw conflict(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -144,6 +155,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().createDispatchPlan(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseRequestConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -156,6 +169,22 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().readyForLogistics(access(request), dispatchPlanId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
+        }
+    }
+
+@PostMapping("/dispatch-plans/{dispatchPlanId}/shipping-batch")
+    public ShippingBatchView createShippingBatchFromDispatchPlan(
+            @PathVariable String dispatchPlanId,
+            HttpServletRequest request
+    ) {
+        try {
+            return service().createShippingBatchFromDispatchPlan(access(request), dispatchPlanId);
+        } catch (IllegalArgumentException exception) {
+            throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -168,6 +197,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().reopenDraft(access(request), dispatchPlanId);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 
@@ -188,11 +219,11 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             @PathVariable String handoffRequestNo,
             HttpServletRequest request
     ) {
-        try {
-            return service().markLogisticsHandoffSuccess(access(request), handoffRequestNo);
-        } catch (IllegalArgumentException exception) {
-            throw badRequest(exception);
-        }
+        access(request);
+        throw new ResponseStatusException(
+                HttpStatus.GONE,
+                "该物流交接成功接口已停用，请在装箱单中确认已交货代。"
+        );
     }
 
 @PostMapping("/handoffs/failure")
@@ -204,6 +235,8 @@ public class WarehouseDispatchController extends WarehouseDispatchEndpointSuppor
             return service().markLogisticsHandoffFailure(access(request), command);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
+        } catch (WarehouseInventoryStateConflictException exception) {
+            throw conflict(exception);
         }
     }
 }

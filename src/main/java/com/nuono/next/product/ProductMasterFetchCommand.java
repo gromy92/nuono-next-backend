@@ -6,10 +6,6 @@ public class ProductMasterFetchCommand {
 
     private String storeCode;
 
-    private String noonUser;
-
-    private String noonPassword;
-
     private String skuParent;
 
     private String currentZCode;
@@ -32,22 +28,6 @@ public class ProductMasterFetchCommand {
 
     public void setStoreCode(String storeCode) {
         this.storeCode = storeCode;
-    }
-
-    public String getNoonUser() {
-        return noonUser;
-    }
-
-    public void setNoonUser(String noonUser) {
-        this.noonUser = noonUser;
-    }
-
-    public String getNoonPassword() {
-        return noonPassword;
-    }
-
-    public void setNoonPassword(String noonPassword) {
-        this.noonPassword = noonPassword;
     }
 
     public String getSkuParent() {

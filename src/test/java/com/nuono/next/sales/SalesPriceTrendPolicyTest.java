@@ -119,18 +119,6 @@ class SalesPriceTrendPolicyTest {
         private int candidateRows;
 
         @Override
-        public void ensureNoonOrderIdSequence() {
-        }
-
-        @Override
-        public void ensureOrderLineFactSequence() {
-        }
-
-        @Override
-        public void ensureNoonOrderLineFactTable() {
-        }
-
-        @Override
         public void nextId(IdSequenceCommand command) {
             command.setAllocatedId(200001L);
         }

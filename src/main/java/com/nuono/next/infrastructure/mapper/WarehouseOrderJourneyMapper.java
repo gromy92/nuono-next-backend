@@ -1,8 +1,8 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.warehousedispatch.WarehouseOrderJourneyView;
-import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -32,26 +32,36 @@ public interface WarehouseOrderJourneyMapper {
             "       DATE_FORMAT(batch.gmt_updated, '%Y-%m-%d %H:%i') AS updatedAt",
             "FROM procurement_shipping_order shipping_order",
             "JOIN procurement_shipping_order_line shipping_line",
-            "  ON shipping_line.shipping_order_id = shipping_order.id AND shipping_line.is_deleted = b'0'",
+            "  ON shipping_line.shipping_order_id = shipping_order.id",
+            " AND shipping_line.owner_user_id = shipping_order.owner_user_id",
+            " AND shipping_line.is_deleted = b'0'",
             "JOIN warehouse_shipping_batch_source batch_source",
             "  ON batch_source.purchase_order_item_site_id = shipping_line.purchase_order_item_site_id",
-            " AND batch_source.owner_user_id = #{ownerUserId} AND batch_source.is_deleted = b'0'",
+            " AND batch_source.owner_user_id = shipping_order.owner_user_id",
+            " AND batch_source.is_deleted = b'0'",
             "JOIN warehouse_shipping_batch batch",
-            "  ON batch.id = batch_source.batch_id AND batch.owner_user_id = #{ownerUserId}",
+            "  ON batch.id = batch_source.batch_id",
+            " AND batch.owner_user_id = shipping_order.owner_user_id",
             " AND batch.is_deleted = b'0'",
-            "WHERE shipping_order.owner_user_id = #{ownerUserId}",
-            "  AND shipping_order.is_deleted = b'0'",
-            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
-            "  AND shipping_line.source_store_code IN",
-            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>",
-            "    #{storeCode}",
+            "WHERE shipping_order.is_deleted = b'0'",
+            "<choose>",
+            "<when test='storeOwnerUserIds != null and storeOwnerUserIds.size() &gt; 0'>",
+            "  AND (",
+            "  <foreach collection='storeOwnerUserIds' index='storeCode' item='ownerUserId' separator=' OR '>",
+            "    (shipping_order.owner_user_id = #{ownerUserId}",
+            "     AND shipping_line.source_store_code = #{storeCode})",
             "  </foreach>",
-            "</if>",
+            "  )",
+            "</when>",
+            "<otherwise>",
+            "  AND 1 = 0",
+            "</otherwise>",
+            "</choose>",
+            WarehouseAggregateSourceScopeMapper.SHIPPING_BATCH_SOURCE_SCOPE,
             "ORDER BY updatedAt DESC, shippingBatchId DESC",
             "</script>"
     })
     List<WarehouseOrderJourneyView> listWarehouseOrderJourneys(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCodes") Collection<String> storeCodes
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
     );
 }

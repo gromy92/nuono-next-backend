@@ -21,7 +21,6 @@ public class LogisticsQuoteOperationPriceItemView {
     private String pricingModel;
     private String currency;
     private Double standardValue;
-    private Double adjustedValue;
     private Double effectiveValue;
     private String billingUnit;
     private String billingBasis;
@@ -31,8 +30,6 @@ public class LogisticsQuoteOperationPriceItemView {
     private String sourceFileName;
     private String sourceLocator;
     private String remark;
-    private Boolean hasAdjustment;
-    private String adjustmentReason;
     private String updatedAt;
 
     public Long getTargetId() {
@@ -187,14 +184,6 @@ public class LogisticsQuoteOperationPriceItemView {
         this.standardValue = standardValue;
     }
 
-    public Double getAdjustedValue() {
-        return adjustedValue;
-    }
-
-    public void setAdjustedValue(Double adjustedValue) {
-        this.adjustedValue = adjustedValue;
-    }
-
     public Double getEffectiveValue() {
         return effectiveValue;
     }
@@ -265,22 +254,6 @@ public class LogisticsQuoteOperationPriceItemView {
 
     public void setRemark(String remark) {
         this.remark = remark;
-    }
-
-    public Boolean getHasAdjustment() {
-        return hasAdjustment;
-    }
-
-    public void setHasAdjustment(Boolean hasAdjustment) {
-        this.hasAdjustment = hasAdjustment;
-    }
-
-    public String getAdjustmentReason() {
-        return adjustmentReason;
-    }
-
-    public void setAdjustmentReason(String adjustmentReason) {
-        this.adjustmentReason = adjustmentReason;
     }
 
     public String getUpdatedAt() {

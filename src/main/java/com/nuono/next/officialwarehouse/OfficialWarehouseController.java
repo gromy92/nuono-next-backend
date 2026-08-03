@@ -54,7 +54,7 @@ public class OfficialWarehouseController {
             HttpServletRequest request
     ) {
         try {
-            return service().listAsns(access(request), storeCode, siteCode, keyword);
+            return service().listAsns(storeCode == null || storeCode.trim().isEmpty() ? access(request) : storeAccess(request, storeCode), storeCode, siteCode, keyword);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -204,20 +204,18 @@ public class OfficialWarehouseController {
             HttpServletRequest request
     ) {
         try {
-            return service().listAppointments(access(request), storeCode, siteCode, status, keyword);
+            return service().listAppointments(storeCode == null || storeCode.trim().isEmpty() ? access(request) : storeAccess(request, storeCode), storeCode, siteCode, status, keyword);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
     }
 
     @PostMapping("/asns/{asnId}/appointment")
-    public AppointmentView upsertAppointment(
-            @PathVariable String asnId,
-            @RequestBody UpsertAppointmentCommand command,
-            HttpServletRequest request
-    ) {
+    public AppointmentView upsertAppointment(@PathVariable String asnId,
+            @RequestBody UpsertAppointmentCommand command, HttpServletRequest request) {
         try {
             return service().upsertAppointment(access(request), asnId, command);
+        } catch (OfficialWarehouseAppointmentStateConflictException exception) { throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
@@ -226,13 +224,11 @@ public class OfficialWarehouseController {
     }
 
     @PostMapping("/asns/{asnId}/appointment/manual")
-    public AppointmentView submitManualAppointment(
-            @PathVariable String asnId,
-            @RequestBody UpsertAppointmentCommand command,
-            HttpServletRequest request
-    ) {
+    public AppointmentView submitManualAppointment(@PathVariable String asnId,
+            @RequestBody UpsertAppointmentCommand command, HttpServletRequest request) {
         try {
             return service().submitManualAppointment(access(request), asnId, command);
+        } catch (OfficialWarehouseAppointmentStateConflictException exception) { throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
@@ -256,12 +252,10 @@ public class OfficialWarehouseController {
     }
 
     @PostMapping("/appointments/{appointmentId}/run-once")
-    public AppointmentView runAppointmentOnce(
-            @PathVariable String appointmentId,
-            HttpServletRequest request
-    ) {
+    public AppointmentView runAppointmentOnce(@PathVariable String appointmentId, HttpServletRequest request) {
         try {
             return service().runAppointmentOnce(access(request), appointmentId);
+        } catch (OfficialWarehouseAppointmentStateConflictException exception) { throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         } catch (IllegalStateException exception) {
@@ -276,6 +270,7 @@ public class OfficialWarehouseController {
     ) {
         try {
             return service().cancelAppointment(access(request), appointmentId);
+        } catch (OfficialWarehouseAppointmentStateConflictException exception) { throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -289,6 +284,7 @@ public class OfficialWarehouseController {
     ) {
         try {
             return service().correctAppointment(access(request), appointmentId, command);
+        } catch (OfficialWarehouseAppointmentStateConflictException exception) { throw conflict(exception);
         } catch (IllegalArgumentException exception) {
             throw badRequest(exception);
         }
@@ -324,6 +320,10 @@ public class OfficialWarehouseController {
 
     private ResponseStatusException badRequest(IllegalArgumentException exception) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+    }
+
+    private ResponseStatusException conflict(OfficialWarehouseAppointmentStateConflictException exception) {
+        return new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
     }
 
     private RuntimeException upstreamFailure(IllegalStateException exception) {

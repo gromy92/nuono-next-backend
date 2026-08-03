@@ -10,8 +10,6 @@ public class LogisticsQuoteOperationPriceItemsSummaryView {
 
     private int warehouseItemCount;
 
-    private int adjustedItemCount;
-
     public int getTotalItems() {
         return totalItems;
     }
@@ -44,11 +42,4 @@ public class LogisticsQuoteOperationPriceItemsSummaryView {
         this.warehouseItemCount = warehouseItemCount;
     }
 
-    public int getAdjustedItemCount() {
-        return adjustedItemCount;
-    }
-
-    public void setAdjustedItemCount(int adjustedItemCount) {
-        this.adjustedItemCount = adjustedItemCount;
-    }
 }

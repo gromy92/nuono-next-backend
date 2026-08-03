@@ -229,18 +229,4 @@ public class LogisticsQuoteController {
         return logisticsQuoteOperationService.listPriceItems(transportMode, forwarderId, priceStatus);
     }
 
-    @PostMapping("/operations/price-adjustments")
-    public LogisticsQuoteOperationPriceAdjustmentView saveOperationPriceAdjustment(
-            @RequestBody LogisticsQuoteOperationPriceAdjustmentCommand command,
-            @RequiredBusinessAccess(capability = BusinessCapability.LOGISTICS_QUOTE)
-            BusinessAccessContext context
-    ) {
-        try {
-            return logisticsQuoteOperationService.savePriceAdjustment(context.getSessionUserId(), command);
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
-        } catch (IllegalStateException exception) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage(), exception);
-        }
-    }
 }

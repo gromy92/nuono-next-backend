@@ -24,8 +24,8 @@ import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingBatchSo
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionLineSourceRecord;
 import com.nuono.next.warehousedispatch.WarehouseDispatchRecords.ShippingSuggestionOptionRecord;
-import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
@@ -35,18 +35,64 @@ import org.apache.ibatis.annotations.Update;
 
 public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
 
+    String BALANCE_STORE_OWNER_SCOPE = ""
+            + "<choose>"
+            + "<when test='storeOwnerUserIds != null and storeOwnerUserIds.size() &gt; 0'>"
+            + " AND ("
+            + " <foreach collection='storeOwnerUserIds' index='storeCode' item='ownerUserId' separator=' OR '>"
+            + "   (balance.owner_user_id = #{ownerUserId} AND balance.source_store_code = #{storeCode})"
+            + " </foreach>"
+            + " )"
+            + "</when>"
+            + "<otherwise> AND 1 = 0 </otherwise>"
+            + "</choose>";
+
+    String RECEIPT_STORE_OWNER_SCOPE = ""
+            + "<choose>"
+            + "<when test='storeOwnerUserIds != null and storeOwnerUserIds.size() &gt; 0'>"
+            + " AND ("
+            + " <foreach collection='storeOwnerUserIds' index='storeCode' item='ownerUserId' separator=' OR '>"
+            + "   (so.owner_user_id = #{ownerUserId} AND sol.source_store_code = #{storeCode})"
+            + " </foreach>"
+            + " )"
+            + "</when>"
+            + "<otherwise> AND 1 = 0 </otherwise>"
+            + "</choose>";
+
 @Insert({
             "INSERT INTO procurement_fulfillment_confirmation (",
-            "id, owner_user_id, logical_store_id, purchase_order_id, confirmation_no, confirmation_type, status,",
+            "id, owner_user_id, client_request_id, request_fingerprint, logical_store_id, purchase_order_id, confirmation_no, confirmation_type, status,",
             "source_party_name, related_confirmation_id, relation_type, operator_user_id, confirmed_at, expected_quantity,",
             "confirmed_quantity_delta, abnormal_quantity_delta, remark, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
-            "#{row.id}, #{row.ownerUserId}, #{row.logicalStoreId}, #{row.purchaseOrderId}, #{row.confirmationNo},",
+            "#{row.id}, #{row.ownerUserId}, #{row.clientRequestId}, #{row.requestFingerprint}, #{row.logicalStoreId},",
+            "#{row.purchaseOrderId}, #{row.confirmationNo},",
             "#{row.confirmationType}, #{row.status}, #{row.sourcePartyName}, #{row.relatedConfirmationId}, #{row.relationType},",
             "#{row.operatorUserId}, NOW(), #{row.expectedQuantity}, #{row.confirmedQuantityDelta}, #{row.abnormalQuantityDelta},",
             "#{row.remark}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
     int insertConfirmation(@Param("row") FulfillmentConfirmationInsertRecord row);
+
+@Select({
+            "SELECT id, owner_user_id AS ownerUserId, client_request_id AS clientRequestId,",
+            "       request_fingerprint AS requestFingerprint, logical_store_id AS logicalStoreId,",
+            "       purchase_order_id AS purchaseOrderId, confirmation_no AS confirmationNo,",
+            "       confirmation_type AS confirmationType, status, source_party_name AS sourcePartyName,",
+            "       related_confirmation_id AS relatedConfirmationId, relation_type AS relationType,",
+            "       operator_user_id AS operatorUserId, expected_quantity AS expectedQuantity,",
+            "       confirmed_quantity_delta AS confirmedQuantityDelta,",
+            "       abnormal_quantity_delta AS abnormalQuantityDelta, remark",
+            "FROM procurement_fulfillment_confirmation",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND client_request_id = #{clientRequestId}",
+            "  AND is_deleted = b'0'",
+            "LIMIT 1",
+            "FOR UPDATE"
+    })
+    FulfillmentConfirmationInsertRecord selectConfirmationByClientRequestId(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("clientRequestId") String clientRequestId
+    );
 
 @Insert({
             "INSERT INTO procurement_fulfillment_confirmation_line (",
@@ -64,13 +110,39 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
     int insertConfirmationLine(@Param("row") FulfillmentConfirmationLineInsertRecord row);
 
 @Select({
+            "SELECT id, confirmation_id AS confirmationId, owner_user_id AS ownerUserId,",
+            "       logical_store_id AS logicalStoreId, purchase_order_id AS purchaseOrderId,",
+            "       purchase_order_item_id AS purchaseOrderItemId, product_master_id AS productMasterId,",
+            "       product_variant_id AS productVariantId, partner_sku AS partnerSku, sku_parent AS skuParent,",
+            "       title_cache AS titleCache, image_url_cache AS imageUrlCache, fulfillment_type AS fulfillmentType,",
+            "       expected_quantity AS expectedQuantity, confirmed_quantity_delta AS confirmedQuantityDelta,",
+            "       abnormal_quantity_delta AS abnormalQuantityDelta,",
+            "       related_confirmation_line_id AS relatedConfirmationLineId, exception_reason AS exceptionReason,",
+            "       snapshot_json AS snapshotJson",
+            "FROM procurement_fulfillment_confirmation_line",
+            "WHERE confirmation_id = #{confirmationId}",
+            "  AND is_deleted = b'0'",
+            "ORDER BY id ASC",
+            "FOR UPDATE"
+    })
+    List<FulfillmentConfirmationLineInsertRecord> listConfirmationLines(
+            @Param("confirmationId") Long confirmationId
+    );
+
+@Select({
             BALANCE_SELECT,
             "WHERE balance.purchase_order_item_id = #{purchaseOrderItemId}",
+            "  AND balance.purchase_order_id = #{purchaseOrderId}",
+            "  AND balance.owner_user_id = #{ownerUserId}",
             "  AND balance.is_deleted = b'0'",
             "ORDER BY balance.purchase_order_item_site_id ASC",
             "FOR UPDATE"
     })
-    List<FulfillmentBalanceRecord> listBalancesForItemForUpdate(@Param("purchaseOrderItemId") Long purchaseOrderItemId);
+    List<FulfillmentBalanceRecord> listBalancesForItemForUpdate(
+            @Param("purchaseOrderItemId") Long purchaseOrderItemId,
+            @Param("purchaseOrderId") Long purchaseOrderId,
+            @Param("ownerUserId") Long ownerUserId
+    );
 
 @Update({
             "UPDATE procurement_fulfillment_balance",
@@ -82,6 +154,14 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "    updated_by = #{row.operatorUserId},",
             "    gmt_updated = NOW()",
             "WHERE id = #{row.balanceId}",
+            "  AND purchase_order_item_id = #{row.purchaseOrderItemId}",
+            "  AND purchase_order_id = #{row.purchaseOrderId}",
+            "  AND owner_user_id = #{row.ownerUserId}",
+            "  AND #{row.confirmedDelta} >= 0",
+            "  AND #{row.abnormalDelta} >= 0",
+            "  AND confirmed_quantity + #{row.confirmedDelta}",
+            "        >= abnormal_quantity + #{row.abnormalDelta}",
+            "        + reserved_quantity + logistics_handoff_quantity",
             "  AND is_deleted = b'0'"
     })
     int updateBalanceQuantities(@Param("row") BalanceQuantityDelta row);
@@ -89,13 +169,9 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
 @Select({
             "<script>",
             BALANCE_SELECT,
-            "WHERE balance.owner_user_id = #{ownerUserId}",
-            "  AND balance.is_deleted = b'0'",
+            "WHERE balance.is_deleted = b'0'",
             "  AND balance.available_quantity > 0",
-            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
-            "  AND balance.source_store_code IN",
-            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
-            "</if>",
+            BALANCE_STORE_OWNER_SCOPE,
             "<if test='siteCode != null and siteCode != \"\"'>",
             "  AND COALESCE(NULLIF(balance.target_site_code, ''), balance.site_code) = #{siteCode}",
             "</if>",
@@ -108,8 +184,7 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "</script>"
     })
     List<FulfillmentBalanceRecord> listReadyBalances(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCodes") Collection<String> storeCodes,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds,
             @Param("siteCode") String siteCode,
             @Param("fulfillmentType") String fulfillmentType
     );
@@ -117,24 +192,20 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
 @Select({
             "<script>",
             BALANCE_SELECT,
-            "WHERE balance.owner_user_id = #{ownerUserId}",
-            "  AND balance.is_deleted = b'0'",
+            "WHERE balance.is_deleted = b'0'",
             "  AND balance.planned_quantity > 0",
-            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
-            "  AND balance.source_store_code IN",
-            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
-            "</if>",
+            BALANCE_STORE_OWNER_SCOPE,
             "ORDER BY balance.purchase_order_id DESC, balance.product_variant_id ASC, balance.site_code ASC, balance.fulfillment_type ASC, balance.id ASC",
             "</script>"
     })
     List<FulfillmentBalanceRecord> listPurchasePlanBalances(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCodes") Collection<String> storeCodes
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds
     );
 
 @Select({
             "<script>",
             "SELECT so.id AS receiptSourceId, so.shipping_order_no AS receiptSourceNo, so.title AS receiptSourceTitle,",
+            "       so.owner_user_id AS ownerUserId,",
             "       GROUP_CONCAT(DISTINCT COALESCE(sol.source_store_name, sol.source_store_code) ORDER BY sol.source_store_code SEPARATOR ' / ') AS receiptSourceStoreName,",
             "       GROUP_CONCAT(DISTINCT sol.source_store_code ORDER BY sol.source_store_code SEPARATOR ',') AS receiptSourceStoreCode,",
             "       DATE_FORMAT(so.gmt_create, '%Y-%m-%d') AS receiptSourceCreatedAt,",
@@ -158,28 +229,28 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "FROM procurement_shipping_order so",
             "JOIN procurement_shipping_order_line sol",
             "  ON sol.shipping_order_id = so.id",
+            " AND sol.owner_user_id = so.owner_user_id",
             " AND sol.is_deleted = b'0'",
             "JOIN procurement_purchase_order po",
             "  ON po.id = sol.purchase_order_id",
+            " AND po.owner_user_id = so.owner_user_id",
             " AND po.is_deleted = b'0'",
             "JOIN procurement_purchase_order_item item",
             "  ON item.purchase_order_id = po.id",
             " AND item.id = sol.purchase_order_item_id",
+            " AND item.owner_user_id = so.owner_user_id",
             " AND item.is_deleted = b'0'",
             "LEFT JOIN procurement_fulfillment_balance balance",
             "  ON balance.purchase_order_item_site_id = sol.purchase_order_item_site_id",
+            " AND balance.owner_user_id = so.owner_user_id",
             " AND balance.is_deleted = b'0'",
             "LEFT JOIN product_variant_spec_source warehouseSpec",
             "  ON warehouseSpec.variant_id = item.product_variant_id",
             " AND warehouseSpec.source_type = 'warehouse'",
             " AND warehouseSpec.is_deleted = b'0'",
-            "WHERE so.owner_user_id = #{ownerUserId}",
-            "  AND so.is_deleted = b'0'",
+            "WHERE so.is_deleted = b'0'",
             "  AND so.shipping_submit_status IN ('SUBMITTED', 'PARTIAL_SUBMITTED')",
-            "<if test='storeCodes != null and storeCodes.size() &gt; 0'>",
-            "  AND sol.source_store_code IN",
-            "  <foreach collection='storeCodes' item='storeCode' open='(' separator=',' close=')'>#{storeCode}</foreach>",
-            "</if>",
+            RECEIPT_STORE_OWNER_SCOPE,
             "<if test='keyword != null and keyword != \"\"'>",
             "  AND (so.shipping_order_no LIKE CONCAT('%', #{keyword}, '%')",
             "       OR so.title LIKE CONCAT('%', #{keyword}, '%')",
@@ -189,7 +260,7 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "       OR item.sku_parent LIKE CONCAT('%', #{keyword}, '%')",
             "       OR item.title_cache LIKE CONCAT('%', #{keyword}, '%'))",
             "</if>",
-            "GROUP BY so.id, so.shipping_order_no, so.title, so.gmt_create,",
+            "GROUP BY so.id, so.owner_user_id, so.shipping_order_no, so.title, so.gmt_create,",
             "         po.id, po.order_no, po.title, po.project_name_cache, po.anchor_store_code_cache, po.gmt_create,",
             "         item.id, item.product_variant_id, item.partner_sku, item.sku_parent, item.title_cache, item.image_url_cache,",
             "         warehouseSpec.product_length_cm, warehouseSpec.product_width_cm,",
@@ -199,8 +270,7 @@ public interface WarehouseReceiptMapper extends WarehouseProcurementMapper {
             "</script>"
     })
     List<PurchaseReceiptRow> listReceiptRows(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCodes") Collection<String> storeCodes,
+            @Param("storeOwnerUserIds") Map<String, Long> storeOwnerUserIds,
             @Param("keyword") String keyword
     );
 }

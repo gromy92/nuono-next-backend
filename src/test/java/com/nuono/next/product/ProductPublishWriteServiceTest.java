@@ -160,7 +160,6 @@ class ProductPublishWriteServiceTest {
         owner.setId(307L);
         owner.setNoonPartnerProjectUser("project-user");
         owner.setNoonPartnerUser("partner-user");
-        owner.setNoonPartnerPwd("pwd");
         owner.setNoonPartnerCookie("cookie");
         owner.setNoonPartnerId("PRJ-OWNER");
         return owner;
@@ -172,7 +171,6 @@ class ProductPublishWriteServiceTest {
         store.setStoreCode("STR245027-NAE");
         store.setNoonPartnerUser("store-main-user");
         store.setNoonPartnerProjectUser("store-project-user");
-        store.setNoonPartnerPwd("store-pwd");
         store.setNoonPartnerCookie("store-cookie");
         return store;
     }

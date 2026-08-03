@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
-public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
+public interface StoreSyncMapper {
     @Select({
             "SELECT",
             "  u.id,",
@@ -53,8 +53,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  u.company_name,",
             "  project_credential.noon_partner_user,   project_credential.noon_partner_project_user,",
             "  project_credential.noon_partner_user_code,",
-            "  project_credential.noon_partner_pwd,",
-            "  project_credential.noon_partner_mail_auth_code,",
             "  project_credential.noon_partner_cookie,",
             "  project_credential.cookie_generate_time,",
             "  project_credential.noon_partner_id",
@@ -65,8 +63,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "    user_id,",
             "    MAX(NULLIF(noon_partner_user, '')) AS noon_partner_user,     MAX(NULLIF(noon_partner_project_user, '')) AS noon_partner_project_user,",
             "    MAX(NULLIF(noon_partner_user_code, '')) AS noon_partner_user_code,",
-            "    MAX(NULLIF(noon_partner_pwd, '')) AS noon_partner_pwd,",
-            "    MAX(NULLIF(noon_partner_mail_auth_code, '')) AS noon_partner_mail_auth_code,",
             "    MAX(NULLIF(noon_partner_cookie, '')) AS noon_partner_cookie,",
             "    MAX(cookie_generate_time) AS cookie_generate_time,",
             "    MAX(NULLIF(noon_partner_id, '')) AS noon_partner_id",
@@ -89,8 +85,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  project_code,",
             "  noon_partner_user,   noon_partner_project_user,",
             "  noon_partner_user_code,",
-            "  noon_partner_pwd,",
-            "  noon_partner_mail_auth_code,",
             "  noon_partner_cookie,",
             "  cookie_generate_time,",
             "  noon_partner_id,",
@@ -112,8 +106,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  up.project_code,",
             "  up.noon_partner_user,   up.noon_partner_project_user,",
             "  up.noon_partner_user_code,",
-            "  up.noon_partner_pwd,",
-            "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
             "  up.cookie_generate_time,",
             "  up.noon_partner_id,",
@@ -149,8 +141,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  us.project_code,",
             "  up.noon_partner_user,   up.noon_partner_project_user,",
             "  up.noon_partner_user_code,",
-            "  up.noon_partner_pwd,",
-            "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
             "  up.cookie_generate_time,",
             "  up.noon_partner_id,",
@@ -175,8 +165,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "    us.project_code,",
             "    up.noon_partner_user,     up.noon_partner_project_user,",
             "    up.noon_partner_user_code,",
-            "    up.noon_partner_pwd,",
-            "    up.noon_partner_mail_auth_code,",
             "    up.noon_partner_cookie,",
             "    up.cookie_generate_time,",
             "    up.noon_partner_id,",
@@ -230,8 +218,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  ls.project_code,",
             "  up.noon_partner_user,   up.noon_partner_project_user,",
             "  up.noon_partner_user_code,",
-            "  up.noon_partner_pwd,",
-            "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
             "  up.cookie_generate_time,",
             "  up.noon_partner_id,",
@@ -273,8 +259,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  us.project_code,",
             "  up.noon_partner_user,   up.noon_partner_project_user,",
             "  up.noon_partner_user_code,",
-            "  up.noon_partner_pwd,",
-            "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
             "  up.cookie_generate_time,",
             "  up.noon_partner_id,",
@@ -308,8 +292,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  ls.project_code,",
             "  up.noon_partner_user,   up.noon_partner_project_user,",
             "  up.noon_partner_user_code,",
-            "  up.noon_partner_pwd,",
-            "  up.noon_partner_mail_auth_code,",
             "  up.noon_partner_cookie,",
             "  up.cookie_generate_time,",
             "  up.noon_partner_id,",
@@ -395,31 +377,7 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
     @Update({
             "UPDATE user_project",
             "SET noon_partner_user = #{noonUser},",
-            "    noon_partner_project_user = #{noonProjectUser},",
-            "    noon_partner_pwd = #{noonPassword},",
-            "    noon_partner_id = #{noonPartnerId},",
-            "    bind_status = 1,",
-            "    is_authorized = 1,",
-            "    updated_by = #{updatedBy},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{projectId}",
-            "  AND user_id = #{ownerUserId}",
-            "  AND is_deleted = 0"
-    })
-    int updateProjectBinding(
-            @Param("projectId") Long projectId,
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("noonUser") String noonUser,
-            @Param("noonProjectUser") String noonProjectUser,
-            @Param("noonPassword") String noonPassword,
-            @Param("noonPartnerId") String noonPartnerId,
-            @Param("updatedBy") Long updatedBy
-    );
-
-    @Update({
-            "UPDATE user_project",
-            "SET noon_partner_user = #{noonUser},",
-            "    noon_partner_mail_auth_code = #{mailAuthCode},",
+            "    noon_partner_mail_auth_code = NULL,",
             "    noon_partner_project_user = NULL,",
             "    noon_partner_pwd = NULL,",
             "    noon_partner_id = #{noonPartnerId},",
@@ -433,11 +391,10 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             "  AND user_id = #{ownerUserId}",
             "  AND is_deleted = 0"
     })
-    int updateProjectEmailBinding(
+    int updateProjectSharedEmailBinding(
             @Param("projectId") Long projectId,
             @Param("ownerUserId") Long ownerUserId,
             @Param("noonUser") String noonUser,
-            @Param("mailAuthCode") String mailAuthCode,
             @Param("noonPartnerId") String noonPartnerId,
             @Param("updatedBy") Long updatedBy
     );
@@ -518,11 +475,11 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
     @Insert({
             "INSERT INTO user_project (",
             "  user_id, org_code, org_name, project_code, project_name,",
-            "  noon_partner_user, noon_partner_mail_auth_code, noon_partner_id,",
+            "  noon_partner_user, noon_partner_id,",
             "  bind_status, is_authorized, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{ownerUserId}, #{orgCode}, #{orgName}, #{projectCode}, #{projectName},",
-            "  #{noonUser}, #{noonEmailAuthCode}, #{noonPartnerId},",
+            "  #{noonUser}, #{noonPartnerId},",
             "  #{bound}, #{authorized}, 0, #{ownerUserId}, #{ownerUserId}, NOW(), NOW()",
             ")"
     })
@@ -533,7 +490,6 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             @Param("projectCode") String projectCode,
             @Param("projectName") String projectName,
             @Param("noonUser") String noonUser,
-            @Param("noonEmailAuthCode") String noonEmailAuthCode,
             @Param("noonPartnerId") String noonPartnerId,
             @Param("bound") boolean bound,
             @Param("authorized") boolean authorized
@@ -581,25 +537,4 @@ public interface StoreSyncMapper extends StoreSyncReauthenticationMapper {
             @Param("authorized") boolean authorized
     );
 
-    @Update({
-            "UPDATE user_project",
-            "SET noon_partner_user = #{noonUser},",
-            "    noon_partner_project_user = #{noonProjectUser},",
-            "    noon_partner_pwd = #{noonPassword},",
-            "    noon_partner_id = #{noonPartnerId},",
-            "    bind_status = 1,",
-            "    is_authorized = 1,",
-            "    updated_by = #{updatedBy},",
-            "    gmt_updated = NOW()",
-            "WHERE user_id = #{ownerUserId}",
-            "  AND is_deleted = 0"
-    })
-    int updateOwnerBinding(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("noonUser") String noonUser,
-            @Param("noonProjectUser") String noonProjectUser,
-            @Param("noonPassword") String noonPassword,
-            @Param("noonPartnerId") String noonPartnerId,
-            @Param("updatedBy") Long updatedBy
-    );
 }

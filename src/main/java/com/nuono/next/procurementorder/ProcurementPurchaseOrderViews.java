@@ -132,18 +132,6 @@ public final class ProcurementPurchaseOrderViews {
         public List<PurchaseOrderLogisticsQuoteChannelOptionView> channels = new ArrayList<>();
     }
 
-    public static class PurchaseOrderLogisticsQuoteChannelLineView {
-        public String shippingOrderLineId;
-        public String purchaseOrderItemSiteId;
-        public String partnerSku;
-        public String barcode;
-        public String quoteStatus;
-        public BigDecimal unitPrice;
-        public String currency;
-        public String billingUnit;
-        public String yiteMaterial;
-        public String priceSource;
-    }
     public static class PurchaseOrderLogisticsQuoteReportExportView {
         public String filename;
         public String contentType;
@@ -244,6 +232,7 @@ public final class ProcurementPurchaseOrderViews {
         public String currency;
         public String billingUnit;
         public Integer quantity = 0;
+        public String eligibilityStatus;
     }
 
     public static class ShippingOrderSubmitView {

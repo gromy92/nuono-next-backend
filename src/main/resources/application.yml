@@ -159,7 +159,6 @@ nuono:
       email-otp:
         email: ${NUONO_NOON_MERCHANT_EMAIL_OTP_EMAIL:}
         mail-auth-code: ${NUONO_NOON_MERCHANT_EMAIL_OTP_MAIL_AUTH_CODE:}
-        legacy-direct-enabled: ${NUONO_NOON_MERCHANT_EMAIL_OTP_LEGACY_DIRECT_ENABLED:false}
     auth-recovery:
       enabled: ${NUONO_NOON_AUTH_RECOVERY_ENABLED:false}
       scheduler-initial-delay-ms: ${NUONO_NOON_AUTH_RECOVERY_INITIAL_DELAY_MS:30000}
