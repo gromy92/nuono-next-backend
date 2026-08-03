@@ -78,6 +78,7 @@ jobs:
           python3 -m unittest
           scripts/ci/test_package_release_artifact.py
           scripts/tests/test_pre_catalog_baseline_gate.py
+          scripts/tests/test_official_warehouse_collation_migration_contract.py
           scripts/tests/test_repository_migration_catalog.py
           scripts/tests/test_release_schema_migrations.py
           scripts/tests/test_schema_migration_artifact.py

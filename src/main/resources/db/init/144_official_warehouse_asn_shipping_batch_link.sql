@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS `official_warehouse_asn_shipping_batch_link` (
   KEY `idx_official_warehouse_asn_in_transit_batch` (`in_transit_batch_id`, `in_transit_goods_line_id`, `is_deleted`),
   KEY `idx_official_warehouse_asn_shipping_product` (`owner_user_id`, `store_code`, `site_code`, `product_variant_id`, `is_deleted`),
   KEY `idx_official_warehouse_asn_shipping_purchase` (`purchase_order_id`, `purchase_order_item_id`, `is_deleted`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 SET @modify_asn_shipping_batch_id_nullable = IF(
   EXISTS (
