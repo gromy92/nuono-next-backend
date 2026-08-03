@@ -104,6 +104,8 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
 
     def test_postcheck_requires_exact_target_and_rejects_old_equivalent_guard(self):
         self.assertIn("@cps_postcheck_ok", self.sql)
+        self.assertIn("@cps_post_old_guard_count = 0", self.sql)
+        self.assertIn("@cps_post_target_guard_exact = 1", self.sql)
         self.assertIn("@cps_active_column_exact = 1", self.sql)
         self.assertIn("@cps_index_count = 7", self.sql)
         self.assertIn("index_name = 'uk_ops_comp_snapshot_daily'", self.sql)

@@ -227,26 +227,28 @@ SET @cps_active_column_exact := (
       ) REGEXP
         '^[()]*casewhen[(]*is_deleted[)]*=[(]*(0|0b0|0x00)[)]*then[(]*fact_date[)]*elsenullend[()]*$'
 );
-SET @cps_postcheck_ok := (
-  @cps_table_exact = 1 AND @cps_base_columns_exact = 1
-  AND @cps_preserved_indexes_exact = 1 AND @cps_index_count = 7
-  AND @cps_active_column_exact = 1
-  AND NOT EXISTS(
-    SELECT 1 FROM `_migration_240_indexes`
+SET @cps_post_old_guard_count := (
+    SELECT COUNT(*) FROM `_migration_240_indexes`
     WHERE index_name = 'uk_ops_comp_snapshot_daily'
        OR (non_unique = 0 AND column_count = 4
          AND column_signature =
            'watch_product_id,subject_type,noon_product_code,fact_date')
-  )
-  AND EXISTS(
-    SELECT 1 FROM `_migration_240_indexes`
+);
+SET @cps_post_target_guard_exact := (
+    SELECT COUNT(*) = 1 FROM `_migration_240_indexes`
     WHERE index_name = 'uk_ops_comp_snapshot_active_daily'
       AND non_unique = 0 AND column_count = 4
       AND column_signature =
         'watch_product_id,subject_type,noon_product_code,active_fact_date'
       AND prefix_count = 0 AND non_btree_count = 0
       AND invisible_count = 0 AND expression_count = 0
-  )
+);
+SET @cps_postcheck_ok := (
+  @cps_table_exact = 1 AND @cps_base_columns_exact = 1
+  AND @cps_preserved_indexes_exact = 1 AND @cps_index_count = 7
+  AND @cps_active_column_exact = 1
+  AND @cps_post_old_guard_count = 0
+  AND @cps_post_target_guard_exact = 1
 );
 SET @cps_postcheck := IF(
   @cps_postcheck_ok = 1,
