@@ -83,17 +83,20 @@ SELECT IF(
         SELECT COUNT(*) = 3
           AND SUM(constraint_name = 'chk_ops_comp_cwf_name'
             AND REGEXP_REPLACE(
-              REPLACE(REPLACE(LOWER(check_clause), '`', ''), '_utf8mb4', ''),
+              REPLACE(REPLACE(REPLACE(LOWER(check_clause), '`', ''),
+                '_utf8mb4', ''), CONCAT(CHAR(92), CHAR(39)), CHAR(39)),
               '[[:space:]()]', ''
             ) = 'fence_name=''historical_business_date_correction''') = 1
           AND SUM(constraint_name = 'chk_ops_comp_cwf_status'
             AND REGEXP_REPLACE(
-              REPLACE(REPLACE(LOWER(check_clause), '`', ''), '_utf8mb4', ''),
+              REPLACE(REPLACE(REPLACE(LOWER(check_clause), '`', ''),
+                '_utf8mb4', ''), CONCAT(CHAR(92), CHAR(39)), CHAR(39)),
               '[[:space:]()]', ''
             ) = 'fence_statusin''open'',''active''') = 1
           AND SUM(constraint_name = 'chk_ops_comp_cwf_active_audit'
             AND REGEXP_REPLACE(
-              REPLACE(REPLACE(LOWER(check_clause), '`', ''), '_utf8mb4', ''),
+              REPLACE(REPLACE(REPLACE(LOWER(check_clause), '`', ''),
+                '_utf8mb4', ''), CONCAT(CHAR(92), CHAR(39)), CHAR(39)),
               '[[:space:]()]', ''
             ) = 'fence_status=''open''andgeneration=0andoperation_run_idisnullandactivated_byisnullandactivated_atisnullandreopened_byisnullandreopened_atisnullorfence_status=''active''andgeneration>0andoperation_run_idisnotnullandactivated_byisnotnullandactivated_atisnotnullandreopened_byisnullandreopened_atisnullorfence_status=''open''andgeneration>0andoperation_run_idisnotnullandactivated_byisnotnullandactivated_atisnotnullandreopened_byisnotnullandreopened_atisnotnull') = 1
         FROM information_schema.check_constraints

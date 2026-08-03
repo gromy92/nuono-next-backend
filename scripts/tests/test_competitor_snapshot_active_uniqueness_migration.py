@@ -137,6 +137,7 @@ class CompetitorSnapshotActiveUniquenessMigrationTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for marker in ("table", "columns", "index", "constraints", "checks", "row"):
             self.assertIn(f"migration_241_post_{marker}_failed", migration)
+        self.assertIn("CONCAT(CHAR(92), CHAR(39)), CHAR(39)", migration)
 
     def test_writer_fence_release_postcheck_is_readonly_and_exact(self):
         postcheck = FENCE_POSTCHECK_PATH.read_text(encoding="utf-8")
