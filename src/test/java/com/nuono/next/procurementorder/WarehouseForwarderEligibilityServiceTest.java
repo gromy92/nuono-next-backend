@@ -21,11 +21,13 @@ class WarehouseForwarderEligibilityServiceTest {
 
     private ProcurementPurchaseOrderMapper mapper;
     private WarehouseForwarderEligibilityService service;
+    private ProductForwarderEligibilityProductService productService;
 
     @BeforeEach
     void setUp() {
         mapper = mock(ProcurementPurchaseOrderMapper.class);
         service = new WarehouseForwarderEligibilityService(mapper);
+        productService = new ProductForwarderEligibilityProductService(mapper, service);
     }
 
     @Test
@@ -184,11 +186,11 @@ class WarehouseForwarderEligibilityServiceTest {
     void productMaintenanceReadDefaultsToSupportedAndReturnsCurrentException() {
         ProductForwarderEligibilityProductScope productScope = productScope();
 
-        assertThat(service.currentStatus(productScope)).isEqualTo("SUPPORTED");
+        assertThat(productService.currentStatus(productScope)).isEqualTo("SUPPORTED");
 
         when(mapper.listCurrentProductForwarderTransportEligibilities(List.of(scope())))
                 .thenReturn(List.of(rule("INQUIRY_REQUIRED", 4)));
-        assertThat(service.currentStatus(productScope)).isEqualTo("INQUIRY_REQUIRED");
+        assertThat(productService.currentStatus(productScope)).isEqualTo("INQUIRY_REQUIRED");
     }
 
     @Test
@@ -197,7 +199,7 @@ class WarehouseForwarderEligibilityServiceTest {
                 307L, 108065L, "SA", "ET", "AIR"
         )).thenReturn(List.of(rule("UNSUPPORTED", 3)));
 
-        Map<String, String> result = service.currentStatusesForRoute(
+        Map<String, String> result = productService.currentStatusesForRoute(
                 307L, 108065L, "sa", "et", "air"
         );
 
@@ -212,7 +214,7 @@ class WarehouseForwarderEligibilityServiceTest {
         when(mapper.nextProductForwarderTransportEligibilityId()).thenReturn(470001L);
         when(mapper.insertProductForwarderTransportEligibility(any(), eq(901L))).thenReturn(1);
 
-        String status = service.updateProductRule(productScope(), "UNSUPPORTED", 901L);
+        String status = productService.updateProductRule(productScope(), "UNSUPPORTED", 901L);
 
         assertThat(status).isEqualTo("UNSUPPORTED");
         verify(mapper).ensureProductForwarderEligibilityScopeAnchors(List.of(anchor));

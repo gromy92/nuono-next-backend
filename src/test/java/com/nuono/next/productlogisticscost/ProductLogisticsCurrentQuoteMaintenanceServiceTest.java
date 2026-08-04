@@ -8,6 +8,7 @@ import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
 import com.nuono.next.procurementorder.ProductForwarderEligibilityProductScope;
+import com.nuono.next.procurementorder.ProductForwarderEligibilityProductService;
 import com.nuono.next.procurementorder.WarehouseForwarderEligibilityService;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostCommands.ManualCurrentQuoteWithEligibilityCommand;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostCommands.ProductMatchRow;
@@ -31,7 +32,7 @@ class ProductLogisticsCurrentQuoteMaintenanceServiceTest {
     private ProductLogisticsCostLedgerService ledgerService;
 
     @Mock
-    private WarehouseForwarderEligibilityService eligibilityService;
+    private ProductForwarderEligibilityProductService eligibilityService;
 
     private ProductLogisticsCurrentQuoteMaintenanceService service;
 

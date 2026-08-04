@@ -2,6 +2,7 @@ package com.nuono.next.productlogisticscost;
 
 import com.nuono.next.infrastructure.mapper.ProductLogisticsCostMapper;
 import com.nuono.next.procurementorder.ProductForwarderEligibilityProductScope;
+import com.nuono.next.procurementorder.ProductForwarderEligibilityProductService;
 import com.nuono.next.procurementorder.WarehouseForwarderEligibilityService;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostCommands.ManualCurrentQuoteWithEligibilityCommand;
 import com.nuono.next.productlogisticscost.ProductLogisticsCostCommands.ProductMatchRow;
@@ -20,12 +21,12 @@ public class ProductLogisticsCurrentQuoteMaintenanceService {
 
     private final ProductLogisticsCostMapper mapper;
     private final ProductLogisticsCostLedgerService ledgerService;
-    private final WarehouseForwarderEligibilityService eligibilityService;
+    private final ProductForwarderEligibilityProductService eligibilityService;
 
     public ProductLogisticsCurrentQuoteMaintenanceService(
             ProductLogisticsCostMapper mapper,
             ProductLogisticsCostLedgerService ledgerService,
-            WarehouseForwarderEligibilityService eligibilityService
+            ProductForwarderEligibilityProductService eligibilityService
     ) {
         this.mapper = mapper;
         this.ledgerService = ledgerService;
