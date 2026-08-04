@@ -3,6 +3,8 @@ package com.nuono.next.procurementorder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -19,11 +21,13 @@ class WarehouseForwarderEligibilityServiceTest {
 
     private ProcurementPurchaseOrderMapper mapper;
     private WarehouseForwarderEligibilityService service;
+    private ProductForwarderEligibilityProductService productService;
 
     @BeforeEach
     void setUp() {
         mapper = mock(ProcurementPurchaseOrderMapper.class);
         service = new WarehouseForwarderEligibilityService(mapper);
+        productService = new ProductForwarderEligibilityProductService(mapper, service);
     }
 
     @Test
@@ -178,6 +182,52 @@ class WarehouseForwarderEligibilityServiceTest {
                 .hasMessageContaining("承运状态异常");
     }
 
+    @Test
+    void productMaintenanceReadDefaultsToSupportedAndReturnsCurrentException() {
+        ProductForwarderEligibilityProductScope productScope = productScope();
+
+        assertThat(productService.currentStatus(productScope)).isEqualTo("SUPPORTED");
+
+        when(mapper.listCurrentProductForwarderTransportEligibilities(List.of(scope())))
+                .thenReturn(List.of(rule("INQUIRY_REQUIRED", 4)));
+        assertThat(productService.currentStatus(productScope)).isEqualTo("INQUIRY_REQUIRED");
+    }
+
+    @Test
+    void productListReadsExceptionalStatusesForOneRouteInOneQuery() {
+        when(mapper.listCurrentProductForwarderTransportEligibilitiesForRoute(
+                307L, 108065L, "SA", "ET", "AIR"
+        )).thenReturn(List.of(rule("UNSUPPORTED", 3)));
+
+        Map<String, String> result = productService.currentStatusesForRoute(
+                307L, 108065L, "sa", "et", "air"
+        );
+
+        assertThat(result).containsExactly(Map.entry("PSKU-001", "UNSUPPORTED"));
+    }
+
+    @Test
+    void productMaintenanceUsesSharedScopeLockAndRuleWriter() {
+        ProductForwarderEligibilityScopeAnchorRecord anchor = scope();
+        when(mapper.lockProductForwarderEligibilityScopeAnchors(List.of(anchor)))
+                .thenReturn(List.of(anchor));
+        when(mapper.nextProductForwarderTransportEligibilityId()).thenReturn(470001L);
+        when(mapper.insertProductForwarderTransportEligibility(any(), eq(901L))).thenReturn(1);
+
+        String status = productService.updateProductRule(productScope(), "UNSUPPORTED", 901L);
+
+        assertThat(status).isEqualTo("UNSUPPORTED");
+        verify(mapper).ensureProductForwarderEligibilityScopeAnchors(List.of(anchor));
+        verify(mapper).insertProductForwarderTransportEligibility(
+                org.mockito.ArgumentMatchers.argThat(row ->
+                        "PSKU-001".equals(row.partnerSku)
+                                && "ET".equals(row.forwarderCode)
+                                && "AIR".equals(row.transportMode)
+                                && "UNSUPPORTED".equals(row.eligibilityStatus)),
+                eq(901L)
+        );
+    }
+
     private static PurchaseOrderLogisticsQuoteLineRecord line() {
         PurchaseOrderLogisticsQuoteLineRecord line = new PurchaseOrderLogisticsQuoteLineRecord();
         line.ownerUserId = 307L;
@@ -218,6 +268,20 @@ class WarehouseForwarderEligibilityServiceTest {
 
     private static ProductForwarderEligibilityScopeAnchorRecord scope() {
         return new ProductForwarderEligibilityScopeAnchorRecord(307L, 108065L, "PSKU-001");
+    }
+
+    private static ProductForwarderEligibilityProductScope productScope() {
+        return new ProductForwarderEligibilityProductScope(
+                307L,
+                108065L,
+                8001L,
+                9001L,
+                "STR108065-NSA",
+                "PSKU-001",
+                "SA",
+                "ET",
+                "AIR"
+        );
     }
 
     private String status(

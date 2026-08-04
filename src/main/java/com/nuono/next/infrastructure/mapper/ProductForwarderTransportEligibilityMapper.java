@@ -39,6 +39,26 @@ public interface ProductForwarderTransportEligibilityMapper {
     );
 
     @Select({
+            "SELECT id, partner_sku AS partnerSku, eligibility_status AS eligibilityStatus",
+            "FROM product_forwarder_transport_eligibility",
+            "WHERE owner_user_id = #{ownerUserId}",
+            "  AND logical_store_id = #{logicalStoreId}",
+            "  AND site_code = #{siteCode}",
+            "  AND forwarder_code = #{forwarderCode}",
+            "  AND transport_mode = #{transportMode}",
+            "  AND effective_to IS NULL",
+            "  AND is_deleted = b'0'",
+            "ORDER BY partner_sku ASC, version DESC, id DESC"
+    })
+    List<ProductForwarderTransportEligibilityRecord> listCurrentProductForwarderTransportEligibilitiesForRoute(
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("logicalStoreId") Long logicalStoreId,
+            @Param("siteCode") String siteCode,
+            @Param("forwarderCode") String forwarderCode,
+            @Param("transportMode") String transportMode
+    );
+
+    @Select({
             "<script>",
             "SELECT id, owner_user_id AS ownerUserId, product_master_id AS productMasterId,",
             "       product_variant_id AS productVariantId, logical_store_id AS logicalStoreId,",

@@ -24,6 +24,10 @@ public final class ProductLogisticsCostCommands {
         public String remark;
     }
 
+    public static class ManualCurrentQuoteWithEligibilityCommand extends ManualCurrentQuoteCommand {
+        public String eligibilityStatus;
+    }
+
     public static class ManualRateCardCommand {
         public String siteCode;
         public String forwarderCode;
