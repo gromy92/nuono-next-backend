@@ -51,6 +51,24 @@ class ProductForwarderEligibilityMapperSqlTest {
     }
 
     @Test
+    void routeStatusListUsesOneBoundedCurrentRuleQuery() throws Exception {
+        Method method = method(
+                "listCurrentProductForwarderTransportEligibilitiesForRoute",
+                Long.class, Long.class, String.class, String.class, String.class
+        );
+
+        String statement = sql(method, Select.class);
+
+        assertThat(statement).contains("owner_user_id = #{ownerUserId}");
+        assertThat(statement).contains("logical_store_id = #{logicalStoreId}");
+        assertThat(statement).contains("site_code = #{siteCode}");
+        assertThat(statement).contains("forwarder_code = #{forwarderCode}");
+        assertThat(statement).contains("transport_mode = #{transportMode}");
+        assertThat(statement).contains("effective_to IS NULL");
+        assertThat(statement).doesNotContain("product_variant_id");
+    }
+
+    @Test
     void decisionReadIsTheSameOrderedStableScopeQueryWithCurrentReadLock() throws Exception {
         String projection = sql(method(
                 "listCurrentProductForwarderTransportEligibilities", java.util.List.class), Select.class);

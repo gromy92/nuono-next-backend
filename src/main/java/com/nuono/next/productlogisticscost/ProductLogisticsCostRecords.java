@@ -157,4 +157,18 @@ public final class ProductLogisticsCostRecords {
         public int skippedCount;
         public List<BatchCategoryAssignmentItemResult> items = new ArrayList<>();
     }
+
+    public static class EligibilityView {
+        public String partnerSku;
+        public String eligibilityStatus;
+    }
+
+    public static class EligibilityListView {
+        public List<EligibilityView> items = new ArrayList<>();
+    }
+
+    public static class ManualCurrentQuoteWithEligibilityResult {
+        public String eligibilityStatus;
+        public CurrentCostRow currentCost;
+    }
 }
