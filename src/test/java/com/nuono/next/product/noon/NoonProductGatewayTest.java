@@ -11,6 +11,18 @@ class NoonProductGatewayTest {
     private final NoonProductGateway gateway = new NoonProductGateway();
 
     @Test
+    void productDeleteWritesShouldUseAuthenticatedCatalogHost() {
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/psku/map",
+                NoonProductGateway.PSKU_UNMAP_URL
+        );
+        assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/psku/delete",
+                NoonProductGateway.PSKU_DELETE_URL
+        );
+    }
+
+    @Test
     void shouldClassifyInvalidCredential() {
         NoonProductError error = gateway.classify(
                 new IllegalStateException("Noon password validate 失败：Invalid username or password")

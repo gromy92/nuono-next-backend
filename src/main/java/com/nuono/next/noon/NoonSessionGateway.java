@@ -1228,8 +1228,9 @@ public class NoonSessionGateway {
             } catch (SessionExpiredException exception) {
                 // A write may have reached Noon even when the response is an
                 // authentication redirect. Never refresh and replay the same
-                // create/upload/upsert request inside the transport layer.
-                enqueueAuthorizationBinding(ownerUserId, projectCode, storeCode);
+                // create/upload/upsert request inside the transport layer. The
+                // durable business-task owner must enqueue its exact task instead
+                // of creating a source-less store-binding recovery here.
                 throw cookieAuthRequired(
                         projectCode,
                         storeCode,

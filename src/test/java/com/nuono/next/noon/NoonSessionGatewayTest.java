@@ -442,6 +442,7 @@ class NoonSessionGatewayTest {
     void shouldNeverRefreshAndReplayAuthenticationFailedWriteRequest()
             throws Exception {
         AtomicInteger writeCount = new AtomicInteger();
+        AtomicInteger sourceLessAuthWaitCount = new AtomicInteger();
         HttpServer server = HttpServer.create(
                 new InetSocketAddress(InetAddress.getLoopbackAddress(), 0),
                 0
@@ -462,6 +463,10 @@ class NoonSessionGatewayTest {
                     "http://127.0.0.1:" + server.getAddress().getPort();
             NoonSessionGateway gateway =
                     directGateway(baseUrl + "/whoami");
+            gateway.setAuthWaitQueue(request -> {
+                sourceLessAuthWaitCount.incrementAndGet();
+                return Optional.of(88001L);
+            });
             NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
                     10001L,
                     "merchant@example.com",
@@ -480,6 +485,7 @@ class NoonSessionGatewayTest {
             );
 
             assertEquals(1, writeCount.get());
+            assertEquals(0, sourceLessAuthWaitCount.get());
         } finally {
             server.stop(0);
         }
