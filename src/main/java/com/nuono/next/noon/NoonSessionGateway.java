@@ -1226,10 +1226,10 @@ public class NoonSessionGateway {
             try {
                 return sessionCall.execute();
             } catch (SessionExpiredException exception) {
-                // A write may have reached Noon even when the response is an
-                // authentication redirect. Never refresh and replay the same
-                // create/upload/upsert request inside the transport layer.
-                enqueueAuthorizationBinding(ownerUserId, projectCode, storeCode);
+                // A write may have reached Noon despite an auth redirect. Never
+                // refresh or replay it inside transport. Its durable business
+                // owner must enqueue the exact task instead of creating a
+                // source-less store-binding recovery here.
                 throw cookieAuthRequired(
                         projectCode,
                         storeCode,

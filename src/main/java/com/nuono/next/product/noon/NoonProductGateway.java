@@ -23,9 +23,9 @@ public class NoonProductGateway {
     public static final String PRODUCT_UPDATE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/product/update";
     public static final String PSKU_UNMAP_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/psku/map";
+            "https://catalog.noon.partners/_svc/mp-partner-catalog/psku/map";
     public static final String PSKU_DELETE_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/psku/delete";
+            "https://catalog.noon.partners/_svc/mp-partner-catalog/psku/delete";
     public static final String CATPLAT_SKU_CACHE_URL =
             "https://noon-catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/sku/cache";
     public static final String GROUP_CURRENT_URL_PREFIX =
