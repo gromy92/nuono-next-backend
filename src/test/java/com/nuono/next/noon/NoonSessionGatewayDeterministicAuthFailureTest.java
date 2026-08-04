@@ -9,6 +9,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.ProductWriteAuthRecovery;
@@ -17,6 +19,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +39,12 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
                     null
             ));
             AtomicInteger writeAttempts = new AtomicInteger();
-            Throwable propagated = propagatedCookieOnlyWriteFailure(responseBody, writeAttempts);
+            AtomicInteger sourceLessAuthWaitCount = new AtomicInteger();
+            Throwable propagated = propagatedCookieOnlyWriteFailure(
+                    responseBody,
+                    writeAttempts,
+                    sourceLessAuthWaitCount
+            );
             NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
             ProductWriteAuthRecovery recovery = new ProductWriteAuthRecovery(
                     recoveryQueue,
@@ -45,6 +53,7 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
 
             assertTrue(propagated instanceof NoonSessionGateway.NoonCookieAuthRequiredException);
             assertEquals(1, writeAttempts.get());
+            assertEquals(0, sourceLessAuthWaitCount.get());
             assertNull(recovery.suspendIfAuthFailure(
                     307L,
                     "LIVE-PRJ",
@@ -58,7 +67,8 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
 
     private Throwable propagatedCookieOnlyWriteFailure(
             String responseBody,
-            AtomicInteger writeAttempts
+            AtomicInteger writeAttempts,
+            AtomicInteger sourceLessAuthWaitCount
     ) throws Exception {
         Class<?> sessionFailureType = Class.forName(
                 "com.nuono.next.noon.NoonSessionGateway$SessionExpiredException"
@@ -91,8 +101,13 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
                         refreshModeType
                 );
         sessionConstructor.setAccessible(true);
+        NoonSessionGateway gateway = gateway();
+        gateway.setAuthWaitQueue(request -> {
+            sourceLessAuthWaitCount.incrementAndGet();
+            return Optional.of(88001L);
+        });
         NoonSessionGateway.NoonSession session = sessionConstructor.newInstance(
-                mock(NoonSessionGateway.class),
+                gateway,
                 307L,
                 "operator@example.com",
                 "cookie",
@@ -125,5 +140,31 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
         } catch (InvocationTargetException exception) {
             return exception.getCause();
         }
+    }
+
+    private NoonSessionGateway gateway() {
+        return new NoonSessionGateway(
+                new ObjectMapper(),
+                mock(StoreSyncMapper.class),
+                0L,
+                true,
+                "",
+                "",
+                "",
+                "",
+                true,
+                "http://noon.test/whoami",
+                "http://noon.test/lookup",
+                "http://noon.test/pkce",
+                "http://noon.test/generate",
+                "http://noon.test/validate",
+                "http://noon.test/projects",
+                "http://noon.test/session-create",
+                false,
+                "HTTP",
+                "",
+                0,
+                ""
+        );
     }
 }
