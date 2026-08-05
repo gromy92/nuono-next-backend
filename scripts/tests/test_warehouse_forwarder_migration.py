@@ -101,6 +101,16 @@ class WarehouseForwarderMigrationTest(unittest.TestCase):
         self.assertIn("version_no='YT-SAU-20260728'", predicates[0])
         self.assertIn("product_management_id_sequence", predicates[-1])
 
+    def test_postcheck_diagnostics_ignore_if_inside_cte(self):
+        predicates = outer_if_predicates(
+            "WITH sample AS (SELECT IF(1=1,1,0) AS value) "
+            "SELECT IF((SELECT value FROM sample)=1 AND 2=2,1,0);"
+        )
+
+        self.assertEqual(2, len(predicates))
+        self.assertIn("SELECT value FROM sample", predicates[0])
+        self.assertEqual("2=2", predicates[1])
+
     def test_ci_matches_production_trigger_policy_without_elevating_migration_user(self):
         workflow = (SCRIPT_DIR.parent / ".github/workflows/ci.yml").read_text(
             encoding="utf-8"

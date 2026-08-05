@@ -19,6 +19,9 @@ from ci.dp_pull_runtime_cleanup_marker_scenario import (  # noqa: E402
 from ci.dp_pull_runtime_scope_binding_scenario import (  # noqa: E402
     insert_valid_scope_binding_scenario,
 )
+from ci.release_schema_mysql_postcheck_diagnostics import (  # noqa: E402
+    failing_predicate_indexes,
+)
 from ci.dp_pull_runtime_successor_scenario import (  # noqa: E402
     drop_successor_objects,
     run_successor_schema_scenario,
@@ -105,7 +108,15 @@ class DpPullRuntimeSchemaMySqlTest(unittest.TestCase):
         insert_valid_scope_binding_scenario(database, SCOPE_BINDING_TASK_ID)
         database.client.execute(migration)
 
-        self.assertEqual("1", database.client.execute_readonly(exact))
+        exact_result = database.client.execute_readonly(exact)
+        self.assertEqual(
+            "1",
+            exact_result,
+            None if exact_result == "1" else
+            "false exact predicates: " + ",".join(
+                failing_predicate_indexes(database, exact)
+            ),
+        )
         self.assertEqual("1", database.client.execute_readonly(live))
         self.assert_sequence_floor(database)
         self.assert_auth_wait_absent(database)

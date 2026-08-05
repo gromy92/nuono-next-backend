@@ -35,13 +35,14 @@ def apply_with_diagnostics(runner, approvals, database, forwarder):
 
 def failing_predicate_indexes(database, postcheck_sql):
     predicates = outer_if_predicates(postcheck_sql)
+    select_start, _ = _outer_if_location(postcheck_sql)
     diagnostics = ",".join(
         f"IF(({predicate}),NULL,'{index:03d}')"
         for index, predicate in enumerate(predicates, start=1)
     )
     output = execute_group_concat(
         database,
-        f"SELECT CONCAT_WS(',',{diagnostics});",
+        postcheck_sql[:select_start] + f"SELECT CONCAT_WS(',',{diagnostics});",
     )
     return tuple(output.split(",")) if output else ()
 
@@ -114,10 +115,7 @@ def guard_metadata_diagnostics(database):
 
 
 def outer_if_predicates(statement):
-    match = re.search(r"\bIF\s*\(", statement, re.IGNORECASE)
-    if match is None:
-        raise ValueError("postcheck must contain an outer IF expression")
-    opening = statement.find("(", match.start())
+    _, opening = _outer_if_location(statement)
     closing = _matching_parenthesis(statement, opening)
     arguments = _split_top_level(statement[opening + 1:closing], ",")
     if len(arguments) != 3:
@@ -126,6 +124,20 @@ def outer_if_predicates(statement):
     if not predicates:
         raise ValueError("postcheck outer IF has no predicates")
     return predicates
+
+
+def _outer_if_location(statement):
+    matches = tuple(
+        re.finditer(
+            r"\bSELECT\s+(?:/\*.*?\*/\s*)?IF\s*\(",
+            statement,
+            re.IGNORECASE | re.DOTALL,
+        )
+    )
+    if not matches:
+        raise ValueError("postcheck must contain an outer SELECT IF expression")
+    match = matches[-1]
+    return match.start(), match.end() - 1
 
 
 def _matching_parenthesis(value, opening):
