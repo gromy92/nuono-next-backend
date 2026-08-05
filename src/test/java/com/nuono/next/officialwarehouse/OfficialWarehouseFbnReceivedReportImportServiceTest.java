@@ -1,15 +1,26 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.access;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.command;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.minimalReceivedHeader;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.minimalReceivedRow;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.receivedCsv;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.receivedHeader;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.scope;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.sha256;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseStatisticsMapper;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider.ExportStatus;
-import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider.PullRequest;
+import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportImportTestSupport.FakeFbnExportProvider;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnReceivedImportCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InboundReceiptAsnLineMatchRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InboundReceiptAsnMatchRecord;
@@ -19,10 +30,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.Inven
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.ReportImportInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.ReportRowInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnReceivedImportResultView;
-import com.nuono.next.permission.access.BusinessAccessContext;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
-import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -172,46 +180,110 @@ class OfficialWarehouseFbnReceivedReportImportServiceTest {
         assertThat(result.fileSha256).hasSize(64);
     }
 
-    private static String receivedCsv() {
-        return "partner_sku,sku,po_nr,pbarcode_canonical,storage_type_code,volume,brand,product_title,asn,"
-                + "partner_warehouse,noon_warehouse,country_code,qty_expected,received_qty,qc_failed_qty,"
-                + "unidentified_qty,qc_failed_reason,asn_created_at,asn_schedule_date,asn_completed_at\n"
-                + "PAPERSAYSB105N1,Z0B8C025C4C884FD10BE6Z-1,,6287053004607,standard,0.01,Papersay,"
-                + "\"A4 file bag\",A05508658PN,-,RUH01S,sa,1,1,0,0,-,2026-06-11,2026-06-11,2026-06-13\n"
-                + "PAPERSAYSB042,Z9DDECF61092EFCE742E9Z-1,,6287053004508,standard,0.02,Papersay,"
-                + "Tape,A05508658PN,-,RUH01S,sa,3,2,0,1,missing,2026-06-11,2026-06-11,2026-06-13\n";
+    @Test
+    void importsVerifiedDownloadedBytesWithoutCallingTheProvider() throws Exception {
+        byte[] content = receivedHeader().getBytes(StandardCharsets.UTF_8);
+        InventorySyncScopeRecord scope = new InventorySyncScopeRecord();
+        scope.ownerUserId = 307L;
+        scope.logicalStoreId = 7001L;
+        scope.storeCode = "STR108065-NSA";
+        scope.siteCode = "SA";
+        scope.projectCode = "PRJ108065";
+        scope.partnerId = "108065";
+        when(mapper.selectInventorySyncScope(307L, "STR108065-NSA", "SA")).thenReturn(scope);
+        when(mapper.nextReportImportId()).thenReturn(623101L);
+        FbnReceivedImportCommand command = new FbnReceivedImportCommand();
+        command.storeCode = "STR108065-NSA";
+        command.siteCode = "SA";
+
+        FbnReceivedImportResultView result = service.importDownloaded(
+                access(),
+                "EXP-DURABLE-1",
+                command,
+                content,
+                "durable.csv",
+                sha256(content)
+        );
+
+        assertThat(provider.statusRequests).isEmpty();
+        assertThat(provider.downloadRequests).isEmpty();
+        assertThat(result.insertedReceiptLines).isZero();
+        verify(mapper).insertReportImport(any(ReportImportInsertRecord.class));
     }
 
-    private static BusinessAccessContext access() {
-        return BusinessAccessContext.builder()
-                .sessionUserId(307L)
-                .businessOwnerUserId(307L)
-                .storeCodes(Set.of("STR108065-NSA"))
-                .storeOwnerUserIds(Map.of("STR108065-NSA", 307L))
-                .menuPaths(Set.of("/warehouse/official-warehouse-stock"))
-                .build();
+    @Test
+    void keepsTheFirstValidatedBusinessKeyAndSkipsBadAndLaterConflictingRows() throws Exception {
+        completedStatus("EXP-ROW-SEMANTICS", 4);
+        provider.downloadedBytes = (minimalReceivedHeader()
+                + minimalReceivedRow("P1", "Z1", "A1", "-1", "1", "0", "0", "2026-08-01")
+                + minimalReceivedRow(" p1 ", " z1 ", " a1 ", "1", "1", "0", "0", "2026-08-01")
+                + minimalReceivedRow("P1", "Z1", "A1", "2", "2", "0", "0", "2026-08-01")
+                + minimalReceivedRow("P2", "Z2", "A2", "3", "3", "0", "0", "2026-08-01"))
+                .getBytes(StandardCharsets.UTF_8);
+        when(mapper.selectInventorySyncScope(307L, "STR108065-NSA", "SA")).thenReturn(scope());
+        when(mapper.nextReportImportId()).thenReturn(623201L);
+        when(mapper.nextReportRowId()).thenReturn(624201L, 624202L);
+        when(mapper.nextInboundReceiptLineId()).thenReturn(625201L, 625202L);
+
+        FbnReceivedImportResultView result = service.importByExportCode(
+                access(),
+                "EXP-ROW-SEMANTICS",
+                command()
+        );
+
+        assertThat(result.totalRows).isEqualTo(3);
+        assertThat(result.validRows).isEqualTo(2);
+        assertThat(result.insertedReceiptLines).isEqualTo(2);
+
+        ArgumentCaptor<ReportRowInsertRecord> rowCaptor = ArgumentCaptor.forClass(ReportRowInsertRecord.class);
+        verify(mapper, times(2)).insertReportRow(rowCaptor.capture());
+        assertThat(rowCaptor.getAllValues()).extracting(row -> row.rowNo).containsExactly(3, 5);
+        assertThat(rowCaptor.getAllValues().get(0).businessKey).contains("A1", "P1", "Z1");
+
+        ArgumentCaptor<InboundReceiptLineInsertRecord> lineCaptor =
+                ArgumentCaptor.forClass(InboundReceiptLineInsertRecord.class);
+        verify(mapper, times(2)).insertInboundReceiptLine(lineCaptor.capture());
+        assertThat(lineCaptor.getAllValues()).extracting(line -> line.qtyExpected).containsExactly(1, 3);
     }
 
-    private static class FakeFbnExportProvider extends OfficialWarehouseFbnExportProvider {
-        private final java.util.List<String> statusRequests = new java.util.ArrayList<>();
-        private final java.util.List<String> downloadRequests = new java.util.ArrayList<>();
-        private ExportStatus status;
-        private byte[] downloadedBytes;
+    @Test
+    void rejectsAWholeFileBeforeAnyFactWriteWhenALaterRowHasAnInvalidDate() throws Exception {
+        completedStatus("EXP-INVALID-DATE", 2);
+        provider.downloadedBytes = (minimalReceivedHeader()
+                + minimalReceivedRow("P1", "Z1", "A1", "1", "1", "0", "0", "2026-08-01")
+                + minimalReceivedRow("P2", "Z2", "A2", "1", "1", "0", "0", "2026-02-30"))
+                .getBytes(StandardCharsets.UTF_8);
+        when(mapper.selectInventorySyncScope(307L, "STR108065-NSA", "SA")).thenReturn(scope());
 
-        private FakeFbnExportProvider(ObjectMapper objectMapper) {
-            super(objectMapper, null, null);
-        }
+        assertThatThrownBy(() -> service.importByExportCode(
+                access(),
+                "EXP-INVALID-DATE",
+                command()
+        )).isInstanceOf(IllegalArgumentException.class);
 
-        @Override
-        public ExportStatus exportStatus(PullRequest request, String exportCode, boolean log) {
-            statusRequests.add(request.ownerUserId + ":" + request.storeCode + ":" + request.siteCode + ":" + exportCode + ":" + log);
-            return status;
-        }
-
-        @Override
-        public byte[] download(PullRequest request, String downloadUrl) {
-            downloadRequests.add(request.ownerUserId + ":" + request.storeCode + ":" + request.siteCode);
-            return downloadedBytes;
-        }
+        verify(mapper, never()).nextReportImportId();
+        verify(mapper, never()).deactivatePreviousFbnReceivedReportImports(
+                307L,
+                "STR108065-NSA",
+                "SA",
+                "FBN_INBOUND_FBNRECEIVEDREPORT",
+                "EXP-INVALID-DATE",
+                307L
+        );
+        verify(mapper, never()).insertReportRow(any(ReportRowInsertRecord.class));
+        verify(mapper, never()).insertInboundReceiptLine(any(InboundReceiptLineInsertRecord.class));
+        verify(mapper, never()).insertReportImport(any(ReportImportInsertRecord.class));
     }
+
+    private void completedStatus(String exportCode, int totalRows) throws Exception {
+        provider.status = ExportStatus.from(
+                objectMapper,
+                objectMapper.readTree("{\"exportCode\":\"" + exportCode + "\",\"status\":\"COMPLETE\","
+                        + "\"download_url\":\"https://storage.googleapis.com/private\","
+                        + "\"result\":\"{\\\"total_rows\\\":" + totalRows + "}\"}"),
+                exportCode,
+                objectMapper.createObjectNode()
+        );
+    }
+
 }

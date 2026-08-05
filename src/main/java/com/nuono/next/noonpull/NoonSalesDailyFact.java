@@ -40,7 +40,8 @@ public class NoonSalesDailyFact {
     }
 
     public String key() {
-        return ownerUserId + "|" + storeCode + "|" + siteCode + "|" + salesDate + "|" + skuParent;
+        return ownerUserId + "|" + storeCode + "|" + siteCode + "|" + salesDate
+                + "|" + skuParent + "|" + sku;
     }
 
     public Long getOwnerUserId() {

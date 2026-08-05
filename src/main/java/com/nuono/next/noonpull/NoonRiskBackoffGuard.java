@@ -58,9 +58,13 @@ public class NoonRiskBackoffGuard {
                 accountWideScope == null ? null : accountWideScope.getOperationGroup(),
                 now
         );
+        if (accountWideHold != null
+                && !scope.acceptsAccountWideSourceDomain(accountWideHold.getSourceDomain())) {
+            accountWideHold = null;
+        }
         if (accountWideHold == null && accountWideScope != null) {
             NoonRiskBackoffHold fallback = repository.selectActiveHold(accountWideScope.getScopeKey(), now);
-            if (fallback != null && accountWideScope.acceptsAccountWideSourceDomain(fallback.getSourceDomain())) {
+            if (fallback != null && scope.acceptsAccountWideSourceDomain(fallback.getSourceDomain())) {
                 accountWideHold = fallback;
             }
         }

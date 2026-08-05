@@ -7,12 +7,23 @@ public class NoonReportExportStatus {
     private final String status;
     private final String downloadUrl;
     private final Integer totalRows;
+    private final String providerExportId;
     private final String message;
 
-    private NoonReportExportStatus(String status, String downloadUrl, Integer totalRows, String message) {
+    private NoonReportExportStatus(
+            String status,
+            String downloadUrl,
+            Integer totalRows,
+            String providerExportId,
+            String message
+    ) {
         this.status = StringUtils.hasText(status) ? status.trim().toUpperCase(Locale.ROOT) : "PENDING";
         this.downloadUrl = normalize(downloadUrl);
-        this.totalRows = totalRows == null ? null : Math.max(0, totalRows);
+        if (totalRows != null && totalRows < 0) {
+            throw new IllegalArgumentException("report totalRows must not be negative");
+        }
+        this.totalRows = totalRows;
+        this.providerExportId = normalize(providerExportId);
         this.message = message;
     }
 
@@ -21,7 +32,24 @@ public class NoonReportExportStatus {
     }
 
     public static NoonReportExportStatus ready(String downloadUrl, Integer totalRows) {
-        return new NoonReportExportStatus("READY", downloadUrl, totalRows, null);
+        return new NoonReportExportStatus("READY", downloadUrl, totalRows, null, null);
+    }
+
+    public static NoonReportExportStatus readyForProviderExport(
+            String providerExportId,
+            String downloadUrl,
+            Integer totalRows
+    ) {
+        if (!StringUtils.hasText(providerExportId)) {
+            throw new IllegalArgumentException("providerExportId is required");
+        }
+        return new NoonReportExportStatus(
+                "READY",
+                downloadUrl,
+                totalRows,
+                providerExportId,
+                null
+        );
     }
 
     public static NoonReportExportStatus pending() {
@@ -29,11 +57,11 @@ public class NoonReportExportStatus {
     }
 
     public static NoonReportExportStatus pending(String status) {
-        return new NoonReportExportStatus(status, null, null, null);
+        return new NoonReportExportStatus(status, null, null, null, null);
     }
 
     public static NoonReportExportStatus failed(String message) {
-        return new NoonReportExportStatus("FAILED", null, null, message);
+        return new NoonReportExportStatus("FAILED", null, null, null, message);
     }
 
     public String getStatus() {
@@ -46,6 +74,10 @@ public class NoonReportExportStatus {
 
     public Integer getTotalRows() {
         return totalRows;
+    }
+
+    public String getProviderExportId() {
+        return providerExportId;
     }
 
     public String getMessage() {

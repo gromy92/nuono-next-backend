@@ -4,12 +4,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.noon.NoonCatalogApiRoutes;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
-@ConditionalOnProperty(prefix = "nuono.noon.pull.real-provider", name = "enabled", havingValue = "true")
+@Conditional(NoonPullRealProviderCondition.class)
 public class RealNoonSalesReportSmokeProvider extends AbstractRealNoonReportSmokeProvider
         implements NoonSalesReportSmokeProvider {
     private static final String PRODUCT_VIEWS_AND_SALES_EXPORT_CATEGORY =

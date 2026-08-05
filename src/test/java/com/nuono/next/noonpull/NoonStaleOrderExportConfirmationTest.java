@@ -1,8 +1,6 @@
 package com.nuono.next.noonpull;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
@@ -18,7 +16,7 @@ class NoonStaleOrderExportConfirmationTest {
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
 
     @Test
-    void shouldRequireConfirmationWhenProviderOnlyReturnsRowsBeforeRequestedWindow() {
+    void shouldRejectRowsOutsideTheRequestedWindowWithoutWritingFacts() {
         List<NoonOrderLineFact> written = new ArrayList<>();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(written::add, CLOCK);
 
@@ -27,19 +25,18 @@ class NoonStaleOrderExportConfirmationTest {
                 staleOrderCsv("NSAI50094671190-1", "2026-05-19 23:29:16")
         ));
 
-        assertEquals(NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION, result.getCode());
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertEquals(1, result.getExceptionCount());
         assertTrue(written.isEmpty());
-        assertTrue(result.getDiagnosticMessage().contains("provider_reused_latest_export"));
-        assertTrue(result.getDiagnosticMessage().contains("requested=2026-05-20..2026-05-20"));
-        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-19"));
+        assertTrue(result.getDiagnosticMessage().contains("row_outside_container"));
     }
 
     @Test
     void shouldRejectStrictlyStaleOrderReportWhenAnyRowsCannotBeParsed() {
         List<NoonOrderLineFact> written = new ArrayList<>();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(written::add, CLOCK);
-        String malformedTargetRow = "108065,SA,SA,SA,,,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
-                + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+        String malformedTargetRow = "108065,AE,AE,AE,,,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
+                + "Processing,65.8,65.8,AED,papersay,stationery,Fulfilled by Noon (FBN),"
                 + "2026-05-20 00:01:00,,\n";
 
         NoonReportProcessResult result = adapter.process(file(
@@ -48,41 +45,45 @@ class NoonStaleOrderExportConfirmationTest {
         ));
 
         assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
-        assertEquals(2, result.getExceptionCount());
+        assertEquals(1, result.getExceptionCount());
         assertTrue(written.isEmpty());
     }
 
     @Test
-    void shouldConfirmEmptyWhenOrderProviderRepeatsSameStrictlyStaleExport() {
+    void shouldKeepPollingTheSameHandleWhenAStaleExportRepeats() {
         PullerFixture fixture = new PullerFixture("orders:repeated-stale-export");
         StaticProvider provider = new StaticProvider(staleOrderCsv("NSAI50094671190-1", "2026-05-20 23:29:16"));
 
         NoonReportPullResult first = fixture.execute(provider);
         NoonPullTaskRecord pending = fixture.task();
 
-        assertEquals(NoonPullTaskStatus.RUNNING, first.getStatus());
-        assertEquals("empty_report_pending_confirmation", pending.getFailureType());
-        assertEquals("pending_confirmation", pending.getReadinessState());
-        assertNotNull(pending.getSourceBatchId());
+        assertEquals(
+                NoonPullTaskStatus.RUNNING,
+                first.getStatus(),
+                pending.getFailureType() + " | " + pending.getDiagnosticSummary()
+        );
+        assertEquals("provider_unavailable", pending.getFailureType());
+        assertEquals("EXP-1", pending.getReportExportId());
 
         NoonReportPullResult second = fixture.execute(provider);
-        NoonPullTaskRecord confirmed = fixture.task();
+        NoonPullTaskRecord stillPending = fixture.task();
 
-        assertEquals(NoonPullTaskStatus.FAILED, second.getStatus());
-        assertEquals("confirmed_empty", confirmed.getFailureType());
-        assertEquals("confirmed_empty", confirmed.getReadinessState());
-        assertEquals(Boolean.FALSE, confirmed.getRetryable());
-        assertTrue(confirmed.getDiagnosticSummary().contains("repeated_stale_export=true"));
+        assertEquals(NoonPullTaskStatus.RUNNING, second.getStatus());
+        assertEquals("provider_unavailable", stillPending.getFailureType());
+        assertEquals(Boolean.TRUE, stillPending.getRetryable());
+        assertEquals("EXP-1", stillPending.getReportExportId());
+        assertTrue(stillPending.getDiagnosticSummary().contains(
+                "report_payload_contract_rejected"
+        ));
     }
 
     @Test
-    void shouldKeepOrderEmptyPendingWhenStrictlyStaleExportDigestChanges() {
+    void shouldNotInferEmptyWhenTheStrictlyStaleExportDigestChanges() {
         PullerFixture fixture = new PullerFixture("orders:changed-stale-export");
 
         NoonReportPullResult first = fixture.execute(
                 new StaticProvider(staleOrderCsv("NSAI50094671190-1", "2026-05-20 23:29:16"))
         );
-        String firstBatchId = fixture.task().getSourceBatchId();
         NoonReportPullResult second = fixture.execute(
                 new StaticProvider(staleOrderCsv("NSAI50094671191-1", "2026-05-20 23:29:16"))
         );
@@ -90,9 +91,9 @@ class NoonStaleOrderExportConfirmationTest {
 
         assertEquals(NoonPullTaskStatus.RUNNING, first.getStatus());
         assertEquals(NoonPullTaskStatus.RUNNING, second.getStatus());
-        assertEquals("empty_report_pending_confirmation", pending.getFailureType());
-        assertEquals("pending_confirmation", pending.getReadinessState());
-        assertNotEquals(firstBatchId, pending.getSourceBatchId());
+        assertEquals("provider_unavailable", pending.getFailureType());
+        assertEquals(Boolean.TRUE, pending.getRetryable());
+        assertEquals("EXP-1", pending.getReportExportId());
     }
 
     private NoonReportDownloadedFile file(LocalDate date, String content) {
@@ -122,8 +123,8 @@ class NoonStaleOrderExportConfirmationTest {
         return "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
                 + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
                 + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
-                + "108065,SA,SA,SA,," + itemNumber + ",PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
-                + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                + "108065,AE,AE,AE,," + itemNumber + ",PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                + "Processing,65.8,65.8,AED,papersay,stationery,Fulfilled by Noon (FBN),"
                 + orderTimestamp + ",,\n";
     }
 

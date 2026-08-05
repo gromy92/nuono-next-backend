@@ -84,14 +84,14 @@ src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	112
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
-src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	450
+src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	406
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	817
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	3018
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1157
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnExportProvider.java	567
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnInventoryProvider.java	531
-src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnReceivedReportImportService.java	575
+src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnReceivedReportImportService.java	548
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseNoonInboundClient.java	552
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseRecords.java	421
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseScheduledDeliveryAccuracyImportService.java	488
@@ -103,7 +103,6 @@ src/main/java/com/nuono/next/operationsconfig/OperationConfigTypedVersionContent
 src/main/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryService.java	1076
 src/main/java/com/nuono/next/operationsskin/OperationsSkinController.java	323
 src/main/java/com/nuono/next/operationsskin/OperationsSkinService.java	484
-src/main/java/com/nuono/next/orderfinance/NoonFinanceTransactionReportAdapter.java	438
 src/main/java/com/nuono/next/outboundfee/MyBatisOfficialOutboundFeeFactRepository.java	306
 src/main/java/com/nuono/next/outboundfee/OfficialOutboundFeeFactPublisher.java	418
 src/main/java/com/nuono/next/postsaleprofit/PostSaleProfitAttributionAdjustmentService.java	333

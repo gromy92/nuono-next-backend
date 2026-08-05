@@ -47,7 +47,7 @@ public class OfficialWarehouseFbnExportProvider {
         int safePage = Math.max(1, page);
         int safePerPage = perPage <= 0 ? 20 : Math.min(perPage, 100);
         NoonPullStoreBinding binding = resolveBinding(request, "official-warehouse-fbn-export-list");
-        JsonNode response = sessionFactory.login(binding).postJson(
+        JsonNode response = sessionFactory.openOneShot(binding).postJsonOnce(
                 FBN_EXPORT_LIST_URL,
                 listBody(safePage, safePerPage),
                 false,
@@ -67,7 +67,7 @@ public class OfficialWarehouseFbnExportProvider {
             throw new IllegalArgumentException("缺少官方仓 FBN 报表 exportCode。");
         }
         NoonPullStoreBinding binding = resolveBinding(request, "official-warehouse-fbn-export-status");
-        JsonNode response = sessionFactory.login(binding).postJson(
+        JsonNode response = sessionFactory.openOneShot(binding).postJsonOnce(
                 FBN_EXPORT_STATUS_URL,
                 statusBody(safeExportCode, log),
                 false,
@@ -82,7 +82,7 @@ public class OfficialWarehouseFbnExportProvider {
             throw new IllegalArgumentException("缺少官方仓 FBN 报表类型。");
         }
         NoonPullStoreBinding binding = resolveBinding(request, "official-warehouse-fbn-export-create");
-        JsonNode response = sessionFactory.login(binding).postJson(
+        JsonNode response = sessionFactory.openOneShot(binding).postJsonOnce(
                 FBN_EXPORT_CREATE_URL,
                 createBody(binding, createRequest),
                 false,
@@ -98,7 +98,7 @@ public class OfficialWarehouseFbnExportProvider {
             throw new IllegalArgumentException("缺少官方仓 FBN 报表下载地址。");
         }
         NoonPullStoreBinding binding = resolveBinding(request, "official-warehouse-fbn-export-download");
-        return sessionFactory.login(binding).getBytes(
+        return sessionFactory.openOneShot(binding).getBytesOnce(
                 safeDownloadUrl,
                 false,
                 Map.of("Accept", "text/csv,*/*")
@@ -489,6 +489,7 @@ public class OfficialWarehouseFbnExportProvider {
 
     public static class ExportStatus {
         public final String exportCode;
+        public final String providerExportCode;
         public final String status;
         public final String fileName;
         public final String downloadUrl;
@@ -497,15 +498,12 @@ public class OfficialWarehouseFbnExportProvider {
         public final JsonNode rawResponse;
 
         private ExportStatus(
-                String exportCode,
-                String status,
-                String fileName,
-                String downloadUrl,
-                String message,
-                Integer totalRows,
+                String exportCode, String providerExportCode, String status,
+                String fileName, String downloadUrl, String message, Integer totalRows,
                 JsonNode rawResponse
         ) {
             this.exportCode = exportCode;
+            this.providerExportCode = providerExportCode;
             this.status = status;
             this.fileName = fileName;
             this.downloadUrl = downloadUrl;
@@ -515,8 +513,10 @@ public class OfficialWarehouseFbnExportProvider {
         }
 
         static ExportStatus from(ObjectMapper objectMapper, JsonNode node, String fallbackExportCode, JsonNode rawResponse) {
+            String providerExportCode = text(node, "exportCode", "export_code", "export", "code");
             return new ExportStatus(
-                    firstNonBlank(text(node, "exportCode", "export_code", "export", "code"), fallbackExportCode),
+                    firstNonBlank(providerExportCode, fallbackExportCode),
+                    providerExportCode,
                     text(node, "status", "status_code", "statusCode"),
                     text(node, "fileName", "file_name", "filename", "name"),
                     downloadUrl(node),

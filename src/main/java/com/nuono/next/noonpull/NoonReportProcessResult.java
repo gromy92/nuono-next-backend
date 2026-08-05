@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 public class NoonReportProcessResult {
     public enum Code {
         SUCCEEDED,
+        SUCCEEDED_WITH_BUSINESS_SKIPS,
         EMPTY_REPORT,
         EMPTY_REPORT_PENDING_CONFIRMATION,
         REPORT_NOT_READY,
@@ -28,7 +29,29 @@ public class NoonReportProcessResult {
     }
 
     public static NoonReportProcessResult succeeded(int importedCount, int exceptionCount) {
+        if (exceptionCount != 0) {
+            throw new IllegalArgumentException(
+                    "Use succeededWithBusinessSkips for deterministic row skips"
+            );
+        }
         return new NoonReportProcessResult(Code.SUCCEEDED, importedCount, exceptionCount);
+    }
+
+    public static NoonReportProcessResult succeededWithBusinessSkips(
+            int importedCount,
+            int businessSkipCount
+    ) {
+        if (importedCount < 0) {
+            throw new IllegalArgumentException("importedCount cannot be negative");
+        }
+        if (businessSkipCount <= 0) {
+            throw new IllegalArgumentException("businessSkipCount must be positive");
+        }
+        return new NoonReportProcessResult(
+                Code.SUCCEEDED_WITH_BUSINESS_SKIPS,
+                importedCount,
+                businessSkipCount
+        );
     }
 
     public static NoonReportProcessResult emptyReport() {
