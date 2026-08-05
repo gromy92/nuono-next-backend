@@ -133,6 +133,11 @@ public final class OfficialWarehouseFbnStageClassifier {
             return false;
         }
         LocalDate date = LocalDate.parse(scheduleDate);
+        try {
+            ReportFactColumnContract.date(date);
+        } catch (IllegalArgumentException invalidTargetDate) {
+            return false;
+        }
         return date.isBefore(request.getDateFrom()) || date.isAfter(request.getDateTo());
     }
 

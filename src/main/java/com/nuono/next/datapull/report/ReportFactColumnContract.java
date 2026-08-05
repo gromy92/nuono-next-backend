@@ -55,7 +55,7 @@ public final class ReportFactColumnContract {
                 || integerDigits(normalized) > precision - scale) {
             throw new IllegalArgumentException("report fact number exceeds target column");
         }
-        return normalized;
+        return value;
     }
 
     private static boolean hasUnpairedSurrogate(String value) {
