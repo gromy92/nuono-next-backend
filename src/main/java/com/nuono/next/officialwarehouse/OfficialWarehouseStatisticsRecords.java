@@ -113,7 +113,7 @@ public final class OfficialWarehouseStatisticsRecords {
 
     public static class InventorySnapshotLineInsertRecord {
         public Long id;
-        public Long syncBatchId;
+        public Long syncBatchId; public String snapshotStableIdentity;
         public Long ownerUserId;
         public Long logicalStoreId;
         public String storeCode;

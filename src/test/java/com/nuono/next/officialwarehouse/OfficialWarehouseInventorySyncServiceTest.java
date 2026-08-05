@@ -36,7 +36,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class OfficialWarehouseInventorySyncServiceTest {
@@ -98,8 +97,7 @@ class OfficialWarehouseInventorySyncServiceTest {
         assertThat(mapper.insertedLines)
                 .extracting(line -> line.stockBucket)
                 .containsExactly("SELLABLE", "RETURNED");
-        assertThat(mapper.markedInventoryLineIds)
-                .containsExactlyElementsOf(mapper.insertedLines.stream().map(line -> line.id).collect(Collectors.toList()));
+        assertThat(mapper.markedInventoryLineIds).isEmpty();
         assertThat(mapper.insertedLines)
                 .allSatisfy(line -> {
                     assertThat(line.syncBatchId).isEqualTo(batch.id);

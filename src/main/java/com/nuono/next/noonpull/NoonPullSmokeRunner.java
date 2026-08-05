@@ -36,7 +36,6 @@ import org.springframework.util.StringUtils;
 public class NoonPullSmokeRunner {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final String PRODUCT_TARGET = "catalog:list";
-    private static final int OFFICIAL_WAREHOUSE_INVENTORY_SMOKE_MAX_PAGES = 1;
     private static final String FBN_RECEIVED_REPORT_TYPE = "fbn_inbound_fbnreceivedreport";
     private static final NoonPullRequestBudget PRODUCT_SMOKE_BUDGET = NoonPullRequestBudget.builder()
             .maxPagesPerRun(1)
@@ -607,7 +606,6 @@ public class NoonPullSmokeRunner {
                 InventorySyncCommand inventoryCommand = new InventorySyncCommand();
                 inventoryCommand.storeCode = command.getStoreCode();
                 inventoryCommand.siteCode = command.getSiteCode();
-                inventoryCommand.maxPages = OFFICIAL_WAREHOUSE_INVENTORY_SMOKE_MAX_PAGES;
                 syncResult = officialWarehouseInventorySyncService.sync(accessForCommand(command), inventoryCommand);
                 String sourceBatchId = "official-warehouse-inventory-" + task.getId()
                         + "-" + valueOrUnknown(syncResult == null ? null : syncResult.syncBatchId);

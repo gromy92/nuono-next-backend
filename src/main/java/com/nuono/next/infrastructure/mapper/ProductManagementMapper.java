@@ -32,7 +32,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper, ProductProjectionIdentityRecoveryMapper {
+public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper, ProductProjectionIdentityRecoveryMapper, Dp04ProductScopeMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",

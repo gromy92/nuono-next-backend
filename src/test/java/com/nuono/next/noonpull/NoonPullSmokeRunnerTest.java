@@ -386,7 +386,6 @@ class NoonPullSmokeRunnerTest {
         assertEquals(10002L, inventorySyncService.access.getBusinessOwnerUserId());
         assertEquals("STR108065-NSA", inventorySyncService.command.storeCode);
         assertEquals("SA", inventorySyncService.command.siteCode);
-        assertEquals(1, inventorySyncService.command.maxPages);
     }
 
     @Test
@@ -835,7 +834,7 @@ class NoonPullSmokeRunnerTest {
         private InventorySyncCommand command;
 
         private CapturingOfficialWarehouseInventorySyncService() {
-            super(null, null, null);
+            super();
         }
 
         @Override

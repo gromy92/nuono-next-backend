@@ -2,6 +2,7 @@ package com.nuono.next.productpublicdetail.noon;
 
 import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDateTime;
 
 public class NoonPublicProductDetailResult {
@@ -26,6 +27,7 @@ public class NoonPublicProductDetailResult {
     private String providerSourceUrl;
     private String providerResponseHash;
     private String providerParserVersion;
+    private Duration providerRetryAfter;
     private LocalDateTime fetchedAt;
 
     public ProductPublicDetailSyncStatus getStatus() { return status; }
@@ -70,6 +72,8 @@ public class NoonPublicProductDetailResult {
     public void setProviderResponseHash(String providerResponseHash) { this.providerResponseHash = providerResponseHash; }
     public String getProviderParserVersion() { return providerParserVersion; }
     public void setProviderParserVersion(String providerParserVersion) { this.providerParserVersion = providerParserVersion; }
+    public Duration getProviderRetryAfter() { return providerRetryAfter; }
+    public void setProviderRetryAfter(Duration providerRetryAfter) { this.providerRetryAfter = providerRetryAfter; }
     public LocalDateTime getFetchedAt() { return fetchedAt; }
     public void setFetchedAt(LocalDateTime fetchedAt) { this.fetchedAt = fetchedAt; }
 }

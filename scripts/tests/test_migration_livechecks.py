@@ -18,7 +18,7 @@ from tests.schema_migration_fakes import FakeDatabase  # noqa: E402
 
 
 class MigrationLivecheckContractTest(unittest.TestCase):
-    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244})
+    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244, 245})
 
     @classmethod
     def setUpClass(cls):
@@ -97,16 +97,21 @@ class MigrationLivecheckContractTest(unittest.TestCase):
         ):
             self.assertIn(marker, migration.livecheck_sql)
 
-    def test_244_uses_a_separate_additive_compatible_livecheck(self):
-        migration = next(item for item in self.migrations if item.order == 244)
-
-        self.assertEqual("AUTO_ADDITIVE", migration.kind)
-        self.assertEqual(
-            PurePosixPath("db/livecheck/244_dp_pull_report_bounded_apply.sql"),
-            migration.livecheck_path,
-        )
-        self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
-        self.assertIn("dp244_additive_livecheck", migration.livecheck_sql)
+    def test_bounded_apply_successors_use_separate_additive_livechecks(self):
+        cases = {
+            244: "dp244_additive_livecheck",
+            245: "snapshot_bounded_apply_245_additive_livecheck",
+        }
+        for order, marker in cases.items():
+            migration = next(item for item in self.migrations if item.order == order)
+            with self.subTest(migration=migration.key):
+                self.assertEqual("AUTO_ADDITIVE", migration.kind)
+                self.assertEqual(
+                    PurePosixPath(f"db/livecheck/{migration.key}"),
+                    migration.livecheck_path,
+                )
+                self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
+                self.assertIn(marker, migration.livecheck_sql)
 
     def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):
         completed, pending = self.migrations[1:3]

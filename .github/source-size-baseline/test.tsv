@@ -34,12 +34,12 @@ src/test/java/com/nuono/next/noonpull/NoonInterfacePullerTest.java	329
 src/test/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGateTest.java	447
 src/test/java/com/nuono/next/noonpull/NoonPullScheduledExecutionServiceTest.java	1428
 src/test/java/com/nuono/next/noonpull/NoonPullSchedulerTest.java	758
-src/test/java/com/nuono/next/noonpull/NoonPullSmokeRunnerTest.java	966
+src/test/java/com/nuono/next/noonpull/NoonPullSmokeRunnerTest.java	965
 src/test/java/com/nuono/next/noonpull/NoonRealProviderBehaviorTest.java	529
 src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	632
 src/test/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProviderTest.java	341
 src/test/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsServiceTest.java	1003
-src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	588
+src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseInventorySyncServiceTest.java	586
 src/test/java/com/nuono/next/officialwarehouse/OfficialWarehouseSchemaTest.java	304
 src/test/java/com/nuono/next/operationsconfig/OperationConfigTypedVersionContentSupportTest.java	465
 src/test/java/com/nuono/next/operationsconfig/OperationConfigVersionLibraryControllerTest.java	417
@@ -79,7 +79,7 @@ src/test/java/com/nuono/next/productlisting/ProductListingValidatorTest.java	303
 src/test/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapterTest.java	436
 src/test/java/com/nuono/next/productlogisticscost/ProductLogisticsCostControllerTest.java	633
 src/test/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncServiceTest.java	599
-src/test/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapterTest.java	535
+src/test/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapterTest.java	509
 src/test/java/com/nuono/next/productselection/ProductSelectionSourceCollectionCollectorTest.java	638
 src/test/java/com/nuono/next/replenishmentplan/DefaultReplenishmentPlanServiceTest.java	715
 src/test/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculatorTest.java	1109
