@@ -198,6 +198,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         cases = {
             244: ("244_dp_pull_report_bounded_apply.sql", "dp_pull_report_artifact_chunk"),
             245: ("245_dp_pull_snapshot_bounded_apply.sql", "dp_pull_snapshot_fingerprint_count"),
+            246: ("246_dp_pull_advertising_generation.sql", "dp_pull_advertising_generation"),
         }
         for order, (key, marker) in cases.items():
             migration = self.migrations[order]

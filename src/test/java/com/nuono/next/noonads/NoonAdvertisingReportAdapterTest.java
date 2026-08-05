@@ -122,6 +122,48 @@ class NoonAdvertisingReportAdapterTest {
         assertEquals(new BigDecimal("0.1538"), query.getCvrPercentage());
     }
 
+    @Test
+    void legacyIntCountOverflowIsRejectedBeforeAnyPersistence() {
+        RecordingImportRepository repository = new RecordingImportRepository();
+        NoonAdvertisingReportAdapter adapter =
+                new NoonAdvertisingReportAdapter(new NoonAdvertisingImportService(repository));
+        String overflow = historicalCampaignCsv().replace(
+                "19707,539,41",
+                "2147483648,539,41"
+        );
+
+        NoonReportProcessResult result = adapter.process(new NoonReportDownloadedFile(
+                request(),
+                "campaign-metrics",
+                "ads-campaigns",
+                "campaign-digest",
+                overflow.getBytes(StandardCharsets.UTF_8)
+        ));
+
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertEquals(1, result.getExceptionCount());
+        assertEquals(0, repository.insertedBatches.size());
+        assertEquals(0, repository.campaignFacts.size());
+    }
+
+    @Test
+    void legacyFractionalCountIsRejectedInsteadOfTruncatedBeforePersistence() {
+        RecordingImportRepository repository = new RecordingImportRepository();
+        NoonAdvertisingReportAdapter adapter =
+                new NoonAdvertisingReportAdapter(new NoonAdvertisingImportService(repository));
+        String fractional = historicalCampaignCsv().replace("19707,539,41", "19707.5,539,41");
+
+        NoonReportProcessResult result = adapter.process(new NoonReportDownloadedFile(
+                request(), "campaign-metrics", "ads-campaigns", "campaign-digest",
+                fractional.getBytes(StandardCharsets.UTF_8)
+        ));
+
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertEquals(1, result.getExceptionCount());
+        assertEquals(0, repository.insertedBatches.size());
+        assertEquals(0, repository.campaignFacts.size());
+    }
+
     private NoonReportPullRequest request() {
         return NoonReportPullRequest.builder()
                 .ownerUserId(10002L)

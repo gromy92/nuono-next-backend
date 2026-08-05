@@ -18,3 +18,4 @@ order	migration_key	kind	script_path	postcheck_path	livecheck_path
 243	243_dp_pull_runtime.sql	AUTO_ADDITIVE	db/init/243_dp_pull_runtime.sql	db/postcheck/243_dp_pull_runtime.sql	db/livecheck/243_dp_pull_runtime.sql
 244	244_dp_pull_report_bounded_apply.sql	AUTO_ADDITIVE	db/init/244_dp_pull_report_bounded_apply.sql	db/postcheck/244_dp_pull_report_bounded_apply.sql	db/livecheck/244_dp_pull_report_bounded_apply.sql
 245	245_dp_pull_snapshot_bounded_apply.sql	AUTO_ADDITIVE	db/init/245_dp_pull_snapshot_bounded_apply.sql	db/postcheck/245_dp_pull_snapshot_bounded_apply.sql	db/livecheck/245_dp_pull_snapshot_bounded_apply.sql
+246	246_dp_pull_advertising_generation.sql	AUTO_ADDITIVE	db/init/246_dp_pull_advertising_generation.sql	db/postcheck/246_dp_pull_advertising_generation.sql	db/livecheck/246_dp_pull_advertising_generation.sql

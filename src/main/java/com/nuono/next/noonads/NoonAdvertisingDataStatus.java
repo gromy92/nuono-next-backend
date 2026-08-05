@@ -3,9 +3,9 @@ package com.nuono.next.noonads;
 import java.time.LocalDate;
 
 public class NoonAdvertisingDataStatus {
-    private int batchCount;
-    private int campaignRowCount;
-    private int queryRowCount;
+    private long batchCount;
+    private long campaignRowCount;
+    private long queryRowCount;
     private LocalDate earliestReportDate;
     private LocalDate latestReportDate;
     private boolean dataAvailable;
@@ -14,9 +14,9 @@ public class NoonAdvertisingDataStatus {
     }
 
     public NoonAdvertisingDataStatus(
-            int batchCount,
-            int campaignRowCount,
-            int queryRowCount,
+            long batchCount,
+            long campaignRowCount,
+            long queryRowCount,
             LocalDate earliestReportDate,
             LocalDate latestReportDate,
             boolean dataAvailable
@@ -29,12 +29,12 @@ public class NoonAdvertisingDataStatus {
         this.dataAvailable = dataAvailable;
     }
 
-    public int getBatchCount() { return batchCount; }
-    public void setBatchCount(int batchCount) { this.batchCount = batchCount; }
-    public int getCampaignRowCount() { return campaignRowCount; }
-    public void setCampaignRowCount(int campaignRowCount) { this.campaignRowCount = campaignRowCount; }
-    public int getQueryRowCount() { return queryRowCount; }
-    public void setQueryRowCount(int queryRowCount) { this.queryRowCount = queryRowCount; }
+    public long getBatchCount() { return batchCount; }
+    public void setBatchCount(long batchCount) { this.batchCount = batchCount; }
+    public long getCampaignRowCount() { return campaignRowCount; }
+    public void setCampaignRowCount(long campaignRowCount) { this.campaignRowCount = campaignRowCount; }
+    public long getQueryRowCount() { return queryRowCount; }
+    public void setQueryRowCount(long queryRowCount) { this.queryRowCount = queryRowCount; }
     public LocalDate getEarliestReportDate() { return earliestReportDate; }
     public void setEarliestReportDate(LocalDate earliestReportDate) { this.earliestReportDate = earliestReportDate; }
     public LocalDate getLatestReportDate() { return latestReportDate; }
