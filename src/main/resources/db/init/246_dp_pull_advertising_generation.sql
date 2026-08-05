@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS `dp_pull_advertising_current_head` (
     `gmt_updated` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (`owner_user_id`, `project_code`, `store_code`, `site_code`, `report_date`),
     UNIQUE KEY `uk_dp_ad_head_task` (`task_id`), UNIQUE KEY `uk_dp_ad_head_batch` (`batch_id`),
+    KEY `idx_dp_ad_head_generation` (`task_id`, `batch_id`),
     CONSTRAINT `chk_dp_ad_head_identity` CHECK (`owner_user_id`>0 AND CHAR_LENGTH(TRIM(`project_code`))>0 AND CHAR_LENGTH(TRIM(`store_code`))>0 AND CHAR_LENGTH(TRIM(`site_code`))>0),
     CONSTRAINT `chk_dp_ad_head_digest` CHECK (`authority_token_sha256` REGEXP '^[0-9a-f]{64}$' AND `source_digest_sha256` REGEXP '^[0-9a-f]{64}$'),
     CONSTRAINT `fk_dp_ad_head_generation` FOREIGN KEY (`task_id`, `batch_id`) REFERENCES `dp_pull_advertising_generation` (`task_id`, `batch_id`) ON DELETE RESTRICT ON UPDATE RESTRICT

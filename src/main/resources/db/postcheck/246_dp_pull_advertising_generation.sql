@@ -34,10 +34,12 @@ actual_index AS (
 ),
 actual_check AS (
   SELECT tc.table_name,tc.constraint_name,tc.enforced,
-    SHA2(REPLACE(REPLACE(REPLACE(
+    SHA2(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
       REGEXP_REPLACE(LOWER(cc.check_clause),'[`()[:space:]]+',''),
       CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
-      '_utf8mb4',''),'_ascii',''),256) clause_sha256
+      '_utf8mb4',''),'_ascii',''),
+      'castsource_systemascharcharsetbinary','binarysource_system'),
+      'cast''noon_ads''ascharcharsetbinary','binary''noon_ads'''),256) clause_sha256
   FROM information_schema.table_constraints tc JOIN expected_table e ON e.table_name=tc.table_name
   JOIN information_schema.check_constraints cc ON cc.constraint_schema=tc.constraint_schema AND cc.constraint_name=tc.constraint_name
   WHERE tc.constraint_schema=DATABASE() AND tc.constraint_type='CHECK'
@@ -53,7 +55,7 @@ actual_fk AS (
 actual_view AS (
   SELECT c.table_name,GROUP_CONCAT(c.column_name ORDER BY c.ordinal_position SEPARATOR ',') view_columns,
     MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
-    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`[:space:]]+',''),'_utf8mb4','')) view_definition
+    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4','')) view_definition
   FROM information_schema.columns c JOIN information_schema.views v ON v.table_schema=c.table_schema AND v.table_name=c.table_name
   JOIN expected_view e ON e.table_name=c.table_name WHERE c.table_schema=DATABASE() GROUP BY c.table_name
 ),
@@ -67,13 +69,15 @@ generation_shape AS (
 SELECT IF(
   (SELECT COUNT(*) FROM information_schema.tables t JOIN expected_table e ON e.table_name=t.table_name
     WHERE t.table_schema=DATABASE() AND t.table_type='BASE TABLE' AND UPPER(t.engine)='INNODB' AND LOWER(t.table_collation)='utf8mb4_bin')=4
-  AND (SELECT COUNT(*) FROM actual_column)=123 AND (SELECT COUNT(*) FROM actual_index)=17
+  AND (SELECT COUNT(*) FROM actual_column)=123 AND (SELECT COUNT(*) FROM actual_index)=18
   AND (SELECT COUNT(*) FROM actual_check)=19 AND (SELECT COUNT(*) FROM actual_fk)=4 AND (SELECT COUNT(*) FROM actual_view)=4
   AND NOT EXISTS (SELECT 1 FROM expected_column e LEFT JOIN actual_column a USING(table_name,column_name)
     WHERE a.table_name IS NULL OR a.column_type<>e.column_type OR a.is_nullable<>e.is_nullable OR a.character_set_name<>e.character_set_name
       OR a.collation_name<>e.collation_name OR a.default_signature<>e.default_signature OR a.extra<>e.extra OR a.generation_expression<>'')
   AND NOT EXISTS (SELECT 1 FROM expected_index e LEFT JOIN actual_index a USING(table_name,index_name)
     WHERE a.table_name IS NULL OR a.non_unique<>e.non_unique OR a.index_columns<>e.index_columns OR a.safe_shape<>1)
+  AND (SELECT COUNT(*) FROM actual_index WHERE table_name='dp_pull_advertising_current_head'
+    AND index_name='idx_dp_ad_head_generation' AND non_unique=1 AND index_columns='task_id,batch_id' AND safe_shape=1)=1
   AND NOT EXISTS (SELECT 1 FROM expected_check e LEFT JOIN actual_check a USING(table_name,constraint_name)
     WHERE a.table_name IS NULL OR a.enforced<>'YES' OR a.clause_sha256<>e.clause_sha256)
   AND NOT EXISTS (SELECT 1 FROM expected_fk e LEFT JOIN actual_fk a USING(table_name,constraint_name)

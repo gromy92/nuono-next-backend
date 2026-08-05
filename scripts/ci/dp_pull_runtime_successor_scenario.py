@@ -111,6 +111,8 @@ def _assert_contract(test_case, database, exact, live) -> None:
         "expected_check AS" in exact or "required_check AS" in exact
     ):
         detail = "; check drift: " + _check_drift(database, exact)
+    if exact_result != "1" and "expected_view AS" in exact:
+        detail += "; view drift: " + _view_drift(database, exact)
     test_case.assertEqual(
         "1",
         exact_result,
@@ -167,6 +169,24 @@ def _check_drift(database, exact) -> str:
         f"OR a.enforced<>'YES' OR a.{hash_column}<>e.{hash_column};"
     )
     return "raw-first=" + raw_first + "; drift=" + drift
+
+
+def _view_drift(database, exact) -> str:
+    select_start = exact.rfind("SELECT IF(")
+    if select_start < 0:
+        return "outer-select-missing"
+    database.client.execute("SET SESSION group_concat_max_len=65535;")
+    return database.client.execute_readonly(
+        exact[:select_start]
+        + "SELECT GROUP_CONCAT(CONCAT(e.table_name,':columns=',"
+        "IF(a.view_columns=e.view_columns,'ok','drift'),':security=',"
+        "COALESCE(a.security_type,'missing'),':check=',"
+        "COALESCE(a.check_option,'missing'),':updatable=',"
+        "COALESCE(a.is_updatable,'missing'),':definition=',"
+        "COALESCE(HEX(LEFT(a.view_definition,240)),'missing')) "
+        "ORDER BY e.table_name SEPARATOR '|') FROM expected_view e "
+        "LEFT JOIN actual_view a USING(table_name);"
+    )
 
 
 def _assert_244_preflight(test_case, database, migration, expected) -> None:
