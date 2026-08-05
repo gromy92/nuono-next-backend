@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis.noon;
 
 import com.nuono.next.noon.ChromeNoonCookieSupport;
+import com.nuono.next.noon.NoonCurlResponse;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -183,6 +184,11 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         return NoonSearchPagedFetcher.search(request, this::searchCustomerCatalogV3);
     }
 
+    @Override
+    public NoonSearchPage searchPage(NoonSearchRequest request) {
+        return searchCustomerCatalogV3(request);
+    }
+
     private NoonSearchPage searchCustomerCatalogV3(NoonSearchRequest request) {
         String url = buildCustomerCatalogV3SearchUrl(request);
         String frontendCookieHeader = loadFrontendCookieHeader(url);
@@ -194,7 +200,11 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int statusCode = response.statusCode();
             if (statusCode < 200 || statusCode >= 300) {
-                throw mapUnsuccessfulStatus(statusCode, url);
+                throw mapUnsuccessfulStatus(
+                        statusCode,
+                        url,
+                        response.headers().firstValue("Retry-After").orElse(null)
+                );
             }
             return NoonSearchMarketContract.apply(parser.parseCatalogJson(response.body(), url, statusCode), request);
         } catch (NoonSearchProviderException exception) {
@@ -212,21 +222,28 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
 
     private NoonSearchPage searchCustomerCatalogV3WithCurl(NoonSearchRequest request, String url, String frontendCookieHeader) {
         try {
-            CurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(request, url, frontendCookieHeader));
-            if (response.exitCode != 0) {
+            NoonCurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(request, url, frontendCookieHeader));
+            if (response.getExitCode() != 0) {
                 throw new NoonSearchProviderException(
                         "PROVIDER_UNAVAILABLE",
-                        "Noon 前台 catalog v3 curl 请求失败：" + shrink(response.stderr, 180),
+                        "Noon 前台 catalog v3 curl 请求失败：" + shrink(response.getStderr(), 180),
                         null,
                         url,
                         null
                 );
             }
-            int statusCode = response.statusCode;
+            int statusCode = response.getStatusCode();
             if (statusCode < 200 || statusCode >= 300) {
-                throw mapUnsuccessfulStatus(statusCode, url);
+                throw NoonSearchHttpFailureMapper.mapWithRetryAfter(
+                        statusCode,
+                        url,
+                        response.getRetryAfter()
+                );
             }
-            return NoonSearchMarketContract.apply(parser.parseCatalogJson(response.body, url, statusCode), request);
+            return NoonSearchMarketContract.apply(
+                    parser.parseCatalogJson(response.getBody(), url, statusCode),
+                    request
+            );
         } catch (NoonSearchProviderException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -272,7 +289,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         return config.toString();
     }
 
-    private CurlResponse executeCurl(String config) throws IOException {
+    private NoonCurlResponse executeCurl(String config) throws IOException {
         long maxTimeSeconds = Math.max(3L, requestTimeout.getSeconds());
         Process process = new ProcessBuilder(
                 "curl",
@@ -284,7 +301,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
                 "-K",
                 "-",
                 "-w",
-                "\n__NUONO_HTTP_STATUS__:%{http_code}\n"
+                NoonCurlResponse.writeOutFormat()
         ).start();
         byte[] stdout;
         byte[] stderr;
@@ -304,26 +321,7 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             Thread.currentThread().interrupt();
             throw new IOException("curl 请求被中断", exception);
         }
-        return parseCurlResponse(exitCode, stdout, stderr);
-    }
-
-    private CurlResponse parseCurlResponse(int exitCode, byte[] stdout, byte[] stderr) {
-        String output = new String(stdout, StandardCharsets.UTF_8);
-        String errorOutput = new String(stderr, StandardCharsets.UTF_8);
-        String marker = "\n__NUONO_HTTP_STATUS__:";
-        int markerIndex = output.lastIndexOf(marker);
-        if (markerIndex < 0) {
-            return new CurlResponse(exitCode, 0, output, errorOutput);
-        }
-        String body = output.substring(0, markerIndex);
-        String statusText = output.substring(markerIndex + marker.length()).trim();
-        int statusCode = 0;
-        try {
-            statusCode = Integer.parseInt(statusText);
-        } catch (NumberFormatException ignored) {
-            statusCode = 0;
-        }
-        return new CurlResponse(exitCode, statusCode, body, errorOutput);
+        return NoonCurlResponse.parse(exitCode, stdout, stderr);
     }
 
     private byte[] readAllBytes(InputStream inputStream) throws IOException {
@@ -426,7 +424,11 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int statusCode = response.statusCode();
             if (statusCode < 200 || statusCode >= 300) {
-                throw mapUnsuccessfulStatus(statusCode, url);
+                throw mapUnsuccessfulStatus(
+                        statusCode,
+                        url,
+                        response.headers().firstValue("Retry-After").orElse(null)
+                );
             }
             return parser.parseCatalogJson(response.body(), url, statusCode);
         } catch (NoonSearchProviderException exception) {
@@ -455,7 +457,11 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
             HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int statusCode = response.statusCode();
             if (statusCode < 200 || statusCode >= 300) {
-                throw mapUnsuccessfulStatus(statusCode, url);
+                throw mapUnsuccessfulStatus(
+                        statusCode,
+                        url,
+                        response.headers().firstValue("Retry-After").orElse(null)
+                );
             }
             return parser.parse(response.body(), url, statusCode);
         } catch (NoonSearchProviderException exception) {
@@ -511,16 +517,15 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
     }
 
     NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {
-        if (statusCode == 403) {
-            throw new NoonSearchProviderException("BLOCKED_BY_RISK_CONTROL", "Noon 前台搜索返回 HTTP 403。", statusCode, url, null);
-        }
-        if (statusCode == 429) {
-            throw new NoonSearchProviderException("RATE_LIMITED", "Noon 前台搜索返回 HTTP 429。", statusCode, url, null);
-        }
-        if (statusCode >= 500) {
-            throw new NoonSearchProviderException("PROVIDER_UNAVAILABLE", "Noon 前台搜索返回 HTTP " + statusCode + "。", statusCode, url, null);
-        }
-        throw new NoonSearchProviderException("PARSE_FAILED", "Noon 前台搜索返回 HTTP " + statusCode + "。", statusCode, url, null);
+        throw NoonSearchHttpFailureMapper.map(statusCode, url);
+    }
+
+    NoonSearchProviderException mapUnsuccessfulStatus(
+            int statusCode,
+            String url,
+            String retryAfterHeader
+    ) {
+        throw NoonSearchHttpFailureMapper.map(statusCode, url, retryAfterHeader);
     }
 
     private String marketPath(String siteCode, String locale) {
@@ -653,17 +658,4 @@ public class HttpNoonFrontendSearchAdapter implements NoonFrontendSearchAdapter 
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
     }
 
-    private static final class CurlResponse {
-        private final int exitCode;
-        private final int statusCode;
-        private final String body;
-        private final String stderr;
-
-        private CurlResponse(int exitCode, int statusCode, String body, String stderr) {
-            this.exitCode = exitCode;
-            this.statusCode = statusCode;
-            this.body = body == null ? "" : body;
-            this.stderr = stderr == null ? "" : stderr;
-        }
-    }
 }
