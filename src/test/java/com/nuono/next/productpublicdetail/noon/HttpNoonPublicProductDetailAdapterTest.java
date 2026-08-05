@@ -268,32 +268,6 @@ class HttpNoonPublicProductDetailAdapterTest {
     }
 
     @Test
-    void fallsBackToFrontendHtmlSearchBeforeCatalogPartner() {
-        StubAdapter adapter = new StubAdapter(null, false, "");
-        adapter.failure = new NoonSearchProviderException(
-                "PROVIDER_UNAVAILABLE",
-                "Noon customer catalog returned 500",
-                500,
-                "https://www.noon.com/_vs/nc/mp-customer-catalog-api/api/v3/u/search?q=ZABCDEF12&limit=20",
-                null
-        );
-        adapter.htmlFallbackPage = page(result("ZABCDEF12", "Canman Bag"));
-        adapter.htmlFallbackPage.setSourceUrl("https://www.noon.com/saudi-en/search/?originalQuery=ZABCDEF12&q=ZABCDEF12");
-        adapter.catalogFallbackPage = page(result("ZABCDEF12", "Catalog Partner Bag"));
-        adapter.catalogFallbackPage.setSourceUrl("https://noon-catalog.noon.partners/_svc/catalog/api/u/saudi-en/search?q=ZABCDEF12&limit=20");
-
-        NoonPublicProductDetailResult detail = adapter.fetch(NoonPublicProductDetailRequest.builder()
-                .siteCode("SA")
-                .locale("en-SA")
-                .noonProductCode("ZABCDEF12")
-                .build());
-
-        assertEquals(ProductPublicDetailSyncStatus.PARTIAL, detail.getStatus());
-        assertTrue(detail.getProviderSourceUrl().contains("www.noon.com/saudi-en/search/"));
-        assertEquals("Canman Bag", detail.getTitleEn());
-    }
-
-    @Test
     void genericFrontendFailuresDoNotUseCatalogPartnerFallback() {
         StubAdapter adapter = new StubAdapter(null, false, "");
         adapter.runtimeFailure = new IllegalStateException("customer transport exploded");

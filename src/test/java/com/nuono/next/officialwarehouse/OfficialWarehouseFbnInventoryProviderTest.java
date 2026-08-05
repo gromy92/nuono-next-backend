@@ -1,6 +1,7 @@
 package com.nuono.next.officialwarehouse;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -85,6 +86,9 @@ class OfficialWarehouseFbnInventoryProviderTest {
         assertThat(page.items.get(0).stockBucket).isEqualTo("SELLABLE");
         assertThat(page.items.get(1).stockBucket).isEqualTo("RETURNED");
         assertThat(page.items.get(2).stockBucket).isEqualTo("RECEIVING_EXCEPTION");
+        assertThat(page.providerGenerationToken).isNull();
+        assertThat(page.providerExportToken).isNull();
+        assertThat(page.declaredCollectionCount).isNull();
     }
 
     @Test
@@ -121,6 +125,36 @@ class OfficialWarehouseFbnInventoryProviderTest {
         assertThat(page.items)
                 .extracting(item -> item.inventorySnapshotAt)
                 .containsOnly("2026-06-17 09:37:08");
+        assertThat(page.providerGenerationToken).isNull();
+        assertThat(page.providerExportToken).isNull();
+        assertThat(page.declaredCollectionCount).isNull();
+    }
+
+    @Test
+    void knownJsonFieldShapeDriftFailsThePageInsteadOfSkippingOneRow() {
+        when(storeSyncMapper.selectOwnerStore(307L, "STR108065-NSA")).thenReturn(boundStore());
+        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
+        session.enqueuePostResponse(objectMapper.createObjectNode()
+                .set("data", objectMapper.createObjectNode()
+                        .set("rows", objectMapper.createArrayNode()
+                                .add(objectMapper.createObjectNode()
+                                        .put("warehouse_code", "RUH01")
+                                        .set("qty", objectMapper.createObjectNode().put("value", 7))))));
+        OfficialWarehouseFbnInventoryProvider provider = new OfficialWarehouseFbnInventoryProvider(
+                objectMapper,
+                new NoonPullStoreBindingResolver(storeSyncMapper),
+                new RecordingGatewaySessionFactory(session)
+        );
+
+        assertThatThrownBy(() -> provider.fetchPage(
+                new OfficialWarehouseFbnInventoryProvider.PullRequest(
+                        307L,
+                        "STR108065-NSA",
+                        "SA"
+                ),
+                1
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("field shape");
     }
 
     private StoreSyncStoreRecord boundStore() {

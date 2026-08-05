@@ -261,13 +261,7 @@ class ProductProjectionPersistenceServicePskuMasterTest {
         List<ProductProjectionPersistenceService.SiteSeed> seeds =
                 (List<ProductProjectionPersistenceService.SiteSeed>) buildSiteSeeds.invoke(service, snapshot);
 
-        Method siteCodeByStoreCode = ProductProjectionPersistenceService.class.getDeclaredMethod(
-                "siteCodeByStoreCode",
-                List.class
-        );
-        siteCodeByStoreCode.setAccessible(true);
-        Map<String, String> siteCodes =
-                (Map<String, String>) siteCodeByStoreCode.invoke(service, seeds);
+        Map<String, String> siteCodes = ProductProjectionSiteSeedIndex.siteCodes(seeds);
 
         assertThat(seeds).hasSize(1);
         assertThat(seeds.get(0).getStoreCode()).isEqualTo("STR69486-NSA");

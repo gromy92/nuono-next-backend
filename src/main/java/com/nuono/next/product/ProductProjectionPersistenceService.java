@@ -205,7 +205,28 @@ public class ProductProjectionPersistenceService {
                 ownerUserId,
                 completeSiteScope
         );
-        Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
+        Map<String, String> siteCodeMap = ProductProjectionSiteSeedIndex.siteCodes(siteSeeds);
+        persistProductSeeds(
+                ownerUserId,
+                logicalStoreId,
+                projectCode,
+                siteIdMap,
+                siteCodeMap,
+                productSeeds,
+                warnings, preserveDrafts, true
+        );
+    }
+
+    void persistProductSeeds(
+            Long ownerUserId,
+            Long logicalStoreId,
+            String projectCode,
+            Map<String, Long> siteIdMap,
+            Map<String, String> siteCodeMap,
+            List<ProductMasterSeed> productSeeds,
+            List<String> warnings,
+            boolean preserveDrafts, boolean deriveListingStartedAtFromSalesFacts
+    ) {
         boolean classificationDictionaryReady = ensureClassificationDictionaryTablesReady(warnings);
         for (ProductMasterSeed productSeed : productSeeds) {
             if (!StringUtils.hasText(productSeed.getSkuParent())) {
@@ -220,7 +241,8 @@ public class ProductProjectionPersistenceService {
             }
             persistImageAssets(productMasterId, productSeed.getImageUrls(), ownerUserId);
             persistIssues(productMasterId, productSeed.getIssueTags(), ownerUserId);
-            persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, siteCodeMap, productSeed, ownerUserId);
+            persistRepresentativeOffer(logicalStoreId, productMasterId, siteIdMap, siteCodeMap, productSeed,
+                    ownerUserId, deriveListingStartedAtFromSalesFacts);
         }
     }
 
@@ -256,7 +278,7 @@ public class ProductProjectionPersistenceService {
                 ownerUserId,
                 false
         );
-        Map<String, String> siteCodeMap = siteCodeByStoreCode(siteSeeds);
+        Map<String, String> siteCodeMap = ProductProjectionSiteSeedIndex.siteCodes(siteSeeds);
 
         ProductMasterSeed masterSeed = ProductMasterSeed.fromSnapshot(snapshot, syncStatus, lastSyncedAt);
         if (!StringUtils.hasText(masterSeed.getSkuParent())) {
@@ -325,8 +347,7 @@ public class ProductProjectionPersistenceService {
                     siteId,
                     siteCode,
                     siteOffer,
-                    lastSyncedAt,
-                    ownerUserId
+                    lastSyncedAt, ownerUserId, true
             );
             wroteSiteOffer = true;
         }
@@ -1650,24 +1671,6 @@ public class ProductProjectionPersistenceService {
         return siteIdMap;
     }
 
-    private Map<String, String> siteCodeByStoreCode(List<SiteSeed> siteSeeds) {
-        Map<String, String> siteCodes = new LinkedHashMap<>();
-        if (siteSeeds == null) {
-            return siteCodes;
-        }
-        for (SiteSeed siteSeed : siteSeeds) {
-            if (siteSeed == null) {
-                continue;
-            }
-            String storeCode = normalize(siteSeed.getStoreCode());
-            String siteCode = normalize(siteSeed.getSite());
-            if (StringUtils.hasText(storeCode) && StringUtils.hasText(siteCode)) {
-                siteCodes.put(storeCode, siteCode);
-            }
-        }
-        return siteCodes;
-    }
-
     private Long upsertProductMaster(Long logicalStoreId, Long updatedBy, ProductMasterSeed seed) {
         ProductIdentity productIdentity = new ProductIdentity(logicalStoreId, seed.getPartnerSku());
         String partnerSku = productIdentity.partnerSku();
@@ -2676,8 +2679,8 @@ public class ProductProjectionPersistenceService {
             Long productMasterId,
             Map<String, Long> siteIdMap,
             Map<String, String> siteCodeMap,
-            ProductMasterSeed seed,
-            Long updatedBy
+            ProductMasterSeed seed, Long updatedBy,
+            boolean deriveListingStartedAtFromSalesFacts
     ) {
         if (productMasterId == null || seed == null || siteIdMap == null) {
             return;
@@ -2746,8 +2749,8 @@ public class ProductProjectionPersistenceService {
                     siteId,
                     siteCode,
                     siteOffer,
-                    seed.getLastSyncedAt(),
-                    updatedBy
+                    seed.getLastSyncedAt(), updatedBy,
+                    deriveListingStartedAtFromSalesFacts
             );
         }
     }
@@ -2760,8 +2763,8 @@ public class ProductProjectionPersistenceService {
             Long siteId,
             String siteCode,
             Map<String, Object> siteOffer,
-            String lastSyncedAt,
-            Long updatedBy
+            String lastSyncedAt, Long updatedBy,
+            boolean deriveListingStartedAtFromSalesFacts
     ) {
         if (variantId == null || siteId == null || siteOffer == null) {
             return;
@@ -2830,11 +2833,10 @@ public class ProductProjectionPersistenceService {
                 parseDateTime(lastSyncedAt),
                 updatedBy
         );
-        productManagementMapper.backfillProductSiteOfferListingStartedAtById(
-                id,
-                LocalDateTime.now(),
-                updatedBy
-        );
+        if (deriveListingStartedAtFromSalesFacts) {
+            productManagementMapper.backfillProductSiteOfferListingStartedAtById(
+                    id, LocalDateTime.now(), updatedBy);
+        }
         productManagementMapper.markProductSiteOfferLogisticsHistoryByStock(
                 logicalStoreId,
                 siteIdentity.partnerSku(),
@@ -4520,18 +4522,7 @@ public class ProductProjectionPersistenceService {
                     true
             ));
         }
-        return dedupeSites(seeds);
-    }
-
-    private List<SiteSeed> dedupeSites(List<SiteSeed> seeds) {
-        Map<String, SiteSeed> byStoreCode = new LinkedHashMap<>();
-        for (SiteSeed seed : seeds) {
-            if (!StringUtils.hasText(seed.getStoreCode())) {
-                continue;
-            }
-            byStoreCode.put(normalize(seed.getStoreCode()), seed);
-        }
-        return new ArrayList<>(byStoreCode.values());
+        return ProductProjectionSiteSeedIndex.deduplicate(seeds);
     }
 
     private String text(Object value) {

@@ -1,225 +1,168 @@
 package com.nuono.next.officialwarehouse;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseStatisticsMapper;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnInventoryProvider.InventoryItem;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnInventoryProvider.InventoryPage;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnInventoryProvider.PullRequest;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.InventorySyncCommand;
-import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InventoryLineProductMatchRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InventorySnapshotLineInsertRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InventorySyncBatchInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InventorySyncScopeRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.InventorySyncResultView;
+import com.nuono.next.officialwarehouse.datapull.Dp07InventorySnapshotItem;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+/** Manual compatibility entry; external reads stay outside the short replacement transaction. */
 @Service
 @Profile("local-db")
 @ConditionalOnBean(OfficialWarehouseFbnInventoryProvider.class)
 public class OfficialWarehouseInventorySyncService {
 
-    private static final String SOURCE_TYPE = "FBN_INVENTORY_API";
-    private static final DateTimeFormatter RESULT_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
     private final OfficialWarehouseStatisticsMapper mapper;
     private final OfficialWarehouseFbnInventoryProvider provider;
     private final ObjectMapper objectMapper;
+    private final OfficialWarehouseInventoryReplacement replacement;
 
+    @Autowired
     public OfficialWarehouseInventorySyncService(
+            OfficialWarehouseStatisticsMapper mapper,
+            OfficialWarehouseFbnInventoryProvider provider,
+            ObjectMapper objectMapper,
+            OfficialWarehouseInventoryReplacement replacement
+    ) {
+        this.mapper = Objects.requireNonNull(mapper, "mapper");
+        this.provider = Objects.requireNonNull(provider, "provider");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper");
+        this.replacement = Objects.requireNonNull(replacement, "replacement");
+    }
+
+    /** Unit-test/backward-compatible constructor; production uses the proxied replacement bean. */
+    OfficialWarehouseInventorySyncService(
             OfficialWarehouseStatisticsMapper mapper,
             OfficialWarehouseFbnInventoryProvider provider,
             ObjectMapper objectMapper
     ) {
-        this.mapper = mapper;
-        this.provider = provider;
-        this.objectMapper = objectMapper;
+        this(mapper, provider, objectMapper, new OfficialWarehouseInventoryReplacement(mapper, objectMapper));
     }
 
-    @Transactional
+    /** Narrow seam for cross-package test doubles that override {@link #sync}. */
+    protected OfficialWarehouseInventorySyncService() {
+        this.mapper = null;
+        this.provider = null;
+        this.objectMapper = null;
+        this.replacement = null;
+    }
+
     public InventorySyncResultView sync(BusinessAccessContext access, InventorySyncCommand command) {
         if (command == null) {
             throw new IllegalArgumentException("缺少官方仓库存同步参数。");
         }
         String storeCode = requireText(command.storeCode, "请选择要同步的店铺。");
-        String siteCode = requireText(command.siteCode, "请选择要同步的站点。").toUpperCase(Locale.ROOT);
+        String siteCode = requireText(command.siteCode, "请选择要同步的站点。")
+                .toUpperCase(Locale.ROOT);
         Long ownerUserId = requireOwnerUserId(access, storeCode);
         InventorySyncScopeRecord scope = mapper.selectInventorySyncScope(ownerUserId, storeCode, siteCode);
-        if (scope == null) {
+        if (scope == null || scope.logicalStoreId == null || !StringUtils.hasText(scope.projectCode)) {
             throw new IllegalArgumentException("无法识别官方仓库存同步店铺范围。");
         }
 
-        int maxPages = maxPages(command.maxPages);
-        List<InventoryPage> pages = fetchPages(ownerUserId, storeCode, siteCode, maxPages);
-        List<InventoryItem> items = new ArrayList<>();
+        List<InventoryPage> pages = fetchAllPages(ownerUserId, storeCode, siteCode);
+        List<Dp07InventorySnapshotItem> items = new ArrayList<>();
+        int skipped = 0;
         for (InventoryPage page : pages) {
-            items.addAll(page.items);
-        }
-
-        InventorySyncBatchInsertRecord batch = new InventorySyncBatchInsertRecord();
-        batch.id = mapper.nextInventorySyncBatchId();
-        batch.ownerUserId = ownerUserId;
-        batch.logicalStoreId = scope.logicalStoreId;
-        batch.storeCode = storeCode;
-        batch.siteCode = siteCode;
-        batch.projectCode = firstNonBlank(scope.projectCode, deriveProjectCode(scope.partnerId));
-        batch.partnerId = firstNonBlank(scope.partnerId, derivePartnerId(batch.projectCode));
-        batch.sourceType = SOURCE_TYPE;
-        batch.requestSummaryJson = requestSummary(storeCode, siteCode, maxPages);
-        batch.responseSummaryJson = responseSummary(pages, items.size());
-        batch.status = "IMPORTED";
-        batch.totalPages = pages.size();
-        batch.totalRows = items.size();
-        batch.validRows = items.size();
-        batch.errorRows = 0;
-        batch.operatorUserId = access.getSessionUserId();
-        mapper.insertInventorySyncBatch(batch);
-        mapper.deactivateCurrentInventorySnapshotLines(ownerUserId, storeCode, siteCode);
-
-        int insertedRows = 0;
-        for (InventoryItem item : items) {
-            InventorySnapshotLineInsertRecord line = toLine(scope, batch, item);
-            mapper.insertInventorySnapshotLine(line);
-            mapper.markProductSiteOfferLogisticsHistoryByInventorySnapshotLine(line.id, access.getSessionUserId());
-            insertedRows += 1;
-        }
-
-        InventorySyncResultView result = new InventorySyncResultView();
-        result.syncBatchId = String.valueOf(batch.id);
-        result.storeCode = storeCode;
-        result.siteCode = siteCode;
-        result.pageCount = pages.size();
-        result.fetchedRows = items.size();
-        result.insertedRows = insertedRows;
-        result.sourceType = SOURCE_TYPE;
-        result.syncedAt = LocalDateTime.now().format(RESULT_TIME_FORMAT);
-        return result;
-    }
-
-    private List<InventoryPage> fetchPages(Long ownerUserId, String storeCode, String siteCode, int maxPages) {
-        List<InventoryPage> pages = new ArrayList<>();
-        for (int pageNo = 1; pageNo <= maxPages; pageNo += 1) {
-            InventoryPage page = provider.fetchPage(new PullRequest(ownerUserId, storeCode, siteCode), pageNo);
-            pages.add(page);
-            if (!page.hasNextPage) {
-                break;
+            for (InventoryItem item : page.items) {
+                java.util.Optional<Dp07InventorySnapshotItem> accepted =
+                        Dp07InventorySnapshotItem.fromProvider(item, objectMapper);
+                if (accepted.isPresent()) {
+                    items.add(accepted.get());
+                } else {
+                    skipped += 1;
+                }
             }
         }
-        return pages;
+
+        OfficialWarehouseInventoryReplacementResult result = replacement.replace(
+                new OfficialWarehouseInventoryReplacementCommand(
+                        ownerUserId,
+                        scope.logicalStoreId,
+                        scope.projectCode,
+                        storeCode,
+                        siteCode,
+                        access.getSessionUserId(),
+                        "manual-complete-inventory-sync",
+                        pages.size(),
+                        skipped,
+                        items
+                )
+        );
+        InventorySyncResultView view = new InventorySyncResultView();
+        view.syncBatchId = String.valueOf(result.syncBatchId);
+        view.storeCode = result.storeCode;
+        view.siteCode = result.siteCode;
+        view.pageCount = result.pageCount;
+        view.fetchedRows = result.fetchedRows;
+        view.insertedRows = result.insertedRows;
+        view.sourceType = OfficialWarehouseInventoryReplacement.SOURCE_TYPE;
+        view.syncedAt = result.syncedAt;
+        return view;
     }
 
-    private InventorySnapshotLineInsertRecord toLine(
-            InventorySyncScopeRecord scope,
-            InventorySyncBatchInsertRecord batch,
-            InventoryItem item
-    ) {
-        InventoryLineProductMatchRecord match = matchProduct(batch.ownerUserId, batch.storeCode, batch.siteCode, item);
-        InventorySnapshotLineInsertRecord line = new InventorySnapshotLineInsertRecord();
-        line.id = mapper.nextInventorySnapshotLineId();
-        line.syncBatchId = batch.id;
-        line.ownerUserId = batch.ownerUserId;
-        line.logicalStoreId = scope.logicalStoreId;
-        line.storeCode = batch.storeCode;
-        line.siteCode = batch.siteCode;
-        line.projectCode = batch.projectCode;
-        line.partnerId = batch.partnerId;
-        if (match != null) {
-            line.productMasterId = match.productMasterId;
-            line.productVariantId = match.productVariantId;
-            line.productSiteOfferId = match.productSiteOfferId;
-            line.partnerSku = firstNonBlank(item.partnerSku, match.partnerSku);
-            line.pskuCode = match.pskuCode;
-            line.noonSku = firstNonBlank(item.noonSku, match.noonSku);
-            line.titleCache = firstNonBlank(item.title, match.title);
-            line.brandCache = firstNonBlank(item.brand, match.brand);
-            line.matchStatus = "MATCHED";
-        } else {
-            line.partnerSku = item.partnerSku;
-            line.pskuCode = null;
-            line.noonSku = item.noonSku;
-            line.titleCache = item.title;
-            line.brandCache = item.brand;
-            line.matchStatus = "PRODUCT_UNMATCHED";
-            line.matchMessage = "No local product matched by Noon SKU or partner SKU.";
-        }
-        line.pbarcode = item.pbarcode;
-        line.barcode = item.barcode;
-        line.warehouseCode = item.warehouseCode;
-        line.countryCode = item.countryCode;
-        line.inventoryType = item.inventoryType;
-        line.reasonCode = item.reasonCode;
-        line.classificationCode = item.classificationCode;
-        line.stockBucket = item.stockBucket;
-        line.quantity = item.quantity == null ? 0 : Math.max(0, item.quantity);
-        line.inventorySnapshotAt = item.inventorySnapshotAt;
-        line.rawPayloadJson = writeJson(item.rawPayload);
-        line.operatorUserId = batch.operatorUserId;
-        return line;
-    }
-
-    private InventoryLineProductMatchRecord matchProduct(
+    private List<InventoryPage> fetchAllPages(
             Long ownerUserId,
             String storeCode,
-            String siteCode,
-            InventoryItem item
+            String siteCode
     ) {
-        if (!StringUtils.hasText(item.noonSku) && !StringUtils.hasText(item.partnerSku)) {
-            return null;
-        }
-        return mapper.findInventoryLineProductMatch(
-                ownerUserId,
-                storeCode,
-                siteCode,
-                trimToNull(item.noonSku),
-                trimToNull(item.partnerSku)
-        );
-    }
-
-    private String requestSummary(String storeCode, String siteCode, int maxPages) {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("source_type", SOURCE_TYPE);
-        root.put("store_code", storeCode);
-        root.put("site_code", siteCode);
-        root.put("max_pages", maxPages);
-        root.put("endpoint", OfficialWarehouseFbnInventoryProvider.FBN_INVENTORY_URL);
-        ObjectNode body = root.putObject("body");
-        body.put("inventory_tab_name", "export");
-        body.set("filters", objectMapper.createObjectNode());
-        return writeJson(root);
-    }
-
-    private String responseSummary(List<InventoryPage> pages, int totalRows) {
-        ObjectNode root = objectMapper.createObjectNode();
-        root.put("page_count", pages.size());
-        root.put("total_rows", totalRows);
-        root.put("source_type", SOURCE_TYPE);
-        return writeJson(root);
-    }
-
-    private String writeJson(JsonNode node) {
-        try {
-            return objectMapper.writeValueAsString(node);
-        } catch (Exception exception) {
-            return null;
+        List<InventoryPage> pages = new ArrayList<>();
+        int pageNo = 1;
+        Integer declaredTotalPages = null;
+        while (true) {
+            InventoryPage page = Objects.requireNonNull(
+                    provider.fetchPage(new PullRequest(ownerUserId, storeCode, siteCode), pageNo),
+                    "inventory provider page"
+            );
+            requirePaginationEvidence(page, pageNo);
+            if (page.totalPages != null) {
+                if (declaredTotalPages != null
+                        && !declaredTotalPages.equals(page.totalPages)) {
+                    throw new IllegalStateException(
+                            "official-warehouse inventory total pages changed during traversal"
+                    );
+                }
+                declaredTotalPages = page.totalPages;
+            }
+            pages.add(page);
+            if (!page.hasNextPage) {
+                return List.copyOf(pages);
+            }
+            pageNo = Math.addExact(pageNo, 1);
         }
     }
 
-    private int maxPages(Integer value) {
-        if (value == null || value <= 0) {
-            return 20;
+    private void requirePaginationEvidence(InventoryPage page, int expectedPage) {
+        if (page.page != expectedPage || page.items == null || page.rawResponse == null
+                || (page.hasNextPageEvidence == null && page.totalPages == null)) {
+            throw new IllegalStateException("official-warehouse inventory page is incomplete");
         }
-        return Math.min(value, 100);
+        if (page.completeExport && (page.page != 1 || page.hasNextPage
+                || !Objects.equals(page.totalPages, 1))) {
+            throw new IllegalStateException("official-warehouse inventory export metadata conflicts");
+        }
+        if (page.totalPages != null && (page.totalPages < page.page
+                || (page.hasNextPage && page.page >= page.totalPages)
+                || (!page.hasNextPage && page.page < page.totalPages))) {
+            throw new IllegalStateException("official-warehouse inventory pagination metadata conflicts");
+        }
+        if (page.hasNextPage && page.items.isEmpty()) {
+            throw new IllegalStateException("official-warehouse inventory non-last page is empty");
+        }
     }
 
     private Long requireOwnerUserId(BusinessAccessContext access, String storeCode) {
@@ -237,44 +180,9 @@ public class OfficialWarehouseInventorySyncService {
     }
 
     private String requireText(String value, String message) {
-        String trimmed = trimToNull(value);
-        if (trimmed == null) {
+        if (!StringUtils.hasText(value)) {
             throw new IllegalArgumentException(message);
         }
-        return trimmed;
-    }
-
-    private String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            String trimmed = trimToNull(value);
-            if (trimmed != null) {
-                return trimmed;
-            }
-        }
-        return null;
-    }
-
-    private String deriveProjectCode(String partnerId) {
-        String safePartnerId = trimToNull(partnerId);
-        return safePartnerId == null ? null : "PRJ" + safePartnerId;
-    }
-
-    private String derivePartnerId(String projectCode) {
-        String safeProjectCode = trimToNull(projectCode);
-        if (safeProjectCode == null) {
-            return null;
-        }
-        return safeProjectCode.toUpperCase(Locale.ROOT).startsWith("PRJ") ? safeProjectCode.substring(3) : safeProjectCode;
-    }
-
-    private String trimToNull(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+        return value.trim();
     }
 }

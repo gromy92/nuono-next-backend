@@ -23,7 +23,6 @@ public final class OfficialWarehouseStatisticsCommands {
     public static class InventorySyncCommand {
         public String storeCode;
         public String siteCode;
-        public Integer maxPages;
     }
 
     public static class FbnExportCreateCommand {
