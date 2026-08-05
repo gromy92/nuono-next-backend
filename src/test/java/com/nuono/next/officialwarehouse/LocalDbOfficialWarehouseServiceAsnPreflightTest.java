@@ -29,6 +29,8 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDe
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ShippingBatchSourceAllocationRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.StoreSiteRecord;
@@ -45,6 +47,7 @@ import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.mockito.ArgumentCaptor;
 
 class LocalDbOfficialWarehouseServiceAsnPreflightTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -183,6 +186,70 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         order.verify(inboundClient).createAsn(any(), any(), any(), any());
         order.verify(inboundClient).routeWarehouse(any(), any(), any(), anyString(), any());
         order.verify(inboundClient).createLines(any(), any(), any(), anyString(), any());
+    }
+
+    @Test
+    void unrelatedManualSkuJoinsTheAsnWithoutConsumingTheSelectedBatch() {
+        stubCandidates(List.of(
+                candidate("SGGRB329", "PSKU-329", "N329", 329L),
+                candidate("PAPERSAYSB014", "PSKU-014", "N014", 14L)));
+        ShippingBatchSourceAllocationRecord allocation = allocation("SGGRB329", "PB-329", 5);
+        when(mapper.listShippingBatchSourceAllocations(
+                anyLong(), anyString(), anyString(), anyCollection(), anyCollection(), anyCollection()))
+                .thenReturn(new ArrayList<>(List.of(allocation)), new ArrayList<>(List.of(allocation)));
+        when(mapper.nextAsnLineId()).thenReturn(510001L, 510002L);
+        when(mapper.nextAsnShippingBatchLinkId()).thenReturn(520001L);
+        when(mapper.nextAsnId()).thenReturn(500001L);
+        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    String search = invocation.<JsonNode>getArgument(3).path("search").asText();
+                    return "SGGRB329".equals(search)
+                            ? offerPage(search, "PSKU-329", "PB-329")
+                            : offerPage(search, "PSKU-014", "PB-014");
+                });
+        when(inboundClient.createAsn(any(), any(), any(), any())).thenReturn(createResponse());
+        when(inboundClient.routeWarehouse(any(), any(), any(), anyString(), any())).thenReturn(routingResponse());
+        when(inboundClient.createLines(any(), any(), any(), anyString(), any())).thenReturn(objectMapper.createObjectNode());
+        when(inboundClient.queryAsnDetail(any(), any(), any(), anyString())).thenReturn(new AsnDetail("SEALED"));
+        when(mapper.selectAuthorizedAsn(Map.of("STR108065-NSA", 307L), 500001L)).thenReturn(asnRecord());
+        when(mapper.listAsnShippingBatchLinks(500001L)).thenReturn(List.of());
+        when(mapper.listAsnLines(500001L)).thenReturn(List.of());
+        when(mapper.listAsnInboundReceipts(anyLong(), any())).thenReturn(List.of());
+
+        CreateAsnLineCommand manual = line("PAPERSAYSB014", 3);
+        manual.manualQuantity = 3;
+        CreateAsnCommand command = command(line("SGGRB329", 5), manual);
+        command.shippingBatchIds = List.of("53023");
+
+        service.createAsn(access(), command);
+
+        ArgumentCaptor<AsnShippingBatchLinkInsertRecord> linkCaptor =
+                ArgumentCaptor.forClass(AsnShippingBatchLinkInsertRecord.class);
+        verify(mapper).insertAsnShippingBatchLink(linkCaptor.capture());
+        assertThat(linkCaptor.getValue().partnerSku).isEqualTo("SGGRB329");
+        assertThat(linkCaptor.getValue().quantity).isEqualTo(5);
+        ArgumentCaptor<AsnLineInsertRecord> lineCaptor = ArgumentCaptor.forClass(AsnLineInsertRecord.class);
+        verify(mapper, times(2)).insertAsnLine(lineCaptor.capture());
+        assertThat(lineCaptor.getAllValues()).anySatisfy(row -> {
+            assertThat(row.partnerSku).isEqualTo("PAPERSAYSB014");
+            assertThat(row.quantity).isEqualTo(3);
+            assertThat(row.shippingBatchQuantity).isZero();
+            assertThat(row.sourceBarcodes).isEmpty();
+        });
+    }
+
+    @Test
+    void rejectsManualQuantityGreaterThanTheLineTotalBeforeAnyProviderWork() {
+        CreateAsnLineCommand invalid = line("SGGRB329", 2);
+        invalid.manualQuantity = 3;
+
+        assertThatThrownBy(() -> service.createAsn(access(), command(invalid)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("手工添加数量");
+
+        verify(bindingResolver, never()).resolve(any());
+        verify(inboundClient, never()).createAsn(any(), any(), any(), any());
+        verify(mapper, never()).insertAsn(any());
     }
 
     @Test

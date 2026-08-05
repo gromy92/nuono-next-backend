@@ -13,7 +13,9 @@ import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CorrectAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.UpsertAppointmentCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AppointmentView;
 import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnView;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -46,6 +48,31 @@ class OfficialWarehouseIdObjectScopeOperationsTest {
         assertThat(result.id).isEqualTo("500408");
         assertThat(result.storeCode).isEqualTo("STORE-B");
         verify(mapper).listAsnInboundReceipts(408L, List.of(500408L));
+    }
+
+    @Test
+    void derivesMixedAndManualLineSourcesFromPersistedBatchLinks() {
+        AsnRecord asn = asn(408L, "STORE-B");
+        AsnLineRecord mixed = line(510001L, 8);
+        AsnLineRecord manual = line(510002L, 4);
+        AsnShippingBatchLinkRecord link = new AsnShippingBatchLinkRecord();
+        link.id = 520001L;
+        link.asnId = asn.id;
+        link.asnLineId = mixed.id;
+        link.quantity = 5;
+        when(mapper.selectAuthorizedAsn(storeOwners(), 500408L)).thenReturn(asn);
+        when(mapper.listAsnShippingBatchLinks(500408L)).thenReturn(List.of(link));
+        when(mapper.listAsnLines(500408L)).thenReturn(List.of(mixed, manual));
+
+        AsnView result = service.getAsn(access(), "500408");
+
+        assertThat(result.lines).hasSize(2);
+        assertThat(result.lines.get(0).shippingBatchQuantity).isEqualTo(5);
+        assertThat(result.lines.get(0).manualQuantity).isEqualTo(3);
+        assertThat(result.lines.get(0).sourceType).isEqualTo("MIXED");
+        assertThat(result.lines.get(1).shippingBatchQuantity).isZero();
+        assertThat(result.lines.get(1).manualQuantity).isEqualTo(4);
+        assertThat(result.lines.get(1).sourceType).isEqualTo("MANUAL");
     }
 
     @Test
@@ -188,6 +215,16 @@ class OfficialWarehouseIdObjectScopeOperationsTest {
         record.status = "LINES_CREATED";
         record.totalQuantity = 10;
         return record;
+    }
+
+    private static AsnLineRecord line(Long id, int quantity) {
+        AsnLineRecord line = new AsnLineRecord();
+        line.id = id;
+        line.asnId = 500408L;
+        line.productVariantId = id + 1000;
+        line.partnerSku = "SKU-" + id;
+        line.qty = quantity;
+        return line;
     }
 
     private static AppointmentRecord appointment(Long ownerUserId, String storeCode) {

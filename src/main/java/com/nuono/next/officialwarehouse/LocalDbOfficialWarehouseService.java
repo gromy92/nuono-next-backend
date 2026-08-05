@@ -105,6 +105,7 @@ public class LocalDbOfficialWarehouseService implements
     private final NoonHttpCallLogService noonHttpCallLogService;
     private final OfficialWarehouseNoonInboundClient noonInboundClient;
     private final OfficialWarehouseAsnProductPreflightModule asnProductPreflight;
+    private final OfficialWarehouseAsnSourceAllocationModule asnSourceAllocation;
     private final ObjectMapper objectMapper;
     private final OfficialWarehouseAppointmentRunner appointmentRunner;
     private final NoonRiskBackoffGuard riskBackoffGuard;
@@ -169,6 +170,7 @@ public class LocalDbOfficialWarehouseService implements
         this.noonHttpCallLogService = noonHttpCallLogService;
         this.noonInboundClient = noonInboundClient;
         this.asnProductPreflight = new OfficialWarehouseAsnProductPreflightModule(noonInboundClient);
+        this.asnSourceAllocation = new OfficialWarehouseAsnSourceAllocationModule(mapper);
         this.objectMapper = objectMapper;
         this.appointmentRunner = new OfficialWarehouseAppointmentRunner(Clock.systemDefaultZone());
         this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
@@ -573,12 +575,14 @@ public class LocalDbOfficialWarehouseService implements
         String siteCode = normalizeSite(requireText(command.siteCode, "请选择站点。"));
         Long ownerUserId = OfficialWarehouseBusinessScope.resolve(access, storeCode).ownerUserId();
         StoreSiteRecord site = requireStoreSite(ownerUserId, storeCode, siteCode);
+        List<Long> selectedShippingBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
         List<CreateAsnLineCommand> lineCommands = command.lines == null ? List.of() : command.lines;
         if (lineCommands.isEmpty()) {
             throw new IllegalArgumentException("请选择至少一个商品。");
         }
 
         Map<String, Integer> quantityByProductKey = new LinkedHashMap<>();
+        Map<String, Integer> manualQuantityByProductKey = new LinkedHashMap<>();
         Set<Long> legacyVariantIds = new LinkedHashSet<>();
         Set<String> partnerSkus = new LinkedHashSet<>();
         for (CreateAsnLineCommand lineCommand : lineCommands) {
@@ -589,7 +593,10 @@ public class LocalDbOfficialWarehouseService implements
             if (quantity <= 0) {
                 throw new IllegalArgumentException("商品数量必须大于 0。");
             }
-            quantityByProductKey.merge(siteProductKey(site.storeCode, site.siteCode, lineCommand.partnerSku, lineCommand.productVariantId), quantity, Integer::sum);
+            String productKey = siteProductKey(site.storeCode, site.siteCode, lineCommand.partnerSku, lineCommand.productVariantId);
+            int manualQuantity = resolveManualQuantity(lineCommand, quantity, !selectedShippingBatchIds.isEmpty());
+            quantityByProductKey.merge(productKey, quantity, Integer::sum);
+            manualQuantityByProductKey.merge(productKey, manualQuantity, Integer::sum);
             if (StringUtils.hasText(lineCommand.partnerSku)) {
                 partnerSkus.add(lineCommand.partnerSku.trim());
             } else {
@@ -643,6 +650,7 @@ public class LocalDbOfficialWarehouseService implements
             lineRow.titleCache = candidate.titleCache;
             lineRow.imageUrlCache = ProductImageUrlSupport.normalize(candidate.imageUrlCache);
             lineRow.quantity = entry.getValue();
+            lineRow.shippingBatchQuantity = entry.getValue() - manualQuantityByProductKey.getOrDefault(entry.getKey(), 0);
             lineRow.productLengthCm = candidate.productLengthCm;
             lineRow.productWidthCm = candidate.productWidthCm;
             lineRow.productHeightCm = candidate.productHeightCm;
@@ -660,8 +668,7 @@ public class LocalDbOfficialWarehouseService implements
         for (AsnLineInsertRecord lineRow : lineRows) {
             lineRow.asnId = asnId;
         }
-        List<Long> selectedShippingBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
-        List<AsnShippingBatchLinkInsertRecord> shippingBatchLinks = buildAsnShippingBatchLinks(
+        List<AsnShippingBatchLinkInsertRecord> shippingBatchLinks = asnSourceAllocation.buildLinks(
                 ownerUserId,
                 site,
                 asnId,
@@ -781,12 +788,14 @@ public class LocalDbOfficialWarehouseService implements
         String siteCode = normalizeSite(requireText(command.siteCode, "请选择站点。"));
         Long ownerUserId = OfficialWarehouseBusinessScope.resolve(access, storeCode).ownerUserId();
         StoreSiteRecord site = requireStoreSite(ownerUserId, storeCode, siteCode);
+        List<Long> selectedBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
         List<CreateAsnLineCommand> lineCommands = command.lines == null ? List.of() : command.lines;
         if (lineCommands.isEmpty()) {
             throw new IllegalArgumentException("请选择至少一个商品。");
         }
 
         Map<String, Integer> selectedQuantities = new LinkedHashMap<>();
+        Map<String, Integer> selectedBatchQuantities = new LinkedHashMap<>();
         Set<Long> variantIds = new LinkedHashSet<>();
         Set<String> partnerSkus = new LinkedHashSet<>();
         for (CreateAsnLineCommand line : lineCommands) {
@@ -799,6 +808,8 @@ public class LocalDbOfficialWarehouseService implements
             }
             String productKey = siteProductKey(site.storeCode, site.siteCode, line.partnerSku, line.productVariantId);
             selectedQuantities.merge(productKey, quantity, Integer::sum);
+            int manualQuantity = resolveManualQuantity(line, quantity, !selectedBatchIds.isEmpty());
+            selectedBatchQuantities.merge(productKey, quantity - manualQuantity, Integer::sum);
             if (StringUtils.hasText(line.partnerSku)) {
                 partnerSkus.add(line.partnerSku.trim());
             } else {
@@ -824,12 +835,15 @@ public class LocalDbOfficialWarehouseService implements
             throw new IllegalArgumentException("部分商品缺少站点 PSKU 或不属于当前店铺：" + missingSelectedKeys);
         }
 
-        List<Long> selectedBatchIds = normalizeShippingBatchIds(command.shippingBatchIds);
         AsnValidationView view = new AsnValidationView();
         view.valid = true;
         if (selectedBatchIds.isEmpty()) {
             view.completeBatchSelection = true;
             return view;
+        }
+        selectedBatchQuantities.entrySet().removeIf(entry -> entry.getValue() == null || entry.getValue() <= 0);
+        if (selectedBatchQuantities.isEmpty()) {
+            throw new IllegalArgumentException("已选择物流批次时，至少选择一个物流单内商品。");
         }
         List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
                 ownerUserId,
@@ -881,7 +895,7 @@ public class LocalDbOfficialWarehouseService implements
                 })
                 .collect(Collectors.toList());
         OfficialWarehouseBatchSelectionValidator.Result result =
-                OfficialWarehouseBatchSelectionValidator.validate(scopedAllocations, selectedQuantities);
+                OfficialWarehouseBatchSelectionValidator.validate(scopedAllocations, selectedBatchQuantities);
         view.missingBatches = result.getMissingBatches().stream()
                 .map(this::toMissingBatchView)
                 .collect(Collectors.toList());
@@ -904,153 +918,6 @@ public class LocalDbOfficialWarehouseService implements
             mapper.softDeleteAsnLines(asnId, operatorUserId);
             mapper.softDeletePreSubmitAsn(asnId, operatorUserId);
         }
-    }
-
-    private List<AsnShippingBatchLinkInsertRecord> buildAsnShippingBatchLinks(
-            Long ownerUserId,
-            StoreSiteRecord site,
-            Long asnId,
-            List<AsnLineInsertRecord> lineRows,
-            List<Long> selectedBatchIds,
-            Long operatorUserId
-    ) {
-        if (selectedBatchIds == null || selectedBatchIds.isEmpty()) {
-            return List.of();
-        }
-        if (lineRows == null || lineRows.isEmpty()) {
-            return List.of();
-        }
-        List<String> partnerSkus = lineRows.stream()
-                .map(row -> trimToNull(row.partnerSku))
-                .filter(value -> value != null)
-                .distinct()
-                .collect(Collectors.toList());
-        List<Long> variantIds = lineRows.stream()
-                .filter(row -> !StringUtils.hasText(row.partnerSku))
-                .map(row -> row.productVariantId)
-                .filter(value -> value != null)
-                .distinct()
-                .collect(Collectors.toList());
-        List<ShippingBatchSourceAllocationRecord> allocations = mapper.listShippingBatchSourceAllocations(
-                ownerUserId,
-                site.storeCode,
-                site.siteCode,
-                selectedBatchIds,
-                variantIds,
-                partnerSkus
-        );
-        if (allocations.isEmpty()) {
-            throw new IllegalArgumentException("选择的物流批次没有匹配当前 ASN 商品。");
-        }
-
-        Map<Long, Integer> batchOrder = new LinkedHashMap<>();
-        for (int index = 0; index < selectedBatchIds.size(); index++) {
-            batchOrder.put(selectedBatchIds.get(index), index);
-        }
-        allocations.sort((left, right) -> {
-            int leftOrder = batchOrder.getOrDefault(allocationBatchId(left), Integer.MAX_VALUE);
-            int rightOrder = batchOrder.getOrDefault(allocationBatchId(right), Integer.MAX_VALUE);
-            if (leftOrder != rightOrder) {
-                return Integer.compare(leftOrder, rightOrder);
-            }
-            long leftSourceId = allocationSourceId(left) == null ? Long.MAX_VALUE : allocationSourceId(left);
-            long rightSourceId = allocationSourceId(right) == null ? Long.MAX_VALUE : allocationSourceId(right);
-            return Long.compare(leftSourceId, rightSourceId);
-        });
-
-        Map<String, List<ShippingBatchSourceAllocationRecord>> allocationsByProductKey = new LinkedHashMap<>();
-        Map<Long, Integer> remainingBySourceId = new LinkedHashMap<>();
-        for (ShippingBatchSourceAllocationRecord allocation : allocations) {
-            Long sourceId = allocationSourceId(allocation);
-            if ((!StringUtils.hasText(allocation.partnerSku) && allocation.productVariantId == null) || sourceId == null) {
-                continue;
-            }
-            int quantity = Math.max(0, allocation.quantity == null ? 0 : allocation.quantity);
-            if (quantity <= 0) {
-                continue;
-            }
-            allocationsByProductKey
-                    .computeIfAbsent(siteProductKey(site.storeCode, site.siteCode, allocation.partnerSku, allocation.productVariantId), ignored -> new ArrayList<>())
-                    .add(allocation);
-            remainingBySourceId.put(sourceId, quantity);
-        }
-
-        List<AsnShippingBatchLinkInsertRecord> links = new ArrayList<>();
-        for (AsnLineInsertRecord lineRow : lineRows) {
-            int requiredQuantity = Math.max(0, lineRow.quantity == null ? 0 : lineRow.quantity);
-            String productKey = siteProductKey(site.storeCode, site.siteCode, lineRow.partnerSku, lineRow.productVariantId);
-            int availableQuantity = allocationsByProductKey
-                    .getOrDefault(productKey, List.of())
-                    .stream()
-                    .mapToInt(allocation -> remainingBySourceId.getOrDefault(allocationSourceId(allocation), 0))
-                    .sum();
-            if (availableQuantity < requiredQuantity) {
-                String label = firstNonBlank(
-                        lineRow.partnerSku,
-                        lineRow.pskuCode,
-                        lineRow.skuParent,
-                        String.valueOf(lineRow.productVariantId)
-                );
-                throw new IllegalArgumentException(
-                        label + " 选择的物流批次数量不足：需要 " + requiredQuantity + "，批次可用 " + availableQuantity + "。"
-                );
-            }
-
-            int remainingQuantity = requiredQuantity;
-            for (ShippingBatchSourceAllocationRecord allocation : allocationsByProductKey.getOrDefault(productKey, List.of())) {
-                if (remainingQuantity <= 0) {
-                    break;
-                }
-                Long sourceId = allocationSourceId(allocation);
-                if (sourceId == null) {
-                    continue;
-                }
-                int sourceRemaining = remainingBySourceId.getOrDefault(sourceId, 0);
-                if (sourceRemaining <= 0) {
-                    continue;
-                }
-                int linkedQuantity = Math.min(remainingQuantity, sourceRemaining);
-                AsnShippingBatchLinkInsertRecord link = new AsnShippingBatchLinkInsertRecord();
-                link.id = mapper.nextAsnShippingBatchLinkId();
-                link.asnId = asnId;
-                link.asnLineId = lineRow.id;
-                link.ownerUserId = ownerUserId;
-                link.storeCode = site.storeCode;
-                link.siteCode = site.siteCode;
-                link.shippingBatchId = allocation.shippingBatchId;
-                link.shippingBatchNo = allocation.shippingBatchNo;
-                link.shippingBatchSourceId = allocation.shippingBatchSourceId;
-                link.inTransitBatchId = allocation.inTransitBatchId;
-                link.batchReferenceNo = allocation.batchReferenceNo;
-                link.trackingNo = allocation.trackingNo;
-                link.externalShipmentNo = allocation.externalShipmentNo;
-                link.forwarderName = allocation.forwarderName;
-                link.transportMode = allocation.transportMode;
-                link.latestNodeStatus = allocation.latestNodeStatus;
-                link.inTransitGoodsLineId = allocation.inTransitGoodsLineId;
-                link.sourceBarcode = allocation.sourceBarcode;
-                link.fulfillmentBalanceId = allocation.fulfillmentBalanceId;
-                link.purchaseOrderId = allocation.purchaseOrderId;
-                link.purchaseOrderNo = allocation.purchaseOrderNo;
-                link.purchaseOrderItemId = allocation.purchaseOrderItemId;
-                link.purchaseOrderItemSiteId = allocation.purchaseOrderItemSiteId;
-                link.productMasterId = lineRow.productMasterId;
-                link.productVariantId = lineRow.productVariantId;
-                link.partnerSku = lineRow.partnerSku;
-                link.pskuCode = lineRow.pskuCode;
-                link.quantity = linkedQuantity;
-                link.relationStatus = "LINKED";
-                link.relationBasis = allocation.inTransitBatchId == null
-                        ? "ASN_CREATE_SELECTED_BATCH"
-                        : "ASN_CREATE_SELECTED_IN_TRANSIT_BATCH";
-                link.operatorUserId = operatorUserId;
-                links.add(link);
-                OfficialWarehouseAsnProductPreflightModule.addSourceBarcode(lineRow, allocation.sourceBarcode);
-                remainingQuantity -= linkedQuantity;
-                remainingBySourceId.put(sourceId, sourceRemaining - linkedQuantity);
-            }
-        }
-        return links;
     }
 
     private Long allocationBatchId(ShippingBatchSourceAllocationRecord allocation) {
@@ -2565,13 +2432,30 @@ public class LocalDbOfficialWarehouseService implements
                     ));
             view.lines = mapper.listAsnLines(row.id).stream().map(lineRow -> {
                 AsnLineView lineView = toAsnLineView(lineRow);
-                lineView.shippingBatchLinks = linksByLineId.getOrDefault(lineRow.id, List.of()).stream()
+                List<AsnShippingBatchLinkRecord> lineLinks = linksByLineId.getOrDefault(lineRow.id, List.of());
+                lineView.shippingBatchLinks = lineLinks.stream()
                         .map(this::toAsnShippingBatchLinkView)
                         .collect(Collectors.toList());
+                applyAsnLineSourceQuantities(lineView, lineLinks);
                 return lineView;
             }).collect(Collectors.toList());
         }
         return view;
+    }
+
+    private void applyAsnLineSourceQuantities(
+            AsnLineView view,
+            List<AsnShippingBatchLinkRecord> links
+    ) {
+        int totalQuantity = positiveQuantity(view.quantity);
+        int shippingBatchQuantity = links == null ? 0 : links.stream()
+                .mapToInt(link -> positiveQuantity(link == null ? null : link.quantity))
+                .sum();
+        view.shippingBatchQuantity = shippingBatchQuantity;
+        view.manualQuantity = Math.max(0, totalQuantity - shippingBatchQuantity);
+        view.sourceType = shippingBatchQuantity <= 0
+                ? "MANUAL"
+                : view.manualQuantity <= 0 ? "SHIPPING_BATCH" : "MIXED";
     }
 
     private AsnLineView toAsnLineView(AsnLineRecord row) {
@@ -2850,6 +2734,28 @@ public class LocalDbOfficialWarehouseService implements
             normalized.add(value);
         }
         return new ArrayList<>(normalized);
+    }
+
+    private int resolveManualQuantity(
+            CreateAsnLineCommand line,
+            int quantity,
+            boolean hasSelectedShippingBatch
+    ) {
+        if (line.manualQuantity == null) {
+            return hasSelectedShippingBatch ? 0 : quantity;
+        }
+        int manualQuantity = line.manualQuantity;
+        if (manualQuantity < 0 || manualQuantity > quantity) {
+            throw new IllegalArgumentException("手工添加数量必须在 0 到商品总数量之间。");
+        }
+        if (!hasSelectedShippingBatch && manualQuantity != quantity) {
+            throw new IllegalArgumentException("未选择物流批次时，商品数量必须全部标记为手工添加。");
+        }
+        return manualQuantity;
+    }
+
+    private int positiveQuantity(Integer value) {
+        return Math.max(0, value == null ? 0 : value);
     }
 
     private List<String> normalizePartnerSkus(Collection<String> partnerSkus) {

@@ -193,6 +193,9 @@ public final class OfficialWarehouseViews {
         public String brand;
         public String imageUrl;
         public Integer quantity;
+        public Integer shippingBatchQuantity;
+        public Integer manualQuantity;
+        public String sourceType;
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;
         public BigDecimal productHeightCm;
