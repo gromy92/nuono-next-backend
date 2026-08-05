@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ci.dp_pull_runtime_authority_scenario import (
     run_243_authority_scenario,
     run_245_authority_scenario,
@@ -64,8 +66,12 @@ def run_successor_schema_scenario(
     test_case.addCleanup(_cleanup_environment, database, fixture)
     migrations = _load_migrations(resources)
     for order in SUCCESSOR_KEYS:
+        if order == 244:
+            _assert_244_preflight(test_case, database, migrations[order][0], "absent")
         database.client.execute(migrations[order][0])
         _assert_contract(test_case, database, *migrations[order][1:])
+        if order == 244:
+            _assert_244_preflight(test_case, database, migrations[order][0], "present")
         database.client.execute(migrations[order][0])
         _assert_contract(test_case, database, *migrations[order][1:])
         verify_additive_successor_shape(
@@ -100,6 +106,25 @@ def _load_migrations(resources):
 def _assert_contract(test_case, database, exact, live) -> None:
     test_case.assertEqual("1", database.client.execute_readonly(exact))
     test_case.assertEqual("1", database.client.execute_readonly(live))
+
+
+def _assert_244_preflight(test_case, database, migration, expected) -> None:
+    prefix = migration.split(
+        "DROP TEMPORARY TABLE IF EXISTS nuono_dp244_shape_guard;", 1
+    )[0]
+    diagnostic = database.client.execute(
+        prefix + "SELECT JSON_OBJECT("
+        "'all_absent',@dp244_all_absent,'all_present',@dp244_all_present,"
+        "'column_name_count',@dp244_column_name_count,"
+        "'column_shape_count',@dp244_column_shape_count,"
+        "'storage_check_count',@dp244_storage_check_count,"
+        "'progress_check_count',@dp244_progress_check_count,"
+        "'storage_clause',@dp244_storage_clause,'old_storage',@dp244_old_storage,"
+        "'new_storage',@dp244_new_storage,'progress_clause',@dp244_progress_clause,"
+        "'new_progress',@dp244_new_progress);"
+    )
+    state = json.loads(diagnostic)
+    test_case.assertEqual(1, state[f"all_{expected}"], diagnostic)
 
 
 def _cleanup_environment(database, fixture) -> None:
