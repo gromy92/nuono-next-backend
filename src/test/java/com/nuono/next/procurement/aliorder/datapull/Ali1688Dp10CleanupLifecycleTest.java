@@ -7,7 +7,6 @@ import com.nuono.next.datapull.runtime.AdvanceResult;
 import com.nuono.next.datapull.runtime.TaskState;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderAuthorizationRow;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderProvider;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -61,11 +60,13 @@ class Ali1688Dp10CleanupLifecycleTest extends Ali1688Dp10JobTestSupport {
 
     @Test
     void coveredProgressConflictAlsoRoutesThroughCleanup() {
-        MutableProgressStore progress = progress(
-                true, NOW.toInstant(ZoneOffset.UTC), 5L);
+        MutableProgressStore progress = progress(false, null, 5L);
         Fixture fixture = fixture(order("ORDER-3", NEWEST, true), progress);
         fixture.writer.progressConflict = true;
         advanceUntilStep(fixture, Ali1688Dp10Job.APPLY_STEP);
+        progress.current.setInitialFullCompleted(true);
+        progress.current.setOfficialModifiedHighWaterUtc(NOW);
+        progress.current.setVersion(6L);
 
         AdvanceResult reconciled = fixture.job.advance(context(fixture.task));
 

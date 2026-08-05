@@ -54,7 +54,7 @@ src/test/java/com/nuono/next/postsaleprofit/PostSaleProfitRecalculationServiceTe
 src/test/java/com/nuono/next/preorderprofit/PreOrderProfitServiceTest.java	310
 src/test/java/com/nuono/next/procurement/LocalDbProcurementCandidatePoolServiceTest.java	365
 src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderControllerTest.java	712
-src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderMapperSqlTest.java	580
+src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderMapperSqlTest.java	516
 src/test/java/com/nuono/next/procurement/aliorder/Ali1688HistoricalOrderSyncServiceTest.java	567
 src/test/java/com/nuono/next/procurement/aliorder/LocalDbAli1688HistoricalOrderServiceTest.java	3545
 src/test/java/com/nuono/next/procurementorder/LocalDbProcurementPurchaseOrderServiceTest.java	3332

@@ -688,14 +688,14 @@ public interface Ali1688HistoricalOrderMapper {
             "  source_batch_no, downstream_order_no, raw_snapshot_json,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{ownerUserId}, #{authorizationId}, #{orderNaturalKey}, #{providerOrderNo}, #{orderTime}, #{supplierName},",
+            "  LAST_INSERT_ID(#{id}), #{ownerUserId}, #{authorizationId}, #{orderNaturalKey}, #{providerOrderNo}, #{orderTime}, #{supplierName},",
             "  #{paidAt}, #{buyerCompanyName}, #{buyerMemberName}, #{sellerMemberName}, #{goodsTotalText}, #{freightText},",
             "  #{adjustmentText}, #{paidAmountText}, #{amountText}, #{amountValue}, #{currency}, #{orderStatus}, #{logisticsStatus},",
             "  #{shipperName}, #{originalUrl}, #{receiverName}, #{receiverPostalCode}, #{receiverTelephone}, #{receiverMobile},",
             "  #{receiverPhone}, #{receiverAddress}, #{buyerRemark}, #{supplierContact}, #{initiatorLoginName},",
             "  #{sourceBatchNo}, #{downstreamOrderNo}, #{rawSnapshotJson},",
             "  NOW(), NOW()",
-            ") ON DUPLICATE KEY UPDATE",
+            ") ON DUPLICATE KEY UPDATE", "  id = LAST_INSERT_ID(id),",
             "  order_time = VALUES(order_time),",
             "  supplier_name = VALUES(supplier_name),",
             "  paid_at = VALUES(paid_at),",
@@ -727,18 +727,18 @@ public interface Ali1688HistoricalOrderMapper {
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
             "  gmt_updated = NOW()"
     })
+    @SelectKey(statement = "SELECT LAST_INSERT_ID()", keyProperty = "id", before = false, resultType = Long.class)
     int upsertOrder(Ali1688HistoricalOrderRow row);
-
     @Insert({
             "INSERT INTO procurement_ali1688_order_item (",
             "  id, order_id, item_natural_key, offer_id, sku_id, title, sku_text, model_text, product_code,",
             "  single_product_code, quantity, unit, unit_price_text, amount_text, image_url, raw_snapshot_json,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{orderId}, #{itemNaturalKey}, #{offerId}, #{skuId}, #{title}, #{skuText}, #{modelText}, #{productCode},",
+            "  LAST_INSERT_ID(#{id}), #{orderId}, #{itemNaturalKey}, #{offerId}, #{skuId}, #{title}, #{skuText}, #{modelText}, #{productCode},",
             "  #{singleProductCode}, #{quantity}, #{unit}, #{unitPriceText}, #{amountText}, #{imageUrl}, #{rawSnapshotJson},",
             "  NOW(), NOW()",
-            ") ON DUPLICATE KEY UPDATE",
+            ") ON DUPLICATE KEY UPDATE", "  id = LAST_INSERT_ID(id),", "  order_id = VALUES(order_id),",
             "  offer_id = VALUES(offer_id),",
             "  sku_id = VALUES(sku_id),",
             "  title = VALUES(title),",
@@ -754,23 +754,23 @@ public interface Ali1688HistoricalOrderMapper {
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
             "  gmt_updated = NOW()"
     })
+    @SelectKey(statement = "SELECT LAST_INSERT_ID()", keyProperty = "id", before = false, resultType = Long.class)
     int upsertOrderItem(Ali1688HistoricalOrderItemRow row);
-
     @Insert({
             "INSERT INTO procurement_ali1688_order_logistics (",
             "  id, order_id, item_id, logistics_natural_key, logistics_company, tracking_no, raw_snapshot_json,",
             "  gmt_create, gmt_updated",
             ") VALUES (",
-            "  #{id}, #{orderId}, #{itemId}, #{logisticsNaturalKey}, #{logisticsCompany}, #{trackingNo}, #{rawSnapshotJson},",
+            "  LAST_INSERT_ID(#{id}), #{orderId}, #{itemId}, #{logisticsNaturalKey}, #{logisticsCompany}, #{trackingNo}, #{rawSnapshotJson},",
             "  NOW(), NOW()",
-            ") ON DUPLICATE KEY UPDATE",
+            ") ON DUPLICATE KEY UPDATE", "  id = LAST_INSERT_ID(id),", "  order_id = VALUES(order_id),", "  item_id = VALUES(item_id),",
             "  logistics_company = VALUES(logistics_company),",
             "  tracking_no = VALUES(tracking_no),",
             "  raw_snapshot_json = VALUES(raw_snapshot_json),",
             "  gmt_updated = NOW()"
     })
+    @SelectKey(statement = "SELECT LAST_INSERT_ID()", keyProperty = "id", before = false, resultType = Long.class)
     int upsertOrderLogistics(Ali1688HistoricalOrderLogisticsRow row);
-
     @Select({
             "SELECT id",
             "FROM procurement_ali1688_order_header",

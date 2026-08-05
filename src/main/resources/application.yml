@@ -32,6 +32,10 @@ nuono:
       backoff-base-seconds: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_BASE_SECONDS:60}
       backoff-maximum-seconds: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_MAXIMUM_SECONDS:3600}
       backoff-jitter-ratio: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_JITTER_RATIO:0.20}
+    dp10-stage-cleanup:
+      batch-size: ${NUONO_DATA_PULL_DP10_STAGE_CLEANUP_BATCH_SIZE:100}
+      failed-task-grace-seconds: ${NUONO_DATA_PULL_DP10_FAILED_STAGE_GRACE_SECONDS:604800}
+      retention-run-interval-seconds: ${NUONO_DATA_PULL_DP10_RETENTION_INTERVAL_SECONDS:3600}
   auth:
     session-secret: ${NUONO_NEXT_AUTH_SESSION_SECRET:}
     session-ttl-seconds: ${NUONO_NEXT_AUTH_SESSION_TTL_SECONDS:28800}
@@ -101,6 +105,19 @@ nuono:
   procurement:
     ali1688:
       historical-order:
+        open-api:
+          enabled: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_OPEN_API_ENABLED:false}
+          required-for-dp10: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_OPEN_API_REQUIRED_FOR_DP10:false}
+          app-key: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_OPEN_API_APP_KEY:}
+          app-secret: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_OPEN_API_APP_SECRET:}
+          token-cipher-secret: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_TOKEN_CIPHER_SECRET:}
+          # Exact alibaba.trade.getBuyerOrderList-1 contract; overrides must keep these official names.
+          modified-from-parameter-name: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_FROM_PARAMETER:modifyStartTime}
+          modified-to-parameter-name: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_TO_PARAMETER:modifyEndTime}
+          history-parameter-name: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_HISTORY_PARAMETER:isHis}
+          modified-from-format: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_FROM_FORMAT:yyyyMMddHHmmssSSSZ}
+          modified-at-response-field-names: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_AT_FIELDS:modifyTime}
+          provider-zone-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_PROVIDER_ZONE:Asia/Shanghai}
         scheduler:
           enabled: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_ENABLED:false}
           cron: "${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_CRON:0 0 3 ? * MON}"
