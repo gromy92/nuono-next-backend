@@ -650,7 +650,8 @@ public class LocalDbOfficialWarehouseService implements
             lineRow.titleCache = candidate.titleCache;
             lineRow.imageUrlCache = ProductImageUrlSupport.normalize(candidate.imageUrlCache);
             lineRow.quantity = entry.getValue();
-            lineRow.shippingBatchQuantity = entry.getValue() - manualQuantityByProductKey.getOrDefault(entry.getKey(), 0);
+            lineRow.manualQuantity = manualQuantityByProductKey.getOrDefault(entry.getKey(), 0);
+            lineRow.shippingBatchQuantity = entry.getValue() - lineRow.manualQuantity;
             lineRow.productLengthCm = candidate.productLengthCm;
             lineRow.productWidthCm = candidate.productWidthCm;
             lineRow.productHeightCm = candidate.productHeightCm;
@@ -2436,7 +2437,7 @@ public class LocalDbOfficialWarehouseService implements
                 lineView.shippingBatchLinks = lineLinks.stream()
                         .map(this::toAsnShippingBatchLinkView)
                         .collect(Collectors.toList());
-                applyAsnLineSourceQuantities(lineView, lineLinks);
+                applyAsnLineSourceQuantities(lineView, lineLinks, lineRow.manualQuantity);
                 return lineView;
             }).collect(Collectors.toList());
         }
@@ -2445,17 +2446,32 @@ public class LocalDbOfficialWarehouseService implements
 
     private void applyAsnLineSourceQuantities(
             AsnLineView view,
-            List<AsnShippingBatchLinkRecord> links
+            List<AsnShippingBatchLinkRecord> links,
+            Integer persistedManualQuantity
     ) {
         int totalQuantity = positiveQuantity(view.quantity);
         int shippingBatchQuantity = links == null ? 0 : links.stream()
                 .mapToInt(link -> positiveQuantity(link == null ? null : link.quantity))
                 .sum();
         view.shippingBatchQuantity = shippingBatchQuantity;
-        view.manualQuantity = Math.max(0, totalQuantity - shippingBatchQuantity);
+        if (persistedManualQuantity == null) {
+            view.manualQuantity = null;
+            view.unknownQuantity = Math.max(0, totalQuantity - shippingBatchQuantity);
+            view.sourceType = shippingBatchQuantity == totalQuantity && totalQuantity > 0
+                    ? "SHIPPING_BATCH"
+                    : "UNKNOWN";
+            return;
+        }
+        int manualQuantity = positiveQuantity(persistedManualQuantity);
+        view.manualQuantity = manualQuantity;
+        view.unknownQuantity = Math.max(0, totalQuantity - shippingBatchQuantity - manualQuantity);
+        if (persistedManualQuantity < 0 || shippingBatchQuantity + manualQuantity != totalQuantity) {
+            view.sourceType = "UNKNOWN";
+            return;
+        }
         view.sourceType = shippingBatchQuantity <= 0
                 ? "MANUAL"
-                : view.manualQuantity <= 0 ? "SHIPPING_BATCH" : "MIXED";
+                : manualQuantity <= 0 ? "SHIPPING_BATCH" : "MIXED";
     }
 
     private AsnLineView toAsnLineView(AsnLineRecord row) {

@@ -420,13 +420,13 @@ public interface OfficialWarehouseMapper {
     @Insert({
             "INSERT INTO official_warehouse_asn_line (",
             "id, asn_id, owner_user_id, store_code, site_code, product_master_id, product_variant_id, product_site_offer_id,",
-            "sku_parent, partner_sku, child_sku, psku_code, noon_sku, title_cache, image_url_cache, qty,",
+            "sku_parent, partner_sku, child_sku, psku_code, noon_sku, title_cache, image_url_cache, qty, manual_quantity,",
             "product_length_cm, product_width_cm, product_height_cm, product_weight_g, cubic_feet, storage_type_code,",
             "line_status, is_deleted, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.asnId}, #{row.ownerUserId}, #{row.storeCode}, #{row.siteCode}, #{row.productMasterId},",
             "#{row.productVariantId}, #{row.productSiteOfferId}, #{row.skuParent}, #{row.partnerSku}, #{row.childSku},",
-            "#{row.pskuCode}, #{row.noonSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.quantity},",
+            "#{row.pskuCode}, #{row.noonSku}, #{row.titleCache}, #{row.imageUrlCache}, #{row.quantity}, #{row.manualQuantity},",
             "#{row.productLengthCm}, #{row.productWidthCm}, #{row.productHeightCm}, #{row.productWeightG},",
             "#{row.cubicFeet}, #{row.storageTypeCode}, #{row.lineStatus}, b'0', #{row.operatorUserId}, #{row.operatorUserId}, NOW(), NOW())"
     })
@@ -836,7 +836,7 @@ public interface OfficialWarehouseMapper {
             "       awl.product_master_id AS productMasterId, awl.product_variant_id AS productVariantId, awl.product_site_offer_id AS productSiteOfferId,",
             "       awl.sku_parent AS skuParent, awl.partner_sku AS partnerSku, awl.child_sku AS childSku, awl.psku_code AS pskuCode,",
             "       awl.noon_sku AS noonSku, awl.title_cache AS titleCache, COALESCE(NULLIF(pm.title_cache, ''), awl.title_cache) AS titleEn,",
-            "       pm.brand_cache AS brandCache, awl.image_url_cache AS imageUrlCache, awl.qty,",
+            "       pm.brand_cache AS brandCache, awl.image_url_cache AS imageUrlCache, awl.qty, awl.manual_quantity AS manualQuantity,",
             "       awl.product_length_cm AS productLengthCm, awl.product_width_cm AS productWidthCm, awl.product_height_cm AS productHeightCm,",
             "       awl.product_weight_g AS productWeightG, awl.cubic_feet AS cubicFeet, awl.storage_type_code AS storageTypeCode,",
             "       awl.noon_partner_asn_line_id AS noonPartnerAsnLineId, awl.noon_id_cluster AS noonIdCluster,",

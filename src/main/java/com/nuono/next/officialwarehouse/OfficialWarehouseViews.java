@@ -195,6 +195,7 @@ public final class OfficialWarehouseViews {
         public Integer quantity;
         public Integer shippingBatchQuantity;
         public Integer manualQuantity;
+        public Integer unknownQuantity;
         public String sourceType;
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;

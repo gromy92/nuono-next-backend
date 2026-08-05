@@ -51,10 +51,12 @@ class OfficialWarehouseIdObjectScopeOperationsTest {
     }
 
     @Test
-    void derivesMixedAndManualLineSourcesFromPersistedBatchLinks() {
+    void derivesMixedAndManualLineSourcesFromPersistedAllocationFacts() {
         AsnRecord asn = asn(408L, "STORE-B");
         AsnLineRecord mixed = line(510001L, 8);
+        mixed.manualQuantity = 3;
         AsnLineRecord manual = line(510002L, 4);
+        manual.manualQuantity = 4;
         AsnShippingBatchLinkRecord link = new AsnShippingBatchLinkRecord();
         link.id = 520001L;
         link.asnId = asn.id;
@@ -73,6 +75,30 @@ class OfficialWarehouseIdObjectScopeOperationsTest {
         assertThat(result.lines.get(1).shippingBatchQuantity).isZero();
         assertThat(result.lines.get(1).manualQuantity).isEqualTo(4);
         assertThat(result.lines.get(1).sourceType).isEqualTo("MANUAL");
+    }
+
+    @Test
+    void keepsLegacyResidualQuantityUnknownWithoutPersistedManualEvidence() {
+        AsnRecord asn = asn(408L, "STORE-B");
+        asn.sourceType = "NOON_SYNC";
+        AsnLineRecord legacy = line(510001L, 8);
+        AsnShippingBatchLinkRecord link = new AsnShippingBatchLinkRecord();
+        link.id = 520001L;
+        link.asnId = asn.id;
+        link.asnLineId = legacy.id;
+        link.quantity = 5;
+        when(mapper.selectAuthorizedAsn(storeOwners(), 500408L)).thenReturn(asn);
+        when(mapper.listAsnShippingBatchLinks(500408L)).thenReturn(List.of(link));
+        when(mapper.listAsnLines(500408L)).thenReturn(List.of(legacy));
+
+        AsnView result = service.getAsn(access(), "500408");
+
+        assertThat(result.lines).singleElement().satisfies(line -> {
+            assertThat(line.shippingBatchQuantity).isEqualTo(5);
+            assertThat(line.manualQuantity).isNull();
+            assertThat(line.unknownQuantity).isEqualTo(3);
+            assertThat(line.sourceType).isEqualTo("UNKNOWN");
+        });
     }
 
     @Test

@@ -233,6 +233,7 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         assertThat(lineCaptor.getAllValues()).anySatisfy(row -> {
             assertThat(row.partnerSku).isEqualTo("PAPERSAYSB014");
             assertThat(row.quantity).isEqualTo(3);
+            assertThat(row.manualQuantity).isEqualTo(3);
             assertThat(row.shippingBatchQuantity).isZero();
             assertThat(row.sourceBarcodes).isEmpty();
         });

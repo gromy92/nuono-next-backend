@@ -101,7 +101,9 @@ public final class OfficialWarehouseRecords {
         public String brandCache;
         public String imageUrlCache;
         public Integer quantity;
-        /** Request-only allocation; persisted source is derived from shipping-batch links. */
+        /** Explicit persisted quantity that is not associated with a shipping batch. */
+        public Integer manualQuantity;
+        /** Request-only allocation used to build shipping-batch links. */
         public Integer shippingBatchQuantity;
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;
@@ -314,6 +316,7 @@ public final class OfficialWarehouseRecords {
         public String brandCache;
         public String imageUrlCache;
         public Integer qty;
+        public Integer manualQuantity;
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;
         public BigDecimal productHeightCm;

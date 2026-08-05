@@ -76,6 +76,7 @@ class OfficialWarehouseIdObjectScopeSqlTest {
         String due = selectSql("listDueAppointments", int.class);
 
         assertThat(lines)
+                .contains("awl.manual_quantity AS manualQuantity")
                 .contains("parent_asn.owner_user_id = awl.owner_user_id")
                 .contains("UPPER(parent_asn.store_code) = UPPER(awl.store_code)");
         assertThat(links)
