@@ -22,8 +22,8 @@ class ReportBoundedApplySqlTest {
         String slice = selectSql(ReportStageMapper.class, "selectNextApplySlice");
         assertThat(slice)
                 .contains("decision='ACCEPTED'")
-                .contains("row_number>#{afterRowNumber}")
-                .contains("ORDER BY row_number LIMIT #{limitRows}");
+                .contains("`row_number`>#{afterRowNumber}")
+                .contains("ORDER BY `row_number` LIMIT #{limitRows}");
         assertThat(MyBatisReportStageStore.APPLY_CHUNK_ROWS).isEqualTo(200);
         assertTimeout("stage");
         assertTimeout("applySealed");
@@ -41,8 +41,8 @@ class ReportBoundedApplySqlTest {
             assertThat(sql)
                     .as(methodName)
                     .contains("JOIN JSON_TABLE(")
-                    .contains("staged.row_number>#{afterRowNumber}")
-                    .contains("staged.row_number<=#{throughRowNumber}")
+                    .contains("staged.`row_number`>#{afterRowNumber}")
+                    .contains("staged.`row_number`<=#{throughRowNumber}")
                     .doesNotContain("<foreach");
             assertThat(method.getAnnotation(Options.class).timeout()).isEqualTo(10);
         }
@@ -56,8 +56,8 @@ class ReportBoundedApplySqlTest {
         )) {
             assertThat(sql)
                     .contains("JOIN JSON_TABLE(")
-                    .contains("staged.row_number>#{afterRowNumber}")
-                    .contains("staged.row_number<=#{throughRowNumber}")
+                    .contains("staged.`row_number`>#{afterRowNumber}")
+                    .contains("staged.`row_number`<=#{throughRowNumber}")
                     .contains("'SOURCE_ONLY'")
                     .doesNotContain(
                             "<foreach",

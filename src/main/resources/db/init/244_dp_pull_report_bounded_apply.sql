@@ -260,18 +260,18 @@ CREATE TABLE IF NOT EXISTS dp_pull_report_stage (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 CREATE TABLE IF NOT EXISTS dp_pull_report_stage_row (
     task_id BIGINT NOT NULL,
-    row_number BIGINT NOT NULL,
+    `row_number` BIGINT NOT NULL,
     decision VARCHAR(32) NOT NULL,
     identity_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     accepted_identity_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
     payload_json MEDIUMTEXT NULL,
     gmt_create DATETIME(3) NOT NULL,
-    PRIMARY KEY (task_id, row_number),
+    PRIMARY KEY (task_id, `row_number`),
     UNIQUE KEY uk_dp_report_stage_accepted_identity (
         task_id, accepted_identity_sha256
     ),
-    KEY idx_dp_report_stage_row_apply (task_id, decision, row_number),
-    CONSTRAINT chk_dp_report_stage_row_number CHECK (row_number > 0),
+    KEY idx_dp_report_stage_row_apply (task_id, decision, `row_number`),
+    CONSTRAINT chk_dp_report_stage_row_number CHECK (`row_number` > 0),
     CONSTRAINT chk_dp_report_stage_row_decision
         CHECK (decision IN ('ACCEPTED', 'BUSINESS_SKIP', 'LATER_IDENTITY_CONFLICT')),
     CONSTRAINT chk_dp_report_stage_row_shape

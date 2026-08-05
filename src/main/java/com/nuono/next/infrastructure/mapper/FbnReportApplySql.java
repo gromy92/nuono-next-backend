@@ -4,7 +4,7 @@ package com.nuono.next.infrastructure.mapper;
 public final class FbnReportApplySql {
     private static final String CTE = lines(
             "WITH accepted AS (",
-            " SELECT staged.row_number, staged.identity_sha256, staged.payload_json, fact.*",
+            " SELECT staged.`row_number`, staged.identity_sha256, staged.payload_json, fact.*",
             " FROM dp_pull_report_stage_row staged",
             " JOIN JSON_TABLE(staged.payload_json, '$' COLUMNS(",
             "  businessKey VARCHAR(500) PATH '$.businessKey', partnerSku VARCHAR(100) PATH '$.partnerSku',",
@@ -17,7 +17,7 @@ public final class FbnReportApplySql {
             "  asnCreatedAt DATETIME PATH '$.asnCreatedAt', asnScheduleDate DATE PATH '$.asnScheduleDate',",
             "  asnCompletedAt DATETIME PATH '$.asnCompletedAt')) fact",
             " WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            "   AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}",
+            "   AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}",
             "), scope AS (",
             " SELECT task.owner_user_id, task.logical_store_id, task.store_code, task.site_code,",
             "        task.project_code",
@@ -41,8 +41,8 @@ public final class FbnReportApplySql {
                 " business_key_hash,row_status,warning_code,error_message,raw_row_json,normalized_row_json,",
                 " is_deleted,created_by,updated_by,gmt_create,gmt_updated)"
         ) + "\n" + CTE + lines(
-                " SELECT #{firstRowId}+ROW_NUMBER() OVER (ORDER BY row_number)-1,#{importId},",
-                " 'FBN_INBOUND_FBNRECEIVEDREPORT',row_number,businessKey,identity_sha256,",
+                " SELECT #{firstRowId}+ROW_NUMBER() OVER (ORDER BY `row_number`)-1,#{importId},",
+                " 'FBN_INBOUND_FBNRECEIVEDREPORT',`row_number`,businessKey,identity_sha256,",
                 " IF(receipt_status='NORMAL','VALID','WARNING'),",
                 " IF(receipt_status='NORMAL',NULL,receipt_status),NULL,",
                 " JSON_EXTRACT(payload_json,'$.rawFields'),",
@@ -65,8 +65,8 @@ public final class FbnReportApplySql {
                 " asn_created_at,asn_schedule_date,asn_completed_at,raw_payload_json,is_deleted,created_by,updated_by,",
                 " gmt_create,gmt_updated)"
         ) + "\n" + CTE + lines(
-                " SELECT #{firstReceiptId}+ROW_NUMBER() OVER (ORDER BY row_number)-1,#{importId},",
-                " #{firstRowId}+ROW_NUMBER() OVER (ORDER BY row_number)-1,owner_user_id,logical_store_id,",
+                " SELECT #{firstReceiptId}+ROW_NUMBER() OVER (ORDER BY `row_number`)-1,#{importId},",
+                " #{firstRowId}+ROW_NUMBER() OVER (ORDER BY `row_number`)-1,owner_user_id,logical_store_id,",
                 " store_code,site_code,project_code,NULL,NULL,NULL,noonAsnNr,NULL,",
                 " NULL,NULL,partnerSku,NULL,noonSku,",
                 " pbarcodeCanonical,partnerWarehouse,noonWarehouse,countryCode,qtyExpected,receivedQty,qcFailedQty,",

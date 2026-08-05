@@ -54,7 +54,7 @@ chunk_shape AS (
 ),
 row_shape AS (
   SELECT s.task_id,s.source_row_count,s.accepted_row_count,s.business_skipped_row_count,s.identity_skipped_row_count,
-    COUNT(r.row_number) actual_rows,MIN(r.row_number) first_row,MAX(r.row_number) last_row,
+    COUNT(r.`row_number`) actual_rows,MIN(r.`row_number`) first_row,MAX(r.`row_number`) last_row,
     COALESCE(SUM(r.decision='ACCEPTED'),0) accepted_rows,COALESCE(SUM(r.decision='BUSINESS_SKIP'),0) business_rows,
     COALESCE(SUM(r.decision='LATER_IDENTITY_CONFLICT'),0) identity_rows
   FROM dp_pull_report_stage s LEFT JOIN dp_pull_report_stage_row r ON r.task_id=s.task_id
