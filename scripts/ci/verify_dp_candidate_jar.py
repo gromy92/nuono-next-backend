@@ -25,6 +25,9 @@ FORBIDDEN_ENTRIES = frozenset(
         "FakeAli1688HistoricalOrderProvider.class",
     }
 )
+ROOT_LEVEL_MARKERS = frozenset(
+    entry.removeprefix("BOOT-INF/classes/") for entry in REQUIRED_ENTRIES
+)
 FORBIDDEN_PREFIXES = (
     "BOOT-INF/classes/com/nuono/next/noonreadiness/",
     "BOOT-INF/classes/com/nuono/next/nooncompleteness/",
@@ -44,6 +47,9 @@ def verify(candidate: Path) -> str:
     missing = sorted(REQUIRED_ENTRIES - entries)
     if missing:
         raise ValueError("DP_CANDIDATE_MARKER_MISSING:" + ",".join(missing))
+    misplaced = sorted(ROOT_LEVEL_MARKERS & entries)
+    if misplaced:
+        raise ValueError("DP_CANDIDATE_MARKER_OUTSIDE_CLASSPATH:" + ",".join(misplaced))
     forbidden = sorted(FORBIDDEN_ENTRIES & entries)
     forbidden.extend(
         sorted(

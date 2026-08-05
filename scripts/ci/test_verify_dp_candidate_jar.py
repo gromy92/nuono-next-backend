@@ -7,8 +7,21 @@ import zipfile
 
 from scripts.ci import verify_dp_candidate_jar
 
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+
 
 class VerifyDpCandidateJarTest(unittest.TestCase):
+    def test_pom_places_managed_markers_in_the_executable_classpath_once(self):
+        pom = (ROOT / "pom.xml").read_text(encoding="utf-8")
+
+        self.assertIn("<exclude>META-INF/nuono/**</exclude>", pom)
+        self.assertIn(
+            "<directory>src/main/resources/META-INF/nuono</directory>", pom
+        )
+        self.assertIn(
+            "<targetPath>BOOT-INF/classes/META-INF/nuono</targetPath>", pom
+        )
+
     def test_accepts_candidate_with_all_markers_and_no_retired_surface(self):
         with tempfile.TemporaryDirectory() as directory:
             candidate = self.write_candidate(pathlib.Path(directory))
@@ -51,6 +64,18 @@ class VerifyDpCandidateJarTest(unittest.TestCase):
                     archive.writestr(entry, "contract\n")
 
             with self.assertRaisesRegex(ValueError, "DP_CANDIDATE_MARKER_MISSING"):
+                verify_dp_candidate_jar.verify(candidate)
+
+    def test_rejects_root_level_duplicate_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = self.write_candidate(
+                pathlib.Path(directory),
+                "META-INF/nuono/dp-runtime-cutover-manifest-v1",
+            )
+
+            with self.assertRaisesRegex(
+                ValueError, "DP_CANDIDATE_MARKER_OUTSIDE_CLASSPATH"
+            ):
                 verify_dp_candidate_jar.verify(candidate)
 
     def write_candidate(self, root: pathlib.Path, extra: str | None = None) -> pathlib.Path:
