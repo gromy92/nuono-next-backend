@@ -106,15 +106,33 @@ def _load_migrations(resources):
 
 def _assert_contract(test_case, database, exact, live) -> None:
     exact_result = database.client.execute_readonly(exact)
+    detail = ""
+    if exact_result != "1" and "expected_check AS" in exact:
+        detail = "; check drift: " + _check_drift(database, exact)
     test_case.assertEqual(
         "1",
         exact_result,
         None if exact_result == "1" else
         "false successor exact predicates: " + ",".join(
             failing_predicate_indexes(database, exact)
-        ),
+        ) + detail,
     )
     test_case.assertEqual("1", database.client.execute_readonly(live))
+
+
+def _check_drift(database, exact) -> str:
+    select_start = exact.rfind("SELECT IF(")
+    if select_start < 0:
+        return "outer-select-missing"
+    return database.client.execute_readonly(
+        exact[:select_start]
+        + "SELECT GROUP_CONCAT(CONCAT(e.table_name,'.',e.constraint_name,':',"
+        "e.clause_sha256,'/',COALESCE(a.clause_sha256,'missing')) "
+        "ORDER BY e.table_name,e.constraint_name SEPARATOR '|') "
+        "FROM expected_check e LEFT JOIN actual_check a "
+        "USING(table_name,constraint_name) WHERE a.table_name IS NULL "
+        "OR a.enforced<>'YES' OR a.clause_sha256<>e.clause_sha256;"
+    )
 
 
 def _assert_244_preflight(test_case, database, migration, expected) -> None:
