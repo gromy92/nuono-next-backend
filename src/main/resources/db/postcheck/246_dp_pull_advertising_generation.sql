@@ -92,11 +92,11 @@ SELECT IF(
     AND view_definition LIKE '%state=%sealed%campaign_fact_count=%selectcount%dp_pull_advertising_campaign_fact%'
     AND view_definition LIKE '%query_fact_count=%selectcount%dp_pull_advertising_query_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_report_batch'
-    AND view_definition LIKE '%noon_ad_report_batch%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_sealed_current_generation%')=1
+    AND view_definition LIKE '%noon_ad_report_batch%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_sealed_current_generation%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_campaign_fact'
-    AND view_definition LIKE '%noon_ad_campaign_fact%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_campaign_fact%')=1
+    AND view_definition LIKE '%noon_ad_campaign_fact%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_campaign_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_query_fact'
-    AND view_definition LIKE '%noon_ad_query_fact%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_query_fact%')=1
+    AND view_definition LIKE '%noon_ad_query_fact%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_query_fact%')=1
   AND NOT EXISTS (SELECT 1 FROM generation_shape WHERE actual_campaign_count<>campaign_fact_count OR actual_query_count<>query_fact_count)
   AND NOT EXISTS (SELECT 1 FROM dp_pull_advertising_generation
     WHERE state='SEALED' AND matched_active_campaign_count<>active_campaign_count)

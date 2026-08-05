@@ -112,7 +112,7 @@ INSERT INTO `noon_ad_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gm
 VALUES ('noon_ad_query_fact', GREATEST(220000,COALESCE((SELECT MAX(`id`) FROM `noon_ad_query_fact`),0),COALESCE((SELECT MAX(`id`) FROM `dp_pull_advertising_query_fact`),0)),NOW(),NOW())
 ON DUPLICATE KEY UPDATE `next_id`=GREATEST(`next_id`,VALUES(`next_id`)),`gmt_updated`=NOW();
 -- Stable public projections are explicit; malformed or incomplete generations disappear.
-CREATE OR REPLACE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `dp_pull_advertising_sealed_current_generation` AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW `dp_pull_advertising_sealed_current_generation` AS
 SELECT g.task_id,g.owner_user_id,g.project_code,g.store_code,g.site_code,g.report_date,g.schedule_slot,
        g.authority_token_sha256,g.source_digest_sha256,g.batch_id,g.campaign_fact_count,g.query_fact_count,g.gmt_create,g.gmt_updated
 FROM `dp_pull_advertising_current_head` h JOIN `dp_pull_advertising_generation` g ON g.task_id=h.task_id AND g.batch_id=h.batch_id
