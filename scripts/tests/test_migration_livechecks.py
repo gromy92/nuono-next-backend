@@ -18,6 +18,8 @@ from tests.schema_migration_fakes import FakeDatabase  # noqa: E402
 
 
 class MigrationLivecheckContractTest(unittest.TestCase):
+    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243})
+
     @classmethod
     def setUpClass(cls):
         cls.migrations = load_catalog(
@@ -26,7 +28,7 @@ class MigrationLivecheckContractTest(unittest.TestCase):
 
     def test_default_remains_as_strict_as_the_original_postcheck(self):
         for migration in self.migrations:
-            if migration.order == 237:
+            if migration.order in self.SEPARATE_LIVECHECK_ORDERS:
                 continue
             with self.subTest(migration=migration.key):
                 self.assertEqual(migration.postcheck_path, migration.livecheck_path)
@@ -76,6 +78,24 @@ class MigrationLivecheckContractTest(unittest.TestCase):
             "product_management_id_sequence",
         ):
             self.assertIn(durable_marker, livecheck)
+
+    def test_243_uses_a_separate_additive_compatible_livecheck(self):
+        migration = next(item for item in self.migrations if item.order == 243)
+
+        self.assertEqual("AUTO_ADDITIVE", migration.kind)
+        self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
+        self.assertEqual(
+            PurePosixPath("db/livecheck/243_dp_pull_runtime.sql"),
+            migration.livecheck_path,
+        )
+        for marker in (
+            "expected_column",
+            "expected_index",
+            "a.is_nullable='YES'",
+            "a.non_unique=1 AND a.safe_shape=1",
+            "dp_pull_runtime_additive_livecheck",
+        ):
+            self.assertIn(marker, migration.livecheck_sql)
 
     def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):
         completed, pending = self.migrations[1:3]

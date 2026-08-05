@@ -20,6 +20,18 @@ management:
 
 nuono:
   stage: local-bootstrap
+  data-pull:
+    # Deployment-time implementation choice; individual DPs are not switched here.
+    execution-mode: ${NUONO_DATA_PULL_EXECUTION_MODE:LEGACY}
+    runtime:
+      scheduler-initial-delay-ms: ${NUONO_DATA_PULL_RUNTIME_INITIAL_DELAY_MS:30000}
+      scheduler-fixed-delay-ms: ${NUONO_DATA_PULL_RUNTIME_FIXED_DELAY_MS:15000}
+      worker-count: ${NUONO_DATA_PULL_RUNTIME_WORKER_COUNT:4}
+      lease-seconds: ${NUONO_DATA_PULL_RUNTIME_LEASE_SECONDS:300}
+      maximum-claims-per-tick: ${NUONO_DATA_PULL_RUNTIME_MAXIMUM_CLAIMS_PER_TICK:4}
+      backoff-base-seconds: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_BASE_SECONDS:60}
+      backoff-maximum-seconds: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_MAXIMUM_SECONDS:3600}
+      backoff-jitter-ratio: ${NUONO_DATA_PULL_RUNTIME_BACKOFF_JITTER_RATIO:0.20}
   auth:
     session-secret: ${NUONO_NEXT_AUTH_SESSION_SECRET:}
     session-ttl-seconds: ${NUONO_NEXT_AUTH_SESSION_TTL_SECONDS:28800}

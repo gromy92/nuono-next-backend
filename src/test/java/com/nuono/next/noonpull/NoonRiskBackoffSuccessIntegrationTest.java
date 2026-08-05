@@ -65,7 +65,9 @@ class NoonRiskBackoffSuccessIntegrationTest {
         NoonRiskBackoffGuard guard = emptyGuard();
         NoonInterfacePullRequest request = interfaceRequest();
         when(foundation.markRunning(12L, "noon-interface-puller")).thenReturn(task(NoonPullTaskStatus.RUNNING));
-        when(foundation.recordProgress(eq(12L), any(), anyInt(), anyInt(), any(), anyString()))
+        when(foundation.recordProgress(
+                eq(12L), any(), anyInt(), anyInt(), any(), anyString(), anyString()
+        ))
                 .thenReturn(task(NoonPullTaskStatus.RUNNING));
         NoonPullTaskRecord succeeded = task(NoonPullTaskStatus.SUCCEEDED);
         succeeded.setSourceBatchId("product-batch");
