@@ -198,6 +198,9 @@ class DataPullRuntimeMapperSqlTest {
     }
 
     private String compact(String[] fragments) {
-        return String.join(" ", fragments).replaceAll("\\s+", " ");
+        return String.join(" ", fragments)
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replaceAll("\\s+", " ");
     }
 }

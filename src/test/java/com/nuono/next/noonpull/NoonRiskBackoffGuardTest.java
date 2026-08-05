@@ -19,7 +19,7 @@ class NoonRiskBackoffGuardTest {
     );
 
     @Test
-    void exactPublicRiskDoesNotBlockAnotherPublicOperationOrPartner() {
+    void publicRiskCreatesPublicAccountWideHoldWithoutBlockingPartner() {
         InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, CLOCK);
 
@@ -35,19 +35,19 @@ class NoonRiskBackoffGuardTest {
         assertTrue(guard.currentHold(
                 NoonRiskBackoffScope.publicDetail(307L, "STR108065-NSA", "SA")
         ).isPresent());
-        assertFalse(guard.currentHold(
+        assertTrue(guard.currentHold(
                 NoonRiskBackoffScope.publicSearch(307L, "STR108065-NSA", "SA")
         ).isPresent());
         assertFalse(guard.currentHold(
                 NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA")
         ).isPresent());
-        assertNull(repository.selectLatestHold(
+        assertTrue(repository.selectLatestHold(
                 NoonRiskBackoffScope.allPublicNoon(307L, "STR108065-NSA", "SA").getScopeKey()
-        ));
+        ) != null);
     }
 
     @Test
-    void exactPartnerRiskDoesNotBlockAnotherPartnerOperation() {
+    void partnerRiskCreatesPartnerAccountWideHold() {
         InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, CLOCK);
 
@@ -60,12 +60,12 @@ class NoonRiskBackoffGuardTest {
                 "sales report blocked"
         );
 
-        assertFalse(guard.currentHold(
+        assertTrue(guard.currentHold(
                 NoonRiskBackoffScope.productInterface(307L, "STR108065-NSA", "SA")
         ).isPresent());
-        assertNull(repository.selectLatestHold(
+        assertTrue(repository.selectLatestHold(
                 NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA").getScopeKey()
-        ));
+        ) != null);
     }
 
     @Test
@@ -102,21 +102,20 @@ class NoonRiskBackoffGuardTest {
     }
 
     @Test
-    void successResetsOnlyTheExactOperation() {
+    void successResetsTheExactAndMatchingAccountWideHold() {
         InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
         NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, CLOCK);
         NoonRiskBackoffScope exact = NoonRiskBackoffScope.report(307L, "STR108065-NSA", "SA");
         NoonRiskBackoffScope broad = NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA");
 
         guard.recordRiskSignal(exact, "rate_limited", "SALES", 130001L, null, "exact");
-        guard.recordRiskSignal(broad, "rate_limited", "SALES", 130001L, null, "broad");
         guard.recordSuccess(exact, "SALES");
 
         assertNull(repository.selectActiveHold(exact.getScopeKey(), LocalDateTime.of(2026, 5, 22, 9, 1)));
-        assertTrue(repository.selectActiveHold(
+        assertNull(repository.selectActiveHold(
                 broad.getScopeKey(),
                 LocalDateTime.of(2026, 5, 22, 9, 1)
-        ) != null);
+        ));
     }
 
     private NoonReportPullRequest report(NoonPullDataDomain domain) {

@@ -3,7 +3,7 @@ package com.nuono.next.datapull.orchestration;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Technical runtime limits; none of these values disable a business DP or truncate its scope. */
+/** Technical runtime limits; none of these values disable a business DP or reduce its scope. */
 @ConfigurationProperties(prefix = "nuono.data-pull.runtime")
 public class DataPullRuntimeProperties {
 
