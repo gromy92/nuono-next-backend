@@ -124,16 +124,37 @@ def _check_drift(database, exact) -> str:
     select_start = exact.rfind("SELECT IF(")
     if select_start < 0:
         return "outer-select-missing"
+    hash_column = (
+        "clause_sha256" if "clause_sha256" in exact
+        else "clause_hash" if "clause_hash" in exact
+        else None
+    )
+    if hash_column is None:
+        return "named-check-contract-has-no-expression-hash"
     database.client.execute("SET SESSION group_concat_max_len=65535;")
-    return database.client.execute_readonly(
-        exact[:select_start]
+    prefix = exact[:select_start]
+    raw_first = database.client.execute_readonly(
+        prefix
+        + "SELECT CONCAT(e.table_name,'.',e.constraint_name,':',"
+        "HEX(cc.check_clause)) FROM expected_check e "
+        "LEFT JOIN actual_check a USING(table_name,constraint_name) "
+        "LEFT JOIN information_schema.check_constraints cc "
+        "ON cc.constraint_schema=DATABASE() "
+        "AND cc.constraint_name=e.constraint_name "
+        "WHERE a.table_name IS NULL OR a.enforced<>'YES' "
+        f"OR a.{hash_column}<>e.{hash_column} "
+        "ORDER BY e.table_name,e.constraint_name LIMIT 1;"
+    )
+    drift = database.client.execute_readonly(
+        prefix
         + "SELECT GROUP_CONCAT(CONCAT(e.table_name,'.',e.constraint_name,':',"
-        "e.clause_sha256,'/',COALESCE(a.clause_sha256,'missing')) "
+        f"e.{hash_column},'/',COALESCE(a.{hash_column},'missing')) "
         "ORDER BY e.table_name,e.constraint_name SEPARATOR '|') "
         "FROM expected_check e LEFT JOIN actual_check a "
         "USING(table_name,constraint_name) WHERE a.table_name IS NULL "
-        "OR a.enforced<>'YES' OR a.clause_sha256<>e.clause_sha256;"
+        f"OR a.enforced<>'YES' OR a.{hash_column}<>e.{hash_column};"
     )
+    return "raw-first=" + raw_first + "; drift=" + drift
 
 
 def _assert_244_preflight(test_case, database, migration, expected) -> None:
