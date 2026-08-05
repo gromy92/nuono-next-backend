@@ -31,7 +31,7 @@ actual_index AS (
 ),
 actual_check AS (
   SELECT tc.table_name,tc.constraint_name,tc.enforced,
-    REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause),'[`[:space:]]+',''),CONCAT(CHAR(92),CHAR(39)),CHAR(39)),'_utf8mb4',''),'_ascii','') check_clause
+    REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause),'[`()[:space:]]+',''),CONCAT(CHAR(92),CHAR(39)),CHAR(39)),'_utf8mb4',''),'_ascii','') check_clause
   FROM information_schema.table_constraints tc JOIN information_schema.check_constraints cc ON cc.constraint_schema=tc.constraint_schema AND cc.constraint_name=tc.constraint_name
   JOIN (SELECT DISTINCT table_name FROM required_check) e ON e.table_name=tc.table_name WHERE tc.constraint_schema=DATABASE() AND tc.constraint_type='CHECK'
 ),
@@ -61,7 +61,7 @@ SELECT IF(
   AND (SELECT COUNT(*) FROM information_schema.table_constraints WHERE constraint_schema=DATABASE() AND table_name='dp_pull_snapshot_apply' AND constraint_name='chk_dp_snapshot_apply_authority')=0
   AND NOT EXISTS (SELECT 1 FROM expected_view e LEFT JOIN actual_view a ON a.view_name=e.view_name WHERE a.view_name IS NULL OR a.security_type<>'INVOKER' OR a.check_option<>'NONE' OR a.is_updatable<>'NO' OR a.view_columns<>e.view_columns)
   AND NOT EXISTS (SELECT 1 FROM actual_view WHERE definition REGEXP 'select([a-z_][a-z0-9_]*\\.)?\\*')
-  AND EXISTS (SELECT 1 FROM actual_view WHERE view_name='official_warehouse_current_inventory_snapshot_line_raw' AND definition LIKE '%dp_pull_snapshot_current_head%' AND definition LIKE '%dp_pull_snapshot_apply_progress%' AND definition LIKE '%dp_pull_snapshot_apply%' AND definition LIKE '%official_warehouse_inventory_sync_batch%' AND definition LIKE '%unionall%' AND definition LIKE '%notexists%' AND definition LIKE '%count(%')
+  AND EXISTS (SELECT 1 FROM actual_view WHERE view_name='official_warehouse_current_inventory_snapshot_line_raw' AND definition LIKE '%dp_pull_snapshot_current_head%' AND definition LIKE '%dp_pull_snapshot_apply_progress%' AND definition LIKE '%dp_pull_snapshot_apply%' AND definition LIKE '%official_warehouse_inventory_sync_batch%' AND definition LIKE '%unionall%' AND definition LIKE '%not%exists%' AND definition LIKE '%count(%')
   AND EXISTS (SELECT 1 FROM actual_view WHERE view_name='official_warehouse_effective_inventory_snapshot_line' AND definition LIKE '%row_number()over%' AND definition LIKE '%candidate_rank=1%' AND definition LIKE '%leftjoin%')
   AND (SELECT COUNT(*) FROM product_management_id_sequence WHERE sequence_name='official_warehouse_inventory_snapshot_line' AND next_id>=GREATEST(622000,COALESCE((SELECT MAX(id) FROM official_warehouse_inventory_snapshot_line),0)))=1
   -- Empty bootstrap is mandatory here; livecheck below owns the explicit DP08A stage-only exception.
