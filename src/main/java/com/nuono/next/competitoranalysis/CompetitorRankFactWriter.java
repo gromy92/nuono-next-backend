@@ -1,5 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.competitoranalysis.dp08.Dp08TrackedProduct;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.infrastructure.mapper.CompetitorAnalysisMapper;
@@ -39,6 +40,24 @@ final class CompetitorRankFactWriter {
                 count += writeProduct(
                         context, "COMPETITOR", code, resultIndex, searchResultIdsByRankKey, page, scanDepth);
             }
+        }
+        return count;
+    }
+
+    int writeBound(
+            CompetitorKeywordRefreshContext context,
+            List<Dp08TrackedProduct> trackedProducts,
+            CompetitorSearchResultIndex resultIndex,
+            Map<String, Long> searchResultIdsByRankKey,
+            NoonSearchPage page,
+            int scanDepth
+    ) {
+        int count = 0;
+        for (Dp08TrackedProduct product : trackedProducts) {
+            count += writeProduct(
+                    context, product.getSubjectType().name(), product.getNoonProductCode(),
+                    resultIndex, searchResultIdsByRankKey, page, scanDepth
+            );
         }
         return count;
     }

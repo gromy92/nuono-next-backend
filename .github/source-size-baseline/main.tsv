@@ -5,7 +5,7 @@ src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.jav
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	971
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1174
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	354
-src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	669
+src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	661
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonFrontendSearchPageParser.java	806
 src/main/java/com/nuono/next/competitoranalysis/noon/NoonProductDetailPageParser.java	456
 src/main/java/com/nuono/next/foundation/FoundationUserDetail.java	407
