@@ -160,7 +160,6 @@ class Ali1688HistoricalOrderControllerTest {
         assertThat(view.getAuthorization().getStatus()).isEqualTo("authorized");
         assertThat(view.getAuthorization().getAuthorizationId()).isEqualTo(91001L);
         assertThat(view.getRoleCapabilities().isCanAuthorize()).isTrue();
-        assertThat(view.getRoleCapabilities().isCanTriggerSync()).isTrue();
         verify(service).createDevAuthorization(context);
     }
 
@@ -335,87 +334,6 @@ class Ali1688HistoricalOrderControllerTest {
 
         assertThat(view.getAuthorization().getStatus()).isEqualTo("not_authorized");
         verify(service).revokeAuthorization(context, 91001L);
-    }
-
-    @Test
-    void bossCanStartInitialBackfill() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = context(307L, BusinessAccountType.BOSS, "老板", 1);
-        Ali1688HistoricalOrderWorkbenchView expected = Ali1688HistoricalOrderWorkbenchView.authorizedDev(context, 91001L);
-
-        when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
-                .thenReturn(context);
-        when(service.runInitialBackfill(context)).thenReturn(expected);
-
-        Ali1688HistoricalOrderWorkbenchView view = controller.runInitialBackfill(request);
-
-        assertThat(view.getAuthorization().getStatus()).isEqualTo("authorized");
-        verify(service).runInitialBackfill(context);
-    }
-
-    @Test
-    void operationsCannotStartInitialBackfill() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = context(408L, BusinessAccountType.OPERATOR, "运营", 3);
-
-        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
-                .thenReturn(context);
-
-        assertThatThrownBy(() -> controller.runInitialBackfill(request))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("status")
-                .isEqualTo(HttpStatus.FORBIDDEN);
-        verify(service, never()).runInitialBackfill(context);
-    }
-
-    @Test
-    void bossCanRunManualRefresh() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = context(307L, BusinessAccountType.BOSS, "老板", 1);
-        Ali1688HistoricalOrderWorkbenchView expected = Ali1688HistoricalOrderWorkbenchView.authorizedDev(context, 91001L);
-
-        when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
-                .thenReturn(context);
-        when(service.runManualRefresh(context)).thenReturn(expected);
-
-        Ali1688HistoricalOrderWorkbenchView view = controller.runManualRefresh(request);
-
-        assertThat(view.getAuthorization().getStatus()).isEqualTo("authorized");
-        verify(service).runManualRefresh(context);
-    }
-
-    @Test
-    void operationsManagerCanRunManualRefresh() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = context(408L, BusinessAccountType.OPERATOR, "运营管理", 2);
-        Ali1688HistoricalOrderWorkbenchView expected = Ali1688HistoricalOrderWorkbenchView.authorizedDev(context, 91001L);
-
-        when(serviceProvider.getIfAvailable()).thenReturn(service);
-        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
-                .thenReturn(context);
-        when(service.runManualRefresh(context)).thenReturn(expected);
-
-        Ali1688HistoricalOrderWorkbenchView view = controller.runManualRefresh(request);
-
-        assertThat(view.getAuthorization().getStatus()).isEqualTo("authorized");
-        verify(service).runManualRefresh(context);
-    }
-
-    @Test
-    void operationsCannotRunManualRefresh() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        BusinessAccessContext context = context(409L, BusinessAccountType.OPERATOR, "运营", 3);
-
-        when(accessResolver.requireBusinessContext(request, BusinessCapability.ALI1688_HISTORICAL_ORDERS))
-                .thenReturn(context);
-
-        assertThatThrownBy(() -> controller.runManualRefresh(request))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting("status")
-                .isEqualTo(HttpStatus.FORBIDDEN);
-        verify(service, never()).runManualRefresh(context);
     }
 
     @Test

@@ -78,13 +78,6 @@ class MyBatisSalesPriceTrendRepositoryTest {
         }
 
         @Override
-        public com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
-                auditSalesOrderCompleteness(Long ownerUserId, String storeCode, String siteCode) {
-            return com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
-                    .notIntegrated("not_integrated");
-        }
-
-        @Override
         public List<NoonOrderPriceTrendBucketRow> selectPriceTrendBuckets(
                 Long ownerUserId,
                 String storeCode,

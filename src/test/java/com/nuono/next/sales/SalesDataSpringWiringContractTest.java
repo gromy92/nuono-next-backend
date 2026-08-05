@@ -20,35 +20,9 @@ class SalesDataSpringWiringContractTest {
     void salesImportComponentsAreSpringBeans() {
         assertNotNull(NoonProductViewsSalesReportParser.class.getAnnotation(Component.class));
         assertNotNull(NoonSalesCsvImportService.class.getAnnotation(Service.class));
-        assertNotNull(LegacySalesBackfillService.class.getAnnotation(Service.class));
-        assertNotNull(UnavailableLegacySalesBackfillRowProvider.class.getAnnotation(Component.class));
         assertNotNull(SalesImportQualityService.class.getAnnotation(Service.class));
         assertNotNull(MyBatisSalesFactRepository.class.getAnnotation(Repository.class));
-    }
-
-    @Test
-    void salesSyncTaskComponentsAreSpringBeans() {
-        assertNotNull(SalesSyncTaskService.class.getAnnotation(Service.class));
-        assertNotNull(MyBatisSalesSyncTaskRepository.class.getAnnotation(Repository.class));
-        assertNotNull(UnavailableNoonSalesReportProvider.class.getAnnotation(Component.class));
         assertNotNull(NoonSalesReportBindingResolver.class.getAnnotation(Service.class));
-        assertNotNull(NoonProductViewsSalesReportExporter.class.getAnnotation(Service.class));
-        assertNotNull(NoonProductViewsSalesReportProvider.class.getAnnotation(Component.class));
-        assertNotNull(NoonSessionGatewaySalesReportSessionFactory.class.getAnnotation(Component.class));
-    }
-
-    @Test
-    void legacySalesBackfillServiceCanWireWithUnavailableProvider() {
-        new ApplicationContextRunner()
-                .withUserConfiguration(
-                        LegacySalesBackfillService.class,
-                        UnavailableLegacySalesBackfillRowProvider.class,
-                        TestSalesFactRepositoryConfig.class
-                )
-                .run(context -> {
-                    assertNotNull(context.getBean(LegacySalesBackfillService.class));
-                    assertNotNull(context.getBean(LegacySalesBackfillRowProvider.class));
-                });
     }
 
     @Test
@@ -74,23 +48,6 @@ class SalesDataSpringWiringContractTest {
                 ));
     }
 
-    @Test
-    void salesSyncTaskServiceCanWireWithDefaultUnavailableNoonProvider() {
-        new ApplicationContextRunner()
-                .withUserConfiguration(
-                        SalesSyncTaskService.class,
-                        NoonSalesCsvImportService.class,
-                        NoonProductViewsSalesReportParser.class,
-                        UnavailableNoonSalesReportProvider.class,
-                        TestSalesSyncTaskRepositoryConfig.class,
-                        TestSalesFactRepositoryConfig.class
-                )
-                .run(context -> {
-                    assertNotNull(context.getBean(SalesSyncTaskService.class));
-                    assertNotNull(context.getBean(NoonSalesReportProvider.class));
-                });
-    }
-
     @Configuration
     static class TestSalesFactRepositoryConfig {
 
@@ -109,50 +66,6 @@ class SalesDataSpringWiringContractTest {
                 @Override
                 public List<DailySalesFact> list(SalesFactQuery query) {
                     return List.of();
-                }
-            };
-        }
-    }
-
-    @Configuration
-    static class TestSalesSyncTaskRepositoryConfig {
-
-        @Bean
-        SalesSyncTaskRepository salesSyncTaskRepository() {
-            return new SalesSyncTaskRepository() {
-                @Override
-                public SalesSyncTaskRecord createQueued(SalesSyncTaskCommand command) {
-                    return SalesSyncTaskRecord.queued(1L, command);
-                }
-
-                @Override
-                public boolean claimRunning(Long taskId) {
-                    return false;
-                }
-
-                @Override
-                public SalesSyncTaskRecord markSucceeded(Long taskId, NoonSalesCsvImportResult result) {
-                    return null;
-                }
-
-                @Override
-                public SalesSyncTaskRecord markFailed(Long taskId, String failureReason) {
-                    return null;
-                }
-
-                @Override
-                public SalesSyncTaskRecord markWaitingForAuthorization(Long taskId, Long recoveryId) {
-                    return null;
-                }
-
-                @Override
-                public List<SalesSyncTaskRecord> listQueued(int limit) {
-                    return List.of();
-                }
-
-                @Override
-                public SalesSyncTaskRecord findById(Long taskId) {
-                    return null;
                 }
             };
         }

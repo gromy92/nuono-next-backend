@@ -1,6 +1,5 @@
 package com.nuono.next.infrastructure.mapper;
 
-import com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit;
 import com.nuono.next.noonpull.NoonOrderLineFact;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -80,25 +79,6 @@ public interface NoonOrderFactMapper {
             "  gmt_updated = NOW()"
     })
     int upsertOrderLineFact(@Param("id") Long id, @Param("fact") NoonOrderLineFact fact);
-
-    /** Temporary S8 compatibility for the read-only legacy consumer removed in S9. */
-    @Select({
-            "SELECT",
-            "  MAX(report_date_to) AS latestOrderDate,",
-            "  MIN(report_date_from) AS historyCoveredFrom,",
-            "  MAX(report_date_to) AS historyCoveredTo,",
-            "  COUNT(1) AS orderLineCount,",
-            "  TRUE AS integrated",
-            "FROM noon_order_line_fact",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND store_code = #{storeCode}",
-            "  AND site_code = #{siteCode}"
-    })
-    NoonSalesOrderCompletenessAudit auditSalesOrderCompleteness(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode
-    );
 
     @Select({
             "SELECT",

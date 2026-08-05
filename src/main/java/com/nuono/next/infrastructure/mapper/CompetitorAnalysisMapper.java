@@ -23,7 +23,6 @@ import com.nuono.next.competitoranalysis.CompetitorSearchRunInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchRunRow;
 import com.nuono.next.competitoranalysis.CompetitorSearchResultInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorSearchResultObservationRow;
-import com.nuono.next.competitoranalysis.CompetitorTransientKeywordFailureRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductInsertCommand;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductListRow;
 import com.nuono.next.competitoranalysis.CompetitorWatchProductQuery;
@@ -39,7 +38,7 @@ import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMapper, CompetitorRefreshExecutionMapper,
-        CompetitorRefreshRetryMapper, CompetitorDetailTakeoverMapper, CompetitorProductDetailWriteMapper,
+        CompetitorRefreshRetryMapper, CompetitorProductDetailWriteMapper,
         CompetitorListCoverageMapper, CompetitorCorrectionFenceMapper {
     @Insert({
             "INSERT INTO operations_competitor_analysis_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -2176,54 +2175,6 @@ public interface CompetitorAnalysisMapper extends CompetitorRefreshRecoveryMappe
 
     @Select("SELECT id FROM operations_competitor_keyword_run WHERE id = #{keywordRunId} AND is_deleted = b'0' FOR UPDATE")
     Long lockKeywordRunForBrowserObservation(@Param("keywordRunId") Long keywordRunId);
-    @Select({
-            "SELECT",
-            "  kr.search_run_id AS searchRunId,",
-            "  sr.watch_product_id AS watchProductId,",
-            "  kr.keyword_id AS keywordId",
-            "FROM operations_competitor_keyword_run kr",
-            "JOIN operations_competitor_search_run sr",
-            "  ON sr.id = kr.search_run_id",
-            " AND sr.is_deleted = b'0'",
-            "JOIN operations_competitor_keyword kw",
-            "  ON kw.id = kr.keyword_id",
-            " AND kw.status = 'ACTIVE'",
-            " AND kw.is_deleted = b'0'",
-            "JOIN operations_competitor_watch_product wp",
-            "  ON wp.id = sr.watch_product_id",
-            " AND wp.status = 'ACTIVE'",
-            " AND wp.is_deleted = b'0'",
-            "WHERE sr.trigger_mode = 'SCHEDULED_RANK_MONITOR'",
-            "  AND sr.status = 'PARTIAL_FAILED'",
-            "  AND sr.started_at >= #{sinceTime}",
-            "  AND kr.provider_status = 'FAILED'",
-            "  AND kr.error_code = 'PROVIDER_UNAVAILABLE'",
-            "  AND kr.is_deleted = b'0'",
-            "  AND NOT EXISTS (",
-            "    SELECT 1",
-            "    FROM operations_competitor_keyword_run newer",
-            "    WHERE newer.search_run_id = kr.search_run_id",
-            "      AND newer.keyword_id = kr.keyword_id",
-            "      AND newer.id > kr.id",
-            "      AND newer.is_deleted = b'0'",
-            "  )",
-            "  AND (",
-            "    SELECT COUNT(*)",
-            "    FROM operations_competitor_keyword_run attempts",
-            "    WHERE attempts.search_run_id = kr.search_run_id",
-            "      AND attempts.keyword_id = kr.keyword_id",
-            "      AND attempts.provider_status = 'FAILED'",
-            "      AND attempts.error_code = 'PROVIDER_UNAVAILABLE'",
-            "      AND attempts.is_deleted = b'0'",
-            "  ) = 1",
-            "ORDER BY kr.id ASC",
-            "LIMIT #{limit}"
-    })
-    List<CompetitorTransientKeywordFailureRow> listRetryableTransientRankKeywordFailures(
-            @Param("sinceTime") LocalDateTime sinceTime,
-            @Param("limit") int limit
-    );
-
     @Select({
             "SELECT",
             "  id, owner_user_id AS ownerUserId, store_code AS storeCode, site_code AS siteCode,",

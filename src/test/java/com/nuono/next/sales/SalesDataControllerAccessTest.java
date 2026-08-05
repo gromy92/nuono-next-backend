@@ -35,9 +35,6 @@ class SalesDataControllerAccessTest {
     private SalesAnalyticsService analyticsService;
 
     @Mock
-    private SalesSyncTaskService syncTaskService;
-
-    @Mock
     private SalesImportQualityService importQualityService;
 
     @Mock
@@ -53,7 +50,6 @@ class SalesDataControllerAccessTest {
         controller = new SalesDataController(
                 importService,
                 analyticsService,
-                syncTaskService,
                 importQualityService,
                 activityWindowService,
                 businessAccessResolver
@@ -277,60 +273,6 @@ class SalesDataControllerAccessTest {
     }
 
     @Test
-    void triggerNoonSalesSyncTaskUsesAuthorizedOwnerAndRequester() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU"))
-                .thenReturn(salesContext());
-        when(syncTaskService.triggerAndRun(any()))
-                .thenReturn(succeededTask());
-        SalesSyncTaskRequest body = syncRequest();
-
-        controller.triggerNoonProductViewsAndSalesDataSync(body, request);
-
-        ArgumentCaptor<SalesSyncTaskCommand> captor = ArgumentCaptor.forClass(SalesSyncTaskCommand.class);
-        verify(syncTaskService).triggerAndRun(captor.capture());
-        assertEquals(10002L, captor.getValue().getOwnerUserId());
-        assertEquals(245027L, captor.getValue().getLogicalStoreId());
-        assertEquals("STR245027-SAU", captor.getValue().getStoreCode());
-        assertEquals("SA", captor.getValue().getSiteCode());
-        assertEquals(LocalDate.of(2026, 4, 30), captor.getValue().getDateFrom());
-        assertEquals(LocalDate.of(2026, 5, 4), captor.getValue().getDateTo());
-        assertEquals(10003L, captor.getValue().getRequestedBy());
-        assertEquals("manual", captor.getValue().getTriggerType());
-        assertEquals("NONE", captor.getValue().getListingCoverageMode());
-    }
-
-    @Test
-    void triggerNoonSalesSyncTaskDoesNotCallServiceWhenStoreAccessIsRejected() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU"))
-                .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号不能操作该店铺。"));
-        SalesSyncTaskRequest body = syncRequest();
-
-        ResponseStatusException error = assertThrows(
-                ResponseStatusException.class,
-                () -> controller.triggerNoonProductViewsAndSalesDataSync(body, request)
-        );
-
-        assertEquals(HttpStatus.FORBIDDEN, error.getStatus());
-        verify(syncTaskService, never()).triggerAndRun(any());
-    }
-
-    @Test
-    void getSalesSyncTaskStatusRequiresAccessToTaskStore() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        when(syncTaskService.getTask(5001L))
-                .thenReturn(succeededTask());
-        when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU"))
-                .thenReturn(salesContext());
-
-        SalesSyncTaskRecord task = controller.getSalesSyncTask(5001L, request);
-
-        assertEquals("succeeded", task.getStatus());
-        verify(businessAccessResolver).requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU");
-    }
-
-    @Test
     void listImportBatchesUsesAuthorizedOwnerAndFilters() {
         MockHttpServletRequest request = new MockHttpServletRequest();
         when(businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU"))
@@ -368,39 +310,6 @@ class SalesDataControllerAccessTest {
         assertEquals("imported_with_exceptions", detail.getBatch().getStatus());
         assertEquals(1, detail.getExceptions().size());
         verify(businessAccessResolver).requireStoreAccess(request, BusinessCapability.SALES_DATA, "STR245027-SAU");
-    }
-
-    private SalesSyncTaskRequest syncRequest() {
-        SalesSyncTaskRequest body = new SalesSyncTaskRequest();
-        body.setLogicalStoreId(245027L);
-        body.setStoreCode("STR245027-SAU");
-        body.setSiteCode("SA");
-        body.setDateFrom("2026-04-30");
-        body.setDateTo("2026-05-04");
-        return body;
-    }
-
-    private SalesSyncTaskRecord succeededTask() {
-        return new SalesSyncTaskRecord(
-                5001L,
-                10002L,
-                245027L,
-                "STR245027-SAU",
-                "SA",
-                LocalDate.of(2026, 4, 30),
-                LocalDate.of(2026, 5, 4),
-                10003L,
-                "manual",
-                "NONE",
-                "succeeded",
-                9001L,
-                1,
-                1,
-                0,
-                LocalDate.of(2026, 5, 4),
-                null,
-                null
-        );
     }
 
     private SalesImportBatchDetail batchDetail() {

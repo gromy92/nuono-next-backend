@@ -3,7 +3,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.competitoranalysis.noon.NoonProductCodeSupport;
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
-import com.nuono.next.noon.NoonAccountTaskQueue;
 import com.nuono.next.noonpull.NoonPullFailurePolicy;
 import com.nuono.next.noonpull.NoonPullFailureType;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
@@ -11,10 +10,8 @@ import com.nuono.next.noonpull.NoonRiskBackoffHold;
 import com.nuono.next.noonpull.NoonRiskBackoffScope;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailAdapter;
-import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailRequest;
 import com.nuono.next.productpublicdetail.noon.NoonPublicProductDetailResult;
 import com.nuono.next.system.task.OperationalTask;
-import com.nuono.next.system.task.OperationalTaskPayload;
 import com.nuono.next.system.task.OperationalTaskService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -23,7 +20,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
@@ -44,11 +40,8 @@ public class ProductPublicDetailSyncService {
     private final ProductPublicDetailMapper mapper;
     private final OperationalTaskService operationalTaskService;
     private final Supplier<NoonPublicProductDetailAdapter> adapterSupplier;
-    private final TaskSubmitter taskSubmitter;
     private final ObjectMapper objectMapper;
     private final Clock clock;
-    private final int maxProductsPerTask;
-    private final int staleDays;
     private final int failureCooldownHours;
     private final NoonRiskBackoffGuard riskBackoffGuard;
     private final NoonPullFailurePolicy failurePolicy;
@@ -56,31 +49,18 @@ public class ProductPublicDetailSyncService {
     public ProductPublicDetailSyncService(
             ProductPublicDetailMapper mapper,
             OperationalTaskService operationalTaskService,
-            ObjectProvider<NoonAccountTaskQueue> queueProvider,
             ObjectProvider<NoonPublicProductDetailAdapter> adapterProvider,
             ObjectProvider<NoonRiskBackoffGuard> riskBackoffGuard,
             ObjectProvider<NoonPullFailurePolicy> failurePolicy,
             ObjectMapper objectMapper,
-            @Value("${nuono.product-public-detail.scheduler.max-products-per-task:100}") int maxProductsPerTask,
-            @Value("${nuono.product-public-detail.scheduler.stale-days:1}") int staleDays,
             @Value("${nuono.product-public-detail.scheduler.failure-cooldown-hours:12}") int failureCooldownHours
     ) {
         this(
                 mapper,
                 operationalTaskService,
                 adapterProvider::getIfAvailable,
-                (accountKey, task) -> {
-                    NoonAccountTaskQueue queue = queueProvider.getIfAvailable();
-                    if (queue == null) {
-                        task.run();
-                    } else {
-                        queue.submit(accountKey, task);
-                    }
-                },
                 objectMapper,
                 Clock.systemUTC(),
-                maxProductsPerTask,
-                staleDays,
                 failureCooldownHours,
                 riskBackoffGuard == null
                         ? NoonRiskBackoffGuard.disabled()
@@ -92,7 +72,6 @@ public class ProductPublicDetailSyncService {
             ProductPublicDetailMapper mapper,
             OperationalTaskService operationalTaskService,
             NoonPublicProductDetailAdapter adapter,
-            TaskSubmitter taskSubmitter,
             ObjectMapper objectMapper,
             Clock clock
     ) {
@@ -100,12 +79,9 @@ public class ProductPublicDetailSyncService {
                 mapper,
                 operationalTaskService,
                 () -> adapter,
-                taskSubmitter,
                 objectMapper,
                 clock,
-                100,
-                1,
-                12,
+                0,
                 NoonRiskBackoffGuard.disabled(),
                 new NoonPullFailurePolicy(clock)
         );
@@ -114,36 +90,8 @@ public class ProductPublicDetailSyncService {
             ProductPublicDetailMapper mapper,
             OperationalTaskService operationalTaskService,
             Supplier<NoonPublicProductDetailAdapter> adapterSupplier,
-            TaskSubmitter taskSubmitter,
             ObjectMapper objectMapper,
             Clock clock,
-            int maxProductsPerTask,
-            int staleDays,
-            int failureCooldownHours
-    ) {
-        this(
-                mapper,
-                operationalTaskService,
-                adapterSupplier,
-                taskSubmitter,
-                objectMapper,
-                clock,
-                maxProductsPerTask,
-                staleDays,
-                failureCooldownHours,
-                NoonRiskBackoffGuard.disabled(),
-                new NoonPullFailurePolicy(clock)
-        );
-    }
-    ProductPublicDetailSyncService(
-            ProductPublicDetailMapper mapper,
-            OperationalTaskService operationalTaskService,
-            Supplier<NoonPublicProductDetailAdapter> adapterSupplier,
-            TaskSubmitter taskSubmitter,
-            ObjectMapper objectMapper,
-            Clock clock,
-            int maxProductsPerTask,
-            int staleDays,
             int failureCooldownHours,
             NoonRiskBackoffGuard riskBackoffGuard,
             NoonPullFailurePolicy failurePolicy
@@ -151,42 +99,11 @@ public class ProductPublicDetailSyncService {
         this.mapper = mapper;
         this.operationalTaskService = operationalTaskService;
         this.adapterSupplier = adapterSupplier == null ? () -> null : adapterSupplier;
-        this.taskSubmitter = taskSubmitter == null ? (key, task) -> task.run() : taskSubmitter;
         this.objectMapper = objectMapper == null ? new ObjectMapper() : objectMapper;
         this.clock = clock == null ? Clock.systemUTC() : clock;
-        this.maxProductsPerTask = Integer.MAX_VALUE;
-        this.staleDays = Math.max(1, staleDays);
-        this.failureCooldownHours = 0;
+        this.failureCooldownHours = Math.max(0, failureCooldownHours);
         this.riskBackoffGuard = riskBackoffGuard == null ? NoonRiskBackoffGuard.disabled() : riskBackoffGuard;
         this.failurePolicy = failurePolicy == null ? new NoonPullFailurePolicy(this.clock) : failurePolicy;
-    }
-    public ProductPublicDetailTaskView submitManual(BusinessAccessContext context, String storeCode, String siteCode) {
-        String normalizedStore = normalizeStore(storeCode);
-        String normalizedSite = normalizeSite(siteCode);
-        Long ownerUserId = resolveOwnerUserId(context, normalizedStore);
-        requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
-        OperationalTask active = findActiveTask(ownerUserId, normalizedStore, normalizedSite);
-        if (active != null) {
-            return ProductPublicDetailTaskView.from(active);
-        }
-        return ProductPublicDetailTaskView.from(submitTask(
-                ownerUserId,
-                normalizedStore,
-                normalizedSite,
-                context.getSessionUserId(),
-                false,
-                true
-        ));
-    }
-    public ProductPublicDetailTaskView submitScheduled(Long ownerUserId, String storeCode, String siteCode) {
-        String normalizedStore = normalizeStore(storeCode);
-        String normalizedSite = normalizeSite(siteCode);
-        requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
-        OperationalTask active = findActiveTask(ownerUserId, normalizedStore, normalizedSite);
-        if (active != null) {
-            return ProductPublicDetailTaskView.from(active);
-        }
-        return ProductPublicDetailTaskView.from(submitTask(ownerUserId, normalizedStore, normalizedSite, ownerUserId, true, true));
     }
     public ProductPublicDetailStatusView syncStatus(BusinessAccessContext context, String storeCode, String siteCode) {
         String normalizedStore = normalizeStore(storeCode);
@@ -235,103 +152,6 @@ public class ProductPublicDetailSyncService {
         requireActiveScope(ownerUserId, normalizedStore, normalizedSite);
         return mapper.selectLatestSnapshot(ownerUserId, normalizedStore, normalizedSite, productMasterId, productVariantId);
     }
-    void runTask(
-            Long taskId,
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            Long actorUserId,
-            boolean scheduled,
-            boolean enforcePreferredSite
-    ) {
-        long startedNanos = System.nanoTime();
-        ProductPublicDetailSyncSummary summary = new ProductPublicDetailSyncSummary();
-        NoonPublicProductDetailAdapter adapter = adapterSupplier.get();
-        if (adapter == null) {
-            operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_ADAPTER_UNAVAILABLE", "Noon 前台公开详情 adapter 不可用。");
-            return;
-        }
-        Optional<NoonRiskBackoffHold> activeHold = currentRiskBackoffHold(ownerUserId, storeCode, siteCode);
-        if (activeHold.isPresent()) {
-            failRiskBackoff(taskId, activeHold.get(), null);
-            return;
-        }
-        summary.setAdapterVersion(adapter.adapterVersion());
-        try {
-            List<ProductPublicDetailCandidate> candidates = mapper.listCandidates(
-                    ownerUserId,
-                    storeCode,
-                    siteCode,
-                    maxProductsPerTask,
-                    staleDays,
-                    failureCooldownHours,
-                    scheduled,
-                    enforcePreferredSite
-            );
-            summary.setSelected(candidates.size());
-            if (candidates.isEmpty()) {
-                summary.setElapsedMillis(elapsedMillis(startedNanos));
-                operationalTaskService.complete(taskId, toJson(summary), "商品前台详情同步完成：没有符合条件的候选商品。");
-                return;
-            }
-            int index = 0;
-            for (ProductPublicDetailCandidate candidate : candidates) {
-                Optional<NoonRiskBackoffHold> currentHold = currentRiskBackoffHold(ownerUserId, storeCode, siteCode);
-                if (currentHold.isPresent()) {
-                    summary.setElapsedMillis(elapsedMillis(startedNanos));
-                    failRiskBackoff(taskId, currentHold.get(), summary);
-                    return;
-                }
-                index++;
-                String code = NoonProductCodeSupport.normalize(candidate.getNoonProductCode());
-                if (!StringUtils.hasText(code) || NoonProductCodeSupport.codeType(code).isEmpty()) {
-                    summary.setSkipped(summary.getSkipped() + 1);
-                    continue;
-                }
-                try {
-                    NoonPublicProductDetailResult result = adapter.fetch(NoonPublicProductDetailRequest.builder()
-                            .siteCode(candidate.getSiteCode())
-                            .locale(defaultLocale(candidate.getSiteCode()))
-                            .noonProductCode(code)
-                            .build());
-                    if (result == null) {
-                        result = failureResult(code, "PROVIDER_EMPTY_RESPONSE", "Noon 前台公开详情 adapter 返回空结果。", null, null, null, null);
-                    }
-                    ProductPublicDetailSnapshot snapshot = toSnapshot(candidate, result, actorUserId);
-                    upsertSnapshot(snapshot);
-                    summary.increment(snapshot.getSyncStatus());
-                    Optional<NoonRiskBackoffHold> hold = recordRiskBackoffIfNeeded(
-                            taskId,
-                            ownerUserId,
-                            storeCode,
-                            siteCode,
-                            snapshot
-                    );
-                    if (hold.isPresent()) {
-                        summary.setElapsedMillis(elapsedMillis(startedNanos));
-                        failRiskBackoff(taskId, hold.get(), summary);
-                        return;
-                    }
-                } catch (Exception exception) {
-                    ProductPublicDetailSnapshot snapshot = toSnapshot(
-                            candidate,
-                            failureResult(code, "PROVIDER_EXCEPTION", shrink(exception.getMessage(), 300), null, null, null, null),
-                            actorUserId
-                    );
-                    upsertSnapshot(snapshot);
-                    summary.increment(ProductPublicDetailSyncStatus.FAILED);
-                }
-                operationalTaskService.progress(taskId, progress(index, candidates.size()), progressMessage(index, candidates.size(), summary));
-            }
-            summary.setElapsedMillis(elapsedMillis(startedNanos));
-            if (summary.getSucceeded() > 0 && summary.getPartial() == 0 && summary.getFailed() == 0) {
-                riskBackoffGuard.recordSuccess(publicDetailScope(ownerUserId, storeCode, siteCode), "PUBLIC_DETAIL");
-            }
-            operationalTaskService.complete(taskId, toJson(summary), completeMessage(summary));
-        } catch (Exception exception) {
-            operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_SYNC_FAILED", shrink(exception.getMessage(), 500));
-        }
-    }
     Optional<NoonRiskBackoffHold> recordRiskBackoffIfNeeded(
             Long taskId,
             Long ownerUserId,
@@ -356,14 +176,6 @@ public class ProductPublicDetailSyncService {
         );
         return Optional.of(hold);
     }
-    private void failRiskBackoff(Long taskId, NoonRiskBackoffHold hold, ProductPublicDetailSyncSummary summary) {
-        String message = "商品前台详情触发 Noon 风控退避："
-                + (hold == null ? "unknown" : hold.getRiskType())
-                + "，冷却至 "
-                + (hold == null ? "unknown" : hold.getBlockedUntil())
-                + (summary == null ? "。" : "；本轮已处理 " + summary.getSelected() + " 个候选中的部分商品。");
-        operationalTaskService.fail(taskId, "PRODUCT_PUBLIC_DETAIL_RISK_BACKOFF", message);
-    }
     private boolean isRiskBackoffFailure(NoonPullFailureType failureType) {
         return failureType == NoonPullFailureType.RATE_LIMITED
                 || failureType == NoonPullFailureType.CAPTCHA_REQUIRED
@@ -387,34 +199,6 @@ public class ProductPublicDetailSyncService {
                 text(snapshot.getFailureMessage()),
                 snapshot.getProviderHttpStatus() == null ? "" : "http " + snapshot.getProviderHttpStatus()
         ).trim();
-    }
-    private OperationalTask submitTask(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            Long actorUserId,
-            boolean scheduled,
-            boolean enforcePreferredSite
-    ) {
-        String naturalKey = scheduled ? scheduledNaturalKey(ownerUserId, storeCode, siteCode) : manualNaturalKey(ownerUserId, storeCode, siteCode);
-        OperationalTaskPayload payload = OperationalTaskPayload.builder()
-                .ownerUserId(ownerUserId)
-                .storeCode(storeCode)
-                .siteCode(siteCode)
-                .payloadJson(toJson(Map.of(
-                        "ownerUserId", ownerUserId,
-                        "storeCode", storeCode,
-                        "siteCode", siteCode,
-                        "trigger", scheduled ? "SCHEDULED" : "MANUAL"
-                )))
-                .message("商品前台详情同步正在后台执行。")
-                .build();
-        OperationalTask task = operationalTaskService.start(TASK_TYPE, naturalKey, payload);
-        taskSubmitter.submit(
-                accountKey(ownerUserId, storeCode),
-                () -> runTask(task.getId(), ownerUserId, storeCode, siteCode, actorUserId, scheduled, enforcePreferredSite)
-        );
-        return task;
     }
     void upsertSnapshot(ProductPublicDetailSnapshot snapshot) {
         if (snapshot == null || snapshot.getSyncStatus() == null) {
@@ -571,12 +355,6 @@ public class ProductPublicDetailSyncService {
         Long ownerUserId = context.resolveOwnerUserIdForStore(storeCode);
         return ownerUserId == null ? context.getBusinessOwnerUserId() : ownerUserId;
     }
-    private OperationalTask findActiveTask(Long ownerUserId, String storeCode, String siteCode) {
-        return operationalTaskService.listActive(TASK_TYPE, 1000).stream()
-                .filter(task -> sameScope(task, ownerUserId, storeCode, siteCode))
-                .findFirst()
-                .orElse(null);
-    }
     private OperationalTask findLatestTask(Long ownerUserId, String storeCode, String siteCode) {
         return operationalTaskService.listRecent(TASK_TYPE, 200).stream()
                 .filter(task -> sameScope(task, ownerUserId, storeCode, siteCode))
@@ -589,15 +367,6 @@ public class ProductPublicDetailSyncService {
                 && Objects.equals(normalizeStore(task.getStoreCode()), storeCode)
                 && Objects.equals(normalizeSite(task.getSiteCode()), siteCode);
     }
-    private String scheduledNaturalKey(Long ownerUserId, String storeCode, String siteCode) {
-        return "product-public-detail:" + ownerUserId + ":" + storeCode + ":" + siteCode + ":" + LocalDate.now(BUSINESS_ZONE);
-    }
-    private String manualNaturalKey(Long ownerUserId, String storeCode, String siteCode) {
-        return "product-public-detail:" + ownerUserId + ":" + storeCode + ":" + siteCode + ":manual:" + System.currentTimeMillis();
-    }
-    private String accountKey(Long ownerUserId, String storeCode) {
-        return ownerUserId + ":" + storeCode;
-    }
     String defaultLocale(String siteCode) {
         String site = normalizeSite(siteCode);
         if ("AE".equals(site) || "UAE".equals(site)) {
@@ -607,30 +376,6 @@ public class ProductPublicDetailSyncService {
             return "en-EG";
         }
         return "en-SA";
-    }
-    private int progress(int index, int total) {
-        if (total <= 0) {
-            return 100;
-        }
-        return Math.max(1, Math.min(99, (int) Math.floor(index * 100.0 / total)));
-    }
-    private String progressMessage(int index, int total, ProductPublicDetailSyncSummary summary) {
-        return "商品前台详情同步中：" + index + "/" + total
-                + "，成功 " + summary.getSucceeded()
-                + "，部分 " + summary.getPartial()
-                + "，未找到 " + summary.getNotFound()
-                + "，失败 " + summary.getFailed()
-                + "，跳过 " + summary.getSkipped() + "。";
-    }
-    private String completeMessage(ProductPublicDetailSyncSummary summary) {
-        return "商品前台详情同步完成：成功 " + summary.getSucceeded()
-                + "，部分 " + summary.getPartial()
-                + "，未找到 " + summary.getNotFound()
-                + "，失败 " + summary.getFailed()
-                + "，跳过 " + summary.getSkipped() + "。";
-    }
-    private long elapsedMillis(long startedNanos) {
-        return Math.max(0, (System.nanoTime() - startedNanos) / 1_000_000L);
     }
     private LocalDateTime now() {
         return LocalDateTime.ofInstant(clock.instant(), BUSINESS_ZONE);
@@ -698,9 +443,5 @@ public class ProductPublicDetailSyncService {
     String shrink(String value, int maxLength) {
         String text = StringUtils.hasText(value) ? value.replaceAll("\\s+", " ").trim() : "";
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
-    }
-    @FunctionalInterface
-    interface TaskSubmitter {
-        void submit(String accountKey, Runnable task);
     }
 }

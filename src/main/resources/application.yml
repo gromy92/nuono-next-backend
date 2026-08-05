@@ -118,14 +118,6 @@ nuono:
           modified-from-format: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_FROM_FORMAT:yyyyMMddHHmmssSSSZ}
           modified-at-response-field-names: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_MODIFIED_AT_FIELDS:modifyTime}
           provider-zone-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_PROVIDER_ZONE:Asia/Shanghai}
-        scheduler:
-          enabled: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_ENABLED:false}
-          cron: "${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_CRON:0 0 3 ? * MON}"
-          zone: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_ZONE:Asia/Shanghai}
-          max-authorizations-per-tick: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_MAX_AUTHORIZATIONS_PER_TICK:10}
-          recent-scheduled-days: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_RECENT_DAYS:6}
-          stale-running-minutes: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_STALE_RUNNING_MINUTES:120}
-          system-operator-user-id: ${NUONO_PROCUREMENT_ALI1688_HISTORICAL_ORDER_SCHEDULER_OPERATOR_USER_ID:10003}
   logistics-auto-sync:
     credential-cipher-secret: ${NUONO_LOGISTICS_CREDENTIAL_CIPHER_SECRET:}
     chic:
@@ -187,22 +179,9 @@ nuono:
       max-send-attempts-per-recovery: ${NUONO_NOON_AUTH_RECOVERY_MAX_SEND_ATTEMPTS:2}
       project-allowlist: ${NUONO_NOON_AUTH_RECOVERY_PROJECT_ALLOWLIST:}
       trusted-sender-domains: ${NUONO_NOON_AUTH_RECOVERY_TRUSTED_SENDER_DOMAINS:}
-    pull:
-      scheduler:
-        enabled: ${NUONO_NOON_PULL_SCHEDULER_ENABLED:false}
-        initial-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_INITIAL_DELAY_MS:60000}
-        fixed-delay-ms: ${NUONO_NOON_PULL_SCHEDULER_FIXED_DELAY_MS:300000}
-        product-interface-executions-per-tick: ${NUONO_NOON_PULL_SCHEDULER_PRODUCT_INTERFACE_EXECUTIONS_PER_TICK:2}
   competitor-analysis:
     noon-search:
       frontend-cookie-header: ${NUONO_COMPETITOR_ANALYSIS_NOON_SEARCH_FRONTEND_COOKIE_HEADER:}
-    monitor:
-      scheduler:
-        enabled: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_SCHEDULER_ENABLED:false}
-        rank-cron: "${NUONO_COMPETITOR_ANALYSIS_MONITOR_RANK_CRON:0 0 0,6,12,18 * * *}"
-        listing-coverage-cron: "${NUONO_COMPETITOR_ANALYSIS_MONITOR_LISTING_COVERAGE_CRON:${NUONO_COMPETITOR_ANALYSIS_MONITOR_DETAIL_CRON:0 0 2 * * *}}"
-        zone: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_SCHEDULER_ZONE:Asia/Shanghai}
-        max-scopes-per-tick: ${NUONO_COMPETITOR_ANALYSIS_MONITOR_MAX_SCOPES_PER_TICK:100}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev
@@ -224,9 +203,6 @@ nuono:
       chrome-frontend-cookie-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CHROME_FRONTEND_COOKIE_ENABLED:false}
       curl-enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_NOON_CURL_ENABLED:true}
     scheduler:
-      enabled: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_ENABLED:false}
-      cron: "${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_CRON:0 30 3 * * *}"
-      zone: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_ZONE:Asia/Shanghai}
       stale-days: ${NUONO_PRODUCT_PUBLIC_DETAIL_SCHEDULER_STALE_DAYS:1}
 
 mobile:

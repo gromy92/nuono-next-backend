@@ -26,7 +26,6 @@ public class SalesDataController {
 
     private final NoonSalesCsvImportService importService;
     private final SalesAnalyticsService analyticsService;
-    private final SalesSyncTaskService syncTaskService;
     private final SalesImportQualityService importQualityService;
     private final SalesActivityWindowService activityWindowService;
     private final BusinessAccessResolver businessAccessResolver;
@@ -34,14 +33,12 @@ public class SalesDataController {
     public SalesDataController(
             NoonSalesCsvImportService importService,
             SalesAnalyticsService analyticsService,
-            SalesSyncTaskService syncTaskService,
             SalesImportQualityService importQualityService,
             SalesActivityWindowService activityWindowService,
             BusinessAccessResolver businessAccessResolver
     ) {
         this.importService = importService;
         this.analyticsService = analyticsService;
-        this.syncTaskService = syncTaskService;
         this.importQualityService = importQualityService;
         this.activityWindowService = activityWindowService;
         this.businessAccessResolver = businessAccessResolver;
@@ -51,7 +48,7 @@ public class SalesDataController {
             SalesAnalyticsService analyticsService,
             BusinessAccessResolver businessAccessResolver
     ) {
-        return new SalesDataController(null, analyticsService, null, null, null, businessAccessResolver);
+        return new SalesDataController(null, analyticsService, null, null, businessAccessResolver);
     }
 
     @PostMapping("/noon/productviewsandsalesdata/import")
@@ -225,30 +222,6 @@ public class SalesDataController {
         ));
     }
 
-    @PostMapping("/analytics/history-backfill")
-    public SalesHistoryBackfillResult requestSalesAnalyticsHistoryBackfill(
-            @RequestBody SalesHistoryBackfillRequest body,
-            HttpServletRequest request
-    ) {
-        validateHistoryBackfillRequest(body);
-        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.SALES_DATA,
-                body.getStoreCode()
-        );
-        Long ownerUserId = context.resolveOwnerUserIdForStore(body.getStoreCode());
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
-        return analyticsService.requestHistoryBackfill(new SalesHistoryBackfillCommand(
-                ownerUserId,
-                body.getStoreCode(),
-                body.getSiteCode(),
-                parseDate(body.getDateFrom()),
-                parseDate(body.getDateTo())
-        ));
-    }
-
     @GetMapping("/analytics/export")
     public ResponseEntity<String> exportSalesAnalyticsDailyFacts(
             @RequestParam String storeCode,
@@ -347,43 +320,6 @@ public class SalesDataController {
         ));
     }
 
-    @PostMapping("/noon/productviewsandsalesdata/sync-tasks")
-    public SalesSyncTaskRecord triggerNoonProductViewsAndSalesDataSync(
-            @RequestBody SalesSyncTaskRequest body,
-            HttpServletRequest request
-    ) {
-        validateSyncRequest(body);
-        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.SALES_DATA,
-                body.getStoreCode()
-        );
-        Long ownerUserId = context.resolveOwnerUserIdForStore(body.getStoreCode());
-        if (ownerUserId == null) {
-            ownerUserId = context.getBusinessOwnerUserId();
-        }
-        return syncTaskService.triggerAndRun(new SalesSyncTaskCommand(
-                ownerUserId,
-                body.getLogicalStoreId(),
-                body.getStoreCode(),
-                body.getSiteCode(),
-                parseDate(body.getDateFrom()),
-                parseDate(body.getDateTo()),
-                context.getSessionUserId(),
-                "manual"
-        ));
-    }
-
-    @GetMapping("/sync-tasks/{taskId}")
-    public SalesSyncTaskRecord getSalesSyncTask(
-            @PathVariable Long taskId,
-            HttpServletRequest request
-    ) {
-        SalesSyncTaskRecord task = syncTaskService.getTask(taskId);
-        businessAccessResolver.requireStoreAccess(request, BusinessCapability.SALES_DATA, task.getStoreCode());
-        return task;
-    }
-
     @GetMapping("/import-batches")
     public SalesImportBatchListView listImportBatches(
             @RequestParam String storeCode,
@@ -450,28 +386,6 @@ public class SalesDataController {
         if (!StringUtils.hasText(dateFrom) || !StringUtils.hasText(dateTo)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少销量日期范围。");
         }
-    }
-
-    private void validateSyncRequest(SalesSyncTaskRequest body) {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少销量同步请求。");
-        }
-        if (!StringUtils.hasText(body.getStoreCode())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少店铺编码。");
-        }
-        if (!StringUtils.hasText(body.getSiteCode())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少站点。");
-        }
-        if (!StringUtils.hasText(body.getDateFrom()) || !StringUtils.hasText(body.getDateTo())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少销量同步日期范围。");
-        }
-    }
-
-    private void validateHistoryBackfillRequest(SalesHistoryBackfillRequest body) {
-        if (body == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "缺少历史补全请求。");
-        }
-        validateListRequest(body.getStoreCode(), body.getSiteCode(), body.getDateFrom(), body.getDateTo());
     }
 
     private void validateActivityWindowRequest(SalesActivityWindowRequest body) {

@@ -12,7 +12,6 @@ import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderProductLinkCand
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderProductLinkRow;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderQuery;
 import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderRow;
-import com.nuono.next.procurement.aliorder.Ali1688HistoricalOrderSyncTaskRow;
 import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseBatchRow;
 import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseBatchSourceRow;
 import com.nuono.next.procurement.aliorder.Ali1688SkuPurchaseHistoryRow;
@@ -44,10 +43,6 @@ public interface Ali1688HistoricalOrderMapper {
 
     default Long nextAuthorizationId() {
         return nextId("procurement_ali1688_order_authorization", 91000L);
-    }
-
-    default Long nextSyncTaskId() {
-        return nextId("procurement_ali1688_order_sync_task", 92000L);
     }
 
     default Long nextOrderId() {
@@ -143,53 +138,6 @@ public interface Ali1688HistoricalOrderMapper {
     );
 
     @Select({
-            "SELECT",
-            "  id, owner_user_id, provider_code, provider_account_id, account_label, status,",
-            "  scope_summary, access_token_cipher, refresh_token_cipher, expires_at, revoked_at, created_by, updated_by",
-            "FROM procurement_ali1688_order_authorization",
-            "WHERE provider_code = #{providerCode}",
-            "  AND is_deleted = b'0'",
-            "  AND status = 'authorized'",
-            "ORDER BY gmt_updated ASC, id ASC",
-            "LIMIT #{limit}"
-    })
-    List<Ali1688HistoricalOrderAuthorizationRow> listScheduledOpenApiAuthorizations(
-            @Param("providerCode") String providerCode,
-            @Param("limit") Integer limit
-    );
-
-    @Select({
-            "SELECT COUNT(*)",
-            "FROM procurement_ali1688_order_sync_task",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND authorization_id = #{authorizationId}",
-            "  AND status = 'running'",
-            "  AND is_deleted = b'0'",
-            "  AND gmt_updated >= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)"
-    })
-    int countRecentRunningSyncTasks(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("authorizationId") Long authorizationId,
-            @Param("staleMinutes") Integer staleMinutes
-    );
-
-    @Select({
-            "SELECT COUNT(*)",
-            "FROM procurement_ali1688_order_sync_task",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND authorization_id = #{authorizationId}",
-            "  AND task_type = #{taskType}",
-            "  AND is_deleted = b'0'",
-            "  AND gmt_create >= DATE_SUB(NOW(), INTERVAL #{recentDays} DAY)"
-    })
-    int countRecentSyncTasksByType(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("authorizationId") Long authorizationId,
-            @Param("taskType") String taskType,
-            @Param("recentDays") Integer recentDays
-    );
-
-    @Select({
             "<script>",
             "SELECT auth.id",
             "FROM procurement_ali1688_order_authorization auth",
@@ -276,24 +224,6 @@ public interface Ali1688HistoricalOrderMapper {
             ")"
     })
     int insertAuthorization(Ali1688HistoricalOrderAuthorizationRow row);
-
-    @Update({
-            "UPDATE procurement_ali1688_order_authorization",
-            "SET provider_account_id = #{providerAccountId},",
-            "    account_label = #{accountLabel},",
-            "    status = #{status},",
-            "    scope_summary = #{scopeSummary},",
-            "    access_token_cipher = #{accessTokenCipher},",
-            "    refresh_token_cipher = #{refreshTokenCipher},",
-            "    expires_at = #{expiresAt},",
-            "    revoked_at = NULL,",
-            "    updated_by = #{updatedBy},",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{id}",
-            "  AND owner_user_id = #{ownerUserId}",
-            "  AND is_deleted = b'0'"
-    })
-    int updateAuthorizationTokens(Ali1688HistoricalOrderAuthorizationRow row);
 
     @Insert({
             "INSERT INTO procurement_ali1688_order_store_binding (",
@@ -526,156 +456,6 @@ public interface Ali1688HistoricalOrderMapper {
             @Param("authorizationId") Long authorizationId,
             @Param("ownerUserId") Long ownerUserId,
             @Param("operatorUserId") Long operatorUserId
-    );
-
-    @Insert({
-            "INSERT INTO procurement_ali1688_order_sync_task (",
-            "  id, owner_user_id, authorization_id, task_type, status, processed_count, imported_count,",
-            "  failed_count, progress_percent, checkpoint_json,",
-            "  created_by, updated_by, gmt_create, gmt_updated",
-            ") VALUES (",
-            "  #{id}, #{ownerUserId}, #{authorizationId}, #{taskType}, #{status}, #{processedCount}, #{importedCount},",
-            "  #{failedCount}, #{progressPercent}, #{checkpointJson},",
-            "  #{createdBy}, #{updatedBy}, NOW(), NOW()",
-            ")"
-    })
-    int insertSyncTask(Ali1688HistoricalOrderSyncTaskRow row);
-
-    @Select({
-            "SELECT",
-            "  id, owner_user_id, authorization_id, task_type, status, processed_count, imported_count,",
-            "  failed_count, progress_percent, checkpoint_json, failure_code, failure_message,",
-            "  retryable, requires_manual_action, created_by, updated_by",
-            "FROM procurement_ali1688_order_sync_task",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND authorization_id = #{authorizationId}",
-            "  AND task_type = 'initial_backfill'",
-            "  AND status IN ('running', 'failed')",
-            "  AND COALESCE(retryable, b'1') = b'1'",
-            "  AND is_deleted = b'0'",
-            "ORDER BY gmt_updated DESC, id DESC",
-            "LIMIT 1"
-    })
-    Ali1688HistoricalOrderSyncTaskRow selectLatestResumableTask(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("authorizationId") Long authorizationId
-    );
-
-    @Select({
-            "SELECT",
-            "  id, owner_user_id, authorization_id, task_type, status, processed_count, imported_count,",
-            "  failed_count, progress_percent, checkpoint_json, failure_code, failure_message,",
-            "  retryable, requires_manual_action, created_by, updated_by",
-            "FROM procurement_ali1688_order_sync_task",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND authorization_id = #{authorizationId}",
-            "  AND is_deleted = b'0'",
-            "ORDER BY gmt_updated DESC, id DESC",
-            "LIMIT 1"
-    })
-    Ali1688HistoricalOrderSyncTaskRow selectLatestTask(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("authorizationId") Long authorizationId
-    );
-
-    @Update({
-            "UPDATE procurement_ali1688_order_sync_task",
-            "SET checkpoint_json = #{checkpointJson},",
-            "    progress_percent = #{progressPercent},",
-            "    processed_count = #{processedCount},",
-            "    imported_count = #{importedCount},",
-            "    failed_count = #{failedCount},",
-            "    status = 'running',",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int updateSyncTaskCheckpoint(
-            @Param("taskId") Long taskId,
-            @Param("checkpointJson") String checkpointJson,
-            @Param("progressPercent") Integer progressPercent,
-            @Param("processedCount") Integer processedCount,
-            @Param("importedCount") Integer importedCount,
-            @Param("failedCount") Integer failedCount
-    );
-
-    @Update({
-            "UPDATE procurement_ali1688_order_sync_task",
-            "SET status = 'success',",
-            "    processed_count = #{processedCount},",
-            "    imported_count = #{importedCount},",
-            "    failed_count = #{failedCount},",
-            "    progress_percent = 100,",
-            "    checkpoint_json = #{checkpointJson},",
-            "    failure_code = NULL,",
-            "    failure_message = NULL,",
-            "    retryable = b'0',",
-            "    requires_manual_action = b'0',",
-            "    finished_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int markSyncTaskSuccess(
-            @Param("taskId") Long taskId,
-            @Param("processedCount") Integer processedCount,
-            @Param("importedCount") Integer importedCount,
-            @Param("failedCount") Integer failedCount,
-            @Param("checkpointJson") String checkpointJson
-    );
-
-    @Update({
-            "UPDATE procurement_ali1688_order_sync_task",
-            "SET status = 'partial_success',",
-            "    processed_count = #{processedCount},",
-            "    imported_count = #{importedCount},",
-            "    failed_count = #{failedCount},",
-            "    progress_percent = 100,",
-            "    failure_code = #{failureCode},",
-            "    failure_message = #{failureMessage},",
-            "    checkpoint_json = #{checkpointJson},",
-            "    retryable = #{retryable},",
-            "    requires_manual_action = #{requiresManualAction},",
-            "    finished_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int markSyncTaskPartialSuccess(
-            @Param("taskId") Long taskId,
-            @Param("processedCount") Integer processedCount,
-            @Param("importedCount") Integer importedCount,
-            @Param("failedCount") Integer failedCount,
-            @Param("failureCode") String failureCode,
-            @Param("failureMessage") String failureMessage,
-            @Param("checkpointJson") String checkpointJson,
-            @Param("retryable") Boolean retryable,
-            @Param("requiresManualAction") Boolean requiresManualAction
-    );
-
-    @Update({
-            "UPDATE procurement_ali1688_order_sync_task",
-            "SET status = 'failed',",
-            "    processed_count = #{processedCount},",
-            "    imported_count = #{importedCount},",
-            "    failed_count = #{failedCount},",
-            "    progress_percent = 100,",
-            "    failure_code = #{failureCode},",
-            "    failure_message = #{failureMessage},",
-            "    checkpoint_json = #{checkpointJson},",
-            "    retryable = #{retryable},",
-            "    requires_manual_action = #{requiresManualAction},",
-            "    finished_at = NOW(),",
-            "    gmt_updated = NOW()",
-            "WHERE id = #{taskId}"
-    })
-    int markSyncTaskFailed(
-            @Param("taskId") Long taskId,
-            @Param("processedCount") Integer processedCount,
-            @Param("importedCount") Integer importedCount,
-            @Param("failedCount") Integer failedCount,
-            @Param("failureCode") String failureCode,
-            @Param("failureMessage") String failureMessage,
-            @Param("checkpointJson") String checkpointJson,
-            @Param("retryable") Boolean retryable,
-            @Param("requiresManualAction") Boolean requiresManualAction
     );
 
     @Insert({
@@ -2269,43 +2049,4 @@ public interface Ali1688HistoricalOrderMapper {
             @Param("query") Ali1688HistoricalOrderQuery query
     );
 
-    @Select({
-            "<script>",
-            "SELECT COUNT(1)",
-            "FROM procurement_ali1688_order_item oi",
-            "JOIN procurement_ali1688_order_header oh ON oh.id = oi.order_id",
-            "  AND oh.is_deleted = b'0'",
-            "WHERE oh.owner_user_id = #{ownerUserId}",
-            "  AND oh.authorization_id IN",
-            "  <foreach collection='authorizationIds' item='authorizationId' open='(' separator=',' close=')'>",
-            "    #{authorizationId}",
-            "  </foreach>",
-            "  AND oi.is_deleted = b'0'",
-            "  AND NOT EXISTS (",
-            "    SELECT 1",
-            "    FROM procurement_ali1688_order_authorization duplicate_source",
-            "    JOIN procurement_ali1688_order_header openapi_duplicate_order",
-            "      ON openapi_duplicate_order.owner_user_id = oh.owner_user_id",
-            "     AND openapi_duplicate_order.provider_order_no = oh.provider_order_no",
-            "     AND openapi_duplicate_order.is_deleted = b'0'",
-            "    JOIN procurement_ali1688_order_authorization openapi_duplicate",
-            "      ON openapi_duplicate.id = openapi_duplicate_order.authorization_id",
-            "     AND openapi_duplicate.owner_user_id = #{ownerUserId}",
-            "     AND openapi_duplicate.provider_code = 'ALI1688_OPEN_API'",
-            "     AND openapi_duplicate.is_deleted = b'0'",
-            "    WHERE duplicate_source.id = oh.authorization_id",
-            "      AND duplicate_source.owner_user_id = #{ownerUserId}",
-            "      AND duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')",
-            "      AND duplicate_source.is_deleted = b'0'",
-            "      AND openapi_duplicate_order.authorization_id IN",
-            "      <foreach collection='authorizationIds' item='authorizationId' open='(' separator=',' close=')'>",
-            "        #{authorizationId}",
-            "      </foreach>",
-            "  )",
-            "</script>"
-    })
-    int countOrderItems(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("authorizationIds") List<Long> authorizationIds
-    );
 }

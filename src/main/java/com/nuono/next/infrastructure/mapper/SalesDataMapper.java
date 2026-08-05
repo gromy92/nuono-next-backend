@@ -68,10 +68,6 @@ public interface SalesDataMapper {
         return nextSalesDataId("sales_import_exception", 30000L);
     }
 
-    default Long nextSalesSyncTaskId() {
-        return nextSalesDataId("sales_sync_task", 20000L);
-    }
-
     default Long nextSalesActivityWindowId() {
         return nextSalesDataId("sales_activity_window", 40000L);
     }

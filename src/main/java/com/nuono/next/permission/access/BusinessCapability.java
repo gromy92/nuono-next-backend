@@ -28,7 +28,6 @@ public enum BusinessCapability {
             "/api/order-finance",
             "/api/post-sale-profit"
     )),
-    SYSTEM_REPORTS(List.of("/system-reports", "/api/system-reports", "/noon-call", "/api/noon-call")),
     OPERATIONS_COMPETITOR_ANALYSIS(List.of("/operations/competitor-analysis", "/api/competitor-analysis")),
     PRODUCT_KEYWORD_MANAGEMENT(List.of(
             "/operations/product-keywords",
