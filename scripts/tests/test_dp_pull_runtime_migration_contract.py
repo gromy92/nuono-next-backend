@@ -206,6 +206,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
                 self.assertIn(required_markers[order], migration.script_sql)
                 for sql in (migration.postcheck_sql, migration.livecheck_sql):
                     self.assertNotIn("/*!", sql)
+                    self.assertNotIn(r"\x60", sql)
                     executable = code_outside_literals_and_comments(sql)
                     self.assertTrue(executable.lstrip().startswith("WITH"))
                     self.assertEqual(1, executable.count(";"))
@@ -273,7 +274,6 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
 
     def test_authorization_wait_can_be_untimed_only_after_recovery_escalation(self):
         init = self.migration.script_sql
-
         self.assertIn(
             "state IN ('WAITING_REMOTE', 'WAITING_BACKOFF') AND retry_not_before IS NOT NULL",
             init,
