@@ -13,6 +13,7 @@ from ci.dp_pull_runtime_successor_drift_scenario import (
     verify_missing_table_fails_closed,
 )
 from ci.dp_pull_runtime_successor_fixture import prepare_successor_fixture
+from ci.release_schema_mysql_postcheck_diagnostics import failing_predicate_indexes
 
 
 SUCCESSOR_KEYS = {
@@ -104,7 +105,15 @@ def _load_migrations(resources):
 
 
 def _assert_contract(test_case, database, exact, live) -> None:
-    test_case.assertEqual("1", database.client.execute_readonly(exact))
+    exact_result = database.client.execute_readonly(exact)
+    test_case.assertEqual(
+        "1",
+        exact_result,
+        None if exact_result == "1" else
+        "false successor exact predicates: " + ",".join(
+            failing_predicate_indexes(database, exact)
+        ),
+    )
     test_case.assertEqual("1", database.client.execute_readonly(live))
 
 
