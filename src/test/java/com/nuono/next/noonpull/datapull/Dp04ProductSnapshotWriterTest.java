@@ -17,6 +17,7 @@ import com.nuono.next.datapull.snapshot.SnapshotCollectionAuthority;
 import com.nuono.next.datapull.snapshot.SnapshotFactApplyGuard;
 import com.nuono.next.datapull.snapshot.SnapshotEffectiveItemStore;
 import com.nuono.next.datapull.snapshot.SnapshotStageProof;
+import com.nuono.next.infrastructure.mapper.SnapshotEffectiveItemMapper;
 import java.time.LocalDateTime;
 import org.junit.jupiter.api.Test;
 
@@ -26,9 +27,8 @@ class Dp04ProductSnapshotWriterTest {
     void delegatesOnlyToTheDpOwnedBoundedSnapshotGuard() {
         SnapshotFactApplyGuard guard = mock(SnapshotFactApplyGuard.class);
         Dp04ProductSnapshotCodec codec = new Dp04ProductSnapshotCodec(new ObjectMapper());
-        @SuppressWarnings("unchecked")
         SnapshotEffectiveItemStore<Dp04ProductSnapshotItem> effective =
-                mock(SnapshotEffectiveItemStore.class);
+                new SnapshotEffectiveItemStore<>(mock(SnapshotEffectiveItemMapper.class), codec);
         CompleteSnapshot<Dp04ProductSnapshotItem> snapshot = snapshot(OperationCode.DP04);
         when(guard.advance(eq(snapshot), eq(codec), eq(codec), any(), any(), any()))
                 .thenReturn(CompleteSnapshotWriter.ReplaceResult.MORE_WORK);
@@ -44,9 +44,8 @@ class Dp04ProductSnapshotWriterTest {
     void rejectsAnyNonDp04ScopeBeforeTheGuard() {
         SnapshotFactApplyGuard guard = mock(SnapshotFactApplyGuard.class);
         Dp04ProductSnapshotCodec codec = new Dp04ProductSnapshotCodec(new ObjectMapper());
-        @SuppressWarnings("unchecked")
         SnapshotEffectiveItemStore<Dp04ProductSnapshotItem> effective =
-                mock(SnapshotEffectiveItemStore.class);
+                new SnapshotEffectiveItemStore<>(mock(SnapshotEffectiveItemMapper.class), codec);
 
         assertThatThrownBy(() -> new Dp04ProductSnapshotWriter(guard, codec, effective)
                 .replace(snapshot(OperationCode.DP07A)))

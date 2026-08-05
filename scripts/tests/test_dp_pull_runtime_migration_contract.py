@@ -194,40 +194,35 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("a.content_bytes IS NOT NULL", sql)
             self.assertIn("a.content_length=OCTET_LENGTH(a.content_bytes)", sql)
 
-    def test_244_report_successor_is_additive_and_fail_closed(self):
-        migration = self.migrations[244]
-
-        self.assertEqual("244_dp_pull_report_bounded_apply.sql", migration.key)
-        self.assertEqual("AUTO_ADDITIVE", migration.kind)
-        self.assertEqual(
-            PurePosixPath("db/postcheck/244_dp_pull_report_bounded_apply.sql"),
-            migration.postcheck_path,
-        )
-        self.assertEqual(
-            PurePosixPath("db/livecheck/244_dp_pull_report_bounded_apply.sql"),
-            migration.livecheck_path,
-        )
-        self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
-        self.assertIn("dp_pull_report_artifact_chunk", migration.script_sql)
-        for sql in (migration.postcheck_sql, migration.livecheck_sql):
-            self.assertNotIn("/*!", sql)
-            executable = code_outside_literals_and_comments(sql)
-            self.assertTrue(executable.lstrip().startswith("WITH"))
-            self.assertEqual(1, executable.count(";"))
-            self.assertNotRegex(
-                executable,
-                re.compile(
-                    r"\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE)\b|"
-                    r"\bREPLACE\s+INTO\b",
-                    re.IGNORECASE,
-                ),
-            )
-        for path in (
-            migration.script_file,
-            migration.postcheck_file,
-            migration.livecheck_file,
-        ):
-            self.assertLessEqual(len(path.read_bytes().splitlines()), 300)
+    def test_bounded_apply_successors_are_additive_and_fail_closed(self):
+        cases = {
+            244: ("244_dp_pull_report_bounded_apply.sql", "dp_pull_report_artifact_chunk"),
+            245: ("245_dp_pull_snapshot_bounded_apply.sql", "dp_pull_snapshot_fingerprint_count"),
+        }
+        for order, (key, marker) in cases.items():
+            migration = self.migrations[order]
+            with self.subTest(migration=key):
+                self.assertEqual(key, migration.key)
+                self.assertEqual("AUTO_ADDITIVE", migration.kind)
+                self.assertEqual(PurePosixPath(f"db/postcheck/{key}"), migration.postcheck_path)
+                self.assertEqual(PurePosixPath(f"db/livecheck/{key}"), migration.livecheck_path)
+                self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
+                self.assertIn(marker, migration.script_sql)
+                for sql in (migration.postcheck_sql, migration.livecheck_sql):
+                    self.assertNotIn("/*!", sql)
+                    executable = code_outside_literals_and_comments(sql)
+                    self.assertTrue(executable.lstrip().startswith("WITH"))
+                    self.assertEqual(1, executable.count(";"))
+                    self.assertNotRegex(
+                        executable,
+                        re.compile(
+                            r"\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE)\b|"
+                            r"\bREPLACE\s+INTO\b",
+                            re.IGNORECASE,
+                        ),
+                    )
+                for path in (migration.script_file, migration.postcheck_file, migration.livecheck_file):
+                    self.assertLessEqual(len(path.read_bytes().splitlines()), 300)
 
     def test_dp08_scope_binding_is_temporal_immutable_and_task_copied(self):
         init = self.migration.script_sql

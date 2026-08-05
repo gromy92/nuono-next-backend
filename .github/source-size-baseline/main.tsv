@@ -82,7 +82,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	896
 src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1121
 src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
-src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1074
+src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1072
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	406
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	817
@@ -90,7 +90,6 @@ src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.j
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1157
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnExportProvider.java	567
-src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnInventoryProvider.java	531
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnReceivedReportImportService.java	548
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseNoonInboundClient.java	552
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseRecords.java	421
@@ -164,7 +163,7 @@ src/main/java/com/nuono/next/product/ProductListSummaryView.java	567
 src/main/java/com/nuono/next/product/ProductMasterController.java	734
 src/main/java/com/nuono/next/product/ProductNoonCatalogContentService.java	339
 src/main/java/com/nuono/next/product/ProductProjectSiteResolver.java	362
-src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5687
+src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5678
 src/main/java/com/nuono/next/product/ProductPublishChangedDomainComparator.java	510
 src/main/java/com/nuono/next/product/ProductPublishOfferWriter.java	408
 src/main/java/com/nuono/next/product/ProductPublishPreparationService.java	1094
@@ -187,7 +186,7 @@ src/main/java/com/nuono/next/productlisting/ProductListingService.java	1691
 src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1529
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
 src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	706
-src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1145
+src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1061
 src/main/java/com/nuono/next/productselection/Ali1688CandidateAiAssessmentService.java	377
 src/main/java/com/nuono/next/productselection/Ali1688PluginAssignmentService.java	544
 src/main/java/com/nuono/next/productselection/AmazonExternalCrawlerSourceCollector.java	533

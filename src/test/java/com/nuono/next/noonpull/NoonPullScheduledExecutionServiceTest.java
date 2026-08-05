@@ -1328,7 +1328,7 @@ class NoonPullScheduledExecutionServiceTest {
         private InventorySyncCommand command;
 
         private CapturingOfficialWarehouseInventorySyncService() {
-            super(null, null, null);
+            super();
         }
 
         @Override
