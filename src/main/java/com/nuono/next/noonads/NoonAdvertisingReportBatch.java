@@ -14,8 +14,8 @@ public class NoonAdvertisingReportBatch {
     private LocalDate reportDateFrom;
     private LocalDate reportDateTo;
     private String status;
-    private int campaignRowCount;
-    private int queryRowCount;
+    private long campaignRowCount;
+    private long queryRowCount;
     private String notes;
     private Long createdBy;
     private Long updatedBy;
@@ -42,10 +42,10 @@ public class NoonAdvertisingReportBatch {
     public void setReportDateTo(LocalDate reportDateTo) { this.reportDateTo = reportDateTo; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
-    public int getCampaignRowCount() { return campaignRowCount; }
-    public void setCampaignRowCount(int campaignRowCount) { this.campaignRowCount = campaignRowCount; }
-    public int getQueryRowCount() { return queryRowCount; }
-    public void setQueryRowCount(int queryRowCount) { this.queryRowCount = queryRowCount; }
+    public long getCampaignRowCount() { return campaignRowCount; }
+    public void setCampaignRowCount(long campaignRowCount) { this.campaignRowCount = campaignRowCount; }
+    public long getQueryRowCount() { return queryRowCount; }
+    public void setQueryRowCount(long queryRowCount) { this.queryRowCount = queryRowCount; }
     public String getNotes() { return notes; }
     public void setNotes(String notes) { this.notes = notes; }
     public Long getCreatedBy() { return createdBy; }

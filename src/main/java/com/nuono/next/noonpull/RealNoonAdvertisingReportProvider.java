@@ -23,15 +23,16 @@ import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.apache.poi.ss.usermodel.WorkbookFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
-@ConditionalOnProperty(prefix = "nuono.noon.pull.real-provider", name = "enabled", havingValue = "true")
+@Conditional(NoonPullRealProviderCondition.class)
 public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportProvider {
     private static final String READY_URL_PREFIX = "memory://noon-ads-report/";
     private static final String DEFAULT_ADMANAGER_BASE_URL = "https://admanager.noon.partners";
@@ -42,26 +43,34 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
     private final NoonAdsAdvertiserContextResolver advertiserContextResolver;
     private final String dashboardMetricsUrl;
     private final String queryReportUrl;
-    private final int maxQueryCampaigns;
 
+    @Autowired
     public RealNoonAdvertisingReportProvider(
             ObjectMapper objectMapper,
             NoonPullStoreBindingResolver bindingResolver,
             NoonPullGatewaySessionFactory sessionFactory,
-            @Value("${nuono.noon.pull.real-provider.advertising-report.base-url:" + DEFAULT_ADMANAGER_BASE_URL + "}")
+            @Value("${nuono.noon.pull.real-provider.advertising-report.base-url:"
+                    + DEFAULT_ADMANAGER_BASE_URL + "}") String baseUrl
+    ) {
+        this(objectMapper, bindingResolver, sessionFactory, baseUrl, 0, 0, 0);
+    }
+
+    /** Compatibility constructor retained for focused legacy provider tests. */
+    public RealNoonAdvertisingReportProvider(
+            ObjectMapper objectMapper,
+            NoonPullStoreBindingResolver bindingResolver,
+            NoonPullGatewaySessionFactory sessionFactory,
             String baseUrl,
-            @Value("${nuono.noon.pull.real-provider.advertising-report.campaign-page-size:200}")
-            int campaignPageSize,
-            @Value("${nuono.noon.pull.real-provider.advertising-report.max-campaign-pages:50}")
-            int maxCampaignPages,
-            @Value("${nuono.noon.pull.real-provider.advertising-report.max-query-campaigns:0}")
-            int maxQueryCampaigns
+            int ignoredCampaignPageSize,
+            int ignoredCampaignPageCount,
+            int ignoredCompatibilitySetting
     ) {
         this.objectMapper = objectMapper;
         this.bindingResolver = bindingResolver;
         this.sessionFactory = sessionFactory;
-        String normalizedBaseUrl = trimTrailingSlash(
-                StringUtils.hasText(baseUrl) ? baseUrl : DEFAULT_ADMANAGER_BASE_URL
+        String normalizedBaseUrl = NoonAdvertisingEndpoints.root(
+                baseUrl,
+                DEFAULT_ADMANAGER_BASE_URL
         );
         this.advertiserContextResolver = new NoonAdsAdvertiserContextResolver(
                 objectMapper,
@@ -69,7 +78,6 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         );
         this.dashboardMetricsUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/metrics";
         this.queryReportUrl = normalizedBaseUrl + "/_svc/productads/v2/noon/product/reports/queries";
-        this.maxQueryCampaigns = Math.max(0, maxQueryCampaigns);
     }
 
     @Override
@@ -156,15 +164,10 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
             List<CampaignRow> campaigns
     ) {
         List<QueryRow> rows = new ArrayList<>();
-        int processedCampaigns = 0;
         for (CampaignRow campaign : campaigns) {
-            if (!campaign.hasActivity()) {
+            if (!NoonAdvertisingCampaignStatus.activeOrFalse(campaign.status())) {
                 continue;
             }
-            if (maxQueryCampaigns > 0 && processedCampaigns >= maxQueryCampaigns) {
-                break;
-            }
-            processedCampaigns++;
             byte[] workbook = session.postBytes(
                     queryReportUrl,
                     queryReportBody(request, campaign.campaignCode()),
@@ -493,8 +496,7 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
     }
 
     private long longValue(String value) {
-        BigDecimal parsed = decimalValue(value);
-        return parsed == null ? 0L : parsed.setScale(0, RoundingMode.DOWN).longValue();
+        return NoonAdvertisingLegacyNumericContract.requireIntCount(decimalValue(value));
     }
 
     private BigDecimal decimalValue(JsonNode node, String field) {
@@ -563,14 +565,6 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
 
     private String text(Object value) {
         return value == null ? "" : value.toString();
-    }
-
-    private String trimTrailingSlash(String value) {
-        String trimmed = value == null ? "" : value.trim();
-        while (trimmed.endsWith("/")) {
-            trimmed = trimmed.substring(0, trimmed.length() - 1);
-        }
-        return trimmed;
     }
 
     private String safeExportId(String value) {
@@ -703,9 +697,6 @@ public class RealNoonAdvertisingReportProvider implements NoonAdvertisingReportP
         private BigDecimal cvr() { return cvr; }
         private String rawJson() { return rawJson; }
 
-        private boolean hasActivity() {
-            return spendAmount.compareTo(BigDecimal.ZERO) > 0 || clicks > 0 || orders > 0;
-        }
     }
 
     private static final class QueryRow {

@@ -17,7 +17,7 @@ class NoonAdvertisingMapperSqlTest {
     void summarySqlUsesExactAdvertisingReportWindowAndNaturalSalesFacts() throws Exception {
         String adSummarySql = sqlFor("selectAdSummary");
         assertThat(adSummarySql)
-                .contains("FROM noon_ad_campaign_fact")
+                .contains("FROM noon_ad_effective_campaign_fact")
                 .contains("owner_user_id = #{query.ownerUserId}")
                 .contains("project_code = #{query.projectCode}")
                 .contains("store_code = #{query.storeCode}")
@@ -42,7 +42,7 @@ class NoonAdvertisingMapperSqlTest {
     void queryQueuesSortWasteAndWinsFromQueryFactTable() throws Exception {
         String zeroOrderSql = sqlFor("selectZeroOrderQueryRows");
         assertThat(zeroOrderSql)
-                .contains("FROM noon_ad_query_fact")
+                .contains("FROM noon_ad_effective_query_fact")
                 .contains("store_code AS storeCode")
                 .contains("site_code AS siteCode")
                 .contains("ad_sku_code AS adSkuCode")
@@ -54,7 +54,7 @@ class NoonAdvertisingMapperSqlTest {
 
         String winningSql = sqlFor("selectWinningQueryRows");
         assertThat(winningSql)
-                .contains("FROM noon_ad_query_fact")
+                .contains("FROM noon_ad_effective_query_fact")
                 .contains("store_code AS storeCode")
                 .contains("site_code AS siteCode")
                 .contains("ad_sku_code AS adSkuCode")
@@ -70,13 +70,13 @@ class NoonAdvertisingMapperSqlTest {
         String sql = sqlFor("selectCampaignRows");
 
         assertThat(sql)
-                .contains("FROM noon_ad_campaign_fact")
+                .contains("FROM noon_ad_effective_campaign_fact")
                 .contains("campaign_code AS campaignCode")
                 .contains("c.store_code AS storeCode")
                 .contains("c.site_code AS siteCode")
                 .contains("AS primaryAdSkuCode")
                 .contains("AS primaryPartnerSku")
-                .contains("FROM noon_ad_query_fact q")
+                .contains("FROM noon_ad_effective_query_fact q")
                 .contains("q.campaign_code = c.campaign_code")
                 .contains("zero_order_spend_amount")
                 .contains("AS zeroOrderSpendAmount")
@@ -89,7 +89,7 @@ class NoonAdvertisingMapperSqlTest {
         String sql = sqlFor("selectProductRows");
 
         assertThat(sql)
-                .contains("FROM noon_ad_query_fact q")
+                .contains("FROM noon_ad_effective_query_fact q")
                 .contains("resolved.store_code AS storeCode")
                 .contains("resolved.site_code AS siteCode")
                 .contains("MIN(resolved.ad_sku_code) AS adSkuCode")
@@ -114,7 +114,7 @@ class NoonAdvertisingMapperSqlTest {
     void dashboardRowsResolveMissingPartnerSkuFromNoonProductSources() throws Exception {
         String productSql = sqlFor("selectProductRows");
         assertThat(productSql)
-                .contains("official_warehouse_inventory_snapshot_line")
+                .contains("official_warehouse_effective_inventory_snapshot_line")
                 .contains("product_public_detail_snapshot")
                 .contains("COALESCE(NULLIF(q.partner_sku, ''), ow.partner_sku, pp.partner_sku)")
                 .contains("ow.noon_sku")
@@ -124,7 +124,7 @@ class NoonAdvertisingMapperSqlTest {
 
         String zeroOrderSql = sqlFor("selectZeroOrderQueryRows");
         assertThat(zeroOrderSql)
-                .contains("official_warehouse_inventory_snapshot_line")
+                .contains("official_warehouse_effective_inventory_snapshot_line")
                 .contains("product_public_detail_snapshot")
                 .contains("COALESCE(NULLIF(q.partner_sku, ''), ow.partner_sku, pp.partner_sku) AS partnerSku")
                 .contains("ow.store_code = q.store_code")
@@ -184,8 +184,8 @@ class NoonAdvertisingMapperSqlTest {
 
         assertThat(statusSql)
                 .contains("COUNT(DISTINCT COALESCE(source_digest_sha256")
-                .contains("FROM noon_ad_campaign_fact c")
-                .contains("FROM noon_ad_query_fact q")
+                .contains("FROM noon_ad_effective_campaign_fact c")
+                .contains("FROM noon_ad_effective_query_fact q")
                 .contains("AS campaignRowCount")
                 .contains("AS queryRowCount")
                 .doesNotContain("SUM(campaign_row_count)")
@@ -209,7 +209,7 @@ class NoonAdvertisingMapperSqlTest {
         String sql = sqlFor("selectLatestReportWindow", NoonAdvertisingScopeQuery.class);
 
         assertThat(sql)
-                .contains("FROM noon_ad_report_batch")
+                .contains("FROM noon_ad_effective_report_batch")
                 .contains("owner_user_id = #{query.ownerUserId}")
                 .contains("project_code = #{query.projectCode}")
                 .contains("store_code = #{query.storeCode}")
