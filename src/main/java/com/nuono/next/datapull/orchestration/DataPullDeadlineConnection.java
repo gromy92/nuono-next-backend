@@ -6,6 +6,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -20,22 +21,26 @@ final class DataPullDeadlineConnection implements InvocationHandler {
     private final Connection target;
     private final DataPullAdvanceDeadline deadline;
     private final Consumer<Connection> evict;
+    private final boolean evictionOwnsPhysicalClose;
     private final AtomicInteger lifecycle = new AtomicInteger(OPEN);
+    private final AtomicBoolean quarantined = new AtomicBoolean();
     private Connection proxy;
 
     private DataPullDeadlineConnection(
             Connection target,
             DataPullAdvanceDeadline deadline,
-            Consumer<Connection> evict
+            Consumer<Connection> evict,
+            boolean evictionOwnsPhysicalClose
     ) {
         this.target = target;
         this.deadline = deadline;
         this.evict = evict;
+        this.evictionOwnsPhysicalClose = evictionOwnsPhysicalClose;
     }
 
     static Connection bind(Connection target, DataPullAdvanceDeadline deadline)
             throws SQLException {
-        return bind(target, deadline, ignored -> { });
+        return bind(target, deadline, ignored -> { }, false);
     }
 
     static Connection bind(
@@ -43,10 +48,20 @@ final class DataPullDeadlineConnection implements InvocationHandler {
             DataPullAdvanceDeadline deadline,
             Consumer<Connection> evict
     ) throws SQLException {
+        return bind(target, deadline, evict, false);
+    }
+
+    static Connection bind(
+            Connection target,
+            DataPullAdvanceDeadline deadline,
+            Consumer<Connection> evict,
+            boolean evictionOwnsPhysicalClose
+    ) throws SQLException {
         DataPullDeadlineConnection handler = new DataPullDeadlineConnection(
                 target,
                 deadline,
-                evict
+                evict,
+                evictionOwnsPhysicalClose
         );
         Connection proxy = (Connection) Proxy.newProxyInstance(
                 DataPullDeadlineConnection.class.getClassLoader(),
@@ -119,17 +134,19 @@ final class DataPullDeadlineConnection implements InvocationHandler {
         Throwable failure = quarantine();
         if (failure != null) DataPullDeadlineTermination.abortNow(target);
         try {
-            target.close();
+            if (failure != null || !evictionOwnsPhysicalClose) {
+                target.close();
+            }
         } catch (SQLException | RuntimeException closeFailure) {
             failure = append(failure, closeFailure);
             DataPullDeadlineTermination.abortNow(target);
         } finally {
-            lifecycle.set(TARGET_CLOSED);
             try {
                 deadline.releaseTransientConnection(proxy);
             } catch (RuntimeException releaseFailure) {
                 failure = append(failure, releaseFailure);
             } finally {
+                lifecycle.set(TARGET_CLOSED);
                 lifecycle.set(CLOSED);
             }
         }
@@ -138,10 +155,12 @@ final class DataPullDeadlineConnection implements InvocationHandler {
     }
 
     private RuntimeException quarantine() {
+        if (!quarantined.compareAndSet(false, true)) return null;
         try {
             evict.accept(target);
             return null;
         } catch (RuntimeException unavailable) {
+            quarantined.set(false);
             return unavailable;
         }
     }
@@ -152,7 +171,9 @@ final class DataPullDeadlineConnection implements InvocationHandler {
         if (quarantineFailure != null) failure.addSuppressed(quarantineFailure);
         DataPullDeadlineTermination.abortNow(target);
         try {
-            target.close();
+            if (quarantineFailure != null || !evictionOwnsPhysicalClose) {
+                target.close();
+            }
         } catch (SQLException | RuntimeException closeFailure) {
             failure.addSuppressed(closeFailure);
         } finally {
