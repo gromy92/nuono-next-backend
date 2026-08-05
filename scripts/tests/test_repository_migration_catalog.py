@@ -53,7 +53,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "238_noon_auth_business_wait_queue.sql",
                 "239_official_warehouse_scope_collation_alignment.sql",
                 "240_operations_competitor_snapshot_active_uniqueness.sql",
-                "241_operations_competitor_correction_writer_fence.sql", "242_file_management_parse_retirement.sql", "243_dp_pull_runtime.sql", "244_dp_pull_report_bounded_apply.sql", "245_dp_pull_snapshot_bounded_apply.sql",
+                "241_operations_competitor_correction_writer_fence.sql", "242_file_management_parse_retirement.sql", "243_dp_pull_runtime.sql", "244_dp_pull_report_bounded_apply.sql", "245_dp_pull_snapshot_bounded_apply.sql", "246_dp_pull_advertising_generation.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -74,7 +74,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
-                "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
         )
