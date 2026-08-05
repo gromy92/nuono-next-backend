@@ -49,7 +49,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         assertThat(view.getAuthorization().getAccountLabel()).isEqualTo("1688 开发授权账号");
         assertThat(view.getAuthorization().getScopeSummary()).isEqualTo("读取 1688 历史订单，不会付款或创建订单。");
         assertThat(view.getRoleCapabilities().isCanAuthorize()).isTrue();
-        assertThat(view.getRoleCapabilities().isCanTriggerSync()).isTrue();
     }
 
     @Test
@@ -76,7 +75,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(partialSummary, fullSummary));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(4);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -110,7 +108,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of());
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L, 91002L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(0);
-        when(mapper.countOrderItems(307L, List.of(91001L, 91002L))).thenReturn(0);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -138,7 +135,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(assignmentSummary(94011L, 7, "AE 3 / SA 4")));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -182,7 +178,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(summary));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -218,7 +213,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         when(mapper.listActiveOrderItemProductLinks(307L, List.of(99001L))).thenReturn(List.of(link));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(
                 context,
@@ -258,7 +252,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of());
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(0);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(0);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context, query);
 
@@ -305,7 +298,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(orderRow(93001L, 91003L)));
         when(mapper.listOrderItems(307L, List.of(93001L))).thenReturn(List.of(missingItemRow()));
         when(mapper.countOrders(307L, List.of(91001L, 91003L), query)).thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L, 91003L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context, query);
 
@@ -351,7 +343,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(order));
         when(mapper.listOrderItems(307L, List.of(93001L))).thenReturn(List.of(item));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any())).thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -384,7 +375,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .thenReturn(List.of(order));
         when(mapper.listOrderItems(307L, List.of(93001L))).thenReturn(List.of(missingItemRow()));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91001L)), org.mockito.ArgumentMatchers.any())).thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91001L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context);
 
@@ -2486,7 +2476,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         assertThat(inserted.getScopeSummary()).contains("历史订单");
         assertThat(inserted.getCreatedBy()).isEqualTo(307L);
         assertThat(view.getAuthorization().getStatus()).isEqualTo("authorized");
-        assertThat(view.getRoleCapabilities().isCanTriggerSync()).isTrue();
     }
 
     @Test
@@ -2604,7 +2593,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
         item.setOrderId(93008L);
         when(mapper.listOrderItems(307L, List.of(93008L))).thenReturn(List.of(item));
         when(mapper.countOrders(org.mockito.ArgumentMatchers.eq(307L), org.mockito.ArgumentMatchers.eq(List.of(91008L)), org.mockito.ArgumentMatchers.any())).thenReturn(1);
-        when(mapper.countOrderItems(307L, List.of(91008L))).thenReturn(1);
 
         Ali1688HistoricalOrderWorkbenchView view = service.buildWorkbench(context, query);
 
@@ -2794,7 +2782,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
                 .containsExactly("脱敏仿真花束 6 支装", "脱敏复古锁心本", "脱敏标签贴纸");
         assertThat(logisticsCaptor.getAllValues()).extracting(Ali1688HistoricalOrderLogisticsRow::getTrackingNo)
                 .containsExactly("ZTO000000001", "YTO000000002");
-        verify(mapper, never()).insertSyncTask(any(Ali1688HistoricalOrderSyncTaskRow.class));
     }
 
     @Test
@@ -2993,7 +2980,6 @@ class LocalDbAli1688HistoricalOrderServiceTest {
 
         verify(mapper).revokeAuthorization(91001L, 307L, 307L);
         assertThat(view.getAuthorization().getStatus()).isEqualTo("not_authorized");
-        assertThat(view.getRoleCapabilities().isCanTriggerSync()).isFalse();
     }
 
     private BusinessAccessContext bossContext() {

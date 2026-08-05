@@ -47,7 +47,7 @@ public class SalesProductRow {
                 false,
                 null,
                 List.of("product_dimension_missing"),
-                List.of("sales_fact_ready", "product_dimension_missing"),
+                List.of("product_dimension_missing"),
                 summary
         );
     }
@@ -267,10 +267,6 @@ public class SalesProductRow {
         return summary.getBuyBoxVisitorPercentage();
     }
 
-    public boolean isBusinessMetricsAvailable() {
-        return summary.isBusinessMetricsAvailable();
-    }
-
     public int getLatestNetUnits() {
         return latestSummary.getNetUnits();
     }
@@ -299,7 +295,4 @@ public class SalesProductRow {
         return latestSummary.getConversionVisitorsPercentage();
     }
 
-    public boolean isLatestBusinessMetricsAvailable() {
-        return latestSummary.isBusinessMetricsAvailable();
-    }
 }

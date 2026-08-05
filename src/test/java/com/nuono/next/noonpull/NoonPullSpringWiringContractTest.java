@@ -169,17 +169,6 @@ class NoonPullSpringWiringContractTest {
             return 1;
         }
 
-        @Override
-        public com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit
-                auditSalesProductViewsCompleteness(
-                        Long ownerUserId,
-                        String storeCode,
-                        String siteCode
-                ) {
-            return com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit
-                    .missing();
-        }
-
     }
 
     private static final class RecordingNoonOrderFactMapper implements NoonOrderFactMapper {
@@ -199,13 +188,6 @@ class NoonPullSpringWiringContractTest {
             upsertCalls++;
             this.fact = fact;
             return 1;
-        }
-
-        @Override
-        public com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
-                auditSalesOrderCompleteness(Long ownerUserId, String storeCode, String siteCode) {
-            return com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
-                    .notIntegrated("not_integrated");
         }
 
         // Deliberate legacy-call trap: fails this test if the forbidden mapper method is restored.

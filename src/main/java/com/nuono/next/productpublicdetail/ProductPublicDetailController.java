@@ -7,8 +7,6 @@ import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -60,22 +58,6 @@ public class ProductPublicDetailController {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "未找到商品前台详情快照。");
         }
         return snapshot;
-    }
-
-    @PostMapping("/sync-tasks")
-    public ProductPublicDetailTaskView submitSyncTask(
-            HttpServletRequest request,
-            @RequestBody ProductPublicDetailSyncTaskRequest command
-    ) {
-        if (command == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "request body is required.");
-        }
-        BusinessAccessContext context = businessAccessResolver.requireStoreAccess(
-                request,
-                BusinessCapability.PRODUCT_MASTER,
-                command.getStoreCode()
-        );
-        return requireService().submitManual(context, command.getStoreCode(), command.getSiteCode());
     }
 
     private ProductPublicDetailSyncService requireService() {

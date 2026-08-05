@@ -1,6 +1,5 @@
 package com.nuono.next.sales;
 
-import com.nuono.next.noonsync.NoonSalesSyncReadModel;
 import java.math.BigDecimal;
 
 public class SalesAnalyticsSummary {
@@ -14,8 +13,6 @@ public class SalesAnalyticsSummary {
     private final int totalVisitors;
     private final BigDecimal conversionVisitorsPercentage;
     private final BigDecimal buyBoxVisitorPercentage;
-    private final NoonSalesSyncReadModel syncStatus;
-    private final boolean businessMetricsAvailable;
 
     public SalesAnalyticsSummary(
             int netUnits,
@@ -28,34 +25,6 @@ public class SalesAnalyticsSummary {
             BigDecimal conversionVisitorsPercentage,
             BigDecimal buyBoxVisitorPercentage
     ) {
-        this(
-                netUnits,
-                grossUnits,
-                shippedUnits,
-                cancelledUnits,
-                revenueShipped,
-                yourVisitors,
-                totalVisitors,
-                conversionVisitorsPercentage,
-                buyBoxVisitorPercentage,
-                null,
-                true
-        );
-    }
-
-    public SalesAnalyticsSummary(
-            int netUnits,
-            int grossUnits,
-            int shippedUnits,
-            int cancelledUnits,
-            BigDecimal revenueShipped,
-            int yourVisitors,
-            int totalVisitors,
-            BigDecimal conversionVisitorsPercentage,
-            BigDecimal buyBoxVisitorPercentage,
-            NoonSalesSyncReadModel syncStatus,
-            boolean businessMetricsAvailable
-    ) {
         this.netUnits = netUnits;
         this.grossUnits = grossUnits;
         this.shippedUnits = shippedUnits;
@@ -65,8 +34,6 @@ public class SalesAnalyticsSummary {
         this.totalVisitors = totalVisitors;
         this.conversionVisitorsPercentage = conversionVisitorsPercentage;
         this.buyBoxVisitorPercentage = buyBoxVisitorPercentage;
-        this.syncStatus = syncStatus;
-        this.businessMetricsAvailable = businessMetricsAvailable;
     }
 
     public int getNetUnits() {
@@ -105,11 +72,4 @@ public class SalesAnalyticsSummary {
         return buyBoxVisitorPercentage;
     }
 
-    public NoonSalesSyncReadModel getSyncStatus() {
-        return syncStatus;
-    }
-
-    public boolean isBusinessMetricsAvailable() {
-        return businessMetricsAvailable;
-    }
 }
