@@ -25,6 +25,9 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
             expected_jar_sha256="a" * 64,
             expected_active_jar_sha256="b" * 64,
             expected_commit="c" * 40,
+            expected_active_pid=3621,
+            expected_nginx_upstream_sha256="d" * 64,
+            expected_topology_cas_sha256="e" * 64,
             active_slot="blue",
             target_slot="green",
             active_port=18087,
@@ -32,7 +35,7 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
             maintenance_port=18089,
             nginx_upstream_file="/etc/nginx/conf.d/upstream.conf",
             release_name="file-parse-retirement",
-            external_health_url="https://example.test/actuator/health",
+            external_health_url="https://www.nuoon.com/ai/actuator/health",
             app_dir="/srv/nuono",
             mysql_defaults_file="/srv/nuono/.migration.cnf",
             expected_schema="nuono",
@@ -102,7 +105,7 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
     def test_failure_after_migration_start_never_restarts_old_jar(self):
         script = self.script()
         guard = script.index('if [ "$DRAINED_RUNTIME_MIGRATION_STARTED" = 1 ]')
-        restart = script.index('restart_old_runtime || true', guard)
+        restart = script.index('if ! restart_old_runtime || ! wait_for_health', guard)
         forbidden = script.index('emit SAFE_OLD_JAR_ROLLBACK FORBIDDEN', guard)
 
         self.assertLess(forbidden, restart)
@@ -114,6 +117,9 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
         kwargs = dict(
             staged_jar="/stage/new.jar", expected_jar_sha256="a" * 64,
             expected_active_jar_sha256="b" * 64, expected_commit="bad",
+            expected_active_pid=3621,
+            expected_nginx_upstream_sha256="d" * 64,
+            expected_topology_cas_sha256="e" * 64,
             active_slot="blue", target_slot="green", active_port=1,
             target_port=2, maintenance_port=3, nginx_upstream_file="/n",
             release_name="r", external_health_url="https://e/h",
