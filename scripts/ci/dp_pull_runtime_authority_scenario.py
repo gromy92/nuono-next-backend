@@ -99,4 +99,20 @@ def _assert_install_and_live(
     test_case, database, exact, live, exact_expected, live_expected
 ) -> None:
     test_case.assertEqual(exact_expected, database.client.execute_readonly(exact))
-    test_case.assertEqual(live_expected, database.client.execute_readonly(live))
+    live_actual = database.client.execute_readonly(live)
+    test_case.assertEqual(
+        live_expected,
+        live_actual,
+        None if live_actual == live_expected else _authority_state(database),
+    )
+
+
+def _authority_state(database) -> str:
+    return database.client.execute_readonly(
+        "SELECT GROUP_CONCAT(CONCAT_WS(':',s.task_id,t.operation_code,t.state,"
+        "COALESCE(s.poison_code,'-'),COALESCE(s.collection_mode,'-'),"
+        "COALESCE(s.verification_state,'-'),"
+        "(SELECT COUNT(*) FROM dp_pull_snapshot_stage_page p "
+        "WHERE p.task_id=s.task_id)) ORDER BY s.task_id SEPARATOR '|') "
+        "FROM dp_pull_snapshot_stage s JOIN dp_pull_task t ON t.id=s.task_id;"
+    )
