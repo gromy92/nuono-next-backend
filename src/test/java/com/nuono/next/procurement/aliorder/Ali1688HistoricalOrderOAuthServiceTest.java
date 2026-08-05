@@ -19,6 +19,8 @@ import com.nuono.next.infrastructure.mapper.Ali1688OpenApiAuthorizationMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +38,35 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 @ExtendWith(MockitoExtension.class)
 class Ali1688HistoricalOrderOAuthServiceTest {
+
+    @Test
+    void tokenExchangeBypassesMessageConverterLoggingForSensitiveForm() throws Exception {
+        String oauthSource = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/procurement/aliorder/"
+                        + "Ali1688HistoricalOrderOAuthService.java"
+        ));
+        String providerSource = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/procurement/aliorder/"
+                        + "HttpAli1688HistoricalOrderProvider.java"
+        ));
+        String refresherSource = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/procurement/aliorder/"
+                        + "Ali1688OpenApiTokenRefresher.java"
+        ));
+        String sensitiveClientSource = Files.readString(Path.of(
+                "src/main/java/com/nuono/next/procurement/aliorder/"
+                        + "Ali1688SensitiveHttpClient.java"
+        ));
+
+        assertThat(oauthSource).contains("Ali1688SensitiveHttpClient.postForm(")
+                .doesNotContain("restTemplate.exchange(");
+        assertThat(providerSource).contains("Ali1688SensitiveHttpClient.get(")
+                .doesNotContain("restTemplate.exchange(");
+        assertThat(refresherSource).contains("Ali1688SensitiveHttpClient.postForm(")
+                .doesNotContain("restTemplate.exchange(");
+        assertThat(sensitiveClientSource)
+                .contains("client.getRequestFactory().createRequest(uri, method)");
+    }
 
     @Mock
     private Ali1688HistoricalOrderMapper mapper;

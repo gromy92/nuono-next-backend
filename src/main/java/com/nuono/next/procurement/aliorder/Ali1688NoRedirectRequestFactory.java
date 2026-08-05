@@ -1,6 +1,7 @@
 package com.nuono.next.procurement.aliorder;
 
 import com.nuono.next.datapull.orchestration.DataPullAdvanceDeadline;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -97,6 +98,12 @@ final class Ali1688NoRedirectRequestFactory extends SimpleClientHttpRequestFacto
                         "1688 OpenAPI DP advance deadline exceeded"
                 );
             }
+            int deadlineMillis = (int) Math.min(
+                    Integer.MAX_VALUE,
+                    Math.max(1L, (effectiveDeadline.toNanos() + 999_999L) / 1_000_000L)
+            );
+            connection.setConnectTimeout(boundTimeout(connection.getConnectTimeout(), deadlineMillis));
+            connection.setReadTimeout(boundTimeout(connection.getReadTimeout(), deadlineMillis));
             AtomicBoolean expired = new AtomicBoolean();
             ScheduledFuture<?> timeout = DEADLINES.schedule(
                     () -> {
@@ -115,6 +122,12 @@ final class Ali1688NoRedirectRequestFactory extends SimpleClientHttpRequestFacto
                 );
                 throw failure;
             }
+        }
+
+        private int boundTimeout(int configuredMillis, int deadlineMillis) {
+            return configuredMillis <= 0
+                    ? deadlineMillis
+                    : Math.min(configuredMillis, deadlineMillis);
         }
     }
 
@@ -144,14 +157,33 @@ final class Ali1688NoRedirectRequestFactory extends SimpleClientHttpRequestFacto
         }
         @Override public HttpHeaders getHeaders() { return delegate.getHeaders(); }
         @Override public InputStream getBody() throws IOException {
-            if (expired.get()) throw new java.net.SocketTimeoutException(
-                    "1688 OpenAPI total call deadline exceeded"
-            );
-            return delegate.getBody();
+            requireActive();
+            return new FilterInputStream(delegate.getBody()) {
+                @Override public int read() throws IOException {
+                    requireActive();
+                    int value = super.read();
+                    requireActive();
+                    return value;
+                }
+
+                @Override public int read(byte[] buffer, int offset, int length)
+                        throws IOException {
+                    requireActive();
+                    int count = super.read(buffer, offset, length);
+                    requireActive();
+                    return count;
+                }
+            };
         }
         @Override public void close() {
             timeout.cancel(false);
             delegate.close();
+        }
+
+        private void requireActive() throws java.net.SocketTimeoutException {
+            if (expired.get()) throw new java.net.SocketTimeoutException(
+                    "1688 OpenAPI total call deadline exceeded"
+            );
         }
     }
 }

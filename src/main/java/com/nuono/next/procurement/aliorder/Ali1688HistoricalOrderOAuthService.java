@@ -5,7 +5,6 @@ import com.nuono.next.procurement.aliorder.Ali1688OAuthTokenParser.TokenPayload;
 import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
 import com.nuono.next.infrastructure.mapper.Ali1688OpenApiAuthorizationMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -14,14 +13,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -213,21 +206,18 @@ public class Ali1688HistoricalOrderOAuthService {
     }
 
     private TokenPayload exchangeCode(String code) {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-        body.add("grant_type", "authorization_code");
-        body.add("need_refresh_token", "true");
-        body.add("client_id", trim(properties.getAppKey()));
-        body.add("client_secret", trim(properties.getAppSecret()));
-        body.add("redirect_uri", trim(properties.getRedirectUri()));
-        body.add("code", trim(code));
-
-        ResponseEntity<String> response = restTemplate.exchange(
+        Map<String, String> body = new LinkedHashMap<>();
+        body.put("grant_type", "authorization_code");
+        body.put("need_refresh_token", "true");
+        body.put("client_id", trim(properties.getAppKey()));
+        body.put("client_secret", trim(properties.getAppSecret()));
+        body.put("redirect_uri", trim(properties.getRedirectUri()));
+        body.put("code", trim(code));
+        ResponseEntity<String> response = Ali1688SensitiveHttpClient.postForm(
+                restTemplate,
                 tokenUrl(),
-                HttpMethod.POST,
-                new HttpEntity<>(body, headers),
-                String.class
+                body,
+                false
         );
         return tokenParser.parse(
                 Ali1688OpenApiHttpResponse.requireSuccessfulBody(response)

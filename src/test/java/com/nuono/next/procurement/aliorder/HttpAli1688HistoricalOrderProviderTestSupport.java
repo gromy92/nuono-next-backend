@@ -23,6 +23,14 @@ abstract class HttpAli1688HistoricalOrderProviderTestSupport {
 
     Ali1688HistoricalOrderOpenApiProperties incrementalProperties() {
         Ali1688HistoricalOrderOpenApiProperties properties = properties();
+        properties.setApiGatewayBaseUrl("https://gw.open.1688.com");
+        properties.setTokenUrlTemplate(
+                "https://gw.open.1688.com/openapi/http/1/system.oauth2/getToken/{appKey}"
+        );
+        properties.setRedirectUri(
+                "https://www.nuoon.com/ai/api/procurement/ali1688-orders/"
+                        + "authorizations/open-api/callback"
+        );
         properties.setModifiedFromParameterName("modifyStartTime");
         properties.setModifiedToParameterName("modifyEndTime");
         properties.setHistoryParameterName("isHis");

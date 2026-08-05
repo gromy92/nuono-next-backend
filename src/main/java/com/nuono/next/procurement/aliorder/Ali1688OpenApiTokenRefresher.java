@@ -8,13 +8,8 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClientException;
@@ -74,19 +69,17 @@ final class Ali1688OpenApiTokenRefresher {
         if (!StringUtils.hasText(refreshToken)) {
             return failure(Ali1688HistoricalOrderFailureCode.AUTH_REQUIRED, null);
         }
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
-        MultiValueMap<String, String> body = new LinkedMultiValueMap<>();
-        body.add("grant_type", "refresh_token");
-        body.add("need_refresh_token", "true");
-        body.add("client_id", trim(properties.getAppKey()));
-        body.add("client_secret", trim(properties.getAppSecret()));
-        body.add("refresh_token", refreshToken.trim());
-        ResponseEntity<String> response = restTemplate.exchange(
+        ResponseEntity<String> response = Ali1688SensitiveHttpClient.postForm(
+                restTemplate,
                 tokenUrl(),
-                HttpMethod.POST,
-                new HttpEntity<>(body, headers),
-                String.class
+                java.util.Map.of(
+                        "grant_type", "refresh_token",
+                        "need_refresh_token", "true",
+                        "client_id", trim(properties.getAppKey()),
+                        "client_secret", trim(properties.getAppSecret()),
+                        "refresh_token", refreshToken.trim()
+                ),
+                true
         );
         TokenPayload token = tokenParser.parse(
                 Ali1688OpenApiHttpResponse.requireSuccessfulBody(response)

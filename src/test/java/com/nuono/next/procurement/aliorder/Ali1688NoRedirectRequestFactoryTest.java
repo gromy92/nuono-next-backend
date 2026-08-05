@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.sun.net.httpserver.HttpServer;
 import com.nuono.next.datapull.orchestration.DataPullAdvanceDeadline;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -14,8 +15,8 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.client.ResourceAccessException;
 
 class Ali1688NoRedirectRequestFactoryTest {
 
@@ -97,7 +98,8 @@ class Ali1688NoRedirectRequestFactoryTest {
             assertThatThrownBy(() -> client.getForEntity(
                     "http://127.0.0.1:" + server.getAddress().getPort() + "/slow",
                     String.class
-            )).isInstanceOf(ResourceAccessException.class);
+            )).isInstanceOf(RestClientException.class)
+                    .hasRootCauseInstanceOf(IOException.class);
 
             assertThat(Duration.ofNanos(System.nanoTime() - started))
                     .isLessThan(Duration.ofSeconds(1));
@@ -112,7 +114,8 @@ class Ali1688NoRedirectRequestFactoryTest {
                 assertThatThrownBy(() -> deadlineBoundClient.getForEntity(
                         "http://127.0.0.1:" + server.getAddress().getPort() + "/slow",
                         String.class
-                )).isInstanceOf(ResourceAccessException.class);
+                )).isInstanceOf(RestClientException.class)
+                        .hasRootCauseInstanceOf(IOException.class);
             }
             assertThat(Duration.ofNanos(System.nanoTime() - dpStarted))
                     .isLessThan(Duration.ofSeconds(1));

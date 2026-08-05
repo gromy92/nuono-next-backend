@@ -16,7 +16,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -410,11 +409,9 @@ public class HttpAli1688HistoricalOrderProvider implements Ali1688HistoricalOrde
                 UriUtils.encodeQueryParam(value, StandardCharsets.UTF_8)
                         .replace("+", "%2B")
         ));
-        ResponseEntity<String> response = restTemplate.exchange(
-                builder.build(true).toUri(),
-                HttpMethod.GET,
-                null,
-                String.class
+        ResponseEntity<String> response = Ali1688SensitiveHttpClient.get(
+                restTemplate,
+                builder.build(true).toUri()
         );
         try {
             return json.read(Ali1688OpenApiHttpResponse.requireSuccessfulBody(response));
