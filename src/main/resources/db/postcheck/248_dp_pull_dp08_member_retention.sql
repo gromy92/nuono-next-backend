@@ -199,7 +199,7 @@ SELECT IF(
     ON a.table_name=e.table_name AND a.constraint_name=e.constraint_name
     WHERE a.table_name IS NULL OR a.enforced<>'YES'
       OR LOCATE('dp08a',a.clause_signature)=0 OR LOCATE('dp08b',a.clause_signature)=0
-      OR LOCATE(CONCAT('octet_length',e.payload_column,'between1and4096'),a.clause_signature)=0)
+      OR LOCATE(CONCAT('length',e.payload_column,'between1and4096'),a.clause_signature)=0)
   AND (SELECT COUNT(*) FROM information_schema.triggers tr JOIN expected_table e
     ON e.table_name=tr.event_object_table WHERE tr.trigger_schema=DATABASE())=0
   AND NOT EXISTS (SELECT 1 FROM dp_pull_schedule_dp08_member_stage_head h
