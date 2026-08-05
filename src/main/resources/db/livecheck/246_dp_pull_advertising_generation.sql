@@ -55,7 +55,7 @@ actual_fk AS (
 actual_view AS (
   SELECT c.table_name,GROUP_CONCAT(c.column_name ORDER BY c.ordinal_position SEPARATOR ',') view_columns,
     MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
-    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4','')) view_definition
+    MAX(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4',''),'!exists','notexists')) view_definition
   FROM information_schema.columns c JOIN information_schema.views v ON v.table_schema=c.table_schema AND v.table_name=c.table_name
   JOIN expected_view e ON e.table_name=c.table_name WHERE c.table_schema=DATABASE() GROUP BY c.table_name
 ),
