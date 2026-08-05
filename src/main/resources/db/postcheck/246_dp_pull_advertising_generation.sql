@@ -52,7 +52,7 @@ actual_fk AS (
 ),
 actual_view AS (
   SELECT c.table_name,GROUP_CONCAT(c.column_name ORDER BY c.ordinal_position SEPARATOR ',') view_columns,
-    MAX(v.algorithm) algorithm,MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
+    MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
     MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[\x60[:space:]]',''),'_utf8mb4','')) view_definition
   FROM information_schema.columns c JOIN information_schema.views v ON v.table_schema=c.table_schema AND v.table_name=c.table_name
   JOIN expected_view e ON e.table_name=c.table_name WHERE c.table_schema=DATABASE() GROUP BY c.table_name
@@ -80,8 +80,8 @@ SELECT IF(
     WHERE a.table_name IS NULL OR a.child_columns<>e.child_columns OR a.referenced_table_name<>e.referenced_table_name
       OR a.referenced_columns<>e.referenced_columns OR a.delete_rule<>e.delete_rule OR a.update_rule<>e.update_rule)
   AND NOT EXISTS (SELECT 1 FROM expected_view e LEFT JOIN actual_view a USING(table_name)
-    WHERE a.table_name IS NULL OR a.view_columns<>e.view_columns OR a.algorithm<>'UNDEFINED'
-      OR a.security_type<>'INVOKER' OR a.check_option<>'NONE' OR a.is_updatable<>'NO')
+    WHERE a.table_name IS NULL OR a.view_columns<>e.view_columns OR a.security_type<>'INVOKER'
+      OR a.check_option<>'NONE' OR a.is_updatable<>'NO')
   AND (SELECT COUNT(*) FROM information_schema.triggers tr JOIN expected_table e ON e.table_name=tr.event_object_table WHERE tr.trigger_schema=DATABASE())=0
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='dp_pull_advertising_sealed_current_generation'
     AND view_definition LIKE '%dp_pull_advertising_current_head%join%dp_pull_advertising_generation%'
