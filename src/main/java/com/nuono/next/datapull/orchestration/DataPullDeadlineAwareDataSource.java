@@ -4,6 +4,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import javax.sql.DataSource;
 import com.zaxxer.hikari.HikariDataSource;
+import com.zaxxer.hikari.HikariPoolMXBean;
+import com.zaxxer.hikari.pool.HikariPool;
 import org.springframework.jdbc.datasource.DelegatingDataSource;
 
 /** Registers a DP connection immediately after pool checkout, before transaction begin commands. */
@@ -35,7 +37,14 @@ final class DataPullDeadlineAwareDataSource extends DelegatingDataSource impleme
         if (!(target instanceof HikariDataSource)) {
             throw new IllegalStateException("DP deadline datasource requires Hikari eviction");
         }
-        ((HikariDataSource) target).evictConnection(connection);
+        HikariDataSource hikari = (HikariDataSource) target;
+        hikari.evictConnection(connection);
+        HikariPoolMXBean state = hikari.getHikariPoolMXBean();
+        if (state instanceof HikariPool && state.getThreadsAwaitingConnection() > 0) {
+            // Hikari 4 does not refill a minimumIdle=0 pool for borrowers that were already
+            // waiting when an active entry was explicitly evicted.
+            ((HikariPool) state).addBagItem(state.getThreadsAwaitingConnection());
+        }
     }
 
     boolean hasUnwrappableTarget() {
