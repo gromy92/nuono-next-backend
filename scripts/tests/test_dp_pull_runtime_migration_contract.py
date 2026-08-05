@@ -232,6 +232,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         successor = self.migrations[244].script_sql
         self.assertIn("nuono_dp244_shape_guard", successor)
         self.assertNotIn("SIGNAL SQLSTATE", successor)
+        self.assertIn("CONCAT(CHAR(92),CHAR(39))", successor)
 
         self.assertIn("content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL", init)
         self.assertIn("download_state VARCHAR(20) NOT NULL DEFAULT 'LEGACY_COMPLETE'", init)
