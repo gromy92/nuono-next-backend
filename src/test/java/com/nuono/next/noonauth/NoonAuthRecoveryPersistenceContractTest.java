@@ -440,7 +440,7 @@ class NoonAuthRecoveryPersistenceContractTest {
                 .doesNotContain("report_export_id");
         assertThat(staleTerminalItems)
                 .contains("item.status = 'STALE'")
-                .contains("task.readiness_state = 'binding_epoch_requeued'");
+                .contains("task.diagnostic_summary = 'binding changed; terminal auth-recovery task requeued'");
         assertThat(requeueTerminalConfigTasks)
                 .contains("task.status = 'QUEUED'")
                 .contains("task.auth_recovery_id = NULL")
@@ -448,7 +448,7 @@ class NoonAuthRecoveryPersistenceContractTest {
                 .contains("task.status = 'BLOCKED_AUTH'");
         assertThat(staleTerminalConfigItems)
                 .contains("item.status = 'STALE'")
-                .contains("task.readiness_state = 'config_epoch_requeued'");
+                .contains("task.diagnostic_summary = 'auth configuration changed; terminal recovery task requeued'");
     }
 
     @Test

@@ -10,12 +10,21 @@ spring:
       maximum-pool-size: 5
       minimum-idle: 1
       idle-timeout: 30000
-      connection-timeout: 30000
+      # DP workers rely on this bounded acquisition wait before their per-statement deadline applies.
+      connection-timeout: 5000
       max-lifetime: 1800000
+      data-source-properties:
+        connectTimeout: 5000
+        # Physical-pool fallback for a server that accepts TCP but never completes MySQL handshake.
+        # DP statements replace this with their remaining <=10s budget after connection checkout.
+        socketTimeout: 300000
+        queryTimeoutKillsConnection: true
 
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
+    # Deadline interception assumes one JDBC execution per StatementHandler call.
+    default-executor-type: SIMPLE
 
 server:
   error:

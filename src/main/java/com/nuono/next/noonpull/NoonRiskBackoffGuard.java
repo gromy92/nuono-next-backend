@@ -50,6 +50,7 @@ public class NoonRiskBackoffGuard {
         }
         LocalDateTime now = now();
         NoonRiskBackoffHold hold = repository.selectActiveHold(scope.getScopeKey(), now);
+        // Account/egress sharing is opt-in: callers must explicitly record the broad scope.
         NoonRiskBackoffScope accountWideScope = scope.accountWide();
         NoonRiskBackoffHold accountWideHold = repository.selectActiveAccountWideHold(
                 scope.getOwnerUserId(),
@@ -92,20 +93,7 @@ public class NoonRiskBackoffGuard {
                 diagnosticSummary,
                 now
         );
-        NoonRiskBackoffHold accountWideHold = null;
-        NoonRiskBackoffScope accountWideScope = scope.accountWide();
-        if (accountWideScope != null && !scope.getScopeKey().equals(accountWideScope.getScopeKey())) {
-            accountWideHold = buildHold(
-                    accountWideScope,
-                    riskType,
-                    sourceDomain,
-                    sourceTaskId,
-                    blockedUntil,
-                    diagnosticSummary,
-                    now
-            );
-        }
-        return moreRestrictive(hold, accountWideHold).copy();
+        return hold.copy();
     }
 
     @Transactional
@@ -119,10 +107,6 @@ public class NoonRiskBackoffGuard {
         }
         LocalDateTime resetAt = now();
         repository.resetAfterSuccess(scope.getScopeKey(), normalizedDomain, resetAt);
-        NoonRiskBackoffScope accountWideScope = scope.accountWide();
-        if (accountWideScope != null && !scope.getScopeKey().equals(accountWideScope.getScopeKey())) {
-            repository.resetAfterSuccess(accountWideScope.getScopeKey(), normalizedDomain, resetAt);
-        }
     }
 
     private NoonRiskBackoffHold buildHold(

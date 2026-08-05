@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -11,6 +12,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -39,6 +41,11 @@ class NoonPullAuthRecoveryFoundationTest {
         task.setRequestCount(8);
         task.setNextResumePosition("page:8");
         repository.updateTask(task);
+        AtomicReference<NoonAuthWaitRequest> waitRequest = new AtomicReference<>();
+        service.setAuthWaitQueue(request -> {
+            waitRequest.set(request);
+            return Optional.of(RECOVERY_ID);
+        });
 
         NoonPullTaskRecord blocked = service.markFailedWithPolicy(
                 task.getId(),
@@ -57,6 +64,7 @@ class NoonPullAuthRecoveryFoundationTest {
         assertEquals(700, blocked.getProcessedItemCount());
         assertEquals(8, blocked.getRequestCount());
         assertEquals("page:8", blocked.getNextResumePosition());
+        assertEquals("page:7", waitRequest.get().getCheckpoint());
 
         NoonPullTaskRecord duplicate = service.createTaskForPlan(task.getPlanId(), reportTaskDraft()).orElseThrow();
         assertEquals(task.getId(), duplicate.getId());

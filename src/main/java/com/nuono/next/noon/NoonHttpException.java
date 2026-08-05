@@ -1,5 +1,6 @@
 package com.nuono.next.noon;
 
+import java.time.Duration;
 import java.util.Locale;
 import org.springframework.util.StringUtils;
 
@@ -17,12 +18,23 @@ public class NoonHttpException extends IllegalStateException {
     private final int statusCode;
     private final String responseBody;
     private final String requestPath;
+    private final Duration retryAfter;
 
     public NoonHttpException(int statusCode, String responseBody, String requestPath) {
+        this(statusCode, responseBody, requestPath, null);
+    }
+
+    public NoonHttpException(
+            int statusCode,
+            String responseBody,
+            String requestPath,
+            Duration retryAfter
+    ) {
         super(buildSafeMessage(statusCode, responseBody, requestPath));
         this.statusCode = statusCode;
         this.responseBody = truncate(responseBody);
         this.requestPath = requestPath;
+        this.retryAfter = retryAfter == null || retryAfter.isNegative() ? null : retryAfter;
     }
 
     public int getStatusCode() {
@@ -35,6 +47,10 @@ public class NoonHttpException extends IllegalStateException {
 
     public String getRequestPath() {
         return requestPath;
+    }
+
+    public Duration getRetryAfter() {
+        return retryAfter;
     }
 
     boolean hasStatusCode(int... expectedStatusCodes) {
