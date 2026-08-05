@@ -43,7 +43,7 @@ public interface DataPullScopeProgressMapper {
             "JOIN dp_pull_task task ON task.id = #{taskId}",
             "SET progress.initial_full_completed = CASE",
             "      WHEN progress.initial_full_completed = b'1' THEN b'1'",
-            "      ELSE #{initialFullCompleted}",
+            "      ELSE IF(#{initialFullCompleted}, b'1', b'0')",
             "    END,",
             "    progress.official_modified_high_water_utc = CASE",
             "      WHEN #{officialModifiedHighWaterUtc} IS NULL",

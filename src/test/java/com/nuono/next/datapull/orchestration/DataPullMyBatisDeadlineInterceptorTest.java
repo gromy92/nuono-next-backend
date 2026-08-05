@@ -89,6 +89,50 @@ class DataPullMyBatisDeadlineInterceptorTest {
     }
 
     @Test
+    void statementThatReturnsAfterCancellationCannotEscapeAsSuccessful() throws Throwable {
+        DataPullMyBatisDeadlineInterceptor interceptor =
+                new DataPullMyBatisDeadlineInterceptor();
+        Connection connection = connection();
+        Statement statement = mock(Statement.class);
+        StatementHandler handler = mock(StatementHandler.class);
+        when(handler.query(eq(statement), isNull())).thenAnswer(ignored -> {
+            try {
+                Thread.sleep(10_000L);
+            } catch (InterruptedException deadline) {
+                return java.util.List.of();
+            }
+            return java.util.List.of();
+        });
+
+        try (DataPullAdvanceDeadline deadline =
+                     DataPullAdvanceDeadline.open(Duration.ofMillis(100))) {
+            Connection bound = DataPullDeadlineConnection.bind(connection, deadline);
+            when(statement.getConnection()).thenReturn(bound);
+            when(statement.getQueryTimeout()).thenReturn(0);
+            when(handler.prepare(bound, null)).thenReturn(statement);
+            interceptor.intercept(new Invocation(
+                    handler,
+                    PREPARE,
+                    new Object[]{bound, null}
+            ));
+
+            IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
+                    () -> interceptor.intercept(new Invocation(
+                            handler,
+                            QUERY,
+                            new Object[]{statement, null}
+                    ))
+            );
+            assertTrue(failure.getMessage().contains("DP_ADVANCE_DEADLINE_EXCEEDED"));
+            bound.close();
+        }
+
+        verify(connection, timeout(1_000)).abort(any(Executor.class));
+        assertFalse(Thread.currentThread().isInterrupted());
+    }
+
+    @Test
     void completedStatementStaysAbortableUntilItsBorrowedConnectionIsReturned() throws Throwable {
         DataPullMyBatisDeadlineInterceptor interceptor =
                 new DataPullMyBatisDeadlineInterceptor();
