@@ -91,6 +91,7 @@ expected_index AS (
 {"t":"dp_pull_schedule_source_epoch","n":"PRIMARY","u":0,"c":"operation_code,epoch_no"},
 {"t":"dp_pull_schedule_source_epoch","n":"uk_dp_schedule_epoch_active","u":0,"c":"active_operation_slot"},
 {"t":"dp_pull_schedule_source_epoch","n":"idx_dp_schedule_epoch_retention","u":1,"c":"operation_code,terminal_at_utc,epoch_no"},
+{"t":"dp_pull_schedule_source_epoch","n":"idx_dp_schedule_epoch_manifest","u":1,"c":"operation_code,cutover_key"},
 {"t":"dp_pull_schedule_source_scope","n":"PRIMARY","u":0,"c":"operation_code,epoch_no,scope_key"},
 {"t":"dp_pull_schedule_source_scope","n":"uk_dp_schedule_scope_cursor","u":0,"c":"operation_code,epoch_no,source_cursor_sha256"},
 {"t":"dp_pull_schedule_source_scope","n":"idx_dp_schedule_scope_admission","u":1,"c":"operation_code,epoch_no,admission_anchor_state,scope_key"},

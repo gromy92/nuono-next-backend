@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS dp_pull_schedule_source_epoch (
     PRIMARY KEY (operation_code, epoch_no),
     UNIQUE KEY uk_dp_schedule_epoch_active (active_operation_slot),
     KEY idx_dp_schedule_epoch_retention (operation_code, terminal_at_utc, epoch_no),
+    KEY idx_dp_schedule_epoch_manifest (operation_code, cutover_key),
     CONSTRAINT chk_dp_schedule_epoch_operation CHECK (operation_code IN (
         'DP01','DP02','DP03','DP04','DP05','DP06','DP07A','DP07B','DP08A','DP08B','DP10'
     )),
