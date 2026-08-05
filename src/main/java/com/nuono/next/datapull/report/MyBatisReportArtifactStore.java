@@ -35,12 +35,12 @@ public final class MyBatisReportArtifactStore implements ReportArtifactStore {
             byte[] content
     ) {
         byte[] bytes = Objects.requireNonNull(content, "content");
-        if (bytes.length == 0) {
-            throw contract("REPORT_ARTIFACT_EMPTY_DOWNLOAD");
-        }
         ReportArtifactDownload download = openDownload(intent, handle);
         if (download.isComplete()) {
             return download.completedArtifact();
+        }
+        if (bytes.length == 0) {
+            throw contract("REPORT_ARTIFACT_EMPTY_DOWNLOAD");
         }
         int offset = Math.toIntExact(download.resumeByteOffset());
         if (offset > bytes.length) {

@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import java.time.Duration;
 import org.springframework.util.StringUtils;
 
 /** Keeps legacy report creation fail-closed when the provider cannot read back an unknown POST. */
@@ -21,9 +22,11 @@ final class NoonReportCreateCoordinator {
         if (NoonReportCreateAttemptState.isUnresolved(task)) {
             return hold(taskId, task.getReportPollAttempts(), foundationService);
         }
-        NoonPullTaskRecord intent = foundationService.recordReportExportCreateIntent(
+        NoonPullTaskRecord intent = recordCreateState(
                 taskId,
-                diagnostic + "; exportCreateIntent=true"
+                NoonReportCreateAttemptState.INTENT,
+                diagnostic + "; exportCreateIntent=true",
+                foundationService
         );
         final String exportId;
         try {
@@ -31,7 +34,12 @@ final class NoonReportCreateCoordinator {
         } catch (RuntimeException failure) {
             NoonPullFailureType failureType = failurePolicy.classify(safeMessage(failure));
             if (NoonReportCreateAttemptState.isDefiniteRejection(failureType)) {
-                foundationService.recordReportExportCreateRejected(taskId, safeMessage(failure));
+                recordCreateState(
+                        taskId,
+                        NoonReportCreateAttemptState.REJECTED,
+                        safeMessage(failure),
+                        foundationService
+                );
                 throw failure;
             }
             return hold(taskId, intent.getReportPollAttempts(), foundationService);
@@ -69,6 +77,22 @@ final class NoonReportCreateCoordinator {
                 NoonReportCreateAttemptState.UNKNOWN_OUTCOME
         );
         return Attempt.waiting(waiting);
+    }
+
+    private static NoonPullTaskRecord recordCreateState(
+            Long taskId,
+            String state,
+            String diagnostic,
+            NoonPullFoundationService foundationService
+    ) {
+        return foundationService.recordReportExportPollResult(
+                taskId,
+                null,
+                NoonReportExportStatus.pending(state),
+                0,
+                Duration.ofMinutes(15),
+                diagnostic
+        );
     }
 
     private static String safeMessage(RuntimeException failure) {

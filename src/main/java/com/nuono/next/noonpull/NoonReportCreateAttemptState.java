@@ -2,6 +2,7 @@ package com.nuono.next.noonpull;
 
 final class NoonReportCreateAttemptState {
     static final String INTENT = "CREATE_INTENT";
+    static final String REJECTED = "CREATE_REJECTED";
     static final String UNKNOWN_OUTCOME =
             "provider unavailable: report_create_outcome_unknown_readback_unavailable";
 
