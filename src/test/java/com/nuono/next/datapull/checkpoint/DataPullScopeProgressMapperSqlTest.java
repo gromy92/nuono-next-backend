@@ -35,6 +35,8 @@ class DataPullScopeProgressMapperSqlTest {
         assertTrue(sql.contains("progress.version_no = #{expectedProgressVersion}"));
         assertTrue(sql.contains("#{officialModifiedHighWaterUtc} >= progress.official_modified_high_water_utc"));
         assertTrue(sql.contains("WHEN progress.initial_full_completed = b'1' THEN b'1'"));
+        assertTrue(sql.contains("ELSE IF(#{initialFullCompleted}, b'1', b'0')"));
+        assertFalse(sql.contains("ELSE #{initialFullCompleted}"));
         assertTrue(sql.contains("last_applied_business_window_key = #{businessWindowKey}"));
     }
 
