@@ -54,7 +54,7 @@ actual_column AS (SELECT c.table_name, c.column_name, LOWER(c.column_type) AS co
     CASE WHEN c.column_default IS NULL THEN '-'
       WHEN c.data_type='bit' AND LOWER(c.column_default) IN ('0', 'b''0''') THEN '0'
       ELSE LOWER(c.column_default) END AS default_signature,
-    c.extra, c.generation_expression
+    LOWER(c.extra) AS extra, c.generation_expression
   FROM information_schema.columns c JOIN contract_table e ON e.table_name=c.table_name
   WHERE c.table_schema=DATABASE()
 ),
@@ -122,7 +122,7 @@ cleanup_marker_shape AS (SELECT m.*,
       ON a.table_name=e.table_name AND a.column_name=e.column_name
     WHERE a.table_name IS NULL OR a.column_type<>e.column_type OR a.is_nullable<>e.is_nullable
       OR a.character_set_name<>e.character_set_name OR a.collation_name<>e.collation_name
-      OR a.default_signature<>e.default_signature OR a.extra<>'' OR a.generation_expression<>''
+      OR a.default_signature<>e.default_signature OR a.extra<>IF(e.table_name='dp_pull_report_artifact' AND e.column_name='updated_at','default_generated','') OR a.generation_expression<>''
   )
   AND NOT EXISTS (
     SELECT 1 FROM contract_index_all e LEFT JOIN actual_index a

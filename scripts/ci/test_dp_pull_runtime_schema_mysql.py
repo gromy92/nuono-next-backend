@@ -52,6 +52,7 @@ RUNTIME_TABLES = (
 SEQUENCE_TABLE = "noon_pull_id_sequence"
 SEQUENCE_NAME = "dp_pull_task"
 TASK_ID = 500001
+SCOPE_BINDING_TASK_ID = TASK_ID + 10
 EXTRA_COLUMN = "ci_additive_note"
 EXTRA_INDEX = "idx_dp_pull_task_ci_additive_note"
 
@@ -101,7 +102,7 @@ class DpPullRuntimeSchemaMySqlTest(unittest.TestCase):
         self.assert_leader_seed(database)
         self.insert_valid_task(database)
         self.insert_valid_cutover(database)
-        insert_valid_scope_binding_scenario(database, TASK_ID + 10)
+        insert_valid_scope_binding_scenario(database, SCOPE_BINDING_TASK_ID)
         database.client.execute(migration)
 
         self.assertEqual("1", database.client.execute_readonly(exact))
@@ -125,7 +126,7 @@ class DpPullRuntimeSchemaMySqlTest(unittest.TestCase):
         )
         self.assertEqual("1", database.client.execute_readonly(exact))
         self.assertEqual("1", database.client.execute_readonly(live))
-        run_successor_schema_scenario(self, database, resources, exact, live, TASK_ID + 10)
+        run_successor_schema_scenario(self, database, resources, exact, live, SCOPE_BINDING_TASK_ID)
 
     @staticmethod
     def table_exists(database, table_name):
@@ -221,7 +222,7 @@ class DpPullRuntimeSchemaMySqlTest(unittest.TestCase):
 
     def assert_sequence_floor(self, database):
         self.assertEqual(
-            f"1/{TASK_ID}/{TASK_ID}",
+            f"1/{SCOPE_BINDING_TASK_ID}/{SCOPE_BINDING_TASK_ID}",
             database.client.execute_readonly(
                 "SELECT CONCAT(COUNT(*),'/',MIN(next_id),'/',"
                 "(SELECT MAX(id) FROM dp_pull_task)) "

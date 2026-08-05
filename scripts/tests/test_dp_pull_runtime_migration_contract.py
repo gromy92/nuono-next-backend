@@ -97,6 +97,8 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("table_name='dp_pull_auth_wait')=0", sql)
             self.assertIn("dp10_fingerprint_actual", sql)
             self.assertIn("noon_pull_id_sequence", sql)
+            self.assertIn("LOWER(c.extra) AS extra", sql)
+            self.assertIn("'default_generated','')", sql)
 
         self.assertIn("(SELECT COUNT(*) FROM actual_column)=232", exact)
         self.assertIn("(SELECT COUNT(*) FROM actual_index)=49", exact)
