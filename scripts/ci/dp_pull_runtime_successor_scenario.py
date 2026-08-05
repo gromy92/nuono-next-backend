@@ -107,7 +107,9 @@ def _load_migrations(resources):
 def _assert_contract(test_case, database, exact, live) -> None:
     exact_result = database.client.execute_readonly(exact)
     detail = ""
-    if exact_result != "1" and "expected_check AS" in exact:
+    if exact_result != "1" and (
+        "expected_check AS" in exact or "required_check AS" in exact
+    ):
         detail = "; check drift: " + _check_drift(database, exact)
     test_case.assertEqual(
         "1",
@@ -124,6 +126,18 @@ def _check_drift(database, exact) -> str:
     select_start = exact.rfind("SELECT IF(")
     if select_start < 0:
         return "outer-select-missing"
+    database.client.execute("SET SESSION group_concat_max_len=65535;")
+    prefix = exact[:select_start]
+    if "required_pattern" in exact:
+        return database.client.execute_readonly(
+            prefix
+            + "SELECT GROUP_CONCAT(CONCAT(e.table_name,'.',e.constraint_name,"
+            "':',e.required_pattern,'/',COALESCE(HEX(a.check_clause),'missing')) "
+            "ORDER BY e.table_name,e.constraint_name SEPARATOR '|') "
+            "FROM required_check e LEFT JOIN actual_check a "
+            "USING(table_name,constraint_name) WHERE a.table_name IS NULL "
+            "OR a.enforced<>'YES' OR a.check_clause NOT REGEXP e.required_pattern;"
+        )
     hash_column = (
         "clause_sha256" if "clause_sha256" in exact
         else "clause_hash" if "clause_hash" in exact
@@ -131,8 +145,6 @@ def _check_drift(database, exact) -> str:
     )
     if hash_column is None:
         return "named-check-contract-has-no-expression-hash"
-    database.client.execute("SET SESSION group_concat_max_len=65535;")
-    prefix = exact[:select_start]
     raw_first = database.client.execute_readonly(
         prefix
         + "SELECT CONCAT(e.table_name,'.',e.constraint_name,':',"

@@ -120,7 +120,8 @@ def outer_if_predicates(statement):
     arguments = _split_top_level(statement[opening + 1:closing], ",")
     if len(arguments) != 3:
         raise ValueError("postcheck outer IF must have three arguments")
-    predicates = _split_top_level(arguments[0], "AND")
+    condition = _strip_sql_comments(arguments[0])
+    predicates = _split_top_level(condition, "AND")
     if not predicates:
         raise ValueError("postcheck outer IF has no predicates")
     return predicates
@@ -192,6 +193,45 @@ def _split_top_level(value, delimiter):
         index += 1
     parts.append(value[start:].strip())
     return tuple(part for part in parts if part)
+
+
+def _strip_sql_comments(value):
+    result = []
+    quote = None
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if quote is not None:
+            result.append(character)
+            if character == quote:
+                if index + 1 < len(value) and value[index + 1] == quote:
+                    result.append(value[index + 1])
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+        if character in ("'", '"', "`"):
+            quote = character
+            result.append(character)
+            index += 1
+            continue
+        if value.startswith("--", index):
+            newline = value.find("\n", index + 2)
+            if newline < 0:
+                break
+            result.append("\n")
+            index = newline + 1
+            continue
+        if value.startswith("/*", index):
+            closing = value.find("*/", index + 2)
+            if closing < 0:
+                break
+            index = closing + 2
+            continue
+        result.append(character)
+        index += 1
+    return "".join(result)
 
 
 def _delimiter_at(value, delimiter, index):
