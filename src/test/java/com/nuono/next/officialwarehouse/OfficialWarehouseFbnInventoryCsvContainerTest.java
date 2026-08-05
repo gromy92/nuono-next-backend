@@ -30,7 +30,7 @@ class OfficialWarehouseFbnInventoryCsvContainerTest {
                 .containsOnly("2026-08-02 23:00:00");
         assertThat(page.providerGenerationToken).isNull();
         assertThat(page.providerExportToken).isNull();
-        assertThat(page.declaredCollectionCount).isNull();
+        assertThat(page.declaredCollectionCount).isEqualTo(2L);
     }
 
     @Test

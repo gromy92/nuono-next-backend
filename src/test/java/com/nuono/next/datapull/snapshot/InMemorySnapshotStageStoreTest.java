@@ -211,7 +211,7 @@ class InMemorySnapshotStageStoreTest {
     ) {
         SnapshotCollectionAuthority authority = SnapshotCollectionAuthority.fromProviderToken(
                 SnapshotCollectionAuthority.Kind.PAGED_GENERATION,
-                "in-memory-stage:" + totalPages,
+                "in-memory-stage",
                 LocalDateTime.of(2026, 8, 2, 3, 0),
                 0L
         );

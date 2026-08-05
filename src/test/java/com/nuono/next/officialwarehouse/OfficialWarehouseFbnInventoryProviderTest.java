@@ -127,7 +127,7 @@ class OfficialWarehouseFbnInventoryProviderTest {
                 .containsOnly("2026-06-17 09:37:08");
         assertThat(page.providerGenerationToken).isNull();
         assertThat(page.providerExportToken).isNull();
-        assertThat(page.declaredCollectionCount).isNull();
+        assertThat(page.declaredCollectionCount).isEqualTo(3L);
     }
 
     @Test
