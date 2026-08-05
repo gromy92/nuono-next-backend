@@ -6,6 +6,7 @@ import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
@@ -87,7 +88,9 @@ final class ReportCsvCursor {
             if (record.ignorablePhysicalBlank) {
                 // Provider-declared row counts include data-region separator lines. Preserve
                 // them as one source row; the domain classifier deterministically skips them.
-                rows.add(new String[expectedWidth]);
+                String[] blankRow = new String[expectedWidth];
+                Arrays.fill(blankRow, "");
+                rows.add(blankRow);
                 continue;
             }
             if (record.values.length != expectedWidth) {

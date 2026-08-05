@@ -131,6 +131,9 @@ public class NoonRiskBackoffScope {
     }
 
     boolean acceptsAccountWideSourceDomain(String sourceDomain) {
+        if (operationGroup != null && operationGroup.startsWith("REPORT_")) {
+            return operationGroup.substring("REPORT_".length()).equals(normalize(sourceDomain));
+        }
         if (!PARTNER_ACCOUNT_WIDE_OPERATION.equals(operationGroup)
                 && !PUBLIC_ACCOUNT_WIDE_OPERATION.equals(operationGroup)) {
             return true;

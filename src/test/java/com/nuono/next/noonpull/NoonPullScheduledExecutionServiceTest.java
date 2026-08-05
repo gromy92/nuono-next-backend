@@ -128,7 +128,7 @@ class NoonPullScheduledExecutionServiceTest {
         NoonPullTaskRecord executed = repository.selectTask(queued.getId());
         assertEquals(NoonPullTaskStatus.SUCCEEDED, executed.getStatus());
         assertEquals(1, writer.facts.size());
-        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1").unitsSold);
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1|SKU-1").unitsSold);
     }
 
     @Test
@@ -206,7 +206,7 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals(0, result.getCreatedTaskCount());
         assertEquals(1, result.getExecutedTaskCount());
         assertEquals(NoonPullTaskStatus.SUCCEEDED, repository.selectTask(queued.getId()).getStatus());
-        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1").unitsSold);
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-05-22|PSKU-1|SKU-1").unitsSold);
     }
 
     @Test
@@ -258,7 +258,7 @@ class NoonPullScheduledExecutionServiceTest {
         assertEquals(LocalDate.of(2026, 4, 24), tasks.get(0).getTargetDateFrom());
         assertEquals(LocalDate.of(2026, 5, 23), tasks.get(0).getTargetDateTo());
         assertEquals(1, writer.facts.size());
-        NoonSalesDailyFact fact = writer.facts.get("10002|STR245027-NAE|AE|2026-04-24|PSKU-1");
+        NoonSalesDailyFact fact = writer.facts.get("10002|STR245027-NAE|AE|2026-04-24|PSKU-1|SKU-1");
         assertEquals(1L, fact.unitsSold);
         assertEquals("49.50", fact.salesAmount.toPlainString());
     }
@@ -448,7 +448,7 @@ class NoonPullScheduledExecutionServiceTest {
         NoonPullTaskRecord executed = repository.selectTask(task.getId());
         assertEquals(NoonPullTaskStatus.SUCCEEDED, executed.getStatus());
         assertEquals("EXP-SALES", executed.getReportExportId());
-        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-04-24|PSKU-1").unitsSold);
+        assertEquals(1L, writer.facts.get("10002|STR245027-NAE|AE|2026-04-24|PSKU-1|SKU-1").unitsSold);
     }
 
     @Test
@@ -749,9 +749,9 @@ class NoonPullScheduledExecutionServiceTest {
         }
 
         NoonPullScheduledExecutionResult result = service.runOnce();
-
         assertEquals(6, result.getCreatedTaskCount());
-        assertEquals(4, result.getExecutedTaskCount());
+        assertEquals(2, result.getExecutedTaskCount());
+        assertEquals(2, result.getFailedTaskCount());
         long queued = repository.listTasks().stream()
                 .filter((task) -> task.getStatus() == NoonPullTaskStatus.QUEUED)
                 .count();

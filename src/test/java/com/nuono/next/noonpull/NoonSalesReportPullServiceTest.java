@@ -45,7 +45,7 @@ class NoonSalesReportPullServiceTest {
         assertEquals(NoonPullTaskStatus.SUCCEEDED, first.getStatus());
         assertEquals(NoonPullTaskStatus.SUCCEEDED, second.getStatus());
         assertEquals(1, writer.facts.size());
-        assertEquals(2L, writer.facts.get("307|STR245027|AE|2026-05-21|Z1").unitsSold);
+        assertEquals(2L, writer.facts.get("307|STR245027|AE|2026-05-21|Z1|Z1").unitsSold);
     }
 
     @Test
@@ -68,16 +68,16 @@ class NoonSalesReportPullServiceTest {
         NoonPullTaskRecord task = repository.listTasks().get(0);
 
         assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
-        assertEquals("empty_report_pending_confirmation", task.getFailureType());
+        assertEquals("report_not_ready", task.getFailureType());
         assertEquals(0, writer.facts.size());
     }
 
     @Test
-    void shouldPreserveMissingColumnsAndPartialSuccessQualityStates() {
+    void shouldRetryRejectedContainersAndSucceedWithBusinessRowSkips() {
         NoonReportPullResult missing = service.pullLatestDay(command(), provider("date,sku_parent,units_sold\n2026-05-21,Z1,2\n"));
         NoonPullTaskRecord missingTask = repository.listTasks().get(0);
-        assertEquals(NoonPullTaskStatus.FAILED, missing.getStatus());
-        assertEquals("missing_columns", missingTask.getFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, missing.getStatus());
+        assertEquals("provider_unavailable", missingTask.getFailureType());
 
         repository.tasks.clear();
         String partialCsv = "date,sku_parent,units_sold,sales_amount,currency\n"
@@ -86,8 +86,8 @@ class NoonSalesReportPullServiceTest {
         NoonReportPullResult partial = service.pullLatestDay(command(), provider(partialCsv));
         NoonPullTaskRecord partialTask = repository.listTasks().get(0);
 
-        assertEquals(NoonPullTaskStatus.PARTIAL, partial.getStatus());
-        assertEquals("partial_success", partialTask.getFailureType());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, partial.getStatus());
+        assertEquals(null, partialTask.getFailureType());
         assertEquals(1, writer.facts.size());
     }
 
@@ -101,7 +101,7 @@ class NoonSalesReportPullServiceTest {
                 + "\"Smoke, Product\",AE,10,20,8,7,1,120.50,50,35,17.21\n";
 
         NoonReportPullResult result = service.pullLatestDay(command(), provider(csv));
-        NoonSalesDailyFact fact = writer.facts.get("307|STR245027|AE|2026-05-21|PSKU-1");
+        NoonSalesDailyFact fact = writer.facts.get("307|STR245027|AE|2026-05-21|PSKU-1|SKU-1");
 
         assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
         assertEquals(1, writer.facts.size());
