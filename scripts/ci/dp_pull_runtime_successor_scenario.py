@@ -124,6 +124,7 @@ def _check_drift(database, exact) -> str:
     select_start = exact.rfind("SELECT IF(")
     if select_start < 0:
         return "outer-select-missing"
+    database.client.execute("SET SESSION group_concat_max_len=65535;")
     return database.client.execute_readonly(
         exact[:select_start]
         + "SELECT GROUP_CONCAT(CONCAT(e.table_name,'.',e.constraint_name,':',"

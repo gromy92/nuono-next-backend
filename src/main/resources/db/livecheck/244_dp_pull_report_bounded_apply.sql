@@ -32,7 +32,10 @@ actual_index AS (
 ),
 actual_check AS (
   SELECT tc.table_name,tc.constraint_name,tc.enforced,
-    SHA2(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause),'[`[:space:]()]',''),'_utf8mb4',''),256) clause_sha256
+    SHA2(REPLACE(REPLACE(
+      REGEXP_REPLACE(LOWER(cc.check_clause),'[`[:space:]()]',''),
+      CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+      '_utf8mb4',''),256) clause_sha256
   FROM information_schema.table_constraints tc JOIN expected_table e ON e.table_name=tc.table_name
   JOIN information_schema.check_constraints cc ON cc.constraint_schema=tc.constraint_schema AND cc.constraint_name=tc.constraint_name
   WHERE tc.constraint_schema=DATABASE() AND tc.constraint_type='CHECK'
