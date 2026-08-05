@@ -67,6 +67,7 @@ public final class DataPullMyBatisDeadlineInterceptor implements Interceptor {
                 deadline.remainingNetworkTimeoutMillis()
         );
         Statement statement = (Statement) invocation.proceed();
+        DataPullAdvanceDeadline.requireRemaining();
         applyQueryTimeout(statement, deadline.remainingQueryTimeoutSeconds());
         bindings.put(statement, new Binding(deadline, connection));
         return statement;
@@ -75,7 +76,9 @@ public final class DataPullMyBatisDeadlineInterceptor implements Interceptor {
     private Object parameterize(Invocation invocation) throws Throwable {
         Statement statement = (Statement) invocation.getArgs()[0];
         try {
-            return invocation.proceed();
+            Object result = invocation.proceed();
+            DataPullAdvanceDeadline.requireRemaining();
+            return result;
         } catch (Throwable failure) {
             release(statement, bindings.remove(statement));
             throw failure;
@@ -105,7 +108,9 @@ public final class DataPullMyBatisDeadlineInterceptor implements Interceptor {
             if ("queryCursor".equals(invocation.getMethod().getName())) {
                 throw new IllegalStateException("DP MyBatis cursors are not deadline-safe");
             }
-            return invocation.proceed();
+            Object result = invocation.proceed();
+            DataPullAdvanceDeadline.requireRemaining();
+            return result;
         } finally {
             bindings.remove(statement);
         }
