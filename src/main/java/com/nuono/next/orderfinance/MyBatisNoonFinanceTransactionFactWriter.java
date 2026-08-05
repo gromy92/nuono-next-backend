@@ -1,7 +1,9 @@
 package com.nuono.next.orderfinance;
 
 import com.nuono.next.infrastructure.mapper.NoonFinanceTransactionMapper;
+import java.util.List;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class MyBatisNoonFinanceTransactionFactWriter implements NoonFinanceTransactionFactWriter {
@@ -14,5 +16,11 @@ public class MyBatisNoonFinanceTransactionFactWriter implements NoonFinanceTrans
     @Override
     public void upsert(NoonFinanceTransactionFact fact) {
         mapper.upsertFinanceTransactionFact(mapper.nextFinanceTransactionFactId(), fact);
+    }
+
+    @Override
+    @Transactional
+    public void upsertAll(List<NoonFinanceTransactionFact> facts) {
+        NoonFinanceTransactionFactWriter.super.upsertAll(facts);
     }
 }

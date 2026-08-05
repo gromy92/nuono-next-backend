@@ -1,5 +1,15 @@
 package com.nuono.next.officialwarehouse;
 
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.firstLong;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.firstText;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.matchStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.maxDate;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.minDate;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.receiptStatus;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.requireOwnerUserId;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.requireText;
+import static com.nuono.next.officialwarehouse.OfficialWarehouseFbnImportSupport.sha256;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -9,6 +19,7 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider.Expor
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider.PullRequest;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportCsvParser.ParsedFile;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnReceivedReportCsvParser.ReceivedRow;
+import com.nuono.next.officialwarehouse.OfficialWarehouseFbnDownloadedReportPreparer.Prepared;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsCommands.FbnReceivedImportCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InboundReceiptAsnLineMatchRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.InboundReceiptAsnMatchRecord;
@@ -19,8 +30,6 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.Repor
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsRecords.ReportRowInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseStatisticsViews.FbnReceivedImportResultView;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -47,6 +56,7 @@ public class OfficialWarehouseFbnReceivedReportImportService {
     private final OfficialWarehouseFbnExportProvider provider;
     private final OfficialWarehouseFbnReceivedReportCsvParser parser;
     private final ObjectMapper objectMapper;
+    private final OfficialWarehouseFbnDownloadedReportPreparer downloadedReportPreparer;
 
     public OfficialWarehouseFbnReceivedReportImportService(
             OfficialWarehouseStatisticsMapper mapper,
@@ -58,6 +68,7 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         this.provider = provider;
         this.parser = parser;
         this.objectMapper = objectMapper;
+        this.downloadedReportPreparer = new OfficialWarehouseFbnDownloadedReportPreparer(mapper, parser);
     }
 
     @Transactional
@@ -83,19 +94,85 @@ public class OfficialWarehouseFbnReceivedReportImportService {
 
         PullRequest request = new PullRequest(ownerUserId, storeCode, siteCode);
         ExportStatus status = provider.exportStatus(request, safeExportCode, Boolean.TRUE.equals(safeCommand.logStatus));
-        if (!isComplete(status == null ? null : status.status)) {
-            throw new IllegalArgumentException("FBN 报表尚未完成，当前状态：" + (status == null ? "UNKNOWN" : status.status));
-        }
-        String downloadUrl = requireText(status.downloadUrl, "FBN 报表已完成但没有下载地址。");
+        String downloadUrl = OfficialWarehouseFbnReceivedReportIntegrity.validatedDownloadUrl(
+                status,
+                safeExportCode
+        );
         byte[] content = provider.download(request, downloadUrl);
         ParsedFile parsedFile = parser.parse(content);
+        OfficialWarehouseFbnReceivedReportIntegrity.validateSourceRows(status.totalRows, parsedFile.sourceDataRowCount);
 
-        Long importId = mapper.nextReportImportId();
-        String now = LocalDateTime.now().format(DATE_TIME_FORMATTER);
-        String sourceExportCode = StringUtils.hasText(status.exportCode) ? status.exportCode : safeExportCode;
+        String sourceExportCode = safeExportCode;
         String fileName = StringUtils.hasText(status.fileName)
                 ? status.fileName
                 : "fbn_inbound_fbnreceivedreport-" + sourceExportCode + ".csv";
+        return persistDownloaded(
+                parsedFile,
+                content,
+                scope,
+                ownerUserId,
+                operatorUserId,
+                storeCode,
+                siteCode,
+                sourceExportCode,
+                fileName,
+                status.status,
+                status.totalRows
+        );
+    }
+
+    /** Runtime entry after DP-07-B has already downloaded and verified the complete artifact. */
+    @Transactional
+    public FbnReceivedImportResultView importDownloaded(
+            BusinessAccessContext access,
+            String exportCode,
+            FbnReceivedImportCommand command,
+            byte[] content,
+            String fileName,
+            String expectedSha256
+    ) {
+        return persistDownloaded(downloadedReportPreparer.prepare(
+                access,
+                exportCode,
+                command,
+                content,
+                fileName,
+                expectedSha256
+        ));
+    }
+
+    private FbnReceivedImportResultView persistDownloaded(Prepared prepared) {
+        return persistDownloaded(
+                prepared.parsedFile,
+                prepared.content,
+                prepared.scope,
+                prepared.ownerUserId,
+                prepared.operatorUserId,
+                prepared.storeCode,
+                prepared.siteCode,
+                prepared.exportCode,
+                prepared.fileName,
+                "COMPLETE",
+                prepared.parsedFile.rows.size()
+        );
+    }
+
+    private FbnReceivedImportResultView persistDownloaded(
+            ParsedFile parsedFile,
+            byte[] content,
+            InventorySyncScopeRecord scope,
+            Long ownerUserId,
+            Long operatorUserId,
+            String storeCode,
+            String siteCode,
+            String sourceExportCode,
+            String fileName,
+            String providerStatus,
+            Integer providerTotalRows
+    ) {
+
+        Long importId = mapper.nextReportImportId();
+        String now = LocalDateTime.now().format(DATE_TIME_FORMATTER);
         String fileSha256 = sha256(content);
 
         mapper.deactivatePreviousFbnReceivedReportImports(
@@ -138,7 +215,13 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         importRecord.warningRows = counters.warningRows;
         importRecord.errorRows = counters.errorRows;
         importRecord.status = counters.errorRows > 0 ? "PARTIAL_IMPORTED" : "IMPORTED";
-        importRecord.summaryJson = summaryJson(sourceExportCode, status, parsedFile.rows.size(), counters);
+        importRecord.summaryJson = summaryJson(
+                sourceExportCode,
+                providerStatus,
+                providerTotalRows,
+                parsedFile.rows.size(),
+                counters
+        );
         importRecord.rawPreviewJson = rawPreviewJson(parsedFile);
         importRecord.operatorUserId = operatorUserId;
         mapper.insertReportImport(importRecord);
@@ -156,7 +239,11 @@ public class OfficialWarehouseFbnReceivedReportImportService {
             Long operatorUserId
     ) {
         ImportCounters counters = new ImportCounters();
+        Set<String> acceptedBusinessKeys = new LinkedHashSet<>();
         for (ReceivedRow row : parsedFile.rows) {
+            if (!acceptedBusinessKeys.add(row.businessKey())) {
+                continue;
+            }
             RowBuildResult rowBuild = buildRow(scope, ownerUserId, storeCode, siteCode, row);
             Long reportRowId = mapper.nextReportRowId();
             ReportRowInsertRecord reportRow = reportRowRecord(
@@ -206,7 +293,9 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         if (!StringUtils.hasText(row.noonAsnNr)) {
             warningCodes.add("MISSING_ASN");
         }
-        if (!StringUtils.hasText(row.noonSku) && !StringUtils.hasText(row.partnerSku)) {
+        if (!StringUtils.hasText(row.noonSku)
+                && !StringUtils.hasText(row.partnerSku)
+                && !StringUtils.hasText(row.pbarcodeCanonical)) {
             warningCodes.add("MISSING_PRODUCT_KEY");
         }
 
@@ -256,39 +345,6 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         result.warningCodes = new ArrayList<>(warningCodes);
         result.logicalStoreId = scope.logicalStoreId;
         return result;
-    }
-
-    private String matchStatus(
-            InboundReceiptAsnMatchRecord asnMatch,
-            InboundReceiptAsnLineMatchRecord lineMatch,
-            InventoryLineProductMatchRecord productMatch
-    ) {
-        if (asnMatch == null) {
-            return "NO_LOCAL_ASN";
-        }
-        if (lineMatch != null) {
-            return "MATCHED";
-        }
-        if (productMatch == null) {
-            return "PRODUCT_UNMATCHED";
-        }
-        return "LINE_UNMATCHED";
-    }
-
-    private String receiptStatus(ReceivedRow row) {
-        if (row.qcFailedQty > 0) {
-            return "QC_FAILED";
-        }
-        if (row.unidentifiedQty > 0) {
-            return "UNIDENTIFIED";
-        }
-        if (row.receivedQty < row.qtyExpected) {
-            return "SHORT_RECEIVED";
-        }
-        if (row.receivedQty > row.qtyExpected) {
-            return "OVER_RECEIVED";
-        }
-        return "NORMAL";
     }
 
     private ReportRowInsertRecord reportRowRecord(
@@ -414,13 +470,19 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         return toJson(node);
     }
 
-    private String summaryJson(String exportCode, ExportStatus status, int parsedRows, ImportCounters counters) {
+    private String summaryJson(
+            String exportCode,
+            String providerStatus,
+            Integer providerTotalRows,
+            int parsedRows,
+            ImportCounters counters
+    ) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("sourceType", SOURCE_TYPE);
         node.put("exportCode", exportCode);
-        node.put("providerStatus", status.status);
-        if (status.totalRows != null) {
-            node.put("providerTotalRows", status.totalRows);
+        node.put("providerStatus", providerStatus);
+        if (providerTotalRows != null) {
+            node.put("providerTotalRows", providerTotalRows);
         }
         node.put("parsedRows", parsedRows);
         node.put("insertedReceiptLines", counters.insertedRows);
@@ -458,101 +520,12 @@ public class OfficialWarehouseFbnReceivedReportImportService {
         return view;
     }
 
-    private String sha256(byte[] content) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(content == null ? new byte[0] : content);
-            StringBuilder builder = new StringBuilder();
-            for (byte value : hash) {
-                builder.append(String.format("%02x", value));
-            }
-            return builder.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("当前环境不支持 SHA-256。", exception);
-        }
-    }
-
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("官方仓报表 JSON 序列化失败。", exception);
         }
-    }
-
-    private String minDate(String left, String right) {
-        if (!StringUtils.hasText(right)) {
-            return left;
-        }
-        if (!StringUtils.hasText(left)) {
-            return right;
-        }
-        return left.compareTo(right) <= 0 ? left : right;
-    }
-
-    private String maxDate(String left, String right) {
-        if (!StringUtils.hasText(right)) {
-            return left;
-        }
-        if (!StringUtils.hasText(left)) {
-            return right;
-        }
-        return left.compareTo(right) >= 0 ? left : right;
-    }
-
-    private Long firstLong(Long... values) {
-        for (Long value : values) {
-            if (value != null) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private String firstText(String... values) {
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
-        }
-        return null;
-    }
-
-    private boolean isComplete(String status) {
-        if (!StringUtils.hasText(status)) {
-            return false;
-        }
-        String normalized = status.trim().toUpperCase(Locale.ROOT);
-        return "COMPLETE".equals(normalized)
-                || "COMPLETED".equals(normalized)
-                || "SUCCESS".equals(normalized)
-                || "READY".equals(normalized)
-                || "DONE".equals(normalized);
-    }
-
-    private Long requireOwnerUserId(BusinessAccessContext access, String storeCode) {
-        if (access == null) {
-            throw new IllegalArgumentException("缺少业务访问上下文。");
-        }
-        Long ownerUserId = access.resolveOwnerUserIdForStore(storeCode);
-        if (ownerUserId == null) {
-            ownerUserId = access.getBusinessOwnerUserId();
-        }
-        if (ownerUserId == null) {
-            throw new IllegalArgumentException("无法识别当前业务老板账号。");
-        }
-        return ownerUserId;
-    }
-
-    private String requireText(String value, String message) {
-        if (!StringUtils.hasText(value)) {
-            throw new IllegalArgumentException(message);
-        }
-        String trimmed = value.trim();
-        if (!StringUtils.hasText(trimmed)) {
-            throw new IllegalArgumentException(message);
-        }
-        return trimmed;
     }
 
     private static class RowBuildResult {

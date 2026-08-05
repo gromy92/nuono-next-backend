@@ -45,8 +45,8 @@ class NoonOrderReportAdapterTest {
 
         NoonOrderLineFact firstLine = writer.facts.get("noon_order_report|108065|SA|NSAI50094671190-1");
         assertEquals(10002L, firstLine.getOwnerUserId());
-        assertEquals("STR245027-NAE", firstLine.getStoreCode());
-        assertEquals("AE", firstLine.getSiteCode());
+        assertEquals("STR108065-NSA", firstLine.getStoreCode());
+        assertEquals("SA", firstLine.getSiteCode());
         assertEquals("NSAI50094671190", firstLine.getOrderIdentity());
         assertEquals("NSAI50094671190-1", firstLine.getOrderLineIdentity());
         assertEquals("PAPERSAYSB359", firstLine.getPartnerSku());
@@ -57,10 +57,11 @@ class NoonOrderReportAdapterTest {
         assertEquals("noon-report-order-1001-abcdef12", firstLine.getSourceBatchId());
         assertEquals(LocalDate.of(2026, 5, 19), firstLine.getReportDateFrom());
         assertNull(firstLine.getDeliveredTimestamp());
+        assertEquals(2, writer.batchCalls);
     }
 
     @Test
-    void shouldTreatWideWindowOrderReportWithNoTargetDateRowsAsEmptyReport() {
+    void shouldRejectWideWindowOrderReportContainingRowsOutsideTheTargetDate() {
         InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
                 writer,
@@ -81,12 +82,9 @@ class NoonOrderReportAdapterTest {
                         + "2026-05-21 00:01:00,,\n"
         ));
 
-        assertEquals(NoonReportProcessResult.Code.EMPTY_REPORT, result.getCode());
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
         assertEquals(0, result.getImportedCount());
         assertTrue(writer.facts.isEmpty());
-        assertTrue(result.getDiagnosticMessage().contains("provider_reused_latest_export"));
-        assertTrue(result.getDiagnosticMessage().contains("requested=2026-05-20..2026-05-20"));
-        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-21"));
     }
 
     @Test
@@ -111,13 +109,10 @@ class NoonOrderReportAdapterTest {
         assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
         assertEquals(0, result.getImportedCount());
         assertTrue(writer.facts.isEmpty());
-        assertTrue(result.getDiagnosticMessage().contains("provider_reused_latest_export"));
-        assertTrue(result.getDiagnosticMessage().contains("requested=2025-11-28..2025-12-27"));
-        assertTrue(result.getDiagnosticMessage().contains("actual=2026-05-19..2026-05-19"));
     }
 
     @Test
-    void shouldImportRequestedWindowRowsFromMixedWindowOrderReport() {
+    void shouldRejectMixedWindowOrderReportWithoutWritingTheValidPrefix() {
         InMemoryOrderFactWriter writer = new InMemoryOrderFactWriter();
         NoonOrderReportAdapter adapter = new NoonOrderReportAdapter(
                 writer,
@@ -138,18 +133,14 @@ class NoonOrderReportAdapterTest {
                         + "2026-05-20 00:01:00,,\n"
         ));
 
-        assertEquals(NoonReportProcessResult.Code.SUCCEEDED, result.getCode());
-        assertEquals(1, result.getImportedCount());
-        assertEquals(1, writer.facts.size());
-        NoonOrderLineFact imported = writer.facts.get("noon_order_report|108065|SA|NSAI50094671190-1");
-        assertEquals(LocalDate.of(2026, 5, 19), imported.getOrderTimestamp().toLocalDate());
-        assertEquals(LocalDate.of(2026, 5, 19), imported.getReportDateFrom());
-        assertEquals(LocalDate.of(2026, 5, 19), imported.getReportDateTo());
-        assertNull(writer.facts.get("noon_order_report|108065|SA|NSAI50094671191-1"));
+        assertEquals(NoonReportProcessResult.Code.MAPPING_FAILED, result.getCode());
+        assertEquals(0, result.getImportedCount());
+        assertEquals(0, writer.batchCalls);
+        assertTrue(writer.facts.isEmpty());
     }
 
     @Test
-    void shouldClassifyMissingColumnsAndReadinessAwareEmptyReports() {
+    void shouldRejectMissingColumnsAndNeverInferEmptyFromWallClockTime() {
         NoonOrderReportAdapter afterReady = new NoonOrderReportAdapter(
                 new InMemoryOrderFactWriter(),
                 Clock.fixed(Instant.parse("2026-05-22T01:00:00Z"), ZoneOffset.UTC)
@@ -160,21 +151,21 @@ class NoonOrderReportAdapterTest {
         );
 
         assertEquals(
-                NoonReportProcessResult.Code.MISSING_COLUMNS,
+                NoonReportProcessResult.Code.MAPPING_FAILED,
                 afterReady.process(file("id_partner,item_nr,status\n108065,NSAI1,Delivered\n")).getCode()
         );
         assertEquals(
-                NoonReportProcessResult.Code.EMPTY_REPORT,
+                NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION,
                 afterReady.process(file("")).getCode()
         );
         assertEquals(
-                NoonReportProcessResult.Code.REPORT_NOT_READY,
+                NoonReportProcessResult.Code.EMPTY_REPORT_PENDING_CONFIRMATION,
                 beforeReady.process(file("")).getCode()
         );
     }
 
     @Test
-    void shouldPersistMissingColumnDiagnosticsWithActualHeaderSummary() {
+    void shouldPersistInvalidHeaderAsMappingFailureWithActualHeaderSummary() {
         Clock clock = Clock.fixed(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
         InMemoryNoonPullRepository repository = new InMemoryNoonPullRepository();
         NoonPullFoundationService foundationService = new NoonPullFoundationService(
@@ -225,8 +216,12 @@ class NoonOrderReportAdapterTest {
         );
 
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
-        assertEquals("missing_columns", persisted.getFailureType());
-        assertTrue(persisted.getDiagnosticSummary().contains("missing columns"));
+        assertEquals(NoonPullTaskStatus.RUNNING, persisted.getStatus());
+        assertEquals("provider_unavailable", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertTrue(persisted.getDiagnosticSummary().contains(
+                "report_payload_contract_rejected"
+        ));
         assertTrue(persisted.getDiagnosticSummary().contains("missing="));
         assertTrue(persisted.getDiagnosticSummary().contains("item_nr"));
         assertTrue(persisted.getDiagnosticSummary().contains("actual_headers=id_partner,status,partner_sku"));
@@ -240,8 +235,8 @@ class NoonOrderReportAdapterTest {
         return new NoonReportDownloadedFile(
                 NoonReportPullRequest.builder()
                         .ownerUserId(10002L)
-                        .storeCode("STR245027-NAE")
-                        .siteCode("AE")
+                        .storeCode("STR108065-NSA")
+                        .siteCode("SA")
                         .dataDomain(NoonPullDataDomain.ORDER)
                         .reportType(NoonOrderReportDescriptor.REPORT_TYPE)
                         .dateFrom(dateFrom)
@@ -256,10 +251,17 @@ class NoonOrderReportAdapterTest {
 
     private static final class InMemoryOrderFactWriter implements NoonOrderFactWriter {
         private final Map<String, NoonOrderLineFact> facts = new LinkedHashMap<>();
+        private int batchCalls;
 
         @Override
         public void upsertLine(NoonOrderLineFact fact) {
             facts.put(fact.naturalKey(), fact);
+        }
+
+        @Override
+        public void upsertLines(java.util.List<NoonOrderLineFact> accepted) {
+            batchCalls++;
+            NoonOrderFactWriter.super.upsertLines(accepted);
         }
     }
 
