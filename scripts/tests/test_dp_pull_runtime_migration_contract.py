@@ -101,7 +101,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("'default_generated','')", sql)
 
         self.assertIn("(SELECT COUNT(*) FROM actual_column)=232", exact)
-        self.assertIn("(SELECT COUNT(*) FROM actual_index)=49", exact)
+        self.assertIn("(SELECT COUNT(*) FROM actual_index)=50", exact)
         self.assertIn("(SELECT COUNT(*) FROM actual_check)=113", exact)
         self.assertIn("(SELECT COUNT(*) FROM actual_fk)=16", exact)
         self.assertNotIn("COUNT(*) FROM actual_check", live)
@@ -145,6 +145,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         init = self.migration.script_sql
         self.assertIn("CREATE TABLE IF NOT EXISTS dp_pull_scope_admission", init)
         self.assertIn("fk_dp_schedule_anchor_admission", init)
+        self.assertIn("idx_dp_schedule_anchor_admission", init)
         self.assertIn("chk_dp_snapshot_stage_authority", init)
         self.assertIn("chk_dp_snapshot_apply_authority", init)
         self.assertIn("chk_dp_snapshot_apply_accounting", init)
