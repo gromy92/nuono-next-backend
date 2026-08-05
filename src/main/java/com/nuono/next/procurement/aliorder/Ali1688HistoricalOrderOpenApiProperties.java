@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class Ali1688HistoricalOrderOpenApiProperties {
 
     private boolean enabled;
+    private boolean requiredForDp10;
     private String appKey;
     private String appSecret;
     private String tokenCipherSecret;
@@ -22,6 +23,16 @@ public class Ali1688HistoricalOrderOpenApiProperties {
     private int timeoutSeconds = 30;
     private int pageSize = 20;
     private int stateTtlSeconds = 600;
+    private String pageNumberParameterName = "page";
+    private String pageSizeParameterName = "pageSize";
+    private String cursorParameterName;
+    private String nextCursorResponseFieldNames;
+    private String modifiedFromParameterName = "modifyStartTime";
+    private String modifiedToParameterName = "modifyEndTime";
+    private String historyParameterName = "isHis";
+    private String modifiedFromFormat = "yyyyMMddHHmmssSSSZ";
+    private String modifiedAtResponseFieldNames = "modifyTime";
+    private String providerZoneId = "Asia/Shanghai";
 
     public boolean isEnabled() {
         return enabled;
@@ -29,6 +40,14 @@ public class Ali1688HistoricalOrderOpenApiProperties {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isRequiredForDp10() {
+        return requiredForDp10;
+    }
+
+    public void setRequiredForDp10(boolean requiredForDp10) {
+        this.requiredForDp10 = requiredForDp10;
     }
 
     public String getAppKey() {
@@ -157,5 +176,89 @@ public class Ali1688HistoricalOrderOpenApiProperties {
 
     public void setStateTtlSeconds(int stateTtlSeconds) {
         this.stateTtlSeconds = stateTtlSeconds;
+    }
+
+    public String getPageNumberParameterName() {
+        return pageNumberParameterName;
+    }
+
+    public void setPageNumberParameterName(String pageNumberParameterName) {
+        this.pageNumberParameterName = pageNumberParameterName;
+    }
+
+    public String getPageSizeParameterName() {
+        return pageSizeParameterName;
+    }
+
+    public void setPageSizeParameterName(String pageSizeParameterName) {
+        this.pageSizeParameterName = pageSizeParameterName;
+    }
+
+    public String getCursorParameterName() {
+        return cursorParameterName;
+    }
+
+    public void setCursorParameterName(String cursorParameterName) {
+        this.cursorParameterName = cursorParameterName;
+    }
+
+    public String getNextCursorResponseFieldNames() {
+        return nextCursorResponseFieldNames;
+    }
+
+    public void setNextCursorResponseFieldNames(String nextCursorResponseFieldNames) {
+        this.nextCursorResponseFieldNames = nextCursorResponseFieldNames;
+    }
+
+    public String getModifiedFromParameterName() {
+        return modifiedFromParameterName;
+    }
+
+    public void setModifiedFromParameterName(String modifiedFromParameterName) {
+        this.modifiedFromParameterName = modifiedFromParameterName;
+    }
+
+    public String getModifiedToParameterName() {
+        return modifiedToParameterName;
+    }
+
+    public void setModifiedToParameterName(String modifiedToParameterName) {
+        this.modifiedToParameterName = modifiedToParameterName;
+    }
+
+    public String getHistoryParameterName() {
+        return historyParameterName;
+    }
+
+    public void setHistoryParameterName(String historyParameterName) {
+        this.historyParameterName = historyParameterName;
+    }
+
+    public String getModifiedFromFormat() {
+        return modifiedFromFormat;
+    }
+
+    public void setModifiedFromFormat(String modifiedFromFormat) {
+        this.modifiedFromFormat = modifiedFromFormat;
+    }
+
+    public String getModifiedAtResponseFieldNames() {
+        return modifiedAtResponseFieldNames;
+    }
+
+    public void setModifiedAtResponseFieldNames(String modifiedAtResponseFieldNames) {
+        this.modifiedAtResponseFieldNames = modifiedAtResponseFieldNames;
+    }
+
+    public String getProviderZoneId() {
+        return providerZoneId;
+    }
+
+    public void setProviderZoneId(String providerZoneId) {
+        this.providerZoneId = providerZoneId;
+    }
+
+    public boolean hasProductionDp10Configuration() {
+        return new Ali1688HistoricalOrderOpenApiContract(this).isProductionReady();
     }
 }

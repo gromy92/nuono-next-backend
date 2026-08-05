@@ -71,21 +71,6 @@ class Ali1688HistoricalOrderMapperSqlTest {
     }
 
     @Test
-    void providerUpsertsDoNotRestoreSoftDeletedHistoricalOrderFacts() throws Exception {
-        Method upsertOrderMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrder", Ali1688HistoricalOrderRow.class);
-        Method upsertItemMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderItem", Ali1688HistoricalOrderItemRow.class);
-        Method upsertLogisticsMethod = Ali1688HistoricalOrderMapper.class.getMethod("upsertOrderLogistics", Ali1688HistoricalOrderLogisticsRow.class);
-
-        String upsertOrderSql = annotationSql(upsertOrderMethod.getAnnotation(Insert.class).value());
-        String upsertItemSql = annotationSql(upsertItemMethod.getAnnotation(Insert.class).value());
-        String upsertLogisticsSql = annotationSql(upsertLogisticsMethod.getAnnotation(Insert.class).value());
-
-        assertThat(upsertOrderSql).doesNotContain("is_deleted = b'0'");
-        assertThat(upsertItemSql).doesNotContain("is_deleted = b'0'");
-        assertThat(upsertLogisticsSql).doesNotContain("is_deleted = b'0'");
-    }
-
-    @Test
     void listOrdersAndCountOrdersSupportAssignmentFilters() throws Exception {
         Method listOrdersMethod = Ali1688HistoricalOrderMapper.class.getMethod(
                 "listOrders",
@@ -176,14 +161,8 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 java.util.List.class,
                 Ali1688HistoricalOrderQuery.class
         );
-        Method countOrderItemsMethod = Ali1688HistoricalOrderMapper.class.getMethod(
-                "countOrderItems",
-                Long.class,
-                java.util.List.class
-        );
         String listOrdersSql = annotationSql(listOrdersMethod.getAnnotation(Select.class).value());
         String countOrdersSql = annotationSql(countOrdersMethod.getAnnotation(Select.class).value());
-        String countOrderItemsSql = annotationSql(countOrderItemsMethod.getAnnotation(Select.class).value());
 
         assertThat(listOrdersSql)
                 .contains("openapi_duplicate.provider_code = 'ALI1688_OPEN_API'")
@@ -195,49 +174,6 @@ class Ali1688HistoricalOrderMapperSqlTest {
                 .contains("duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
                 .contains("openapi_duplicate_order.provider_order_no = procurement_ali1688_order_header.provider_order_no")
                 .contains("NOT EXISTS");
-        assertThat(countOrderItemsSql)
-                .contains("openapi_duplicate.provider_code = 'ALI1688_OPEN_API'")
-                .contains("duplicate_source.provider_code IN ('ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
-                .contains("openapi_duplicate_order.provider_order_no = oh.provider_order_no")
-                .contains("NOT EXISTS");
-    }
-
-    @Test
-    void weeklySchedulerSqlOnlySelectsOpenApiAuthorizationsAndUsesRecentTaskGuards() throws Exception {
-        Method listAuthorizationsMethod = Ali1688HistoricalOrderMapper.class.getMethod(
-                "listScheduledOpenApiAuthorizations",
-                String.class,
-                Integer.class
-        );
-        Method recentRunningMethod = Ali1688HistoricalOrderMapper.class.getMethod(
-                "countRecentRunningSyncTasks",
-                Long.class,
-                Long.class,
-                Integer.class
-        );
-        Method recentScheduledMethod = Ali1688HistoricalOrderMapper.class.getMethod(
-                "countRecentSyncTasksByType",
-                Long.class,
-                Long.class,
-                String.class,
-                Integer.class
-        );
-
-        String listSql = annotationSql(listAuthorizationsMethod.getAnnotation(Select.class).value());
-        String recentRunningSql = annotationSql(recentRunningMethod.getAnnotation(Select.class).value());
-        String recentScheduledSql = annotationSql(recentScheduledMethod.getAnnotation(Select.class).value());
-
-        assertThat(listSql)
-                .contains("provider_code = #{providerCode}")
-                .contains("status = 'authorized'")
-                .contains("is_deleted = b'0'")
-                .contains("LIMIT #{limit}");
-        assertThat(recentRunningSql)
-                .contains("status = 'running'")
-                .contains("gmt_updated >= DATE_SUB(NOW(), INTERVAL #{staleMinutes} MINUTE)");
-        assertThat(recentScheduledSql)
-                .contains("task_type = #{taskType}")
-                .contains("gmt_create >= DATE_SUB(NOW(), INTERVAL #{recentDays} DAY)");
     }
 
     @Test

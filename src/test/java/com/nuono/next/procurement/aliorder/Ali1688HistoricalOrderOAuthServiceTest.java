@@ -5,14 +5,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
+import com.nuono.next.infrastructure.mapper.Ali1688OpenApiAuthorizationMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccountType;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +28,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestTemplate;
@@ -35,6 +39,8 @@ class Ali1688HistoricalOrderOAuthServiceTest {
 
     @Mock
     private Ali1688HistoricalOrderMapper mapper;
+    @Mock
+    private Ali1688OpenApiAuthorizationMapper authorizationMapper;
 
     @Test
     void startAuthorizationBuildsSignedUrlWithoutLeakingAppSecret() {
@@ -129,10 +135,35 @@ class Ali1688HistoricalOrderOAuthServiceTest {
                 .hasMessageContaining("state 已过期");
     }
 
+    @Test
+    void redirectWithTokenShapedJsonCannotCompleteOrPersistAuthorization() {
+        RestTemplate restTemplate = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(restTemplate);
+        Ali1688HistoricalOrderOAuthService service = service(restTemplate);
+        String state = UriComponentsBuilder.fromUriString(
+                service.startAuthorization(bossContext(), "PRJ108065", "AE")
+                        .getAuthorizationUrl()
+        ).build().getQueryParams().getFirst("state");
+        server.expect(requestTo(containsString("system.oauth2/getToken")))
+                .andRespond(withStatus(HttpStatus.FOUND)
+                        .body("{\"access_token\":\"redirect-token\","
+                                + "\"refresh_token\":\"redirect-refresh\","
+                                + "\"expires_in\":3600,"
+                                + "\"memberId\":\"redirect-member\"}"));
+
+        assertThatThrownBy(() -> service.completeAuthorization("oauth-code-001", state))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unexpected_http_status");
+
+        server.verify();
+        verifyNoInteractions(mapper, authorizationMapper);
+    }
+
     private Ali1688HistoricalOrderOAuthService service(RestTemplate restTemplate) {
         Ali1688HistoricalOrderOpenApiProperties properties = configuredProperties();
         return new Ali1688HistoricalOrderOAuthService(
                 mapper,
+                authorizationMapper,
                 properties,
                 new Ali1688OpenApiSigner(),
                 new Ali1688TokenCipher(properties),
@@ -147,7 +178,10 @@ class Ali1688HistoricalOrderOAuthServiceTest {
         properties.setAppKey("5890829");
         properties.setAppSecret("secret-should-not-leak");
         properties.setTokenCipherSecret("token-cipher-secret-for-test");
-        properties.setRedirectUri("http://127.0.0.1:18081/api/procurement/ali1688-orders/authorizations/open-api/callback");
+        properties.setRedirectUri(
+                "https://www.nuoon.com/ai/api/procurement/ali1688-orders/"
+                        + "authorizations/open-api/callback"
+        );
         return properties;
     }
 

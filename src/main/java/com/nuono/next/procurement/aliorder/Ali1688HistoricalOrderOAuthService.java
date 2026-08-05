@@ -1,13 +1,13 @@
 package com.nuono.next.procurement.aliorder;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.procurement.aliorder.Ali1688OAuthTokenParser.TokenPayload;
 import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
+import com.nuono.next.infrastructure.mapper.Ali1688OpenApiAuthorizationMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,15 +33,18 @@ public class Ali1688HistoricalOrderOAuthService {
     static final String OPEN_API_SCOPE_SUMMARY = "1688 OpenAPI 历史订单只读授权，不会付款、下单或发送供应商消息。";
 
     private final Ali1688HistoricalOrderMapper mapper;
+    private final Ali1688OpenApiAuthorizationMapper authorizationMapper;
     private final Ali1688HistoricalOrderOpenApiProperties properties;
     private final Ali1688OpenApiSigner signer;
     private final Ali1688TokenCipher tokenCipher;
     private final ObjectMapper objectMapper;
+    private final Ali1688OAuthTokenParser tokenParser;
     private final RestTemplate restTemplate;
 
     @Autowired
     public Ali1688HistoricalOrderOAuthService(
             Ali1688HistoricalOrderMapper mapper,
+            Ali1688OpenApiAuthorizationMapper authorizationMapper,
             Ali1688HistoricalOrderOpenApiProperties properties,
             Ali1688OpenApiSigner signer,
             Ali1688TokenCipher tokenCipher,
@@ -50,12 +53,14 @@ public class Ali1688HistoricalOrderOAuthService {
     ) {
         this(
                 mapper,
+                authorizationMapper,
                 properties,
                 signer,
                 tokenCipher,
                 objectMapper,
                 restTemplateBuilder
-                        .setConnectTimeout(Duration.ofSeconds(Math.max(1, properties.getTimeoutSeconds())))
+                        .requestFactory(Ali1688NoRedirectRequestFactory::new)
+                        .setConnectTimeout(Duration.ofSeconds(Math.min(10, Math.max(1, properties.getTimeoutSeconds()))))
                         .setReadTimeout(Duration.ofSeconds(Math.max(1, properties.getTimeoutSeconds())))
                         .build()
         );
@@ -63,6 +68,7 @@ public class Ali1688HistoricalOrderOAuthService {
 
     Ali1688HistoricalOrderOAuthService(
             Ali1688HistoricalOrderMapper mapper,
+            Ali1688OpenApiAuthorizationMapper authorizationMapper,
             Ali1688HistoricalOrderOpenApiProperties properties,
             Ali1688OpenApiSigner signer,
             Ali1688TokenCipher tokenCipher,
@@ -70,10 +76,12 @@ public class Ali1688HistoricalOrderOAuthService {
             RestTemplate restTemplate
     ) {
         this.mapper = mapper;
+        this.authorizationMapper = authorizationMapper;
         this.properties = properties;
         this.signer = signer;
         this.tokenCipher = tokenCipher;
         this.objectMapper = objectMapper;
+        this.tokenParser = new Ali1688OAuthTokenParser(objectMapper);
         this.restTemplate = restTemplate;
     }
 
@@ -164,7 +172,7 @@ public class Ali1688HistoricalOrderOAuthService {
         if (insert) {
             mapper.insertAuthorization(row);
         } else {
-            mapper.updateAuthorizationTokens(row);
+            authorizationMapper.updateAuthorizationTokens(row);
         }
 
         if (StringUtils.hasText(payload.storeCode)) {
@@ -221,37 +229,9 @@ public class Ali1688HistoricalOrderOAuthService {
                 new HttpEntity<>(body, headers),
                 String.class
         );
-        return parseTokenPayload(response.getBody());
-    }
-
-    private TokenPayload parseTokenPayload(String body) {
-        try {
-            JsonNode root = objectMapper.readTree(body == null ? "{}" : body);
-            JsonNode payload = root.has("result") && root.get("result").isObject() ? root.get("result") : root;
-            TokenPayload token = new TokenPayload();
-            token.accessToken = firstText(payload, "access_token", "accessToken");
-            token.refreshToken = firstText(payload, "refresh_token", "refreshToken");
-            token.providerAccountId = firstText(
-                    payload,
-                    "memberId",
-                    "member_id",
-                    "resource_owner",
-                    "loginId",
-                    "login_id",
-                    "accountId"
-            );
-            token.accountLabel = firstText(payload, "resource_owner", "loginName", "login_id", "memberId", "member_id");
-            Long expiresIn = firstLong(payload, "expires_in", "expiresIn");
-            token.expiresAt = expiresIn == null ? null : LocalDateTime.now().plusSeconds(Math.max(0, expiresIn));
-            if (!StringUtils.hasText(token.accessToken)) {
-                throw new IllegalStateException("1688 OAuth token 响应缺少 access_token。");
-            }
-            return token;
-        } catch (IllegalStateException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new IllegalStateException("1688 OAuth token 响应解析失败。", exception);
-        }
+        return tokenParser.parse(
+                Ali1688OpenApiHttpResponse.requireSuccessfulBody(response)
+        );
     }
 
     private String encodeState(BusinessAccessContext context, String storeCode, String siteCode) {
@@ -314,11 +294,7 @@ public class Ali1688HistoricalOrderOAuthService {
     }
 
     private boolean isConfigured() {
-        return properties.isEnabled()
-                && StringUtils.hasText(properties.getAppKey())
-                && StringUtils.hasText(properties.getAppSecret())
-                && StringUtils.hasText(properties.getRedirectUri())
-                && StringUtils.hasText(properties.getTokenCipherSecret());
+        return properties.hasProductionDp10Configuration();
     }
 
     private Long ownerUserId(BusinessAccessContext context) {
@@ -330,31 +306,6 @@ public class Ali1688HistoricalOrderOAuthService {
 
     private Long operatorUserId(BusinessAccessContext context) {
         return context == null ? null : context.getSessionUserId();
-    }
-
-    private String firstText(JsonNode node, String... fieldNames) {
-        if (node == null || fieldNames == null) {
-            return null;
-        }
-        for (String fieldName : fieldNames) {
-            JsonNode value = node.get(fieldName);
-            if (value != null && !value.isNull() && StringUtils.hasText(value.asText())) {
-                return value.asText().trim();
-            }
-        }
-        return null;
-    }
-
-    private Long firstLong(JsonNode node, String... fieldNames) {
-        String value = firstText(node, fieldNames);
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException ignored) {
-            return null;
-        }
     }
 
     private String trim(String value) {
@@ -378,11 +329,4 @@ public class Ali1688HistoricalOrderOAuthService {
         public Long issuedAtEpochSeconds;
     }
 
-    private static class TokenPayload {
-        private String accessToken;
-        private String refreshToken;
-        private String providerAccountId;
-        private String accountLabel;
-        private LocalDateTime expiresAt;
-    }
 }
