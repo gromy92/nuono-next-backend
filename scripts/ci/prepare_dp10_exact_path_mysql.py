@@ -186,7 +186,7 @@ def assert_targets_absent(
     targets = sorted(runtime_tables | set(LEGACY_BASE_TABLE_SOURCES))
     quoted = ",".join(f"'{table}'" for table in targets)
     found = database.client.execute_readonly(
-        "SELECT GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ',') "
+        "SELECT COALESCE(GROUP_CONCAT(table_name ORDER BY table_name SEPARATOR ','),'') "
         "FROM information_schema.tables WHERE table_schema=DATABASE() "
         f"AND table_name IN ({quoted});"
     )

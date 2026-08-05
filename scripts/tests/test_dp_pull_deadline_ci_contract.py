@@ -191,6 +191,7 @@ class DataPullDeadlineCiContractTest(unittest.TestCase):
             "PRODUCT_SEQUENCE_FLOORS",
             "information_schema.statistics",
             "runtime_tables | set(LEGACY_BASE_TABLE_SOURCES)",
+            "COALESCE(GROUP_CONCAT",
         ):
             self.assertIn(marker, source)
         self.assertNotIn("CREATE TABLE", source)
