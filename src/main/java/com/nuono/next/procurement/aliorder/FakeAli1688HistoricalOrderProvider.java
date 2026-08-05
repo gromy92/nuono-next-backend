@@ -3,15 +3,18 @@ package com.nuono.next.procurement.aliorder;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 @Component
+@Profile({"local", "test", "dev"})
 @ConditionalOnProperty(
         prefix = "nuono.procurement.ali1688.historical-order.open-api",
         name = "enabled",
         havingValue = "false",
         matchIfMissing = true
 )
+/** Test fixture only; production artifacts must never contain synthetic 1688 orders. */
 public class FakeAli1688HistoricalOrderProvider implements Ali1688HistoricalOrderProvider {
 
     private final Map<String, Page> pagesByCursor;
@@ -61,7 +64,8 @@ public class FakeAli1688HistoricalOrderProvider implements Ali1688HistoricalOrde
     }
 
     @Override
-    public Page fetchPage(Ali1688HistoricalOrderAuthorizationRow authorization, String cursor) {
+    public Page fetchOrderList(Ali1688HistoricalOrderRequest request) {
+        String cursor = request == null ? null : request.getProviderCursor();
         return pagesByCursor.getOrDefault(cursor == null ? "" : cursor, new Page(List.of()));
     }
 

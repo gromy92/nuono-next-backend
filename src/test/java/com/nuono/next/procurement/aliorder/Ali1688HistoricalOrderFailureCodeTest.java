@@ -12,6 +12,7 @@ class Ali1688HistoricalOrderFailureCodeTest {
                 .extracting(Ali1688HistoricalOrderFailureCode::getCode)
                 .containsExactlyInAnyOrder(
                         "auth_required",
+                        "auth_refresh_outcome_unknown",
                         "provider_not_configured",
                         "provider_unavailable",
                         "rate_limited",
@@ -26,14 +27,20 @@ class Ali1688HistoricalOrderFailureCodeTest {
     void retryableAndManualActionFlagsAreStable() {
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("auth_required").isRequiresManualAction())
                 .isTrue();
+        assertThat(Ali1688HistoricalOrderFailureCode.fromCode("auth_refresh_outcome_unknown").isRequiresManualAction())
+                .isTrue();
+        assertThat(Ali1688HistoricalOrderFailureCode.fromCode("auth_refresh_outcome_unknown").isRetryable())
+                .isFalse();
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("provider_not_configured").isRequiresManualAction())
                 .isTrue();
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("provider_unavailable").isRetryable())
                 .isTrue();
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("rate_limited").isRetryable())
                 .isTrue();
-        assertThat(Ali1688HistoricalOrderFailureCode.fromCode("blocked_by_risk_control").isRequiresManualAction())
+        assertThat(Ali1688HistoricalOrderFailureCode.fromCode("blocked_by_risk_control").isRetryable())
                 .isTrue();
+        assertThat(Ali1688HistoricalOrderFailureCode.fromCode("blocked_by_risk_control").isRequiresManualAction())
+                .isFalse();
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("missing_fields").isRetryable())
                 .isTrue();
         assertThat(Ali1688HistoricalOrderFailureCode.fromCode("partial_success").isRetryable())

@@ -282,7 +282,7 @@ class Ali1688HistoricalOrderSyncServiceTest {
 
     @Test
     void manualRefreshSkipsCancelledAndDeletedProviderOrders() {
-        Ali1688HistoricalOrderProvider provider = (authorization, cursor) -> new Ali1688HistoricalOrderProvider.Page(List.of(
+        Ali1688HistoricalOrderProvider provider = request -> new Ali1688HistoricalOrderProvider.Page(List.of(
                 providerOrder("ALI-CANCELLED-001", "交易关闭"),
                 providerOrder("ALI-DELETED-001", "已删除")
         ));
