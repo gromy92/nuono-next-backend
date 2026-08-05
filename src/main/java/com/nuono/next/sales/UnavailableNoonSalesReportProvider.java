@@ -1,5 +1,7 @@
 package com.nuono.next.sales;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -10,6 +12,7 @@ import org.springframework.stereotype.Component;
         havingValue = "false",
         matchIfMissing = true
 )
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class UnavailableNoonSalesReportProvider implements NoonSalesReportProvider {
 
     @Override

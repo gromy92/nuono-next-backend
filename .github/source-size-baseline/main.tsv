@@ -2,7 +2,7 @@
 # Format: repository-relative path<TAB>physical-line ceiling.
 src/main/java/com/nuono/next/ai/OpenAiResponsesClient.java	408
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisController.java	404
-src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	971
+src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisRefreshService.java	830
 src/main/java/com/nuono/next/competitoranalysis/CompetitorAnalysisService.java	1174
 src/main/java/com/nuono/next/competitoranalysis/CompetitorProductSnapshotService.java	354
 src/main/java/com/nuono/next/competitoranalysis/noon/HttpNoonFrontendSearchAdapter.java	661
@@ -21,9 +21,9 @@ src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	62
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1346
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	449
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1217
-src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1367
+src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1363
 src/main/java/com/nuono/next/infrastructure/mapper/OperationsSkinMapper.java	463
-src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	450
+src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitBatchAttributionMapper.java	448
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitLogisticsClosureMapper.java	518
 src/main/java/com/nuono/next/infrastructure/mapper/PostSaleProfitMapper.java	1160
 src/main/java/com/nuono/next/infrastructure/mapper/PreOrderProfitMapper.java	310
@@ -36,7 +36,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/ProductImageProfileMapper.jav
 src/main/java/com/nuono/next/infrastructure/mapper/ProductKeywordMapper.java	332
 src/main/java/com/nuono/next/infrastructure/mapper/ProductListingMapper.java	373
 src/main/java/com/nuono/next/infrastructure/mapper/ProductLogisticsCostMapper.java	395
-src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4185
+src/main/java/com/nuono/next/infrastructure/mapper/ProductManagementMapper.java	4159
 src/main/java/com/nuono/next/infrastructure/mapper/ProductPublicDetailMapper.java	550
 src/main/java/com/nuono/next/infrastructure/mapper/ProductSelectionMapper.java	1320
 src/main/java/com/nuono/next/infrastructure/mapper/SalesDataMapper.java	875
@@ -80,8 +80,6 @@ src/main/java/com/nuono/next/nooncompleteness/NoonHistoricalBackfillPolicy.java	
 src/main/java/com/nuono/next/noonpull/NoonProductionSchedulerEnablementGate.java	349
 src/main/java/com/nuono/next/noonpull/NoonPullDiagnosticsView.java	513
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	896
-src/main/java/com/nuono/next/noonpull/NoonPullScheduledExecutionService.java	1121
-src/main/java/com/nuono/next/noonpull/NoonPullScheduler.java	413
 src/main/java/com/nuono/next/noonpull/NoonPullSmokeRunner.java	1072
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	406
@@ -211,7 +209,7 @@ src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanCalculator.java	
 src/main/java/com/nuono/next/replenishmentplan/ReplenishmentPlanRecords.java	1193
 src/main/java/com/nuono/next/sales/ProductLifecycleClassifier.java	359
 src/main/java/com/nuono/next/sales/SalesAnalyticsService.java	712
-src/main/java/com/nuono/next/sales/SalesDataController.java	592
+src/main/java/com/nuono/next/sales/SalesDataController.java	581
 src/main/java/com/nuono/next/sales/SalesProductRow.java	305
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastEngine.java	451
 src/main/java/com/nuono/next/salesforecast/DefaultSalesForecastService.java	1045

@@ -91,7 +91,7 @@ class CompetitorRefreshRecoveryIdentityLifecycleTest {
                 queued,
                 watchProduct(),
                 501L,
-                CompetitorRefreshExecutionMode.SCHEDULED_RANK
+                CompetitorRefreshExecutionMode.FULL_MANUAL
         );
 
         verifyQueuedFailure(task, run);
@@ -165,7 +165,7 @@ class CompetitorRefreshRecoveryIdentityLifecycleTest {
         task.setPayloadJson(CompetitorRefreshRecoveryPayload.fresh(
                 180001L,
                 0,
-                CompetitorRefreshExecutionMode.SCHEDULED_RANK,
+                CompetitorRefreshExecutionMode.FULL_MANUAL,
                 null
         ));
         return task;
@@ -177,7 +177,7 @@ class CompetitorRefreshRecoveryIdentityLifecycleTest {
         run.setTaskId(150001L);
         run.setWatchProductId(180001L);
         run.setStatus(status);
-        run.setTriggerMode("SCHEDULED_RANK_MONITOR");
+        run.setTriggerMode("MANUAL_REFRESH");
         run.setRequestedBy(501L);
         return run;
     }

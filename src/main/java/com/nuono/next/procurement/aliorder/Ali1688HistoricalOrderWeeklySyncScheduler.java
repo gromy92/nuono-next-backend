@@ -1,6 +1,8 @@
 package com.nuono.next.procurement.aliorder;
 
-import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
+import com.nuono.next.infrastructure.mapper.LegacyAli1688HistoricalOrderSyncMapper;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -10,12 +12,13 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class Ali1688HistoricalOrderWeeklySyncScheduler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Ali1688HistoricalOrderWeeklySyncScheduler.class);
 
-    private final Ali1688HistoricalOrderMapper mapper;
-    private final LocalDbAli1688HistoricalOrderService service;
+    private final LegacyAli1688HistoricalOrderSyncMapper mapper;
+    private final LegacyAli1688HistoricalOrderWeeklySyncService service;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final boolean enabled;
     private final int maxAuthorizationsPerTick;
@@ -24,8 +27,8 @@ public class Ali1688HistoricalOrderWeeklySyncScheduler {
     private final Long systemOperatorUserId;
 
     public Ali1688HistoricalOrderWeeklySyncScheduler(
-            Ali1688HistoricalOrderMapper mapper,
-            LocalDbAli1688HistoricalOrderService service,
+            LegacyAli1688HistoricalOrderSyncMapper mapper,
+            LegacyAli1688HistoricalOrderWeeklySyncService service,
             @Value("${nuono.procurement.ali1688.historical-order.scheduler.enabled:false}") boolean enabled,
             @Value("${nuono.procurement.ali1688.historical-order.scheduler.max-authorizations-per-tick:10}") int maxAuthorizationsPerTick,
             @Value("${nuono.procurement.ali1688.historical-order.scheduler.recent-scheduled-days:6}") int recentScheduledDays,
@@ -57,7 +60,7 @@ public class Ali1688HistoricalOrderWeeklySyncScheduler {
         try {
             List<Ali1688HistoricalOrderAuthorizationRow> authorizations =
                     mapper.listScheduledOpenApiAuthorizations(
-                            LocalDbAli1688HistoricalOrderService.OPEN_API_PROVIDER_CODE,
+                            LegacyAli1688HistoricalOrderWeeklySyncService.OPEN_API_PROVIDER_CODE,
                             maxAuthorizationsPerTick
                     );
             for (Ali1688HistoricalOrderAuthorizationRow authorization : authorizations) {
@@ -104,7 +107,7 @@ public class Ali1688HistoricalOrderWeeklySyncScheduler {
         int recentScheduledTasks = mapper.countRecentSyncTasksByType(
                 authorization.getOwnerUserId(),
                 authorization.getId(),
-                LocalDbAli1688HistoricalOrderService.SCHEDULED_WEEKLY_TASK_TYPE,
+                LegacyAli1688HistoricalOrderWeeklySyncService.SCHEDULED_WEEKLY_TASK_TYPE,
                 recentScheduledDays
         );
         return recentScheduledTasks > 0;

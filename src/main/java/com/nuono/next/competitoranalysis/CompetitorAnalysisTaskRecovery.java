@@ -88,7 +88,7 @@ final class CompetitorAnalysisTaskRecovery {
         this.dispatchCapacity = dispatchCapacity;
     }
 
-    synchronized int resumeQueuedRefreshTasks() {
+    synchronized int resumeQueuedManualRefreshTasks() {
         int capacity = Math.max(0, Math.min(RECOVERY_LIMIT, dispatchCapacity.getAsInt()));
         if (capacity <= 0) {
             return 0;
@@ -108,6 +108,9 @@ final class CompetitorAnalysisTaskRecovery {
                     continue;
                 }
                 CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
+                if (!CompetitorManualRecoveryScope.includes(task, run)) {
+                    continue;
+                }
                 if (run == null) {
                     releaseStaleOrphan(task);
                     continue;
@@ -129,11 +132,11 @@ final class CompetitorAnalysisTaskRecovery {
         return resumed;
     }
 
-    int recoverStaleRefreshTasks() {
-        return recoverInterruptedProductTasks();
+    int recoverStaleManualRefreshTasks() {
+        return recoverInterruptedManualProductTasks();
     }
 
-    private synchronized int recoverInterruptedProductTasks() {
+    private synchronized int recoverInterruptedManualProductTasks() {
         int recovered = 0;
         long afterTaskId = staleScanCursor;
         int scannedPages = 0;
@@ -150,6 +153,9 @@ final class CompetitorAnalysisTaskRecovery {
                     continue;
                 }
                 CompetitorSearchRunRow run = mapper.selectSearchRunByTaskId(task.getId());
+                if (!CompetitorManualRecoveryScope.includes(task, run)) {
+                    continue;
+                }
                 if (run == null) {
                     if (releaseStaleRunningOrphan(task, staleBefore)) {
                         recovered++;

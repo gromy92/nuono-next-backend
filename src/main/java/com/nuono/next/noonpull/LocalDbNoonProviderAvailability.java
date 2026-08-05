@@ -1,5 +1,7 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import org.springframework.context.annotation.Profile;
@@ -12,6 +14,7 @@ import org.springframework.util.StringUtils;
  */
 @Component
 @Profile("local-db")
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class LocalDbNoonProviderAvailability implements NoonProviderAvailability {
     private final StoreSyncMapper storeSyncMapper;
     private final NoonPullProjectAuthGate authGate;

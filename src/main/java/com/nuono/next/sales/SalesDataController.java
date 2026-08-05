@@ -370,8 +370,7 @@ public class SalesDataController {
                 parseDate(body.getDateFrom()),
                 parseDate(body.getDateTo()),
                 context.getSessionUserId(),
-                "manual",
-                listingCoverageMode(body)
+                "manual"
         ));
     }
 
@@ -579,14 +578,4 @@ public class SalesDataController {
         }
     }
 
-    private SalesListingCoverageMode listingCoverageMode(SalesSyncTaskRequest body) {
-        if (body == null || !StringUtils.hasText(body.getListingCoverageMode())) {
-            return SalesListingCoverageMode.NONE;
-        }
-        try {
-            return SalesListingCoverageMode.valueOf(body.getListingCoverageMode().trim());
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "未知的销量覆盖确认模式。", exception);
-        }
-    }
 }

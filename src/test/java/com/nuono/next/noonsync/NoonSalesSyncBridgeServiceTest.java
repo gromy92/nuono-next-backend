@@ -6,7 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.nuono.next.sales.SalesListingCoverageMode;
 import com.nuono.next.sales.SalesSyncTaskCommand;
 import com.nuono.next.sales.SalesSyncTaskRecord;
 import com.nuono.next.sales.SalesSyncTaskService;
@@ -17,7 +16,7 @@ import org.mockito.ArgumentCaptor;
 class NoonSalesSyncBridgeServiceTest {
 
     @Test
-    void noDataBackfillUsesConfirmedEmptySiteCoverageMode() {
+    void noDataBackfillDoesNotRequestListingProjection() {
         SalesSyncTaskService salesSyncTaskService = mock(SalesSyncTaskService.class);
         when(salesSyncTaskService.triggerAndRun(any()))
                 .thenReturn(emptySalesTask());
@@ -36,7 +35,7 @@ class NoonSalesSyncBridgeServiceTest {
 
         ArgumentCaptor<SalesSyncTaskCommand> captor = ArgumentCaptor.forClass(SalesSyncTaskCommand.class);
         verify(salesSyncTaskService).triggerAndRun(captor.capture());
-        assertEquals(SalesListingCoverageMode.CONFIRMED_EMPTY_SITE, captor.getValue().getListingCoverageMode());
+        assertEquals("NONE", captor.getValue().getListingCoverageMode());
         assertEquals("no_data_backfill", captor.getValue().getTriggerType());
     }
 
@@ -51,7 +50,7 @@ class NoonSalesSyncBridgeServiceTest {
                 LocalDate.of(2026, 5, 24),
                 10003L,
                 "no_data_backfill",
-                "CONFIRMED_EMPTY_SITE",
+                "NONE",
                 "empty",
                 10012L,
                 0,

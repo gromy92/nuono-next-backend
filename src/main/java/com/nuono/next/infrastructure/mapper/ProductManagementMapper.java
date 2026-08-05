@@ -3574,32 +3574,6 @@ public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapp
 
     @Update({
             "UPDATE product_site_offer pso",
-            "JOIN logical_store_site lss",
-            "  ON lss.id = pso.site_id",
-            " AND lss.is_deleted = 0",
-            "JOIN logical_store ls",
-            "  ON ls.id = lss.logical_store_id",
-            " AND ls.is_deleted = 0",
-            "SET pso.listing_started_at = NULL,",
-            "    pso.listing_started_source = 'not_listed',",
-            "    pso.updated_by = #{updatedBy},",
-            "    pso.gmt_updated = NOW()",
-            "WHERE ls.owner_user_id = #{ownerUserId}",
-            "  AND lss.store_code = #{storeCode}",
-            "  AND lss.site = #{siteCode}",
-            "  AND pso.is_deleted = 0",
-            "  AND pso.listing_started_at IS NULL",
-            "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))"
-    })
-    int markSiteProductOffersNotListedForEmptySalesReport(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode,
-            @Param("updatedBy") Long updatedBy
-    );
-
-    @Update({
-            "UPDATE product_site_offer pso",
             "JOIN product_variant pv",
             "  ON pv.id = pso.variant_id",
             " AND pv.is_deleted = 0",

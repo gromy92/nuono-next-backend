@@ -1,23 +1,23 @@
 package com.nuono.next.sales;
 
-import com.nuono.next.infrastructure.mapper.SalesDataMapper;
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.infrastructure.mapper.SalesSyncTaskMapper;
 import org.springframework.stereotype.Repository;
 
 @Repository
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class MyBatisSalesSyncTaskRepository implements SalesSyncTaskRepository {
 
-    private final SalesDataMapper salesDataMapper;
     private final SalesSyncTaskMapper taskMapper;
 
-    public MyBatisSalesSyncTaskRepository(SalesDataMapper salesDataMapper, SalesSyncTaskMapper taskMapper) {
-        this.salesDataMapper = salesDataMapper;
+    public MyBatisSalesSyncTaskRepository(SalesSyncTaskMapper taskMapper) {
         this.taskMapper = taskMapper;
     }
 
     @Override
     public SalesSyncTaskRecord createQueued(SalesSyncTaskCommand command) {
-        Long taskId = salesDataMapper.nextSalesSyncTaskId();
+        Long taskId = taskMapper.nextTaskId();
         taskMapper.insert(taskId, command);
         return requireTask(taskId);
     }

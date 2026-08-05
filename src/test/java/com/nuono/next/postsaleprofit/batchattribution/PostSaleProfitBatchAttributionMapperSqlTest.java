@@ -26,8 +26,7 @@ class PostSaleProfitBatchAttributionMapperSqlTest {
 
         assertThat(sql)
                 .contains("stock AS")
-                .contains("FROM official_warehouse_inventory_snapshot_line stock_line")
-                .contains("stock_line.is_current = b'1'")
+                .contains("FROM official_warehouse_effective_inventory_snapshot_line stock_line")
                 .contains("stock_line.qty > 0")
                 .contains("sellable_stock_quantity")
                 .contains("latest_run AS")

@@ -58,6 +58,13 @@ public class CompetitorSearchRefreshRunner implements CompetitorKeywordRefreshRu
                 .keyword(keyword.getKeyword())
                 .limit(RANK_SCAN_DEPTH)
                 .build());
+        return applyPage(context, page);
+    }
+
+    CompetitorKeywordRefreshOutcome applyPage(
+            CompetitorKeywordRefreshContext context,
+            NoonSearchPage page
+    ) {
         context.validateLease();
 
         CompetitorSearchResultIndex resultIndex =

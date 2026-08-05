@@ -1,5 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import java.time.Duration;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
@@ -11,9 +13,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class CompetitorAnalysisMonitoringScheduler {
     private static final Logger log = LoggerFactory.getLogger(CompetitorAnalysisMonitoringScheduler.class);
-    private final CompetitorAnalysisRefreshService refreshService;
+    private final LegacyCompetitorScheduledExecutionService refreshService;
     private final AtomicBoolean rankRunning = new AtomicBoolean(false);
     private final AtomicBoolean listingCoverageRunning = new AtomicBoolean(false);
     private final AtomicBoolean compensationRunning = new AtomicBoolean(false);
@@ -29,7 +32,7 @@ public class CompetitorAnalysisMonitoringScheduler {
     private int compensationLookbackHours;
 
     public CompetitorAnalysisMonitoringScheduler(
-            CompetitorAnalysisRefreshService refreshService
+            LegacyCompetitorScheduledExecutionService refreshService
     ) {
         this.refreshService = refreshService;
     }

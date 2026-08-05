@@ -88,12 +88,12 @@ class CompetitorMonitoringLegacyCrashRecoveryTest {
         AtomicBoolean crashOnce = new AtomicBoolean(true);
         List<String> attemptedBatchKeys = new ArrayList<>();
         List<CompetitorMonitoringEnqueueOutcome> outcomes = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             CompetitorQueuedRefresh child = childFactory.persistQueued(
                     product,
                     actor,
-                    mode,
-                    "watchProduct:" + product.getId() + ":" + mode.taskKey(),
+                    CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
+                    "watchProduct:" + product.getId() + ":full-monitor",
                     batchKey,
                     0
             );
@@ -105,7 +105,7 @@ class CompetitorMonitoringLegacyCrashRecoveryTest {
             return child.getOutcome();
         });
 
-        assertEquals(1, service.resumeQueuedBatches());
+        assertEquals(1, service.resumeQueuedManualBatches());
         assertThrows(SimulatedProcessCrash.class, submitted.remove(0)::run);
 
         OperationalTask interrupted = repository.selectById(150000L);
@@ -118,7 +118,7 @@ class CompetitorMonitoringLegacyCrashRecoveryTest {
         assertTrue(persisted.getBatchKey() != null && !persisted.getBatchKey().isBlank());
         repository.tasks.get(150000L).setUpdatedAt(LocalDateTime.parse("2026-07-28T01:00:00"));
 
-        assertEquals(1, service.recoverStaleBatches());
+        assertEquals(1, service.recoverStaleManualBatches());
         submitted.remove(0).run();
 
         OperationalTask replacement = repository.selectById(150002L);

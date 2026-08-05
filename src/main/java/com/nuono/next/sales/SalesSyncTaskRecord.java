@@ -74,7 +74,7 @@ public class SalesSyncTaskRecord {
                 command.getDateTo(),
                 command.getRequestedBy(),
                 command.getTriggerType(),
-                command.getListingCoverageMode().name(),
+                command.getListingCoverageMode(),
                 "queued",
                 null,
                 null,

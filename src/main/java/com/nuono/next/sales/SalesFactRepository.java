@@ -30,11 +30,4 @@ public interface SalesFactRepository {
         return List.of();
     }
 
-    default void markSiteOffersNotListedForEmptyReport(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode,
-            Long updatedBy
-    ) {
-    }
 }

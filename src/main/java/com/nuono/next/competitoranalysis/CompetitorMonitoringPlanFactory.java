@@ -2,22 +2,11 @@ package com.nuono.next.competitoranalysis;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.Clock;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 final class CompetitorMonitoringPlanFactory {
     private static final String STORE_NATURAL_KEY_PREFIX = "store:";
-    private static final String CYCLE_NATURAL_KEY_PREFIX = "cycle:";
-    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final ObjectMapper JSON = new ObjectMapper();
-    private final Clock clock;
-
-    CompetitorMonitoringPlanFactory(Clock clock) {
-        this.clock = clock;
-    }
 
     CompetitorMonitoringCheckpoint storeCheckpoint(
             Long ownerUserId,
@@ -39,33 +28,6 @@ final class CompetitorMonitoringPlanFactory {
         checkpoint.setEligibleProductTotal(eligibleTotal(boundary));
         checkpoint.setUpperWatchProductId(boundary.getUpperWatchProductId());
         return checkpoint;
-    }
-
-    CompetitorMonitoringCheckpoint cycleCheckpoint(
-            String batchKey,
-            CompetitorRefreshExecutionMode mode,
-            CompetitorMonitoringBoundaryRow boundary,
-            CompetitorWatchProductScopeRow upper
-    ) {
-        CompetitorMonitoringCheckpoint checkpoint = baseCheckpoint("CYCLE", batchKey, mode);
-        checkpoint.setEligibleScopeTotal(eligibleTotal(boundary));
-        checkpoint.setUpperWatchProductId(boundary.getUpperWatchProductId());
-        checkpoint.setUpperScopeOwnerUserId(upper.getOwnerUserId());
-        checkpoint.setUpperScopeStoreCode(upper.getStoreCode());
-        checkpoint.setUpperScopeSiteCode(upper.getSiteCode());
-        return checkpoint;
-    }
-
-    String cycleNaturalKey(CompetitorRefreshExecutionMode mode) {
-        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(SHANGHAI);
-        String slot;
-        if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL) {
-            slot = now.toLocalDate().toString();
-        } else {
-            int slotHour = (now.getHour() / 6) * 6;
-            slot = now.withHour(slotHour).format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH"));
-        }
-        return CYCLE_NATURAL_KEY_PREFIX + mode.taskKey() + ":" + slot;
     }
 
     String storeNaturalKey(Long owner, String store, String site, CompetitorRefreshExecutionMode mode) {
@@ -100,14 +62,6 @@ final class CompetitorMonitoringPlanFactory {
 
     long eligibleTotal(CompetitorMonitoringBoundaryRow boundary) {
         return boundary.getEligibleTotal() == null ? 0L : boundary.getEligibleTotal();
-    }
-
-    int completedScopes(String json) {
-        try {
-            return (int) CompetitorMonitoringCheckpoint.fromJson(json).getCompletedScopeCount();
-        } catch (RuntimeException exception) {
-            return 0;
-        }
     }
 
     private CompetitorMonitoringCheckpoint baseCheckpoint(

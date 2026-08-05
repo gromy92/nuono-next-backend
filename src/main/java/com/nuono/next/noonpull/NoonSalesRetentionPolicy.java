@@ -1,11 +1,14 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonSalesRetentionPolicy {
     private final Clock clock;
 
@@ -49,15 +52,6 @@ public class NoonSalesRetentionPolicy {
 
     public List<String> defaultScheduledCorrections() {
         return List.of("weekly_45_day_correction");
-    }
-
-    public NoonSalesReadinessView historyUnavailableView(String qualityState) {
-        NoonSalesReadinessView view = new NoonSalesReadinessView();
-        view.setQualityState(qualityState);
-        view.setMetricsAllowed(false);
-        view.setSalesAmount(null);
-        view.setUnitsSold(null);
-        return view;
     }
 
     public NoonSalesLatestDayPlan latestDayNotReady(LocalDate latestDate) {
