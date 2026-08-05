@@ -55,7 +55,7 @@ SET @dp244_storage_clause := (
       AND tc.constraint_name = 'chk_dp_report_artifact_storage_shape'
 );
 SET @dp244_progress_clause := (
-    SELECT REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), CONCAT(CHAR(92),CHAR(39)), CHAR(39)), '_utf8mb4', ''), 'octet_length', 'length'), 'ceiling', 'ceil'), 'character_length', 'char_length'), ',', '')
+    SELECT REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), CONCAT(CHAR(92),CHAR(39)), CHAR(39)), '_utf8mb4', ''), 'octet_length', 'length'), 'ceiling', 'ceil'), 'character_length', 'char_length'), CONCAT(',',CHAR(39)), CHAR(39))
     FROM information_schema.table_constraints tc
     JOIN information_schema.check_constraints cc
       ON cc.constraint_schema = tc.constraint_schema
