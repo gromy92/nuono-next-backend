@@ -85,7 +85,8 @@ class DataPullDeadlineAwareDataSourceTest {
                 .compareTo(Duration.ofSeconds(1)) < 0);
         assertTrue(abortRanBeforeReturn.get());
         assertTrue(networkTimeout.get() <= 100);
-        verify(connection).close();
+        verify(target).evictConnection(connection);
+        verify(connection, never()).close();
         assertFalse(Thread.currentThread().isInterrupted());
     }
 
@@ -114,7 +115,7 @@ class DataPullDeadlineAwareDataSourceTest {
 
         assertTrue(networkTimeout.get() <= 10_000);
         verify(target).evictConnection(connection);
-        verify(connection).close();
+        verify(connection, never()).close();
         verify(connection, never()).abort(any(Executor.class));
     }
 

@@ -27,7 +27,7 @@ final class DataPullDeadlineAwareDataSource extends DelegatingDataSource impleme
         DataPullAdvanceDeadline deadline = DataPullAdvanceDeadline.current();
         return deadline == null
                 ? connection
-                : DataPullDeadlineConnection.bind(connection, deadline, this::evict);
+                : DataPullDeadlineConnection.bind(connection, deadline, this::evict, true);
     }
 
     private void evict(Connection connection) {
