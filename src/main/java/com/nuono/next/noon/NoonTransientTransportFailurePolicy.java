@@ -25,6 +25,9 @@ public final class NoonTransientTransportFailurePolicy {
         boolean approvedHttpStatus = false;
         Throwable current = failure;
         while (current != null) {
+            if (current instanceof NoonRequestPacingException) {
+                return true;
+            }
             if (current instanceof NoonHttpException) {
                 int status = ((NoonHttpException) current).getStatusCode();
                 if (!RETRYABLE_HTTP_STATUSES.contains(status)) {

@@ -66,13 +66,13 @@ src/main/java/com/nuono/next/mobile/LocalDbMobileAuthService.java	312
 src/main/java/com/nuono/next/mobile/LocalDbMobileWorkbenchService.java	717
 src/main/java/com/nuono/next/noon/ChromeNoonCookieSupport.java	344
 src/main/java/com/nuono/next/noon/ImapNoonEmailOtpReader.java	554
-src/main/java/com/nuono/next/noon/NoonSessionGateway.java	2303
+src/main/java/com/nuono/next/noon/NoonSessionGateway.java	2270
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	379
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
 src/main/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepository.java	748
 src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	363
-src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryWorker.java	1006
+src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryWorker.java	980
 src/main/java/com/nuono/next/nooncompleteness/NoonDataAuditService.java	569
 src/main/java/com/nuono/next/nooncompleteness/NoonGapPatrolActionService.java	370
 src/main/java/com/nuono/next/nooncompleteness/NoonGapPatrolPlanner.java	377

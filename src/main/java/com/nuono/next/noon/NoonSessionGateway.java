@@ -8,10 +8,7 @@ import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
 import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonauth.NoonAuthWaitRequest;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
 import java.net.HttpCookie;
@@ -34,9 +31,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Consumer;
-import java.util.zip.GZIPInputStream;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -68,10 +63,7 @@ public class NoonSessionGateway {
     private static final String DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL =
             "https://noon-catalog.noon.partners/en/catalog?tab=noon";
     private static final String NOON_WEB_CLIENT_CODE = "web";
-    private static final int MAX_RATE_LIMIT_RETRIES = 4;
-    private static final long INITIAL_RATE_LIMIT_DELAY_MILLIS = 2000L;
-    private static final int MAX_TRANSIENT_READ_RETRIES = 2;
-    private static final long INITIAL_TRANSIENT_RETRY_DELAY_MILLIS = 700L;
+    private static final NoonReadRetryPolicy READ_RETRY = new NoonReadRetryPolicy();
     private static final String DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
@@ -232,6 +224,47 @@ public class NoonSessionGateway {
                 state,
                 normalizedProjectCode,
                 normalize(storeCode),
+                SessionRefreshMode.COOKIE_ONLY
+        );
+    }
+
+    /**
+     * Builds a persisted-cookie session without issuing WHOAMI. Intended for bounded runtime
+     * steps whose single business request must also be the authentication probe.
+     */
+    public NoonSession openWithPersistedCookieWithoutProbe(
+            Long ownerUserId,
+            String noonUser,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        String normalizedProjectCode = normalize(projectCode);
+        String normalizedStoreCode = normalize(storeCode);
+        if (!StringUtils.hasText(normalizedProjectCode)) {
+            enqueueAuthorizationBinding(ownerUserId, normalizedProjectCode, normalizedStoreCode);
+            throw cookieAuthRequired(normalizedProjectCode, normalizedStoreCode, "missing_project");
+        }
+        String normalizedCookie = normalizeCookie(persistedCookie);
+        if (!StringUtils.hasText(normalizedCookie)) {
+            enqueueAuthorizationBinding(ownerUserId, normalizedProjectCode, normalizedStoreCode);
+            throw cookieAuthRequired(normalizedProjectCode, normalizedStoreCode, "missing_cookie");
+        }
+        String normalizedUser = normalizeUser(noonUser);
+        AuthSessionState state = getOrCreateUnverifiedCookieOnlyState(
+                ownerUserId,
+                normalizedUser,
+                normalizedCookie,
+                normalizedProjectCode,
+                normalizedStoreCode
+        );
+        return new NoonSession(
+                ownerUserId,
+                normalizedUser,
+                cookieFingerprint(normalizedCookie),
+                state,
+                normalizedProjectCode,
+                normalizedStoreCode,
                 SessionRefreshMode.COOKIE_ONLY
         );
     }
@@ -631,6 +664,34 @@ public class NoonSessionGateway {
                     () -> createCookieOnlyState(noonUser, cookieFingerprint, persistedCookie, projectCode, storeCode),
                     this::shouldRefreshAfterTransientTransportFailure
             );
+            sessionCache.put(cacheKey, created);
+            return created;
+        }
+    }
+
+    private AuthSessionState getOrCreateUnverifiedCookieOnlyState(
+            Long ownerUserId,
+            String noonUser,
+            String persistedCookie,
+            String projectCode,
+            String storeCode
+    ) {
+        String cacheKey = "cookie-no-probe:" + ownerUserId + ":" + normalize(projectCode);
+        String cookieFingerprint = cookieFingerprint(persistedCookie);
+        synchronized (accountLocks.computeIfAbsent(cacheKey, key -> new Object())) {
+            AuthSessionState existing = sessionCache.get(cacheKey);
+            if (existing != null
+                    && !existing.isExpired()
+                    && existing.matchesCredential(cookieFingerprint)) {
+                return existing;
+            }
+
+            AuthSessionState created = newSessionState(
+                    firstNonBlank(noonUser, "cookie-only"),
+                    cookieFingerprint
+            );
+            created.importCookieHeader(persistedCookie, catalogSessionBootstrapUrl);
+            created.applyContextCookies(projectCode, storeCode);
             sessionCache.put(cacheKey, created);
             return created;
         }
@@ -1144,9 +1205,41 @@ public class NoonSessionGateway {
 
         public String getText(String url, boolean withProject, Map<String, String> extraHeaders){ return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders)); }
 
+        public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
+            return executeBytesWithRefresh(
+                    () -> state.getBytes(projectCode, storeCode, url, withProject, extraHeaders)
+            );
+        }
+
+        public byte[] getBytesOnce(String url, boolean withProject, Map<String, String> extraHeaders) {
+            return executeBytesWithoutReplay(
+                    () -> state.getBytesOnce(projectCode, storeCode, url, withProject, extraHeaders)
+            );
+        }
+
+        public void getBytesOnce(
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders,
+                NoonBinaryDownloadSink sink
+        ) {
+            executeBytesWithoutReplay(() -> {
+                state.downloadBytesOnce(
+                        projectCode, storeCode, url, withProject, extraHeaders, sink
+                );
+                return new byte[0];
+            });
+        }
+
         public String postText(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders){ return executeTextWithRefresh(() -> state.postText(projectCode, storeCode, url, body, withProject, extraHeaders)); }
 
         public byte[] postBytes(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders){ return executeBytesWithRefresh(() -> state.postBytes(projectCode, storeCode, url, body, withProject, extraHeaders)); }
+
+        public byte[] postBytesOnce(String url, JsonNode body, boolean withProject, Map<String, String> extraHeaders) {
+            return executeBytesWithoutReplay(
+                    () -> state.postBytesOnce(projectCode, storeCode, url, body, withProject, extraHeaders)
+            );
+        }
 
         public JsonNode postJson(String url, JsonNode body, boolean withProject){ return postJson(url, body, withProject, null); }
 
@@ -1292,6 +1385,20 @@ public class NoonSessionGateway {
                     }
                     throw exception;
                 }
+            }
+        }
+
+        private byte[] executeBytesWithoutReplay(BytesSessionCall sessionCall) {
+            try {
+                return sessionCall.execute();
+            } catch (SessionExpiredException exception) {
+                enqueueAuthorizationBinding(ownerUserId, projectCode, storeCode);
+                throw cookieAuthRequired(
+                        projectCode,
+                        storeCode,
+                        safeCookieFailureReason(exception),
+                        exception
+                );
             }
         }
 
@@ -1471,37 +1578,22 @@ public class NoonSessionGateway {
         byte[] execute();
     }
 
-    private interface HttpCallRecorder {
-        void record(
-                HttpRequest request,
-                Integer responseStatusCode,
-                String responseBody,
-                Long elapsedMs,
-                String status,
-                String failureType,
-                String errorMessage
-        );
-    }
-
     private static final class AuthSessionState {
         private final ObjectMapper objectMapper;
         private final String credentialFingerprint;
         private final HttpClient httpClient;
         private final CookieManager cookieManager;
-        private final long minRequestIntervalMillis;
-        private final String userAgent;
-        private final String acceptLanguage;
-        private final String localeHeader;
-        private final String langHeader;
+        private final NoonSessionRequestContext requestContext;
+        private final NoonRequestThrottle requestThrottle;
+        private final NoonRequestHeaders requestHeaders;
         private final Consumer<String> requestRecorder;
-        private final HttpCallRecorder httpCallRecorder;
+        private final NoonHttpAttemptRecorder httpCallRecorder;
         private final NoonEdgeAccessGuard edgeAccessGuard;
         private final long edgeAccessHoldSeconds;
         private final NoonCatalogAuthCookieExport authCookieExport;
         private final String egressFingerprint;
         private final Object requestMutex = new Object();
         private final Instant createdAt = Instant.now();
-        private volatile long lastRequestAtMillis = 0L;
 
         private AuthSessionState(
                 ObjectMapper objectMapper,
@@ -1515,7 +1607,7 @@ public class NoonSessionGateway {
                 String localeHeader,
                 String langHeader,
                 Consumer<String> requestRecorder,
-                HttpCallRecorder httpCallRecorder,
+                NoonHttpAttemptRecorder httpCallRecorder,
                 NoonEdgeAccessGuard edgeAccessGuard,
                 long edgeAccessHoldSeconds,
                 String egressFingerprint
@@ -1524,11 +1616,14 @@ public class NoonSessionGateway {
             this.credentialFingerprint = credentialFingerprint;
             this.httpClient = httpClient;
             this.cookieManager = cookieManager;
-            this.minRequestIntervalMillis = minRequestIntervalMillis;
-            this.userAgent = userAgent;
-            this.acceptLanguage = acceptLanguage;
-            this.localeHeader = localeHeader;
-            this.langHeader = langHeader;
+            this.requestContext = new NoonSessionRequestContext(cookieManager);
+            this.requestThrottle = new NoonRequestThrottle(minRequestIntervalMillis);
+            this.requestHeaders = new NoonRequestHeaders(
+                    userAgent,
+                    acceptLanguage,
+                    localeHeader,
+                    langHeader
+            );
             this.authCookieExport = new NoonCatalogAuthCookieExport(cookieManager);
             this.requestRecorder = requestRecorder;
             this.httpCallRecorder = httpCallRecorder;
@@ -1551,7 +1646,7 @@ public class NoonSessionGateway {
         ) {
             synchronized (requestMutex) {
                 applyContextCookies(projectCode, storeCode);
-                throttleIfNeeded();
+                requestThrottle.await();
                 URI uri = buildUri(url, withProject, projectCode);
                 HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                         .GET()
@@ -1560,8 +1655,8 @@ public class NoonSessionGateway {
                 if (withProject && StringUtils.hasText(projectCode)) {
                     builder.setHeader("X-Project", projectCode);
                 }
-                applyDefaultHeaders(builder, uri);
-                applyHeaders(builder, extraHeaders);
+                requestHeaders.applyDefaults(builder, uri);
+                requestHeaders.applyExtra(builder, extraHeaders);
                 return send(builder.build(), true);
             }
         }
@@ -1575,7 +1670,7 @@ public class NoonSessionGateway {
         ) {
             synchronized (requestMutex) {
                 applyContextCookies(projectCode, storeCode);
-                throttleIfNeeded();
+                requestThrottle.await();
                 URI uri = buildUri(url, withProject, projectCode);
                 HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                         .GET()
@@ -1584,9 +1679,83 @@ public class NoonSessionGateway {
                 if (withProject && StringUtils.hasText(projectCode)) {
                     builder.setHeader("X-Project", projectCode);
                 }
-                applyDefaultHeaders(builder, uri);
-                applyHeaders(builder, extraHeaders);
+                requestHeaders.applyDefaults(builder, uri);
+                requestHeaders.applyExtra(builder, extraHeaders);
                 return sendText(builder.build(), true);
+            }
+        }
+
+        private byte[] getBytes(
+                String projectCode,
+                String storeCode,
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            return getBytes(projectCode, storeCode, url, withProject, extraHeaders, true);
+        }
+
+        private byte[] getBytesOnce(
+                String projectCode,
+                String storeCode,
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            return getBytes(projectCode, storeCode, url, withProject, extraHeaders, false);
+        }
+
+        private void downloadBytesOnce(
+                String projectCode,
+                String storeCode,
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders,
+                NoonBinaryDownloadSink sink
+        ) {
+            synchronized (requestMutex) {
+                applyContextCookies(projectCode, storeCode);
+                requestThrottle.beforeRequest(false);
+                URI uri = buildUri(url, withProject, projectCode);
+                try {
+                    NoonBoundedDownloadSessionCall.execute(
+                            httpClient,
+                            NoonBoundedDownloadExchange.request(
+                                    uri, projectCode, withProject, extraHeaders,
+                                    requestHeaders, sink, REQUEST_TIMEOUT
+                            ),
+                            sink, requestThrottle, requestRecorder, httpCallRecorder,
+                            edgeAccessGuard, edgeAccessHoldSeconds
+                    );
+                } catch (NoonBoundedDownloadSessionCall.AuthExpired failure) {
+                    throw new SessionExpiredException(failure.statusCode(),
+                            failure.responseBody(), failure.requestPath());
+                }
+            }
+        }
+
+        private byte[] getBytes(
+                String projectCode,
+                String storeCode,
+                String url,
+                boolean withProject,
+                Map<String, String> extraHeaders,
+                boolean retryTransientReadFailures
+        ) {
+            synchronized (requestMutex) {
+                applyContextCookies(projectCode, storeCode);
+                requestThrottle.beforeRequest(retryTransientReadFailures);
+                URI uri = buildUri(url, withProject, projectCode);
+                HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
+                        .GET()
+                        .timeout(REQUEST_TIMEOUT)
+                        .setHeader("Accept", "text/csv,application/octet-stream,*/*");
+                if (withProject && StringUtils.hasText(projectCode)) {
+                    builder.setHeader("X-Project", projectCode);
+                }
+                requestHeaders.applyDefaults(builder, uri);
+                requestHeaders.applyExtra(builder, extraHeaders);
+                return sendBytes(builder.build(), retryTransientReadFailures);
             }
         }
 
@@ -1613,7 +1782,7 @@ public class NoonSessionGateway {
             synchronized (requestMutex) {
                 try {
                     applyContextCookies(projectCode, storeCode);
-                    throttleIfNeeded();
+                    requestThrottle.beforeRequest(retryTransientReadFailures);
                     URI uri = buildUri(url, withProject, projectCode);
                     HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -1623,8 +1792,8 @@ public class NoonSessionGateway {
                     if (withProject && StringUtils.hasText(projectCode)) {
                         builder.setHeader("X-Project", projectCode);
                     }
-                    applyDefaultHeaders(builder, uri);
-                    applyHeaders(builder, extraHeaders);
+                    requestHeaders.applyDefaults(builder, uri);
+                    requestHeaders.applyExtra(builder, extraHeaders);
                     return send(builder.build(), retryTransientReadFailures);
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
@@ -1643,7 +1812,7 @@ public class NoonSessionGateway {
             synchronized (requestMutex) {
                 try {
                     applyContextCookies(projectCode, storeCode);
-                    throttleIfNeeded();
+                    requestThrottle.await();
                     URI uri = buildUri(url, withProject, projectCode);
                     HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -1653,8 +1822,8 @@ public class NoonSessionGateway {
                     if (withProject && StringUtils.hasText(projectCode)) {
                         builder.setHeader("X-Project", projectCode);
                     }
-                    applyDefaultHeaders(builder, uri);
-                    applyHeaders(builder, extraHeaders);
+                    requestHeaders.applyDefaults(builder, uri);
+                    requestHeaders.applyExtra(builder, extraHeaders);
                     return sendText(builder.build(), true);
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
@@ -1670,10 +1839,33 @@ public class NoonSessionGateway {
                 boolean withProject,
                 Map<String, String> extraHeaders
         ) {
+            return postBytes(projectCode, storeCode, url, body, withProject, extraHeaders, true);
+        }
+
+        private byte[] postBytesOnce(
+                String projectCode,
+                String storeCode,
+                String url,
+                JsonNode body,
+                boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            return postBytes(projectCode, storeCode, url, body, withProject, extraHeaders, false);
+        }
+
+        private byte[] postBytes(
+                String projectCode,
+                String storeCode,
+                String url,
+                JsonNode body,
+                boolean withProject,
+                Map<String, String> extraHeaders,
+                boolean retryTransientReadFailures
+        ) {
             synchronized (requestMutex) {
                 try {
                     applyContextCookies(projectCode, storeCode);
-                    throttleIfNeeded();
+                    requestThrottle.beforeRequest(retryTransientReadFailures);
                     URI uri = buildUri(url, withProject, projectCode);
                     HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -1686,9 +1878,9 @@ public class NoonSessionGateway {
                     if (withProject && StringUtils.hasText(projectCode)) {
                         builder.setHeader("X-Project", projectCode);
                     }
-                    applyDefaultHeaders(builder, uri);
-                    applyHeaders(builder, extraHeaders);
-                    return sendBytes(builder.build(), true);
+                    requestHeaders.applyDefaults(builder, uri);
+                    requestHeaders.applyExtra(builder, extraHeaders);
+                    return sendBytes(builder.build(), retryTransientReadFailures);
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
                 }
@@ -1708,100 +1900,25 @@ public class NoonSessionGateway {
         ) {
             synchronized (requestMutex) {
                 applyContextCookies(projectCode, storeCode);
-                throttleIfNeeded();
+                requestThrottle.await();
                 URI uri = buildUri(url, withProject, projectCode);
-                String boundary = "nuono-" + Long.toUnsignedString(ThreadLocalRandom.current().nextLong(), 16);
-                byte[] requestBody = multipartFileBody(boundary, fieldName, fileName, contentType, content);
+                NoonMultipartBody requestBody = NoonMultipartBody.file(
+                        fieldName,
+                        fileName,
+                        contentType,
+                        content
+                );
                 HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(requestBody))
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(requestBody.content()))
                         .timeout(REQUEST_TIMEOUT)
-                        .setHeader("Content-Type", "multipart/form-data; boundary=" + boundary)
+                        .setHeader("Content-Type", "multipart/form-data; boundary=" + requestBody.boundary())
                         .setHeader("Accept", "application/json");
                 if (withProject && StringUtils.hasText(projectCode)) {
                     builder.setHeader("X-Project", projectCode);
                 }
-                applyDefaultHeaders(builder, uri);
-                applyHeaders(builder, extraHeaders);
+                requestHeaders.applyDefaults(builder, uri);
+                requestHeaders.applyExtra(builder, extraHeaders);
                 return send(builder.build(), false);
-            }
-        }
-
-        private byte[] multipartFileBody(
-                String boundary,
-                String fieldName,
-                String fileName,
-                String contentType,
-                byte[] content
-        ) {
-            String safeFieldName = sanitizeMultipartToken(fieldName, "file");
-            String safeFileName = sanitizeMultipartToken(fileName, "image");
-            String safeContentType = StringUtils.hasText(contentType) ? contentType.trim() : "application/octet-stream";
-            byte[] fileContent = content == null ? new byte[0] : content;
-            try {
-                ByteArrayOutputStream output = new ByteArrayOutputStream();
-                output.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-                output.write(("Content-Disposition: form-data; name=\"" + safeFieldName + "\"; filename=\""
-                        + safeFileName + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-                output.write(("Content-Type: " + safeContentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-                output.write(fileContent);
-                output.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-                return output.toByteArray();
-            } catch (IOException exception) {
-                throw new IllegalStateException("构造 Noon 文件上传请求失败：" + exception.getMessage(), exception);
-            }
-        }
-
-        private String sanitizeMultipartToken(String value, String fallback) {
-            String normalized = StringUtils.hasText(value) ? value.trim() : fallback;
-            return normalized.replace('"', '_').replace('\r', '_').replace('\n', '_');
-        }
-
-        private void applyHeaders(HttpRequest.Builder builder, Map<String, String> extraHeaders) {
-            if (extraHeaders == null) {
-                return;
-            }
-            for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
-                if (StringUtils.hasText(entry.getKey()) && StringUtils.hasText(entry.getValue())) {
-                    builder.setHeader(entry.getKey(), entry.getValue());
-                }
-            }
-        }
-
-        private void applyDefaultHeaders(HttpRequest.Builder builder, URI uri) {
-            if (StringUtils.hasText(userAgent)) {
-                builder.setHeader("User-Agent", userAgent);
-            }
-            if (StringUtils.hasText(acceptLanguage)) {
-                builder.setHeader("Accept-Language", acceptLanguage);
-            }
-            if (StringUtils.hasText(localeHeader)) {
-                builder.setHeader("X-Locale", localeHeader);
-            }
-            if (StringUtils.hasText(langHeader)) {
-                builder.setHeader("X-Lang", langHeader);
-            }
-            builder.setHeader("X-Platform", "web");
-            String origin = buildOrigin(uri);
-            if (StringUtils.hasText(origin)) {
-                builder.setHeader("Origin", origin);
-                builder.setHeader("Referer", origin + "/");
-            }
-        }
-
-        private void throttleIfNeeded() {
-            if (minRequestIntervalMillis <= 0L) {
-                return;
-            }
-            long now = System.currentTimeMillis();
-            long waitMillis = minRequestIntervalMillis - (now - lastRequestAtMillis);
-            if (waitMillis <= 0L) {
-                return;
-            }
-            try {
-                Thread.sleep(waitMillis);
-            } catch (InterruptedException exception) {
-                Thread.currentThread().interrupt();
-                throw new IllegalStateException("请求 Noon 前被中断：" + exception.getMessage(), exception);
             }
         }
 
@@ -1815,19 +1932,14 @@ public class NoonSessionGateway {
                     }
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
                     authCookieExport.captureRequestCookieHeader(request.uri());
-                    lastRequestAtMillis = System.currentTimeMillis();
-                    String responseBody = decodeResponseBody(response);
+                    requestThrottle.markCompleted();
+                    String responseBody = NoonResponseBodyDecoder.text(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
-                        throwIfEdgeAccessDenied(
-                                request,
-                                response.statusCode(),
-                                responseBody,
-                                startedNanos
-                        );
+                        throwIfEdgeAccessDenied(request, response, responseBody, startedNanos);
                         if (retryTransientReadFailures
-                                && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
-                            sleepForRateLimit(attempt);
+                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
+                            READ_RETRY.sleepForRateLimit(attempt);
                             continue;
                         }
                         if (NoonSessionResponseClassifier.isAuthExpiredResponse(
@@ -1845,14 +1957,15 @@ public class NoonSessionGateway {
                                     "AUTH_EXPIRED",
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                             );
-                            throw new SessionExpiredException(
-                                    response.statusCode(),
-                                    responseBody,
-                                    request.uri().getPath()
-                            );
+                            throw new SessionExpiredException(response.statusCode(), responseBody,
+                                    request.uri().getPath());
                         }
-                        if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
-                            sleepForTransientFailure(attempt);
+                        if (READ_RETRY.shouldRetryTransientResponse(
+                                retryTransientReadFailures,
+                                response.statusCode(),
+                                attempt
+                        )) {
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         }
                         recordAttempt(
@@ -1864,11 +1977,7 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                         );
-                        throw new NoonHttpException(
-                                response.statusCode(),
-                                responseBody,
-                                request.uri().getPath()
-                        );
+                        throw NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath());
                     }
                     recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
                     if (!StringUtils.hasText(responseBody)){ return MissingNode.getInstance(); }
@@ -1879,9 +1988,9 @@ public class NoonSessionGateway {
                     throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 } catch (IOException exception) {
                     attempt++;
-                    if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
+                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
                         try {
-                            sleepForTransientFailure(attempt);
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         } catch (InterruptedException interruptedException) {
                             Thread.currentThread().interrupt();
@@ -1906,19 +2015,14 @@ public class NoonSessionGateway {
                         requestRecorder.accept(request.uri().toString());
                     }
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
-                    lastRequestAtMillis = System.currentTimeMillis();
-                    String responseBody = decodeResponseBody(response);
+                    requestThrottle.markCompleted();
+                    String responseBody = NoonResponseBodyDecoder.text(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         attempt++;
-                        throwIfEdgeAccessDenied(
-                                request,
-                                response.statusCode(),
-                                responseBody,
-                                startedNanos
-                        );
+                        throwIfEdgeAccessDenied(request, response, responseBody, startedNanos);
                         if (retryTransientReadFailures
-                                && shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
-                            sleepForRateLimit(attempt);
+                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
+                            READ_RETRY.sleepForRateLimit(attempt);
                             continue;
                         }
                         if (NoonSessionResponseClassifier.isAuthExpiredResponse(
@@ -1936,14 +2040,15 @@ public class NoonSessionGateway {
                                     "AUTH_EXPIRED",
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                             );
-                            throw new SessionExpiredException(
-                                    response.statusCode(),
-                                    responseBody,
-                                    request.uri().getPath()
-                            );
+                            throw new SessionExpiredException(response.statusCode(), responseBody,
+                                    request.uri().getPath());
                         }
-                        if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
-                            sleepForTransientFailure(attempt);
+                        if (READ_RETRY.shouldRetryTransientResponse(
+                                retryTransientReadFailures,
+                                response.statusCode(),
+                                attempt
+                        )) {
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         }
                         recordAttempt(
@@ -1955,11 +2060,7 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
                         );
-                        throw new NoonHttpException(
-                                response.statusCode(),
-                                responseBody,
-                                request.uri().getPath()
-                        );
+                        throw NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath());
                     }
                     recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
                     return responseBody;
@@ -1969,9 +2070,9 @@ public class NoonSessionGateway {
                     throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 } catch (IOException exception) {
                     attempt++;
-                    if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
+                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
                         try {
-                            sleepForTransientFailure(attempt);
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         } catch (InterruptedException interruptedException) {
                             Thread.currentThread().interrupt();
@@ -1996,20 +2097,15 @@ public class NoonSessionGateway {
                         requestRecorder.accept(request.uri().toString());
                     }
                     HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
-                    lastRequestAtMillis = System.currentTimeMillis();
-                    byte[] responseBody = decodeResponseBytes(response);
+                    requestThrottle.markCompleted();
+                    byte[] responseBody = NoonResponseBodyDecoder.bytes(response);
                     if (response.statusCode() < 200 || response.statusCode() >= 300) {
                         String responseText = new String(responseBody, StandardCharsets.UTF_8);
                         attempt++;
-                        throwIfEdgeAccessDenied(
-                                request,
-                                response.statusCode(),
-                                responseText,
-                                startedNanos
-                        );
+                        throwIfEdgeAccessDenied(request, response, responseText, startedNanos);
                         if (retryTransientReadFailures
-                                && shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
-                            sleepForRateLimit(attempt);
+                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
+                            READ_RETRY.sleepForRateLimit(attempt);
                             continue;
                         }
                         if (NoonSessionResponseClassifier.isAuthExpiredResponse(
@@ -2027,14 +2123,15 @@ public class NoonSessionGateway {
                                     "AUTH_EXPIRED",
                                     "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
                             );
-                            throw new SessionExpiredException(
-                                    response.statusCode(),
-                                    responseText,
-                                    request.uri().getPath()
-                            );
+                            throw new SessionExpiredException(response.statusCode(), responseText,
+                                    request.uri().getPath());
                         }
-                        if (shouldRetryTransientResponse(retryTransientReadFailures, response.statusCode(), attempt)) {
-                            sleepForTransientFailure(attempt);
+                        if (READ_RETRY.shouldRetryTransientResponse(
+                                retryTransientReadFailures,
+                                response.statusCode(),
+                                attempt
+                        )) {
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         }
                         recordAttempt(
@@ -2046,11 +2143,7 @@ public class NoonSessionGateway {
                                 "HTTP_STATUS",
                                 "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
                         );
-                        throw new NoonHttpException(
-                                response.statusCode(),
-                                responseText,
-                                request.uri().getPath()
-                        );
+                        throw NoonHttpFailureFactory.from(response, responseText, request.uri().getPath());
                     }
                     recordAttempt(
                             request,
@@ -2068,9 +2161,9 @@ public class NoonSessionGateway {
                     throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
                 } catch (IOException exception) {
                     attempt++;
-                    if (shouldRetryTransientException(retryTransientReadFailures, attempt)) {
+                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
                         try {
-                            sleepForTransientFailure(attempt);
+                            READ_RETRY.sleepForTransientFailure(attempt);
                             continue;
                         } catch (InterruptedException interruptedException) {
                             Thread.currentThread().interrupt();
@@ -2112,116 +2205,30 @@ public class NoonSessionGateway {
 
         private void throwIfEdgeAccessDenied(
                 HttpRequest request,
-                int statusCode,
+                HttpResponse<?> response,
                 String responseBody,
                 long startedNanos
         ) {
-            if (!NoonEdgeAccessGuard.matches(statusCode, responseBody)) {
+            if (!NoonEdgeAccessGuard.matches(response.statusCode(), responseBody)) {
                 return;
             }
             NoonEdgeAccessDeniedException failure = edgeAccessGuard.block(edgeAccessHoldSeconds);
-            recordAttempt(request, statusCode, responseBody, startedNanos,
+            failure.initCause(NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath()));
+            recordAttempt(request, response.statusCode(), responseBody, startedNanos,
                     "FAILED", "EGRESS_BLOCKED", failure.getMessage());
             throw failure;
         }
 
-        private boolean shouldRetryRateLimit(int statusCode, String responseBody, int attempt){ return attempt <= MAX_RATE_LIMIT_RETRIES && isRateLimitedResponse(statusCode, responseBody); }
-
-        private void sleepForRateLimit(int attempt) throws InterruptedException {
-            long delay = Math.min(
-                    INITIAL_RATE_LIMIT_DELAY_MILLIS * (1L << Math.max(attempt - 1, 0)),
-                    12000L
-            );
-            delay += ThreadLocalRandom.current().nextLong(200L, 801L);
-            Thread.sleep(delay);
-        }
-
-        private boolean shouldRetryTransientResponse(boolean retryTransientReadFailures, int statusCode, int attempt) {
-            return retryTransientReadFailures
-                    && attempt <= MAX_TRANSIENT_READ_RETRIES
-                    && isTransientResponseStatus(statusCode);
-        }
-
-        private boolean shouldRetryTransientException(boolean retryTransientReadFailures, int attempt){ return retryTransientReadFailures && attempt <= MAX_TRANSIENT_READ_RETRIES; }
-
-        private boolean isTransientResponseStatus(int statusCode) {
-            return statusCode == 408
-                    || statusCode == 500
-                    || statusCode == 502
-                    || statusCode == 503
-                    || statusCode == 504;
-        }
-
-        private void sleepForTransientFailure(int attempt) throws InterruptedException {
-            long delay = Math.min(
-                    INITIAL_TRANSIENT_RETRY_DELAY_MILLIS * (1L << Math.max(attempt - 1, 0)),
-                    4000L
-            );
-            delay += ThreadLocalRandom.current().nextLong(100L, 501L);
-            Thread.sleep(delay);
-        }
-
-        private boolean isRateLimitedResponse(int statusCode, String responseBody) {
-            if (statusCode == 429 || statusCode == 418){ return true; }
-            if (!StringUtils.hasText(responseBody)){ return false; }
-            String normalized = responseBody.toLowerCase(Locale.ROOT);
-            return normalized.contains("too many requests")
-                    || normalized.contains("ip_channel")
-                    || normalized.contains("teapot");
-        }
-
-        private String decodeResponseBody(HttpResponse<byte[]> response) throws IOException {
-            byte[] body = decodeResponseBytes(response);
-            if (body == null || body.length == 0){ return ""; }
-
-            return new String(body, StandardCharsets.UTF_8);
-        }
-
-        private byte[] decodeResponseBytes(HttpResponse<byte[]> response) throws IOException {
-            byte[] body = response.body();
-            if (body == null || body.length == 0){ return new byte[0]; }
-            String contentEncoding = response.headers().firstValue("content-encoding").orElse("");
-            boolean gzipEncoded = contentEncoding.toLowerCase(Locale.ROOT).contains("gzip")
-                    || looksLikeGzip(body);
-            if (!gzipEncoded){ return body; }
-
-            try (InputStream inputStream = new GZIPInputStream(new ByteArrayInputStream(body))){ return inputStream.readAllBytes(); }
-        }
-
-        private boolean looksLikeGzip(byte[] body) {
-            return body.length >= 2
-                    && (body[0] & 0xFF) == 0x1F
-                    && (body[1] & 0xFF) == 0x8B;
-        }
-
         private URI buildUri(String url, boolean withProject, String projectCode) {
-            if (!withProject || !StringUtils.hasText(projectCode)){ return URI.create(url); }
-            String separator = url.contains("?") ? "&" : "?";
-            return URI.create(url + separator + "project=" + projectCode);
+            return requestContext.uri(url, withProject, projectCode);
         }
 
         private void applyContextCookies(String projectCode, String storeCode) {
-            if (StringUtils.hasText(projectCode)) {
-                addCookie("projectCode", projectCode);
-            }
-            if (StringUtils.hasText(storeCode)) {
-                addCookie("noonStore", storeCode);
-            }
+            requestContext.applyCookies(projectCode, storeCode);
         }
 
         private void addCookie(String name, String value) {
-            if (!StringUtils.hasText(name) || !StringUtils.hasText(value)) {
-                return;
-            }
-            HttpCookie cookie = new HttpCookie(name, value);
-            cookie.setDomain(".noon.partners");
-            cookie.setPath("/");
-            cookie.setVersion(0);
-            cookieManager.getCookieStore().add(URI.create("https://noon-catalog.noon.partners"), cookie);
-            cookieManager.getCookieStore().add(URI.create("https://noon-store.noon.partners"), cookie);
-            cookieManager.getCookieStore().add(URI.create("https://toolbar.noon.partners"), cookie);
-            cookieManager.getCookieStore().add(URI.create("https://login.noon.partners"), cookie);
-            cookieManager.getCookieStore().add(URI.create("https://login-alt.noon.partners"), cookie);
+            requestContext.addCookie(name, value);
         }
 
         private void importCookieHeader(String cookieHeader, String catalogUrl) {
@@ -2235,57 +2242,22 @@ public class NoonSessionGateway {
                 throw new IllegalArgumentException("Noon Catalog URL 缺少主机名。");
             }
             authCookieExport.prefer(targetUri);
-            for (Map.Entry<String, String> cookie : parseCookieHeader(exportAuthCookieHeader()).entrySet()) {
-                HttpCookie targetCookie = new HttpCookie(cookie.getKey(), cookie.getValue());
-                targetCookie.setDomain(targetHost);
-                targetCookie.setPath("/");
-                targetCookie.setVersion(0);
-                targetCookie.setSecure("https".equalsIgnoreCase(targetUri.getScheme()));
-                cookieManager.getCookieStore().add(targetUri, targetCookie);
+            for (Map.Entry<String, String> cookie : NoonSessionRequestContext
+                    .parseCookieHeader(exportAuthCookieHeader()).entrySet()) {
+                requestContext.addTargetCookie(targetUri, cookie.getKey(), cookie.getValue());
             }
-        }
-
-        private Map<String, String> parseCookieHeader(String cookieHeader) {
-            Map<String, String> cookies = new LinkedHashMap<>();
-            if (!StringUtils.hasText(cookieHeader)){ return cookies; }
-            String[] segments = cookieHeader.split(";");
-            for (String rawSegment : segments) {
-                String segment = rawSegment == null ? "" : rawSegment.trim();
-                if (!StringUtils.hasText(segment) || !segment.contains("=")) {
-                    continue;
-                }
-                int splitIndex = segment.indexOf('=');
-                String name = segment.substring(0, splitIndex).trim();
-                String value = segment.substring(splitIndex + 1).trim();
-                if (!StringUtils.hasText(name) || !StringUtils.hasText(value)) {
-                    continue;
-                }
-                cookies.put(name, value);
-            }
-            return cookies;
         }
 
         private String exportAuthCookieHeader(){ return authCookieExport.exportAuthCookieHeader(); }
     }
 
-    private static final class SessionExpiredException extends IllegalStateException {
-        private final int statusCode;
-        private final String responseBody;
-        private final String requestPath;
-
+    private static final class SessionExpiredException
+            extends com.nuono.next.noon.SessionExpiredException {
         private SessionExpiredException(int statusCode, String responseBody, String requestPath) {
-            super("Noon session expired with HTTP " + statusCode
-                    + NoonTransientTransportFailurePolicy.safeDeterministicAuthMarker(responseBody));
-            this.statusCode = statusCode;
-            this.responseBody = responseBody;
-            this.requestPath = requestPath;
-        }
-        private NoonHttpException toHttpException() {
-            NoonHttpException exception = new NoonHttpException(statusCode, responseBody, requestPath);
-            exception.initCause(this);
-            return exception;
+            super(statusCode, responseBody, requestPath);
         }
     }
+
     public static final class NoonCookieAuthRequiredException extends IllegalStateException {
         private NoonCookieAuthRequiredException(String message) {
             super(message);
@@ -2295,9 +2267,4 @@ public class NoonSessionGateway {
             super(message, cause);
         }
     }
-    private static String buildOrigin(URI uri) {
-        if (uri == null || !StringUtils.hasText(uri.getScheme()) || !StringUtils.hasText(uri.getHost())){ return null; }
-        return uri.getScheme() + "://" + uri.getHost();
-    }
-
 }

@@ -36,6 +36,9 @@ public class NoonPullFailurePolicy {
         if (value.contains("invalid project code") || value.contains("invalid_project_code")) {
             return NoonPullFailureType.INVALID_PROJECT_CODE;
         }
+        if (value.contains("403") || value.contains("forbidden")) {
+            return NoonPullFailureType.BLOCKED_BY_RISK_CONTROL;
+        }
         if (value.contains("auth required") || value.contains("auth_required") || value.contains("401")
                 || value.contains("unauthorized")
                 || value.contains("账号不包含当前项目")

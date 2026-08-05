@@ -21,19 +21,16 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
 
     private final NoonAuthRecoveryRepository repository;
     private final NoonAuthTransientOrchestrator transientOrchestrator;
-    private NoonAuthWaitingTaskRouter waitingTaskRouter;
+    private final NoonAuthWaitingTaskCoordinator waitingTaskCoordinator;
 
     NoonAuthRecoveryProjectOutcomeHandler(
             NoonAuthRecoveryRepository repository,
-            NoonAuthTransientOrchestrator transientOrchestrator
+            NoonAuthTransientOrchestrator transientOrchestrator,
+            NoonAuthWaitingTaskCoordinator waitingTaskCoordinator
     ) {
         this.repository = repository;
         this.transientOrchestrator = transientOrchestrator;
-        this.waitingTaskRouter = new NoonAuthWaitingTaskRouter(repository, java.util.Collections.emptyList());
-    }
-
-    void setWaitingTaskHandlers(List<NoonAuthWaitingTaskHandler> handlers) {
-        this.waitingTaskRouter = new NoonAuthWaitingTaskRouter(repository, handlers);
+        this.waitingTaskCoordinator = waitingTaskCoordinator;
     }
 
     void apply(
@@ -246,9 +243,7 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
             String failureCode = null;
             String diagnostic = "project cookie verified";
             if (item.getSourceTaskId() != null) {
-                NoonAuthWaitingTaskOutcome outcome = waitingTaskRouter.resume(
-                        item, fence.status, fence.version, fence.leaseToken, now
-                );
+                NoonAuthWaitingTaskOutcome outcome = waitingTaskCoordinator.resume(item, fence, now);
                 if (outcome == NoonAuthWaitingTaskOutcome.RESUMED) {
                     recoveredTasks++;
                 } else if (outcome == NoonAuthWaitingTaskOutcome.MANUAL_REVIEW) {
@@ -285,16 +280,4 @@ final class NoonAuthRecoveryProjectOutcomeHandler {
         return item.getOwnerUserId() + ":" + item.getProjectCode();
     }
 
-    NoonAuthWaitingTaskOutcome failWaitingTask(
-            NoonAuthRecoveryItemRecord item,
-            NoonAuthRecoveryWorker.ExecutionFence fence,
-            String failureCode,
-            String diagnostic,
-            LocalDateTime now
-    ) {
-        return waitingTaskRouter.fail(
-                item, fence.status, fence.version, fence.leaseToken,
-                failureCode, diagnostic, now
-        );
-    }
 }

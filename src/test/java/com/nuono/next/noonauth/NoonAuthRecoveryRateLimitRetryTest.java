@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -97,6 +98,50 @@ class NoonAuthRecoveryRateLimitRetryTest extends AbstractNoonAuthRecoveryWorkerT
         verify(repository, atLeastOnce()).transitionRecovery(
                 eq(31L), any(), eq(NoonAuthRecoveryStatus.MANUAL_HOLD), anyLong(), anyString(),
                 any(), eq("SEND_RATE_LIMITED"), any(), any(), eq(true), any()
+        );
+    }
+
+    @Test
+    void manualHoldStopsTheTimedRetryOfADpRuntimeTaskButKeepsItsRecoveryItem() {
+        NoonAuthIdentityRecoveryRecord recovery = recovery(
+                32L, NoonAuthRecoveryStatus.WAITING_COOLDOWN, 4L, 1, 1
+        );
+        NoonAuthRecoveryItemRecord dpItem =
+                item(2L, 32L, 308L, "PRJ308", "STORE308", 3201L, 5L);
+        dpItem.setSourceDomain("DP_RUNTIME");
+        NoonAuthWaitingTaskHandler handler = mock(NoonAuthWaitingTaskHandler.class);
+        when(handler.supports("DP_RUNTIME")).thenReturn(true);
+        when(handler.hold(
+                eq(dpItem), any(), anyLong(), anyString(), eq("SEND_RATE_LIMITED"),
+                any(), any()
+        )).thenReturn(NoonAuthWaitingTaskOutcome.MANUAL_REVIEW);
+        worker.setWaitingTaskHandlers(List.of(handler));
+        when(repository.listDueRecoveries(any(), anyInt()))
+                .thenReturn(List.of(recovery), List.of());
+        when(repository.listPendingItems(32L, Integer.MAX_VALUE)).thenReturn(List.of(dpItem));
+        when(repository.selectProjectAuthState(anyLong(), anyString()))
+                .thenReturn(blockedState(308L, "PRJ308", 32L, 5L));
+        when(gateway.attempt(any())).thenAnswer(invocation -> {
+            reserveOtpSend(invocation);
+            return NoonAuthRecoveryAttemptResult.failed(
+                    NoonAuthRecoveryFailureCode.SEND_RATE_LIMITED,
+                    null,
+                    "provider rate limited the second send"
+            );
+        });
+
+        worker.runOnce();
+
+        verify(handler).hold(
+                eq(dpItem), any(), anyLong(), anyString(), eq("SEND_RATE_LIMITED"),
+                any(), any()
+        );
+        verify(handler, never()).fail(
+                any(), any(), anyLong(), anyString(), anyString(), any(), any()
+        );
+        verify(repository, never()).transitionRecoveryItem(
+                eq(2L), eq(32L), any(), any(), any(), anyLong(), anyString(),
+                any(), any(), any(), any()
         );
     }
 
