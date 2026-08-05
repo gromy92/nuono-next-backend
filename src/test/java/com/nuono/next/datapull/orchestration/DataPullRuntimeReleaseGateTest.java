@@ -109,6 +109,17 @@ class DataPullRuntimeReleaseGateTest {
         assertThrows(IllegalStateException.class, gate::requireReady);
     }
 
+    @Test
+    void runtimeConfigurationWiresGateThroughEvidenceRegistry() {
+        DataPullRuntimeReleaseConfiguration configuration =
+                new DataPullRuntimeReleaseConfiguration();
+        DataPullRuntimeReleaseEvidenceRegistry registry =
+                configuration.dataPullRuntimeReleaseEvidenceRegistry(List.of());
+        DataPullRuntimeReleaseGate gate = configuration.dataPullRuntimeReleaseGate(registry);
+
+        assertEquals(allBlockers(), gate.getBlockers());
+    }
+
     private static DataPullRuntimeReleaseGate gate(
             List<DataPullRuntimeReleaseEvidence> evidence
     ) {
