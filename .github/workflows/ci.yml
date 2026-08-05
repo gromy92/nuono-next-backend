@@ -5,6 +5,7 @@ on:
     branches:
       - develop
       - master
+      - "codex/dp-runtime-stack-*"
   push:
     branches:
       - develop
