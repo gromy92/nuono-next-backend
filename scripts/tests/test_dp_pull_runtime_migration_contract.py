@@ -229,6 +229,9 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
 
     def test_report_artifact_header_is_successor_compatible(self):
         init = self.migration.script_sql
+        successor = self.migrations[244].script_sql
+        self.assertIn("nuono_dp244_shape_guard", successor)
+        self.assertNotIn("SIGNAL SQLSTATE", successor)
 
         self.assertIn("content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL", init)
         self.assertIn("download_state VARCHAR(20) NOT NULL DEFAULT 'LEGACY_COMPLETE'", init)

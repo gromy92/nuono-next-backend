@@ -1,6 +1,4 @@
 -- Migration 244: bounded, resumable DP01/02/03/07B report validation and apply.
--- Migration owner must allocate/finalize number 244; matching scratch checks are not catalog entries.
--- MySQL 8.0.19+; additive schema for bounded DP01/02/03/07B report validation/apply.
 SET @dp244_column_name_count := (
     SELECT COUNT(*) FROM information_schema.columns
     WHERE table_schema = DATABASE() AND table_name = 'dp_pull_report_artifact'
@@ -47,7 +45,7 @@ SET @dp244_progress_check_count := (
       AND constraint_name = 'chk_dp_report_artifact_download_progress'
 );
 SET @dp244_storage_clause := (
-    SELECT REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), '_utf8mb4', '')
+    SELECT REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), '_utf8mb4', ''), 'octet_length', 'length'), 'ceiling', 'ceil')
     FROM information_schema.table_constraints tc
     JOIN information_schema.check_constraints cc
       ON cc.constraint_schema = tc.constraint_schema
@@ -57,7 +55,7 @@ SET @dp244_storage_clause := (
       AND tc.constraint_name = 'chk_dp_report_artifact_storage_shape'
 );
 SET @dp244_progress_clause := (
-    SELECT REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), '_utf8mb4', '')
+    SELECT REPLACE(REPLACE(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause), '[`[:space:]()]', ''), '_utf8mb4', ''), 'octet_length', 'length'), 'ceiling', 'ceil'), 'character_length', 'char_length')
     FROM information_schema.table_constraints tc
     JOIN information_schema.check_constraints cc
       ON cc.constraint_schema = tc.constraint_schema
@@ -66,9 +64,9 @@ SET @dp244_progress_clause := (
       AND tc.constraint_type = 'CHECK'
       AND tc.constraint_name = 'chk_dp_report_artifact_download_progress'
 );
-SET @dp244_old_storage := 'download_state=''legacy_complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnotnullandcontent_length=octet_lengthcontent_bytesandpersisted_chunk_count=0ordownload_state=''downloading''andcontent_sha256isnullandcontent_length=0andcontent_bytesisnullandpersisted_chunk_count=0ordownload_state=''complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnullandpersisted_chunk_count=ceilcontent_length/1048576';
-SET @dp244_new_storage := 'download_state=''legacy_complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnotnullandcontent_length=octet_lengthcontent_bytesandpersisted_chunk_count=0anddownload_fence_epoch=0anddownloaded_byte_count=0anddownloaded_chunk_count=0andexpected_content_lengthisnullordownload_state=''downloading''andcontent_sha256isnullandcontent_length=0andcontent_bytesisnullandpersisted_chunk_count=0ordownload_state=''complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnullandpersisted_chunk_count=ceilcontent_length/1048576anddownload_fence_epoch>0anddownloaded_byte_count=content_lengthanddownloaded_chunk_count=persisted_chunk_countandexpected_content_length=content_length';
-SET @dp244_new_progress := 'download_fence_epoch>=0anddownloaded_byte_countbetween0and2251799812636672anddownloaded_chunk_countbetween0and2147483647anddownloaded_chunk_count=ceildownloaded_byte_count/1048576andresumable_sha256_stateregexp''^v1:[0-9]+:[0-9a-f]{64}:[0-9a-f]{0,126}$''andexpected_content_lengthisnullorexpected_content_lengthbetween1and2251799812636672anddownloaded_byte_count<=expected_content_lengthandsource_validatorisnullorchar_lengthtrimsource_validatorbetween1and512';
+SET @dp244_old_storage := 'download_state=''legacy_complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnotnullandcontent_length=lengthcontent_bytesandpersisted_chunk_count=0ordownload_state=''downloading''andcontent_sha256isnullandcontent_length=0andcontent_bytesisnullandpersisted_chunk_count=0ordownload_state=''complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnullandpersisted_chunk_count=ceilcontent_length/1048576';
+SET @dp244_new_storage := 'download_state=''legacy_complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnotnullandcontent_length=lengthcontent_bytesandpersisted_chunk_count=0anddownload_fence_epoch=0anddownloaded_byte_count=0anddownloaded_chunk_count=0andexpected_content_lengthisnullordownload_state=''downloading''andcontent_sha256isnullandcontent_length=0andcontent_bytesisnullandpersisted_chunk_count=0ordownload_state=''complete''andcontent_sha256isnotnullandcontent_length>0andcontent_bytesisnullandpersisted_chunk_count=ceilcontent_length/1048576anddownload_fence_epoch>0anddownloaded_byte_count=content_lengthanddownloaded_chunk_count=persisted_chunk_countandexpected_content_length=content_length';
+SET @dp244_new_progress := 'download_fence_epoch>=0anddownloaded_byte_countbetween0and2251799812636672anddownloaded_chunk_countbetween0and2147483647anddownloaded_chunk_count=ceildownloaded_byte_count/1048576andregexp_likeresumable_sha256_state''^v1:[0-9]+:[0-9a-f]{64}:[0-9a-f]{0,126}$''andexpected_content_lengthisnullorexpected_content_lengthbetween1and2251799812636672anddownloaded_byte_count<=expected_content_lengthandsource_validatorisnullorchar_lengthtrimsource_validatorbetween1and512';
 SET @dp244_all_absent := @dp244_column_name_count = 0
     AND @dp244_progress_check_count = 0 AND @dp244_storage_check_count = 1
     AND @dp244_storage_clause = @dp244_old_storage;
@@ -77,6 +75,10 @@ SET @dp244_all_present := @dp244_column_name_count = 6
     AND @dp244_progress_check_count = 1 AND @dp244_storage_check_count = 1
     AND @dp244_progress_clause = @dp244_new_progress
     AND @dp244_storage_clause = @dp244_new_storage;
+DROP TEMPORARY TABLE IF EXISTS nuono_dp244_shape_guard;
+CREATE TEMPORARY TABLE nuono_dp244_shape_guard (valid_shape BIT(1) NOT NULL, CONSTRAINT chk_dp244_shape_guard CHECK (valid_shape=b'1')) ENGINE=InnoDB;
+INSERT INTO nuono_dp244_shape_guard VALUES (IF(@dp244_all_absent OR @dp244_all_present,b'1',b'0'));
+DROP TEMPORARY TABLE nuono_dp244_shape_guard;
 SET @dp244_ddl := IF(@dp244_all_absent,
   'ALTER TABLE dp_pull_report_artifact
     DROP CHECK chk_dp_report_artifact_storage_shape,
@@ -128,8 +130,7 @@ SET @dp244_ddl := IF(@dp244_all_absent,
                 AND downloaded_chunk_count = persisted_chunk_count
                 AND expected_content_length = content_length)
         )',
-  IF(@dp244_all_present, 'DO 0',
-    'SIGNAL SQLSTATE ''45000'' SET MESSAGE_TEXT = ''DP244_REPORT_ARTIFACT_SHAPE_DRIFT'''));
+  'DO 0');
 PREPARE dp244_stmt FROM @dp244_ddl;
 EXECUTE dp244_stmt;
 DEALLOCATE PREPARE dp244_stmt;
