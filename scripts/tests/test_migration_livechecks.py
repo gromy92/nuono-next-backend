@@ -18,7 +18,7 @@ from tests.schema_migration_fakes import FakeDatabase  # noqa: E402
 
 
 class MigrationLivecheckContractTest(unittest.TestCase):
-    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244, 245, 246, 247})
+    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244, 245, 246, 247, 248})
 
     @classmethod
     def setUpClass(cls):
@@ -103,6 +103,7 @@ class MigrationLivecheckContractTest(unittest.TestCase):
             245: "snapshot_bounded_apply_245_additive_livecheck",
             246: "dp246_additive_livecheck",
             247: "schedule_core_additive_livecheck",
+            248: "dp08_member_retention_additive_livecheck",
         }
         for order, marker in cases.items():
             migration = next(item for item in self.migrations if item.order == order)

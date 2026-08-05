@@ -200,6 +200,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             245: ("245_dp_pull_snapshot_bounded_apply.sql", "dp_pull_snapshot_fingerprint_count"),
             246: ("246_dp_pull_advertising_generation.sql", "dp_pull_advertising_generation"),
             247: ("247_dp_pull_schedule_core.sql", "dp_pull_schedule_manifest_seal"),
+            248: ("248_dp_pull_dp08_member_retention.sql", "dp_pull_dp08_member_set"),
         }
         for order, (key, marker) in cases.items():
             migration = self.migrations[order]
