@@ -19,9 +19,7 @@ from ci.dp_pull_runtime_cleanup_marker_scenario import (  # noqa: E402
 from ci.dp_pull_runtime_scope_binding_scenario import (  # noqa: E402
     insert_valid_scope_binding_scenario,
 )
-from ci.release_schema_mysql_postcheck_diagnostics import (  # noqa: E402
-    failing_predicate_indexes,
-)
+from ci.release_schema_mysql_postcheck_diagnostics import failing_predicate_indexes  # noqa: E402
 from ci.dp_pull_runtime_successor_scenario import (  # noqa: E402
     drop_successor_objects,
     run_successor_schema_scenario,
@@ -58,7 +56,6 @@ TASK_ID = 500001
 SCOPE_BINDING_TASK_ID = TASK_ID + 10
 EXTRA_COLUMN = "ci_additive_note"
 EXTRA_INDEX = "idx_dp_pull_task_ci_additive_note"
-
 
 @unittest.skipUnless(
     os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
@@ -109,14 +106,8 @@ class DpPullRuntimeSchemaMySqlTest(unittest.TestCase):
         database.client.execute(migration)
 
         exact_result = database.client.execute_readonly(exact)
-        self.assertEqual(
-            "1",
-            exact_result,
-            None if exact_result == "1" else
-            "false exact predicates: " + ",".join(
-                failing_predicate_indexes(database, exact)
-            ),
-        )
+        self.assertEqual("1", exact_result, None if exact_result == "1" else
+                         "false exact predicates: " + ",".join(failing_predicate_indexes(database, exact)))
         self.assertEqual("1", database.client.execute_readonly(live))
         self.assert_sequence_floor(database)
         self.assert_auth_wait_absent(database)
