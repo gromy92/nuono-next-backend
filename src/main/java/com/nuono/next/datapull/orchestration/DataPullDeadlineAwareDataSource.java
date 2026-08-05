@@ -17,11 +17,13 @@ final class DataPullDeadlineAwareDataSource extends DelegatingDataSource impleme
 
     @Override
     public Connection getConnection() throws SQLException {
+        DataPullAdvanceDeadline.requireRemaining();
         return bind(super.getConnection());
     }
 
     @Override
     public Connection getConnection(String username, String password) throws SQLException {
+        DataPullAdvanceDeadline.requireRemaining();
         return bind(super.getConnection(username, password));
     }
 
