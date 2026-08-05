@@ -55,7 +55,7 @@ actual_fk AS (
 actual_view AS (
   SELECT c.table_name,GROUP_CONCAT(c.column_name ORDER BY c.ordinal_position SEPARATOR ',') view_columns,
     MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
-    MAX(REPLACE(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4',''),'!exists','notexists')) view_definition
+    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4','')) view_definition
   FROM information_schema.columns c JOIN information_schema.views v ON v.table_schema=c.table_schema AND v.table_name=c.table_name
   JOIN expected_view e ON e.table_name=c.table_name WHERE c.table_schema=DATABASE() GROUP BY c.table_name
 ),
@@ -94,11 +94,11 @@ SELECT IF(
     AND view_definition LIKE '%state=%sealed%campaign_fact_count=%selectcount%dp_pull_advertising_campaign_fact%'
     AND view_definition LIKE '%query_fact_count=%selectcount%dp_pull_advertising_query_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_report_batch'
-    AND view_definition LIKE '%noon_ad_report_batch%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_sealed_current_generation%')=1
+    AND view_definition LIKE '%noon_ad_report_batch%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_sealed_current_generation%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_campaign_fact'
-    AND view_definition LIKE '%noon_ad_campaign_fact%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_campaign_fact%')=1
+    AND view_definition LIKE '%noon_ad_campaign_fact%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_campaign_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_query_fact'
-    AND view_definition LIKE '%noon_ad_query_fact%where%not%exists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_query_fact%')=1
+    AND view_definition LIKE '%noon_ad_query_fact%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_query_fact%')=1
   AND NOT EXISTS (SELECT 1 FROM generation_shape WHERE actual_campaign_count<>campaign_fact_count OR actual_query_count<>query_fact_count)
   AND NOT EXISTS (SELECT 1 FROM dp_pull_advertising_generation
     WHERE state='SEALED' AND matched_active_campaign_count<>active_campaign_count)
