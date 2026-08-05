@@ -34,7 +34,7 @@ EXPECTED_SOURCE_DIGESTS = {
     "127_procurement_ali1688_history_read_model.sql":
         "d4165cdd19d9b9db804c68bff18d1919bf9c5ff96acc7ba1c13f6ea35c2dc8ae",
     "243_dp_pull_runtime.sql":
-        "b8676bae80cc5f5d261317bf3346b57d5dd3c12b79192ca0652b19f29cdb07e9",
+        "5b5b2ea1ab3970905b50e12a4086388f74b54f156431ce8337ba48c624e17848",
 }
 
 LEGACY_BASE_TABLE_SOURCES = {
