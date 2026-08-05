@@ -10,7 +10,7 @@ expected_index AS (
   SELECT * FROM JSON_TABLE('[["dp_pull_advertising_generation","PRIMARY",0,"task_id"],["dp_pull_advertising_generation","uk_dp_ad_generation_batch",0,"batch_id"],["dp_pull_advertising_generation","uk_dp_ad_generation_task_batch",0,"task_id,batch_id"],["dp_pull_advertising_generation","idx_dp_ad_generation_scope",1,"owner_user_id,project_code,store_code,site_code,report_date,schedule_slot,task_id"],["dp_pull_advertising_generation","idx_dp_ad_generation_retention",1,"state,sealed_at,task_id"],["dp_pull_advertising_campaign_fact","PRIMARY",0,"task_id,page_no,item_ordinal"],["dp_pull_advertising_campaign_fact","uk_dp_ad_campaign_id",0,"id"],["dp_pull_advertising_campaign_fact","uk_dp_ad_campaign_identity",0,"task_id,normalized_identity"],["dp_pull_advertising_campaign_fact","uk_dp_ad_campaign_code",0,"task_id,campaign_code"],["dp_pull_advertising_campaign_fact","idx_dp_ad_campaign_batch",1,"task_id,batch_id"],["dp_pull_advertising_query_fact","PRIMARY",0,"task_id,page_no,item_ordinal"],["dp_pull_advertising_query_fact","uk_dp_ad_query_id",0,"id"],["dp_pull_advertising_query_fact","uk_dp_ad_query_identity",0,"task_id,normalized_identity"],["dp_pull_advertising_query_fact","idx_dp_ad_query_batch",1,"task_id,batch_id"],["dp_pull_advertising_current_head","PRIMARY",0,"owner_user_id,project_code,store_code,site_code,report_date"],["dp_pull_advertising_current_head","uk_dp_ad_head_task",0,"task_id"],["dp_pull_advertising_current_head","uk_dp_ad_head_batch",0,"batch_id"]]','$[*]' COLUMNS(table_name VARCHAR(64) PATH '$[0]',index_name VARCHAR(64) PATH '$[1]',non_unique INT PATH '$[2]',index_columns VARCHAR(1000) PATH '$[3]')) j
 ),
 expected_check AS (
-  SELECT * FROM JSON_TABLE('[["dp_pull_advertising_generation","chk_dp_ad_generation_state","1b8df3ce9915cc9ace85126113a8493dde9718f0fe72f89709a218cf4b883750"],["dp_pull_advertising_generation","chk_dp_ad_generation_fence","1f467ecb1917f59c860352f9899861d5a5ec2112a8e952fa299e2226f2cc178b"],["dp_pull_advertising_generation","chk_dp_ad_generation_identity","7f3db379050e85b8dcf9a87062c676bf6c24d336e9553661c4742a24f02f3491"],["dp_pull_advertising_generation","chk_dp_ad_generation_digest","d717a65a319d14c5bf523bb69d5baea22a9a62a87bb18fa81fa43f3d51b55aa2"],["dp_pull_advertising_generation","chk_dp_ad_generation_extent","26de1d95e2dc86cd97fa6f084d65f742340fa6b48922b1e12917439a627fdbb2"],["dp_pull_advertising_generation","chk_dp_ad_generation_cursor","265d7715d9fcde7344ce56e8b59cecb5f6f6f536104af3d7fed7a4a99b7ff5bd"],["dp_pull_advertising_generation","chk_dp_ad_generation_accounting","6e9feb781e85d689433031ecfcfce5d76e97fcf5000568b7abd2188751cfdca2"],["dp_pull_advertising_generation","chk_dp_ad_generation_ids","1fc15f71a3a4a4134a1ae80a6f8c04470229ae8f1fba225f4f07c24a20e0b0a2"],["dp_pull_advertising_generation","chk_dp_ad_generation_sealed","3903a256c862842e8cca551b1995c72eea3cdd0443990a540cf415321dc9163a"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_position","fc9cc41ff789ec1ce949db57feb65219de06c051a879846707502852b44e9622"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_identity","9c8599a8d5c3a24437b1574f500ec6911c62b98ee73fd3e6c401cfae6ba7c54c"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_scope","f4ff331df8487aff354fb65fa7ff2f9bb77a8c797b3e4144f55599e6382c3ffd"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_counts","53246ccaa13e6a82ff345defe782f8b03507bd925dc72d8ce4beac599018bfbd"],["dp_pull_advertising_query_fact","chk_dp_ad_query_position","be17863f04a96d0ae251e031f397a70b9ce1d35b59c9823484da9894675540b3"],["dp_pull_advertising_query_fact","chk_dp_ad_query_identity","b84a4c3de07fce082dbded94a0075f16d899ac7038141dea459a05d79fa8b584"],["dp_pull_advertising_query_fact","chk_dp_ad_query_scope","f4ff331df8487aff354fb65fa7ff2f9bb77a8c797b3e4144f55599e6382c3ffd"],["dp_pull_advertising_query_fact","chk_dp_ad_query_counts","53246ccaa13e6a82ff345defe782f8b03507bd925dc72d8ce4beac599018bfbd"],["dp_pull_advertising_current_head","chk_dp_ad_head_identity","b2d11927109520cd5a09d0aaeda717291f693939aa89407252b4f06433b16b2d"],["dp_pull_advertising_current_head","chk_dp_ad_head_digest","996789d108eb4e2b43277e29614dec2d469e35a74585f893b3dc8c41cb20e40e"]]','$[*]' COLUMNS(table_name VARCHAR(64) PATH '$[0]',constraint_name VARCHAR(64) PATH '$[1]',clause_sha256 CHAR(64) PATH '$[2]')) j
+  SELECT * FROM JSON_TABLE('[["dp_pull_advertising_generation","chk_dp_ad_generation_state","1b8df3ce9915cc9ace85126113a8493dde9718f0fe72f89709a218cf4b883750"],["dp_pull_advertising_generation","chk_dp_ad_generation_fence","1f467ecb1917f59c860352f9899861d5a5ec2112a8e952fa299e2226f2cc178b"],["dp_pull_advertising_generation","chk_dp_ad_generation_identity","7f3db379050e85b8dcf9a87062c676bf6c24d336e9553661c4742a24f02f3491"],["dp_pull_advertising_generation","chk_dp_ad_generation_digest","918b08663518a255d8248d183bc46fdc7163edab54e079f183d6686323e09207"],["dp_pull_advertising_generation","chk_dp_ad_generation_extent","26de1d95e2dc86cd97fa6f084d65f742340fa6b48922b1e12917439a627fdbb2"],["dp_pull_advertising_generation","chk_dp_ad_generation_cursor","265d7715d9fcde7344ce56e8b59cecb5f6f6f536104af3d7fed7a4a99b7ff5bd"],["dp_pull_advertising_generation","chk_dp_ad_generation_accounting","6e9feb781e85d689433031ecfcfce5d76e97fcf5000568b7abd2188751cfdca2"],["dp_pull_advertising_generation","chk_dp_ad_generation_ids","1fc15f71a3a4a4134a1ae80a6f8c04470229ae8f1fba225f4f07c24a20e0b0a2"],["dp_pull_advertising_generation","chk_dp_ad_generation_sealed","3903a256c862842e8cca551b1995c72eea3cdd0443990a540cf415321dc9163a"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_position","fc9cc41ff789ec1ce949db57feb65219de06c051a879846707502852b44e9622"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_identity","6584a9ead2fde0e882652737d9cedb019822d15fbb98bb7689f02254826ce677"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_scope","f4ff331df8487aff354fb65fa7ff2f9bb77a8c797b3e4144f55599e6382c3ffd"],["dp_pull_advertising_campaign_fact","chk_dp_ad_campaign_counts","53246ccaa13e6a82ff345defe782f8b03507bd925dc72d8ce4beac599018bfbd"],["dp_pull_advertising_query_fact","chk_dp_ad_query_position","be17863f04a96d0ae251e031f397a70b9ce1d35b59c9823484da9894675540b3"],["dp_pull_advertising_query_fact","chk_dp_ad_query_identity","e35dad7fda178e4c9f0b185ad5d243080902ba6599bdeb0b9ab2845b815f7c64"],["dp_pull_advertising_query_fact","chk_dp_ad_query_scope","f4ff331df8487aff354fb65fa7ff2f9bb77a8c797b3e4144f55599e6382c3ffd"],["dp_pull_advertising_query_fact","chk_dp_ad_query_counts","53246ccaa13e6a82ff345defe782f8b03507bd925dc72d8ce4beac599018bfbd"],["dp_pull_advertising_current_head","chk_dp_ad_head_identity","b2d11927109520cd5a09d0aaeda717291f693939aa89407252b4f06433b16b2d"],["dp_pull_advertising_current_head","chk_dp_ad_head_digest","b174a82a26acd8a66edf1ee6e7a8d362a92f447db48ebbbcd9005d8d1b1b67cc"]]','$[*]' COLUMNS(table_name VARCHAR(64) PATH '$[0]',constraint_name VARCHAR(64) PATH '$[1]',clause_sha256 CHAR(64) PATH '$[2]')) j
 ),
 expected_fk AS (
   SELECT * FROM JSON_TABLE('[["dp_pull_advertising_generation","fk_dp_ad_generation_task","task_id","dp_pull_task","id","RESTRICT","RESTRICT"],["dp_pull_advertising_campaign_fact","fk_dp_ad_campaign_generation","task_id,batch_id","dp_pull_advertising_generation","task_id,batch_id","RESTRICT","RESTRICT"],["dp_pull_advertising_query_fact","fk_dp_ad_query_generation","task_id,batch_id","dp_pull_advertising_generation","task_id,batch_id","RESTRICT","RESTRICT"],["dp_pull_advertising_current_head","fk_dp_ad_head_generation","task_id,batch_id","dp_pull_advertising_generation","task_id,batch_id","RESTRICT","RESTRICT"]]','$[*]' COLUMNS(table_name VARCHAR(64) PATH '$[0]',constraint_name VARCHAR(64) PATH '$[1]',child_columns VARCHAR(1000) PATH '$[2]',referenced_table_name VARCHAR(64) PATH '$[3]',referenced_columns VARCHAR(1000) PATH '$[4]',delete_rule VARCHAR(16) PATH '$[5]',update_rule VARCHAR(16) PATH '$[6]')) j
@@ -34,7 +34,12 @@ actual_index AS (
 ),
 actual_check AS (
   SELECT tc.table_name,tc.constraint_name,tc.enforced,
-    SHA2(REPLACE(REGEXP_REPLACE(LOWER(cc.check_clause),'[\x60[:space:]()]',''),'_utf8mb4',''),256) clause_sha256
+    SHA2(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(
+      REGEXP_REPLACE(LOWER(cc.check_clause),'[`()[:space:]]+',''),
+      CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+      '_utf8mb4',''),'_ascii',''),
+      'castsource_systemascharcharsetbinary','binarysource_system'),
+      'cast''noon_ads''ascharcharsetbinary','binary''noon_ads'''),256) clause_sha256
   FROM information_schema.table_constraints tc JOIN expected_table e ON e.table_name=tc.table_name
   JOIN information_schema.check_constraints cc ON cc.constraint_schema=tc.constraint_schema AND cc.constraint_name=tc.constraint_name
   WHERE tc.constraint_schema=DATABASE() AND tc.constraint_type='CHECK'
@@ -49,8 +54,8 @@ actual_fk AS (
 ),
 actual_view AS (
   SELECT c.table_name,GROUP_CONCAT(c.column_name ORDER BY c.ordinal_position SEPARATOR ',') view_columns,
-    MAX(v.algorithm) algorithm,MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
-    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[\x60[:space:]]',''),'_utf8mb4','')) view_definition
+    MAX(v.security_type) security_type,MAX(v.check_option) check_option,MAX(v.is_updatable) is_updatable,
+    MAX(REPLACE(REGEXP_REPLACE(LOWER(v.view_definition),'[`()[:space:]]+',''),'_utf8mb4','')) view_definition
   FROM information_schema.columns c JOIN information_schema.views v ON v.table_schema=c.table_schema AND v.table_name=c.table_name
   JOIN expected_view e ON e.table_name=c.table_name WHERE c.table_schema=DATABASE() GROUP BY c.table_name
 ),
@@ -64,32 +69,34 @@ generation_shape AS (
 SELECT IF(
   (SELECT COUNT(*) FROM information_schema.tables t JOIN expected_table e ON e.table_name=t.table_name
     WHERE t.table_schema=DATABASE() AND t.table_type='BASE TABLE' AND UPPER(t.engine)='INNODB' AND LOWER(t.table_collation)='utf8mb4_bin')=4
-  AND (SELECT COUNT(*) FROM actual_column)=123 AND (SELECT COUNT(*) FROM actual_index)=17
+  AND (SELECT COUNT(*) FROM actual_column)=123 AND (SELECT COUNT(*) FROM actual_index)=18
   AND (SELECT COUNT(*) FROM actual_check)=19 AND (SELECT COUNT(*) FROM actual_fk)=4 AND (SELECT COUNT(*) FROM actual_view)=4
   AND NOT EXISTS (SELECT 1 FROM expected_column e LEFT JOIN actual_column a USING(table_name,column_name)
     WHERE a.table_name IS NULL OR a.column_type<>e.column_type OR a.is_nullable<>e.is_nullable OR a.character_set_name<>e.character_set_name
       OR a.collation_name<>e.collation_name OR a.default_signature<>e.default_signature OR a.extra<>e.extra OR a.generation_expression<>'')
   AND NOT EXISTS (SELECT 1 FROM expected_index e LEFT JOIN actual_index a USING(table_name,index_name)
     WHERE a.table_name IS NULL OR a.non_unique<>e.non_unique OR a.index_columns<>e.index_columns OR a.safe_shape<>1)
+  AND (SELECT COUNT(*) FROM actual_index WHERE table_name='dp_pull_advertising_current_head'
+    AND index_name='idx_dp_ad_head_generation' AND non_unique=1 AND index_columns='task_id,batch_id' AND safe_shape=1)=1
   AND NOT EXISTS (SELECT 1 FROM expected_check e LEFT JOIN actual_check a USING(table_name,constraint_name)
     WHERE a.table_name IS NULL OR a.enforced<>'YES' OR a.clause_sha256<>e.clause_sha256)
   AND NOT EXISTS (SELECT 1 FROM expected_fk e LEFT JOIN actual_fk a USING(table_name,constraint_name)
     WHERE a.table_name IS NULL OR a.child_columns<>e.child_columns OR a.referenced_table_name<>e.referenced_table_name
       OR a.referenced_columns<>e.referenced_columns OR a.delete_rule<>e.delete_rule OR a.update_rule<>e.update_rule)
   AND NOT EXISTS (SELECT 1 FROM expected_view e LEFT JOIN actual_view a USING(table_name)
-    WHERE a.table_name IS NULL OR a.view_columns<>e.view_columns OR a.algorithm<>'UNDEFINED'
-      OR a.security_type<>'INVOKER' OR a.check_option<>'NONE' OR a.is_updatable<>'NO')
+    WHERE a.table_name IS NULL OR a.view_columns<>e.view_columns OR a.security_type<>'INVOKER'
+      OR a.check_option<>'NONE' OR a.is_updatable<>'NO')
   AND (SELECT COUNT(*) FROM information_schema.triggers tr JOIN expected_table e ON e.table_name=tr.event_object_table WHERE tr.trigger_schema=DATABASE())=0
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='dp_pull_advertising_sealed_current_generation'
     AND view_definition LIKE '%dp_pull_advertising_current_head%join%dp_pull_advertising_generation%'
     AND view_definition LIKE '%state=%sealed%campaign_fact_count=%selectcount%dp_pull_advertising_campaign_fact%'
     AND view_definition LIKE '%query_fact_count=%selectcount%dp_pull_advertising_query_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_report_batch'
-    AND view_definition LIKE '%noon_ad_report_batch%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_sealed_current_generation%')=1
+    AND view_definition LIKE '%noon_ad_report_batch%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_sealed_current_generation%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_campaign_fact'
-    AND view_definition LIKE '%noon_ad_campaign_fact%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_campaign_fact%')=1
+    AND view_definition LIKE '%noon_ad_campaign_fact%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_campaign_fact%')=1
   AND (SELECT COUNT(*) FROM actual_view WHERE table_name='noon_ad_effective_query_fact'
-    AND view_definition LIKE '%noon_ad_query_fact%wherenotexists%dp_pull_advertising_current_head%unionall%dp_pull_advertising_query_fact%')=1
+    AND view_definition LIKE '%noon_ad_query_fact%where%exists%dp_pull_advertising_current_head%isfalse%unionall%dp_pull_advertising_query_fact%')=1
   AND NOT EXISTS (SELECT 1 FROM generation_shape WHERE actual_campaign_count<>campaign_fact_count OR actual_query_count<>query_fact_count)
   AND NOT EXISTS (SELECT 1 FROM dp_pull_advertising_generation
     WHERE state='SEALED' AND matched_active_campaign_count<>active_campaign_count)

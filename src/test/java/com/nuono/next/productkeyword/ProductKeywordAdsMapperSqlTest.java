@@ -35,9 +35,9 @@ class ProductKeywordAdsMapperSqlTest {
         );
 
         assertThat(sql)
-                .contains("from noon_ad_query_fact q")
+                .contains("from noon_ad_effective_query_fact q")
                 .contains("coalesce(nullif(q.partner_sku, ''), ow.partner_sku, pp.partner_sku) as partnersku")
-                .contains("official_warehouse_inventory_snapshot_line")
+                .contains("official_warehouse_effective_inventory_snapshot_line")
                 .contains("product_public_detail_snapshot")
                 .contains("q.owner_user_id = #{owneruserid}")
                 .contains("q.store_code = #{storecode}")

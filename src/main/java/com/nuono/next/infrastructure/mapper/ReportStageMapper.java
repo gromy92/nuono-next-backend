@@ -63,7 +63,7 @@ public interface ReportStageMapper {
     );
 
     @Insert({
-            "<script>INSERT INTO dp_pull_report_stage_row(task_id,row_number,decision,identity_sha256,",
+            "<script>INSERT INTO dp_pull_report_stage_row(task_id,`row_number`,decision,identity_sha256,",
             "accepted_identity_sha256,payload_json,gmt_create) VALUES",
             "<foreach item='row' collection='rows' separator=','>",
             "(#{row.taskId},#{row.rowNumber},#{row.decision},#{row.identitySha256},",
@@ -110,10 +110,10 @@ public interface ReportStageMapper {
     );
 
     @Select({
-            "SELECT COUNT(*) AS rowCount,MAX(next_rows.row_number) AS lastRowNumber FROM (",
-            "SELECT row_number FROM dp_pull_report_stage_row",
-            "WHERE task_id=#{taskId} AND decision='ACCEPTED' AND row_number>#{afterRowNumber}",
-            "ORDER BY row_number LIMIT #{limitRows}) next_rows"
+            "SELECT COUNT(*) AS rowCount,MAX(next_rows.`row_number`) AS lastRowNumber FROM (",
+            "SELECT `row_number` FROM dp_pull_report_stage_row",
+            "WHERE task_id=#{taskId} AND decision='ACCEPTED' AND `row_number`>#{afterRowNumber}",
+            "ORDER BY `row_number` LIMIT #{limitRows}) next_rows"
     })
     ReportStageApplySlice selectNextApplySlice(
             @Param("taskId") long taskId,

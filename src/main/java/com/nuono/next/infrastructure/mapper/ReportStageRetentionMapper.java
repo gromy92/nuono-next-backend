@@ -12,9 +12,9 @@ public interface ReportStageRetentionMapper {
     @Delete({
             "<script>",
             "DELETE FROM dp_pull_report_stage_row",
-            "WHERE (task_id,row_number) IN (",
-            "  SELECT task_id,row_number FROM (",
-            "    SELECT stage_row.task_id,stage_row.row_number",
+            "WHERE (task_id,`row_number`) IN (",
+            "  SELECT task_id,`row_number` FROM (",
+            "    SELECT stage_row.task_id,stage_row.`row_number`",
             "    FROM dp_pull_report_stage_row stage_row",
             "    INNER JOIN dp_pull_report_stage stage ON stage.task_id = stage_row.task_id",
             "    INNER JOIN dp_pull_task task ON task.id = stage.task_id",
@@ -33,7 +33,7 @@ public interface ReportStageRetentionMapper {
             "                        WHERE imported.id = stage.fact_container_id",
             "                          AND imported.is_deleted = b'0'))",
             "      ))",
-            "    ORDER BY task.finished_at ASC, stage_row.task_id ASC, stage_row.row_number ASC",
+            "    ORDER BY task.finished_at ASC, stage_row.task_id ASC, stage_row.`row_number` ASC",
             "    LIMIT #{batchSize}",
             "  ) eligible_stage_row",
             ")",
@@ -48,8 +48,8 @@ public interface ReportStageRetentionMapper {
     @Delete({
             "<script>",
             "DELETE FROM dp_pull_report_stage_row",
-            "WHERE (task_id,row_number) IN (SELECT task_id,row_number FROM (",
-            " SELECT row_item.task_id,row_item.row_number",
+            "WHERE (task_id,`row_number`) IN (SELECT task_id,`row_number` FROM (",
+            " SELECT row_item.task_id,row_item.`row_number`",
             " FROM dp_pull_report_stage_row row_item",
             " JOIN dp_pull_report_stage stage ON stage.task_id=row_item.task_id",
             " JOIN dp_pull_task task ON task.id=stage.task_id",
@@ -57,7 +57,7 @@ public interface ReportStageRetentionMapper {
             "  AND task.finished_at &lt; #{cutoffUtc}",
             "  AND stage.gmt_updated &lt; #{cutoffUtc}",
             "  AND task.lease_owner IS NULL AND task.lease_until IS NULL",
-            " ORDER BY task.finished_at,row_item.task_id,row_item.row_number LIMIT #{batchSize}",
+            " ORDER BY task.finished_at,row_item.task_id,row_item.`row_number` LIMIT #{batchSize}",
             ") abandoned_stage_row)",
             "</script>"
     })

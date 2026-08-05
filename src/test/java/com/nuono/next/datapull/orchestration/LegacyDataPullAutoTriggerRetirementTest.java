@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.ClassPathScanningCandidateComponentProvider;
 import org.springframework.mock.env.MockEnvironment;
@@ -82,6 +83,28 @@ class LegacyDataPullAutoTriggerRetirementTest {
     }
 
     @Test
+    void retiredBooleanToggleExistsOnlyAsManagedReleaseAmbiguityRejection()
+            throws IOException {
+        List<Path> references = javaSources().stream().filter((source) -> {
+            try {
+                String content = Files.readString(source);
+                return content.contains("RETIRED_ENABLED_PROPERTY")
+                        || content.contains("RETIRED_ENABLED_ENVIRONMENT_VARIABLE");
+            } catch (IOException failure) {
+                throw new IllegalStateException(failure);
+            }
+        }).collect(Collectors.toList());
+
+        assertThat(references).containsExactlyInAnyOrder(
+                sourcePath(DataPullExecutionMode.class.getName()),
+                sourcePath(DataPullManagedReleaseStartupGuard.class.getName())
+        );
+        assertThat(source(DataPullManagedReleaseStartupGuard.class.getName()))
+                .contains("retiredRuntimeTogglePresent()")
+                .contains("RETIRED_RUNTIME_TOGGLE");
+    }
+
+    @Test
     void legacySalesImportPersistsSalesFactsWithoutListingProjection() throws IOException {
         String source = source("com.nuono.next.sales.SalesSyncTaskService");
 
@@ -147,4 +170,11 @@ class LegacyDataPullAutoTriggerRetirementTest {
         }
     }
 
+    private List<Path> javaSources() throws IOException {
+        try (var paths = Files.walk(MAIN_SOURCE)) {
+            return paths.filter(Files::isRegularFile)
+                    .filter((path) -> path.toString().endsWith(".java"))
+                    .collect(Collectors.toList());
+        }
+    }
 }

@@ -134,6 +134,7 @@ public final class DataPullRuntimeScheduler implements SmartLifecycle {
             ThreadPoolTaskScheduler candidate = Objects.requireNonNull(schedulerFactory.get(),
                     "DP scheduler factory returned null");
             DataPullRuntimeSchedulerSupport.configure(candidate);
+            candidate.setClock(clock);
             candidate.initialize();
             try {
                 acquireLeadershipAtStartup();

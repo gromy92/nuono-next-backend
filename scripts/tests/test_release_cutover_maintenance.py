@@ -8,9 +8,7 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
-
 MODULE_PATH = Path(__file__).parents[1] / "release_cutover_maintenance.py"
-
 
 def load_module():
     spec = importlib.util.spec_from_file_location("release_cutover_maintenance", MODULE_PATH)
@@ -52,13 +50,16 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             external_health_url="https://www.nuoon.com/ai/actuator/health",
             app_dir="/app",
         )
-
     def build_script(self):
         module = load_module()
         return module.build_single_scheduler_cutover_script(
             staged_jar="/staged/backend.jar",
             expected_jar_sha256="a" * 64,
+            expected_commit="c" * 40,
             expected_active_jar_sha256="b" * 64,
+            expected_active_pid=4242,
+            expected_nginx_upstream_sha256="d" * 64,
+            expected_topology_cas_sha256="e" * 64,
             active_slot="blue",
             target_slot="green",
             active_port=18087,
@@ -69,14 +70,13 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
             external_health_url="https://www.nuoon.com/ai/actuator/health",
             app_dir="/app",
         )
-
     def test_maintenance_owns_nginx_before_old_jvm_stops(self):
         script = self.build_script()
         execution = script[script.index("trap rollback_cutover ERR") :]
 
         responder = execution.index("start_maintenance_responder")
         maintenance_switch = execution.index("switch_nginx_to_maintenance")
-        old_stop = execution.index('kill "$ACTIVE_PID"')
+        old_stop = execution.index('stop_pid "$ACTIVE_PID"')
         target_start = execution.index('start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"')
         target_ready = execution.index('wait_for_health "$TARGET_PORT"')
         target_switch = execution.index('switch_nginx_to_port "$TARGET_PORT"')
@@ -228,8 +228,8 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
 
     def test_embedded_responder_serves_json_503_on_loopback(self):
         script = self.build_script()
-        marker = 'cat > "$MAINTENANCE_DIR/server.py" <<\'PY\'\n'
-        server_source = script.split(marker, 1)[1].split("\nPY\n", 1)[0]
+        marker = 'server_source="$(cat <<\'PY\'\n'
+        server_source = script.split(marker, 1)[1].split("\nPY\n)\"", 1)[0]
         with socket.socket() as reserved:
             reserved.bind(("127.0.0.1", 0))
             port = reserved.getsockname()[1]

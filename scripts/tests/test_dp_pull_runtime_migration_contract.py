@@ -14,6 +14,14 @@ from schema_migrations.sql_text import code_outside_literals_and_comments  # noq
 
 
 class DpPullRuntimeMigrationContractTest(unittest.TestCase):
+    SUCCESSOR_KEYS = {
+        244: "244_dp_pull_report_bounded_apply.sql",
+        245: "245_dp_pull_snapshot_bounded_apply.sql",
+        246: "246_dp_pull_advertising_generation.sql",
+        247: "247_dp_pull_schedule_core.sql",
+        248: "248_dp_pull_dp08_member_retention.sql",
+    }
+
     @classmethod
     def setUpClass(cls):
         cls.resources = SCRIPT_DIR.parent / "src/main/resources"
@@ -89,9 +97,11 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("table_name='dp_pull_auth_wait')=0", sql)
             self.assertIn("dp10_fingerprint_actual", sql)
             self.assertIn("noon_pull_id_sequence", sql)
+            self.assertIn("LOWER(c.extra) AS extra", sql)
+            self.assertIn("'default_generated','')", sql)
 
         self.assertIn("(SELECT COUNT(*) FROM actual_column)=232", exact)
-        self.assertIn("(SELECT COUNT(*) FROM actual_index)=49", exact)
+        self.assertIn("(SELECT COUNT(*) FROM actual_index)=50", exact)
         self.assertIn("(SELECT COUNT(*) FROM actual_check)=113", exact)
         self.assertIn("(SELECT COUNT(*) FROM actual_fk)=16", exact)
         self.assertNotIn("COUNT(*) FROM actual_check", live)
@@ -135,6 +145,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         init = self.migration.script_sql
         self.assertIn("CREATE TABLE IF NOT EXISTS dp_pull_scope_admission", init)
         self.assertIn("fk_dp_schedule_anchor_admission", init)
+        self.assertIn("idx_dp_schedule_anchor_admission", init)
         self.assertIn("chk_dp_snapshot_stage_authority", init)
         self.assertIn("chk_dp_snapshot_apply_authority", init)
         self.assertIn("chk_dp_snapshot_apply_accounting", init)
@@ -167,8 +178,62 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("p.source_item_count<>p.item_count+p.business_skipped_item_count", sql)
             self.assertIn("a.reconcile_after_utc<>s.first_eligible_at_utc", sql)
 
+    def test_successor_migrations_are_contiguous_additive_and_fail_closed(self):
+        required_markers = {
+            244: "dp_pull_report_artifact_chunk",
+            245: "dp_pull_snapshot_fingerprint_count",
+            246: "dp_pull_advertising_generation",
+            247: "dp_pull_schedule_manifest_seal",
+            248: "dp_pull_dp08_member_set",
+        }
+        for order, key in self.SUCCESSOR_KEYS.items():
+            migration = self.migrations[order]
+            with self.subTest(migration=key):
+                self.assertEqual(key, migration.key)
+                self.assertEqual("AUTO_ADDITIVE", migration.kind)
+                self.assertEqual(
+                    PurePosixPath(f"db/postcheck/{key}"),
+                    migration.postcheck_path,
+                )
+                self.assertEqual(
+                    PurePosixPath(f"db/livecheck/{key}"),
+                    migration.livecheck_path,
+                )
+                self.assertNotEqual(
+                    migration.postcheck_checksum,
+                    migration.livecheck_checksum,
+                )
+                self.assertIn(required_markers[order], migration.script_sql)
+                for sql in (migration.postcheck_sql, migration.livecheck_sql):
+                    self.assertNotIn("/*!", sql)
+                    self.assertNotIn(r"\x60", sql)
+                    executable = code_outside_literals_and_comments(sql)
+                    self.assertTrue(executable.lstrip().startswith("WITH"))
+                    self.assertEqual(1, executable.count(";"))
+                    self.assertNotRegex(
+                        executable,
+                        re.compile(
+                            r"\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|"
+                            r"TRUNCATE)\b|\bREPLACE\s+INTO\b",
+                            re.IGNORECASE,
+                        ),
+                    )
+                for path in (
+                    migration.script_file,
+                    migration.postcheck_file,
+                    migration.livecheck_file,
+                ):
+                    self.assertLessEqual(
+                        len(path.read_bytes().splitlines()),
+                        300,
+                    )
+
     def test_report_artifact_header_is_successor_compatible(self):
         init = self.migration.script_sql
+        successor = self.migrations[244].script_sql
+        self.assertIn("nuono_dp244_shape_guard", successor)
+        self.assertNotIn("SIGNAL SQLSTATE", successor)
+        self.assertIn("CONCAT(CHAR(92),CHAR(39))", successor)
 
         self.assertIn("content_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL", init)
         self.assertIn("download_state VARCHAR(20) NOT NULL DEFAULT 'LEGACY_COMPLETE'", init)
@@ -194,39 +259,6 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             self.assertIn("a.content_bytes IS NOT NULL", sql)
             self.assertIn("a.content_length=OCTET_LENGTH(a.content_bytes)", sql)
 
-    def test_bounded_apply_successors_are_additive_and_fail_closed(self):
-        cases = {
-            244: ("244_dp_pull_report_bounded_apply.sql", "dp_pull_report_artifact_chunk"),
-            245: ("245_dp_pull_snapshot_bounded_apply.sql", "dp_pull_snapshot_fingerprint_count"),
-            246: ("246_dp_pull_advertising_generation.sql", "dp_pull_advertising_generation"),
-            247: ("247_dp_pull_schedule_core.sql", "dp_pull_schedule_manifest_seal"),
-            248: ("248_dp_pull_dp08_member_retention.sql", "dp_pull_dp08_member_set"),
-        }
-        for order, (key, marker) in cases.items():
-            migration = self.migrations[order]
-            with self.subTest(migration=key):
-                self.assertEqual(key, migration.key)
-                self.assertEqual("AUTO_ADDITIVE", migration.kind)
-                self.assertEqual(PurePosixPath(f"db/postcheck/{key}"), migration.postcheck_path)
-                self.assertEqual(PurePosixPath(f"db/livecheck/{key}"), migration.livecheck_path)
-                self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
-                self.assertIn(marker, migration.script_sql)
-                for sql in (migration.postcheck_sql, migration.livecheck_sql):
-                    self.assertNotIn("/*!", sql)
-                    executable = code_outside_literals_and_comments(sql)
-                    self.assertTrue(executable.lstrip().startswith("WITH"))
-                    self.assertEqual(1, executable.count(";"))
-                    self.assertNotRegex(
-                        executable,
-                        re.compile(
-                            r"\b(?:INSERT|UPDATE|DELETE|ALTER|CREATE|DROP|TRUNCATE)\b|"
-                            r"\bREPLACE\s+INTO\b",
-                            re.IGNORECASE,
-                        ),
-                    )
-                for path in (migration.script_file, migration.postcheck_file, migration.livecheck_file):
-                    self.assertLessEqual(len(path.read_bytes().splitlines()), 300)
-
     def test_dp08_scope_binding_is_temporal_immutable_and_task_copied(self):
         init = self.migration.script_sql
         self.assertIn("CREATE TABLE IF NOT EXISTS dp_pull_scope_binding_epoch", init)
@@ -242,7 +274,6 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
 
     def test_authorization_wait_can_be_untimed_only_after_recovery_escalation(self):
         init = self.migration.script_sql
-
         self.assertIn(
             "state IN ('WAITING_REMOTE', 'WAITING_BACKOFF') AND retry_not_before IS NOT NULL",
             init,

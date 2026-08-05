@@ -1,0 +1,25 @@
+{
+  "schema": "nuono.dp-runtime-provider-contract-policy/v1",
+  "requirements": [
+    {
+      "requirement": "DP04_STABLE_SNAPSHOT",
+      "source_kind": "PROVIDER_SNAPSHOT_AUTHORITY",
+      "approved_source_sha256": []
+    },
+    {
+      "requirement": "DP06_COMPLETE_CAMPAIGN_ENUMERATION",
+      "source_kind": "PROVIDER_COMPLETE_CAMPAIGN_ENUMERATION",
+      "approved_source_sha256": []
+    },
+    {
+      "requirement": "DP07A_STABLE_SNAPSHOT",
+      "source_kind": "PROVIDER_SNAPSHOT_AUTHORITY",
+      "approved_source_sha256": []
+    },
+    {
+      "requirement": "DP10_MODIFIED_TIME_VISIBILITY_CONTRACT",
+      "source_kind": "PROVIDER_MODIFIED_TIME_VISIBILITY",
+      "approved_source_sha256": []
+    }
+  ]
+}

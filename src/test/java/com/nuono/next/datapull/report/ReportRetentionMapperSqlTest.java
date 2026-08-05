@@ -97,7 +97,7 @@ class ReportRetentionMapperSqlTest {
                 .contains("stage.state = 'APPLIED'")
                 .contains("FROM official_warehouse_report_import imported")
                 .contains("imported.is_deleted = b'0'")
-                .contains("stage_row.row_number ASC")
+                .contains("stage_row.`row_number` ASC")
                 .contains("LIMIT #{batchSize}");
         assertRetentionContract(stages, "stage.gmt_updated", "stage.task_id");
         assertThat(stages)

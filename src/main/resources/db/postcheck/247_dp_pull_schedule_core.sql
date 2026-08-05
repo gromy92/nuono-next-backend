@@ -91,6 +91,7 @@ expected_index AS (
 {"t":"dp_pull_schedule_source_epoch","n":"PRIMARY","u":0,"c":"operation_code,epoch_no"},
 {"t":"dp_pull_schedule_source_epoch","n":"uk_dp_schedule_epoch_active","u":0,"c":"active_operation_slot"},
 {"t":"dp_pull_schedule_source_epoch","n":"idx_dp_schedule_epoch_retention","u":1,"c":"operation_code,terminal_at_utc,epoch_no"},
+{"t":"dp_pull_schedule_source_epoch","n":"idx_dp_schedule_epoch_manifest","u":1,"c":"operation_code,cutover_key"},
 {"t":"dp_pull_schedule_source_scope","n":"PRIMARY","u":0,"c":"operation_code,epoch_no,scope_key"},
 {"t":"dp_pull_schedule_source_scope","n":"uk_dp_schedule_scope_cursor","u":0,"c":"operation_code,epoch_no,source_cursor_sha256"},
 {"t":"dp_pull_schedule_source_scope","n":"idx_dp_schedule_scope_admission","u":1,"c":"operation_code,epoch_no,admission_anchor_state,scope_key"},
@@ -107,19 +108,19 @@ expected_check AS (
 {"t":"dp_pull_schedule_epoch_sequence","n":"chk_dp_schedule_epoch_sequence_value","h":"1133f570888f90efa7b4ae73fc3a7292eb97885b5d050db36dab299a9e68204c"},
 {"t":"dp_pull_schedule_manifest_seal","n":"chk_dp_schedule_manifest_operation","h":"61c182fdf9fea2e5e2e5c990ed79d4fa8c1de4aa4c7cb32512cedc2819420ea9"},
 {"t":"dp_pull_schedule_manifest_seal","n":"chk_dp_schedule_manifest_count","h":"3b8b710e86dd88a964233eb3ed03f8346da275c2f6d7156249c275ac6dfdb024"},
-{"t":"dp_pull_schedule_manifest_seal","n":"chk_dp_schedule_manifest_digest","h":"1b1f824f170ede7413cbf0dd402b0866a59b9646c18ca872d335bb4e046fc58a"},
+{"t":"dp_pull_schedule_manifest_seal","n":"chk_dp_schedule_manifest_digest","h":"c7e04d31fa2a82744146f4286709b7bc1b50e3068c9e01cf28e9bcf75a142580"},
 {"t":"dp_pull_schedule_manifest_seal","n":"chk_dp_schedule_manifest_state","h":"4c5de4704c6d978f20de196c2a5a21632fbcf7c0c6ac6d13a3e29995d3a393ef"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_operation","h":"61c182fdf9fea2e5e2e5c990ed79d4fa8c1de4aa4c7cb32512cedc2819420ea9"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_number","h":"e8cac16b57828701735a6bf47647ebcbd724867bcab0d8420095a3178d429d8a"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_count","h":"050ca510792c6e64241fc2d384250e4d0e629d481f00a8b31fafb378458e8157"},
-{"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_digest","h":"10fcc745dc7262671a78349e86d9fa58a1229b3b1a2935188146b8bb0f8a1f3a"},
+{"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_digest","h":"90d946696b86b9d283436cc472e8398c6689710549a817ea4a48e60afd6df2c9"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_state","h":"100dbce1192488e4c42b3aff3c318ac6b026edd5b32e51b10d71672fc25fada6"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_active","h":"b67608c296e7e0abe51228f3d5b91d71f995c2c1c41529203dd6be22772c41ae"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_seal","h":"5872f419bd06ebcb94e2bb9f1390df912bb624f3f6a7af05c7deecd9641241d5"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_terminal","h":"cf19e2db7fa738d130f06bdf565b3215bcb3cc5ce30ab9838d9fe2208fa3847d"},
 {"t":"dp_pull_schedule_source_epoch","n":"chk_dp_schedule_epoch_binding_close","h":"422aafae32bccb87911cdb69443f4bc1d65bb03afbe76588a3afe82785f5fcf9"},
 {"t":"dp_pull_schedule_source_scope","n":"chk_dp_schedule_scope_identity","h":"c4aba35e52796f8c337c8e0e0cd68a10ee76722aec60869b71aa9ee098ca7216"},
-{"t":"dp_pull_schedule_source_scope","n":"chk_dp_schedule_scope_digest","h":"9f264c88181e2da693489c9408d390205026941d6cf6e15783b37635f1eff98e"},
+{"t":"dp_pull_schedule_source_scope","n":"chk_dp_schedule_scope_digest","h":"d3deb198ba9d9da97b6e9ab53462899faf2b522fbba3a55df7278135c8629c27"},
 {"t":"dp_pull_schedule_source_scope","n":"chk_dp_schedule_scope_binding","h":"b91e59d41c141b465189be6e85bf4bcdf20fdc883dd0582a34ecc302e02c65af"},
 {"t":"dp_pull_schedule_source_scope","n":"chk_dp_schedule_scope_state","h":"6f0f03ceafe368b1236d1a44a5e21d28f66c91c80bc8ccb683893dd824cf8eff"}
 ]', '$[*]' COLUMNS(table_name VARCHAR(64) PATH '$.t', constraint_name VARCHAR(64) PATH '$.n',
@@ -154,7 +155,10 @@ actual_index AS (
 ),
 actual_check AS (
   SELECT tc.table_name,tc.constraint_name,tc.enforced,
-    SHA2(REGEXP_REPLACE(LOWER(cc.check_clause),'[`()[:space:]]+',''),256) clause_hash
+    SHA2(REPLACE(REPLACE(REPLACE(
+      REGEXP_REPLACE(LOWER(cc.check_clause),'[`()[:space:]]+',''),
+      CONCAT(CHAR(92),CHAR(39)),CHAR(39)),
+      '_utf8mb4',''),'_ascii',''),256) clause_hash
   FROM information_schema.table_constraints tc JOIN expected_table t ON t.table_name=tc.table_name
   JOIN information_schema.check_constraints cc
     ON cc.constraint_schema=tc.constraint_schema AND cc.constraint_name=tc.constraint_name

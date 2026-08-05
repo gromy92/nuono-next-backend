@@ -26,7 +26,7 @@ contract_column AS (SELECT * FROM contract_column_base UNION ALL
   SELECT * FROM JSON_TABLE('[{"t":"dp_pull_snapshot_apply","n":"authority_kind","y":"varchar(32)","q":"NO","s":"utf8mb4","o":"utf8mb4_bin","d":"-"},{"t":"dp_pull_snapshot_apply","n":"authority_token_sha256","y":"char(64)","q":"NO","s":"ascii","o":"ascii_bin","d":"-"},{"t":"dp_pull_snapshot_apply","n":"snapshot_as_of_utc","y":"datetime(3)","q":"YES","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"declared_collection_count","y":"bigint","q":"NO","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"source_item_count","y":"bigint","q":"NO","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"applied_item_count","y":"bigint","q":"NO","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"identity_skipped_item_count","y":"bigint","q":"NO","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"business_skipped_item_count","y":"bigint","q":"NO","s":"","o":"","d":"-"},{"t":"dp_pull_snapshot_apply","n":"last_page","y":"int","q":"NO","s":"","o":"","d":"-"}]', '$[*]' COLUMNS(table_name VARCHAR(64) PATH '$.t', column_name VARCHAR(64) PATH '$.n', column_type VARCHAR(64) PATH '$.y', is_nullable VARCHAR(3) PATH '$.q', character_set_name VARCHAR(64) PATH '$.s', collation_name VARCHAR(64) PATH '$.o', default_signature VARCHAR(100) PATH '$.d')) AS j
 ),
 contract_index AS (SELECT * FROM expected_index UNION ALL
-  SELECT * FROM JSON_TABLE('[{"t":"dp_pull_dp10_stage_cleanup","n":"PRIMARY","u":0,"c":"task_id,generation_no"},{"t":"dp_pull_dp10_stage_cleanup","n":"uk_dp10_cleanup_task","u":0,"c":"task_id"},{"t":"dp_pull_scope_admission","n":"PRIMARY","u":0,"c":"scope_key"},{"t":"dp_pull_scope_admission","n":"uk_dp_scope_admission_cutover","u":0,"c":"scope_key,cutover_key"},{"t":"dp_pull_scope_admission","n":"idx_dp_scope_admission_cutover","u":1,"c":"cutover_key,admission_kind,scope_key"},{"t":"dp_pull_report_artifact","n":"idx_dp_report_artifact_download_state","u":1,"c":"download_state,updated_at,artifact_key"}]', '$[*]' COLUMNS(table_name VARCHAR(64) PATH '$.t', index_name VARCHAR(64) PATH '$.n', non_unique INT PATH '$.u', index_columns VARCHAR(1000) PATH '$.c')) AS j
+  SELECT * FROM JSON_TABLE('[{"t":"dp_pull_dp10_stage_cleanup","n":"PRIMARY","u":0,"c":"task_id,generation_no"},{"t":"dp_pull_dp10_stage_cleanup","n":"uk_dp10_cleanup_task","u":0,"c":"task_id"},{"t":"dp_pull_scope_admission","n":"PRIMARY","u":0,"c":"scope_key"},{"t":"dp_pull_scope_admission","n":"uk_dp_scope_admission_cutover","u":0,"c":"scope_key,cutover_key"},{"t":"dp_pull_scope_admission","n":"idx_dp_scope_admission_cutover","u":1,"c":"cutover_key,admission_kind,scope_key"},{"t":"dp_pull_schedule_anchor","n":"idx_dp_schedule_anchor_admission","u":1,"c":"scope_key,cutover_key"},{"t":"dp_pull_report_artifact","n":"idx_dp_report_artifact_download_state","u":1,"c":"download_state,updated_at,artifact_key"}]', '$[*]' COLUMNS(table_name VARCHAR(64) PATH '$.t', index_name VARCHAR(64) PATH '$.n', non_unique INT PATH '$.u', index_columns VARCHAR(1000) PATH '$.c')) AS j
 ),
 contract_check_base AS (SELECT * FROM expected_check UNION ALL
   SELECT * FROM JSON_TABLE('[{"t":"dp_pull_dp10_stage_cleanup","n":"chk_dp10_cleanup_generation"},{"t":"dp_pull_dp10_stage_cleanup","n":"chk_dp10_cleanup_reason"},{"t":"dp_pull_dp10_stage_cleanup","n":"chk_dp10_cleanup_fence"},{"t":"dp_pull_scope_admission","n":"chk_dp_scope_admission_identity"},{"t":"dp_pull_scope_admission","n":"chk_dp_scope_admission_kind"},{"t":"dp_pull_scope_admission","n":"chk_dp_scope_admission_digest"},{"t":"dp_pull_snapshot_stage","n":"chk_dp_snapshot_stage_authority"}]', '$[*]' COLUMNS(table_name VARCHAR(64) PATH '$.t', constraint_name VARCHAR(64) PATH '$.n')) AS j
@@ -59,7 +59,7 @@ actual_column AS (SELECT c.table_name, c.column_name, LOWER(c.column_type) AS co
     CASE WHEN c.column_default IS NULL THEN '-'
       WHEN c.data_type='bit' AND LOWER(c.column_default) IN ('0', 'b''0''') THEN '0'
       ELSE LOWER(c.column_default) END AS default_signature,
-    c.extra, c.generation_expression
+    LOWER(c.extra) AS extra, c.generation_expression
   FROM information_schema.columns c JOIN contract_table e ON e.table_name=c.table_name
   WHERE c.table_schema=DATABASE()
 ),
@@ -130,7 +130,7 @@ cleanup_marker_shape AS (
       ON a.table_name=e.table_name AND a.column_name=e.column_name
     WHERE a.table_name IS NULL OR a.column_type<>e.column_type OR a.is_nullable<>e.is_nullable
       OR a.character_set_name<>e.character_set_name OR a.collation_name<>e.collation_name
-      OR a.default_signature<>e.default_signature OR a.extra<>'' OR a.generation_expression<>''
+      OR a.default_signature<>e.default_signature OR a.extra<>IF(e.table_name='dp_pull_report_artifact' AND e.column_name='updated_at','default_generated','') OR a.generation_expression<>''
   )
   AND NOT EXISTS (
     SELECT 1 FROM contract_index_all e LEFT JOIN actual_index a
@@ -141,7 +141,7 @@ cleanup_marker_shape AS (
   AND NOT EXISTS (
     SELECT 1 FROM contract_check_all e LEFT JOIN actual_check a
       ON a.table_name=e.table_name AND a.constraint_name=e.constraint_name
-    WHERE a.table_name IS NULL OR a.enforced<>'YES' OR (e.constraint_name='chk_dp_snapshot_stage_authority' AND a.check_clause NOT REGEXP 'authority_kindisnotnull.*authority_kindin.*authority_token_sha256isnotnull.*authority_token_sha256regexp.*declared_collection_countisnotnull.*declared_collection_count>=0')
+    WHERE a.table_name IS NULL OR a.enforced<>'YES' OR (e.constraint_name='chk_dp_snapshot_stage_authority' AND a.check_clause NOT REGEXP 'authority_kindisnotnull.*authority_kindin.*authority_token_sha256isnotnull.*(authority_token_sha256regexp|regexp_like.*authority_token_sha256).*declared_collection_countisnotnull.*declared_collection_count>=0')
   )
   AND (SELECT COUNT(*) FROM actual_fk)=16
   AND NOT EXISTS (
@@ -156,7 +156,7 @@ cleanup_marker_shape AS (
   AND (SELECT COUNT(*) FROM information_schema.tables
     WHERE table_schema=DATABASE() AND table_name='dp_pull_auth_wait')=0
   AND (SELECT COUNT(*) FROM actual_column)=232
-  AND (SELECT COUNT(*) FROM actual_index)=49
+  AND (SELECT COUNT(*) FROM actual_index)=50
 
   AND NOT EXISTS (SELECT 1 FROM dp_pull_task WHERE id<=0)
   AND (SELECT COUNT(*) FROM dp_pull_runtime_leader)=1

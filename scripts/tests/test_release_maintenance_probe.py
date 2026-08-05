@@ -14,7 +14,11 @@ def build_script():
     return module.build_single_scheduler_cutover_script(
         staged_jar="/staged/backend.jar",
         expected_jar_sha256="a" * 64,
+        expected_commit="c" * 40,
         expected_active_jar_sha256="b" * 64,
+        expected_active_pid=4242,
+        expected_nginx_upstream_sha256="d" * 64,
+        expected_topology_cas_sha256="e" * 64,
         active_slot="blue",
         target_slot="green",
         active_port=18087,
@@ -148,7 +152,7 @@ printf 'rc=%s\nrouted=%s\n' "$rc" "$MAINTENANCE_ROUTED"
 
     def test_write_upstream_port_accepts_already_current_target(self):
         script = build_script()
-        writer = function_from(script, "write_upstream_port", "switch_nginx_to_port")
+        writer = function_from(script, "nginx_upstream_operation", "switch_nginx_to_port")
         with tempfile.TemporaryDirectory() as temp:
             upstream = Path(temp) / "upstream.inc"
             upstream.write_text(
@@ -156,7 +160,10 @@ printf 'rc=%s\nrouted=%s\n' "$rc" "$MAINTENANCE_ROUTED"
             )
             result = run_bash(f'''set -uo pipefail
 NGINX_UPSTREAM_FILE={str(upstream)!r}
+NGINX_UPSTREAM_SHA256=""
+NGINX_UPSTREAM_ORIGINAL_SHA256=""
 {writer}
+bind_nginx_upstream 18089
 write_upstream_port 18089
 ''')
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -164,11 +171,7 @@ write_upstream_port 18089
 
     def test_target_health_failure_triggers_only_parent_rollback(self):
         script = build_script()
-        target_health = script[
-            script.index('wait_for_health "$TARGET_PORT"') : script.index(
-                'NEW_PID=', script.index('wait_for_health "$TARGET_PORT"')
-            )
-        ]
+        target_health = 'wait_for_health "$TARGET_PORT"\n'
         with tempfile.TemporaryDirectory() as temp:
             rollback_calls = Path(temp) / "rollback-calls"
             result = run_bash(f'''set -Eeuo pipefail
@@ -186,11 +189,7 @@ trap rollback_cutover ERR
     def test_target_health_failure_executes_complete_real_rollback(self):
         script = build_script()
         rollback = function_from(script, "rollback_cutover", "validate_cutover")
-        target_health = script[
-            script.index('wait_for_health "$TARGET_PORT"') : script.index(
-                'NEW_PID=', script.index('wait_for_health "$TARGET_PORT"')
-            )
-        ]
+        target_health = 'wait_for_health "$TARGET_PORT"\n'
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
             actions = directory / "actions"
@@ -200,6 +199,8 @@ trap rollback_cutover ERR
 ACTIVE_PORT=18087
 TARGET_PORT=18088
 MAINTENANCE_PORT=18089
+ACTIVE_JAR_PATH=/app/blue-green/blue/nuono-next-backend-0.0.1-SNAPSHOT.jar
+EXPECTED_ACTIVE_JAR_SHA256={'b' * 64}
 EXTERNAL_HEALTH_URL=https://www.nuoon.com/ai/actuator/health
 UPSTREAM_BACKUP={str(upstream_backup)!r}
 ACTIONS={str(actions)!r}
@@ -213,6 +214,9 @@ record() {{ printf '%s\n' "$1" >> "$ACTIONS"; }}
 switch_nginx_to_maintenance() {{ record ensure-maintenance; }}
 stop_target_runtime() {{ record stop-target; }}
 pid_for_port() {{ :; }}
+exact_listener_pid_for_jar() {{ printf 4242; }}
+reverify_active_runtime_payloads() {{ :; }}
+assert_only_backend_jvm() {{ :; }}
 restart_old_runtime() {{ record restart-old; ACTIVE_HEALTH=UP; }}
 wait_for_health() {{
   if [ "$1" = "$TARGET_PORT" ]; then return 1; fi

@@ -97,15 +97,15 @@ class MigrationLivecheckContractTest(unittest.TestCase):
         ):
             self.assertIn(marker, migration.livecheck_sql)
 
-    def test_bounded_apply_successors_use_separate_additive_livechecks(self):
-        cases = {
+    def test_dp_successors_use_separate_additive_compatible_livechecks(self):
+        markers = {
             244: "dp244_additive_livecheck",
             245: "snapshot_bounded_apply_245_additive_livecheck",
             246: "dp246_additive_livecheck",
             247: "schedule_core_additive_livecheck",
             248: "dp08_member_retention_additive_livecheck",
         }
-        for order, marker in cases.items():
+        for order, marker in markers.items():
             migration = next(item for item in self.migrations if item.order == order)
             with self.subTest(migration=migration.key):
                 self.assertEqual("AUTO_ADDITIVE", migration.kind)
@@ -113,7 +113,10 @@ class MigrationLivecheckContractTest(unittest.TestCase):
                     PurePosixPath(f"db/livecheck/{migration.key}"),
                     migration.livecheck_path,
                 )
-                self.assertNotEqual(migration.postcheck_checksum, migration.livecheck_checksum)
+                self.assertNotEqual(
+                    migration.postcheck_checksum,
+                    migration.livecheck_checksum,
+                )
                 self.assertIn(marker, migration.livecheck_sql)
 
     def test_completed_migration_uses_livecheck_not_one_time_postcheck(self):

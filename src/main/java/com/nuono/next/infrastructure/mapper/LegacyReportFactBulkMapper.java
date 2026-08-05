@@ -41,7 +41,7 @@ public interface LegacyReportFactBulkMapper {
             "INSERT INTO daily_sales_fact (id,source_system,source_batch_id,owner_user_id,logical_store_id,",
             "store_code,site_code,fact_date,partner_sku,sku,currency_code,shipped_units,net_units,",
             "revenue_shipped,gmt_create,gmt_updated)",
-            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.row_number)-1,",
+            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.`row_number`)-1,",
             "'noon_productviewsandsalesdata',NULL,fact.ownerUserId,NULL,fact.storeCode,fact.siteCode,",
             "fact.salesDate,fact.skuParent,fact.sku,fact.currency,fact.unitsSold,fact.unitsSold,",
             "fact.salesAmount,#{nowUtc},#{nowUtc}",
@@ -53,7 +53,7 @@ public interface LegacyReportFactBulkMapper {
             " unitsSold BIGINT PATH '$.unitsSold',salesAmount DECIMAL(18,6) PATH '$.salesAmount',",
             " currency VARCHAR(20) PATH '$.currency')) fact",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}",
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}",
             "ON DUPLICATE KEY UPDATE currency_code=VALUES(currency_code),shipped_units=VALUES(shipped_units),",
             "net_units=VALUES(net_units),revenue_shipped=VALUES(revenue_shipped),gmt_updated=VALUES(gmt_updated)"
     })
@@ -77,7 +77,7 @@ public interface LegacyReportFactBulkMapper {
             " AND BINARY target.site_code=BINARY fact.siteCode AND target.fact_date=fact.salesDate",
             " AND BINARY target.partner_sku=BINARY fact.skuParent AND BINARY target.sku=BINARY fact.sku",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}"
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })
     long countAppliedSalesFacts(
             @Param("taskId") long taskId,
@@ -90,7 +90,7 @@ public interface LegacyReportFactBulkMapper {
             "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,order_identity,partner_sku,sku,status,",
             "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,order_timestamp,shipment_timestamp,",
             "delivered_timestamp,report_date_from,report_date_to,gmt_create,gmt_updated)",
-            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.row_number)-1,'noon_order_report',",
+            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.`row_number`)-1,'noon_order_report',",
             "fact.sourceBatchId,fact.ownerUserId,fact.storeCode,fact.siteCode,fact.idPartner,fact.sourceCountry,",
             "fact.countryCode,fact.destinationCountry,fact.bayanNr,fact.orderLineIdentity,fact.orderIdentity,",
             "fact.partnerSku,fact.sku,fact.status,fact.offerPrice,fact.gmvLcy,fact.currencyCode,fact.brandCode,",
@@ -112,7 +112,7 @@ public interface LegacyReportFactBulkMapper {
             " deliveredTimestamp DATETIME PATH '$.deliveredTimestamp',reportDateFrom DATE PATH '$.reportDateFrom',",
             " reportDateTo DATE PATH '$.reportDateTo',sourceBatchId VARCHAR(160) PATH '$.sourceBatchId')) fact",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}",
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}",
             "ON DUPLICATE KEY UPDATE source_batch_id=VALUES(source_batch_id),owner_user_id=VALUES(owner_user_id),",
             "store_code=VALUES(store_code),site_code=VALUES(site_code),src_country=VALUES(src_country),",
             "dest_country=VALUES(dest_country),bayan_nr=VALUES(bayan_nr),order_identity=VALUES(order_identity),",
@@ -140,7 +140,7 @@ public interface LegacyReportFactBulkMapper {
             " AND BINARY target.id_partner=BINARY fact.idPartner AND BINARY target.country_code=BINARY fact.countryCode",
             " AND BINARY target.item_nr=BINARY fact.orderLineIdentity",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}"
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })
     long countAppliedOrderFacts(
             @Param("taskId") long taskId,
@@ -155,7 +155,7 @@ public interface LegacyReportFactBulkMapper {
             "fulfillment_logistics_fees_including_vat,shipping_credits_including_vat,other_order_fees_including_vat,",
             "order_subsidies_including_vat,non_order_fees_including_vat,non_order_subsidies_including_vat,",
             "others_including_vat,total_amount,report_date_from,report_date_to,gmt_create,gmt_updated)",
-            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.row_number)-1,",
+            "SELECT #{firstId}+ROW_NUMBER() OVER (ORDER BY staged.`row_number`)-1,",
             "'noon_finance_transaction_report',fact.sourceBatchId,fact.fileDigestSha256,fact.rowHash,fact.ownerUserId,",
             "fact.storeCode,fact.siteCode,fact.contractCode,fact.contractTitle,fact.referenceNr,fact.orderNr,fact.itemNr,",
             "fact.orderDate,fact.transactionDate,fact.title,fact.sku,fact.partnerSku,fact.transactionType,fact.currency,",
@@ -182,7 +182,7 @@ public interface LegacyReportFactBulkMapper {
             " othersIncludingVat DECIMAL(18,6) PATH '$.othersIncludingVat',totalAmount DECIMAL(18,6) PATH '$.totalAmount',",
             " reportDateFrom DATE PATH '$.reportDateFrom',reportDateTo DATE PATH '$.reportDateTo')) fact",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}",
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}",
             "ON DUPLICATE KEY UPDATE source_batch_id=VALUES(source_batch_id),file_digest_sha256=VALUES(file_digest_sha256),",
             "row_hash=VALUES(row_hash),contract_code=VALUES(contract_code),contract_title=VALUES(contract_title),",
             "order_date=VALUES(order_date),title=VALUES(title),sku=VALUES(sku),partner_sku=VALUES(partner_sku),",
@@ -216,7 +216,7 @@ public interface LegacyReportFactBulkMapper {
             " AND target.owner_user_id=fact.ownerUserId AND BINARY target.store_code=BINARY fact.storeCode",
             " AND BINARY target.site_code=BINARY fact.siteCode AND BINARY target.row_hash=BINARY fact.rowHash",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
-            " AND staged.row_number>#{afterRowNumber} AND staged.row_number<=#{throughRowNumber}"
+            " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })
     long countAppliedFinanceFacts(
             @Param("taskId") long taskId,

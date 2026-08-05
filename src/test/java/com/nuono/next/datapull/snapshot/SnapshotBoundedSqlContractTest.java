@@ -3,6 +3,11 @@ package com.nuono.next.datapull.snapshot;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.InventorySnapshotRuntimeMapper;
+import com.nuono.next.infrastructure.mapper.NoonAdvertisingMapper;
+import com.nuono.next.infrastructure.mapper.OfficialWarehouseStatisticsMapper;
+import com.nuono.next.infrastructure.mapper.PostSaleProfitBatchAttributionMapper;
+import com.nuono.next.infrastructure.mapper.ProductKeywordMapper;
+import com.nuono.next.infrastructure.mapper.SalesDataMapper;
 import com.nuono.next.infrastructure.mapper.SnapshotStageProofMapper;
 import com.nuono.next.infrastructure.mapper.SnapshotStageRetentionMapper;
 import com.nuono.next.infrastructure.mapper.SnapshotTwoPassRetentionMapper;
@@ -190,6 +195,27 @@ class SnapshotBoundedSqlContractTest {
                 .contains("problem.absence_reconciliation_safe=b'1'")
                 .contains("problem.stable_identity=old.stable_identity")
                 .contains("LIMIT #{limit}");
+    }
+
+    @Test
+    void everyKnownCurrentInventoryReaderUsesTheCompatibilityView() {
+        assertViewReads(OfficialWarehouseStatisticsMapper.class, 4);
+        assertViewReads(PostSaleProfitBatchAttributionMapper.class, 2);
+        assertViewReads(ProductKeywordMapper.class, 1);
+        assertViewReads(SalesDataMapper.class, 1);
+        assertViewReads(NoonAdvertisingMapper.class, 4);
+    }
+
+    private void assertViewReads(Class<?> mapper, long minimumCount) {
+        long count = Arrays.stream(mapper.getMethods())
+                .map(method -> method.getAnnotation(Select.class))
+                .filter(java.util.Objects::nonNull)
+                .map(annotation -> String.join(" ", annotation.value()))
+                .mapToLong(statement -> statement.split(
+                        "official_warehouse_effective_inventory_snapshot_line", -1
+                ).length - 1L)
+                .sum();
+        assertThat(count).as(mapper.getSimpleName()).isGreaterThanOrEqualTo(minimumCount);
     }
 
     private void assertAbandonedRetentionFence(String statement, String taskAlias) {

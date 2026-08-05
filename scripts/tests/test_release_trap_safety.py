@@ -17,7 +17,9 @@ def post_switch_external_block(script):
 
 def real_rollback_harness(script, scenario, directory):
     rollback = function_from(script, "rollback_cutover", "validate_cutover")
-    current = function_from(script, "current_upstream_port", "write_upstream_port")
+    current = '''current_upstream_port() {
+  grep -Eo '127\\.0\\.0\\.1:[0-9]+' "$NGINX_UPSTREAM_FILE" | head -n 1 | cut -d: -f2
+}'''
     switch = function_from(script, "switch_nginx_to_port", "maintenance_response_status")
     capture = function_from(script, "capture_status", "post_switch_external_health")
     external = function_from(script, "post_switch_external_health", "start_maintenance_responder")
@@ -43,6 +45,8 @@ def real_rollback_harness(script, scenario, directory):
 ACTIVE_PORT=18087
 TARGET_PORT=18088
 MAINTENANCE_PORT=18089
+ACTIVE_JAR_PATH=/app/blue-green/blue/nuono-next-backend-0.0.1-SNAPSHOT.jar
+EXPECTED_ACTIVE_JAR_SHA256={'b' * 64}
 EXTERNAL_HEALTH_URL=https://www.nuoon.com/ai/actuator/health
 NGINX_UPSTREAM_FILE={str(upstream)!r}
 UPSTREAM_BACKUP={str(upstream_backup)!r}
@@ -70,6 +74,11 @@ pid_for_port() {{
   [ "$1" != "$TARGET_PORT" ] || [ ! -f "$TARGET_LISTENER" ] || printf 102
   [ "$1" != "$MAINTENANCE_PORT" ] || [ ! -f "$MAINTENANCE_LISTENER" ] || printf 103
 }}
+exact_listener_pid_for_jar() {{
+  [ "$1" != "$ACTIVE_PORT" ] || [ ! -f "$ACTIVE_LISTENER" ] || printf 101
+}}
+reverify_active_runtime_payloads() {{ :; }}
+assert_only_backend_jvm() {{ :; }}
 restart_old_runtime() {{ record restart-old; : > "$ACTIVE_LISTENER"; ACTIVE_HEALTH=UP; }}
 wait_for_health() {{ record wait-old; }}
 health_status() {{
@@ -218,7 +227,7 @@ trap rollback_cutover ERR
             script.index("trap rollback_cutover ERR") : script.index("trap - ERR", script.index("trap rollback_cutover ERR"))
         ]
         health = function_from(script, "health_status", "wait_for_health")
-        pid = function_from(script, "pid_for_port", "slot_pid")
+        pid = function_from(script, "pid_for_port", "process_jar_path")
         current = function_from(script, "current_upstream_port", "write_upstream_port")
         port_switch = function_from(script, "switch_nginx_to_port", "maintenance_response_status")
         switch = function_from(script, "switch_nginx_to_maintenance", "stop_pid")
@@ -232,7 +241,12 @@ trap rollback_cutover ERR
         self.assertIn("|| true", pid)
         self.assertEqual(
             set(re.findall(r"\$\(([a-z_][a-z0-9_]*)", trap_window)),
-            {"health_status", "pid_for_port"},
+            {
+                "exact_listener_pid_for_jar",
+                "pid_for_port",
+                "topology_cas_sha256",
+                "wait_for_unique_target_jvm",
+            },
         )
 
 

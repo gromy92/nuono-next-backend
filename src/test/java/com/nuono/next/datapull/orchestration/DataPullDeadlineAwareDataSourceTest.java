@@ -41,6 +41,25 @@ class DataPullDeadlineAwareDataSourceTest {
     }
 
     @Test
+    void expiredDeadlineFailsBeforeCheckingOutAReplacementConnection() throws Exception {
+        HikariDataSource target = mock(HikariDataSource.class);
+        DataPullDeadlineAwareDataSource source = new DataPullDeadlineAwareDataSource(target);
+
+        try (DataPullAdvanceDeadline ignored =
+                     DataPullAdvanceDeadline.open(Duration.ofMillis(100))) {
+            assertThrows(InterruptedException.class, () -> Thread.sleep(10_000L));
+            IllegalStateException failure = assertThrows(
+                    IllegalStateException.class,
+                    source::getConnection
+            );
+            assertTrue(failure.getMessage().contains("DP_ADVANCE_DEADLINE_EXCEEDED"));
+        }
+
+        verify(target, never()).getConnection();
+        assertFalse(Thread.currentThread().isInterrupted());
+    }
+
+    @Test
     void transactionBeginCommandIsBoundedBeforeMyBatisPreparesAStatement() throws Exception {
         HikariDataSource target = mock(HikariDataSource.class);
         Connection connection = mock(Connection.class);

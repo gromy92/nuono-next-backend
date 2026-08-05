@@ -96,6 +96,7 @@ CREATE TABLE IF NOT EXISTS `dp_pull_advertising_current_head` (
     `gmt_updated` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (`owner_user_id`, `project_code`, `store_code`, `site_code`, `report_date`),
     UNIQUE KEY `uk_dp_ad_head_task` (`task_id`), UNIQUE KEY `uk_dp_ad_head_batch` (`batch_id`),
+    KEY `idx_dp_ad_head_generation` (`task_id`, `batch_id`),
     CONSTRAINT `chk_dp_ad_head_identity` CHECK (`owner_user_id`>0 AND CHAR_LENGTH(TRIM(`project_code`))>0 AND CHAR_LENGTH(TRIM(`store_code`))>0 AND CHAR_LENGTH(TRIM(`site_code`))>0),
     CONSTRAINT `chk_dp_ad_head_digest` CHECK (`authority_token_sha256` REGEXP '^[0-9a-f]{64}$' AND `source_digest_sha256` REGEXP '^[0-9a-f]{64}$'),
     CONSTRAINT `fk_dp_ad_head_generation` FOREIGN KEY (`task_id`, `batch_id`) REFERENCES `dp_pull_advertising_generation` (`task_id`, `batch_id`) ON DELETE RESTRICT ON UPDATE RESTRICT
@@ -111,7 +112,7 @@ INSERT INTO `noon_ad_id_sequence` (`sequence_name`, `next_id`, `gmt_create`, `gm
 VALUES ('noon_ad_query_fact', GREATEST(220000,COALESCE((SELECT MAX(`id`) FROM `noon_ad_query_fact`),0),COALESCE((SELECT MAX(`id`) FROM `dp_pull_advertising_query_fact`),0)),NOW(),NOW())
 ON DUPLICATE KEY UPDATE `next_id`=GREATEST(`next_id`,VALUES(`next_id`)),`gmt_updated`=NOW();
 -- Stable public projections are explicit; malformed or incomplete generations disappear.
-CREATE OR REPLACE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `dp_pull_advertising_sealed_current_generation` AS
+CREATE OR REPLACE ALGORITHM=TEMPTABLE SQL SECURITY INVOKER VIEW `dp_pull_advertising_sealed_current_generation` AS
 SELECT g.task_id,g.owner_user_id,g.project_code,g.store_code,g.site_code,g.report_date,g.schedule_slot,
        g.authority_token_sha256,g.source_digest_sha256,g.batch_id,g.campaign_fact_count,g.query_fact_count,g.gmt_create,g.gmt_updated
 FROM `dp_pull_advertising_current_head` h JOIN `dp_pull_advertising_generation` g ON g.task_id=h.task_id AND g.batch_id=h.batch_id

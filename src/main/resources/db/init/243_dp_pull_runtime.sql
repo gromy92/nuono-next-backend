@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS dp_pull_schedule_anchor (
     operation_code VARCHAR(16) NOT NULL, scope_key VARCHAR(96) NOT NULL, cutover_key VARCHAR(96) NOT NULL,
     anchor_kind VARCHAR(32) NOT NULL, reconcile_after_utc DATETIME(3) NOT NULL COMMENT 'UTC exclusive lower bound',
     anchor_evidence_sha256 CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL, gmt_create DATETIME(3) NOT NULL,
-    PRIMARY KEY (operation_code, scope_key), KEY idx_dp_schedule_anchor_manifest (operation_code, cutover_key, anchor_kind, scope_key ),
+    PRIMARY KEY (operation_code, scope_key), KEY idx_dp_schedule_anchor_manifest (operation_code, cutover_key, anchor_kind, scope_key ), KEY idx_dp_schedule_anchor_admission (scope_key, cutover_key),
     CONSTRAINT chk_dp_schedule_anchor_kind CHECK (anchor_kind IN ('CUTOVER_RECONCILED', 'POST_CUTOVER_SCOPE') ),
     CONSTRAINT chk_dp_schedule_anchor_operation CHECK (operation_code IN ( 'DP01', 'DP02', 'DP03', 'DP04', 'DP05', 'DP06', 'DP07A', 'DP07B', 'DP08A', 'DP08B', 'DP10' )),
     CONSTRAINT chk_dp_schedule_anchor_identity CHECK (CHAR_LENGTH(TRIM(scope_key)) > 0 AND CHAR_LENGTH(TRIM(cutover_key)) > 0 AND anchor_evidence_sha256 REGEXP '^[0-9a-f]{64}$' ),

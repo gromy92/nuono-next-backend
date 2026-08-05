@@ -47,6 +47,9 @@ def build_file_parse_retirement_cutover_script(
     expected_jar_sha256: str,
     expected_active_jar_sha256: str,
     expected_commit: str,
+    expected_active_pid: int,
+    expected_nginx_upstream_sha256: str,
+    expected_topology_cas_sha256: str,
     active_slot: str,
     target_slot: str,
     active_port: int,
@@ -71,6 +74,10 @@ def build_file_parse_retirement_cutover_script(
         staged_jar=staged_jar,
         expected_jar_sha256=expected_jar_sha256,
         expected_active_jar_sha256=expected_active_jar_sha256,
+        expected_commit=expected_commit,
+        expected_active_pid=expected_active_pid,
+        expected_nginx_upstream_sha256=expected_nginx_upstream_sha256,
+        expected_topology_cas_sha256=expected_topology_cas_sha256,
         active_slot=active_slot,
         target_slot=target_slot,
         active_port=active_port,
@@ -167,7 +174,7 @@ ensure_drained_failure_maintenance() {{
     )
     script = _insert_once(
         script,
-        "[ \"$(sha256_file \"$TARGET_SLOT_DIR/$JAR_NAME\")\" = \"$EXPECTED_JAR_SHA256\" ]\n",
+        "prepare_target_runtime_payloads\n",
         "prepare_runtime_drain_runner\n",
     )
     script = _insert_once(
@@ -178,7 +185,7 @@ ensure_drained_failure_maintenance() {{
     )
     script = _insert_once(
         script,
-        "process_uses_jar \"$NEW_PID\" \"$TARGET_SLOT_DIR/$JAR_NAME\"\n",
+        "NEW_PID=\"$(wait_for_unique_target_jvm)\"\n",
         "[ \"$(backend_jvm_count)\" = 1 ]\n",
     )
     return script

@@ -8,7 +8,11 @@ import com.nuono.next.infrastructure.mapper.DataPullScheduleScanMapper;
 import com.nuono.next.infrastructure.mapper.DataPullScheduleTaskPlanMapper;
 import com.nuono.next.infrastructure.mapper.DataPullScopeBindingMapper;
 import com.nuono.next.infrastructure.mapper.DataPullTaskCompactionMapper;
+import com.nuono.next.infrastructure.mapper.Dp08BoundedScheduleScopeMapper;
+import com.nuono.next.infrastructure.mapper.Dp08ScheduleEvidenceMapper;
+import com.nuono.next.infrastructure.mapper.Dp08MemberSetMapper;
 import com.nuono.next.infrastructure.mapper.NoonDataPullScopeMapper;
+import com.nuono.next.infrastructure.mapper.Ali1688Dp10RuntimeMapper;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.util.Arrays;
@@ -130,12 +134,45 @@ class ScheduleBoundedSqlContractTest {
     }
 
     @Test
-    void noonScheduleSourceUsesANativeKeyset() throws Exception {
+    void sourceAdaptersUseNativeKeysetsAndDp08EvidenceIsOneSetQuery() throws Exception {
         String noon = sql(
                 NoonDataPullScopeMapper.class, "listActiveBoundScopesAfter", Select.class
         );
+        String ali = sql(
+                Ali1688Dp10RuntimeMapper.class,
+                "listEffectiveOpenApiAuthorizationsAfter",
+                Select.class
+        );
+        String dp08a = sql(
+                Dp08BoundedScheduleScopeMapper.class,
+                "listKeywordMembersAfter",
+                Select.class
+        );
+        String dp08b = sql(
+                Dp08BoundedScheduleScopeMapper.class,
+                "listTargetMembersAfter",
+                Select.class
+        );
+        String evidence = sql(
+                Dp08ScheduleEvidenceMapper.class, "listEvidence", Select.class
+        );
 
-        assertThat(noon).contains("LIMIT #{limit}").doesNotContain("OFFSET");
+        for (String source : new String[]{noon, ali, dp08a, dp08b}) {
+            assertThat(source).contains("LIMIT #{limit}").doesNotContain("OFFSET");
+        }
+        assertThat(evidence)
+                .contains("<foreach collection='requests'")
+                .contains("UNION ALL")
+                .contains("operations_competitor_rank_fact")
+                .contains("operations_competitor_product_snapshot");
+        String members = sql(
+                Dp08MemberSetMapper.class, "listMemberItemsAfter", Select.class
+        );
+        String staged = sql(
+                Dp08MemberSetMapper.class, "listStageItemsAfter", Select.class
+        );
+        assertThat(members).contains("LIMIT #{limit}").doesNotContain("OFFSET");
+        assertThat(staged).contains("LIMIT #{limit}").doesNotContain("OFFSET");
     }
 
     private static String sql(

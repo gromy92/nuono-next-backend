@@ -40,6 +40,7 @@ class DataPullRuntimeSchedulerTest {
         assertEquals(1, fixture.startupAcquireCalls.get());
         assertEquals(0, fixture.tickCalls.get());
         assertTrue(fixture.periodicTask.get() != null);
+        verify(fixture.taskScheduler).setClock(CLOCK);
     }
 
     @Test
