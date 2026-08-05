@@ -1,5 +1,7 @@
 package com.nuono.next.sales;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
@@ -10,24 +12,22 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class SalesSyncTaskService {
 
     private final SalesSyncTaskRepository taskRepository;
     private final NoonSalesReportProvider reportProvider;
     private final NoonSalesCsvImportService importService;
-    private final SalesFactRepository salesFactRepository;
     private NoonAuthWaitQueue authWaitQueue = request -> Optional.empty();
 
     public SalesSyncTaskService(
             SalesSyncTaskRepository taskRepository,
             NoonSalesReportProvider reportProvider,
-            NoonSalesCsvImportService importService,
-            SalesFactRepository salesFactRepository
+            NoonSalesCsvImportService importService
     ) {
         this.taskRepository = taskRepository;
         this.reportProvider = reportProvider;
         this.importService = importService;
-        this.salesFactRepository = salesFactRepository;
     }
 
     public SalesSyncTaskRecord triggerAndRun(SalesSyncTaskCommand command) {
@@ -58,7 +58,6 @@ public class SalesSyncTaskService {
                     payload.getSourceFilename(),
                     payload.getCsv()
             ));
-            markSiteOffersNotListedIfConfirmedEmptySite(command, result);
             return taskRepository.markSucceeded(task.getId(), result);
         } catch (RuntimeException exception) {
             SalesSyncTaskRecord waiting = waitForAuthorization(task, exception);
@@ -127,40 +126,8 @@ public class SalesSyncTaskService {
                 task.getDateFrom(),
                 task.getDateTo(),
                 task.getRequestedBy(),
-                task.getTriggerType(),
-                listingCoverageMode(task.getListingCoverageMode())
+                task.getTriggerType()
         );
     }
 
-    private SalesListingCoverageMode listingCoverageMode(String value) {
-        try {
-            return value == null
-                    ? SalesListingCoverageMode.NONE
-                    : SalesListingCoverageMode.valueOf(value);
-        } catch (IllegalArgumentException exception) {
-            return SalesListingCoverageMode.NONE;
-        }
-    }
-
-    private void markSiteOffersNotListedIfConfirmedEmptySite(
-            SalesSyncTaskCommand command,
-            NoonSalesCsvImportResult result
-    ) {
-        if (command.getListingCoverageMode() != SalesListingCoverageMode.CONFIRMED_EMPTY_SITE) {
-            return;
-        }
-        if (!"empty".equals(result.getStatus())) {
-            return;
-        }
-        salesFactRepository.markSiteOffersNotListedForEmptyReport(
-                command.getOwnerUserId(),
-                command.getStoreCode(),
-                command.getSiteCode(),
-                updatedBy(command)
-        );
-    }
-
-    private Long updatedBy(SalesSyncTaskCommand command) {
-        return command.getRequestedBy() == null ? command.getOwnerUserId() : command.getRequestedBy();
-    }
 }

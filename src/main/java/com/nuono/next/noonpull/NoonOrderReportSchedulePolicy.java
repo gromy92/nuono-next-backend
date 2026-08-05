@@ -1,5 +1,7 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -8,6 +10,7 @@ import java.time.ZoneId;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonOrderReportSchedulePolicy {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final LocalTime READY_AFTER = LocalTime.of(8, 30);

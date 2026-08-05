@@ -12,10 +12,34 @@ import org.apache.ibatis.annotations.ConstructorArgs;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
 /** Persistence owned only by the durable sales-sync task and its auth-wait transitions. */
 public interface SalesSyncTaskMapper {
+
+    @Insert({
+            "INSERT INTO sales_data_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
+            "VALUES (#{sequenceName}, LAST_INSERT_ID(#{initialValue} + 1), NOW(), NOW())",
+            "ON DUPLICATE KEY UPDATE next_id = LAST_INSERT_ID(next_id + 1), gmt_updated = NOW()"
+    })
+    @SelectKey(
+            statement = "SELECT LAST_INSERT_ID()",
+            keyProperty = "allocatedId",
+            before = false,
+            resultType = Long.class
+    )
+    int allocateTaskId(IdSequenceCommand command);
+
+    default Long nextTaskId() {
+        IdSequenceCommand command = new IdSequenceCommand("sales_sync_task", 20000L);
+        allocateTaskId(command);
+        Long taskId = command.getAllocatedId();
+        if (taskId == null || taskId <= 0L) {
+            throw new IllegalStateException("销量同步任务 ID 序列分配失败");
+        }
+        return taskId;
+    }
 
     @Insert({
             "INSERT INTO sales_sync_task (",

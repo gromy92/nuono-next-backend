@@ -255,20 +255,11 @@ class ProductManagementMapperPublishTaskSqlTest {
     }
 
     @Test
-    void emptySalesReportShouldMarkMissingSiteOffersAsNotListedOnly() {
-        Method method = Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
-                .filter((candidate) -> "markSiteProductOffersNotListedForEmptySalesReport".equals(candidate.getName()))
-                .findFirst()
-                .orElseThrow();
-        Update update = method.getAnnotation(Update.class);
-        String sql = String.join(" ", update.value()).replaceAll("\\s+", " ");
-
-        assertTrue(sql.contains("pso.listing_started_source = 'not_listed'"));
-        assertTrue(sql.contains("pso.listing_started_at IS NULL"));
-        assertTrue(sql.contains("pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed')"));
-        assertTrue(sql.contains("ls.owner_user_id = #{ownerUserId}"));
-        assertTrue(sql.contains("lss.store_code = #{storeCode}"));
-        assertTrue(sql.contains("lss.site = #{siteCode}"));
+    void salesImportMustNotExposeListingProjectionMapperMethod() {
+        assertTrue(Arrays.stream(ProductManagementMapper.class.getDeclaredMethods())
+                .noneMatch((candidate) ->
+                        "markSiteProductOffersNotListedForEmptySalesReport"
+                                .equals(candidate.getName())));
     }
 
     @Test

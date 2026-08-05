@@ -1,11 +1,14 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonOrderBackfillPlanner {
 
     public NoonOrderBackfillPlan plan(LocalDate dateFrom, LocalDate dateTo, int maxDaysPerWindow, int maxWindowsPerRun) {

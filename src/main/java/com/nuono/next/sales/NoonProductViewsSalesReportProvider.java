@@ -1,10 +1,13 @@
 package com.nuono.next.sales;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
 @ConditionalOnProperty(prefix = "nuono.sales.noon.report-provider", name = "enabled", havingValue = "true")
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonProductViewsSalesReportProvider implements NoonSalesReportProvider {
 
     private final NoonSalesReportBindingResolver bindingResolver;

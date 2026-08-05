@@ -33,14 +33,9 @@ class NoonPullSpringWiringContractTest {
                 .withUserConfiguration(NoonPullWiringConfig.class)
                 .run((context) -> {
                     assertThat(context).hasSingleBean(NoonPullFoundationService.class);
-                    assertThat(context).hasSingleBean(NoonPullScheduler.class);
-                    assertThat(context).hasSingleBean(NoonBusinessReadinessService.class);
                     assertThat(context).hasSingleBean(NoonRiskBackoffGuard.class);
                     assertThat(context).hasSingleBean(NoonReportPuller.class);
                     assertThat(context).hasSingleBean(NoonSalesPageQueryPullService.class);
-                    assertThat(context).hasSingleBean(NoonPullScheduledExecutionService.class);
-                    assertThat(context).hasSingleBean(NoonPullSmokeRunner.class);
-                    assertThat(context).hasSingleBean(NoonPullSmokeController.class);
                 });
     }
 
@@ -82,7 +77,7 @@ class NoonPullSpringWiringContractTest {
     }
 
     @Test
-    void noonOrderReportAdapterShouldUseProductionOrderFactWriterWhenPresent() {
+    void noonOrderReportAdapterShouldWriteOnlyOrderFactsWhenProductionWriterIsPresent() {
         RecordingNoonOrderFactMapper mapper = new RecordingNoonOrderFactMapper();
 
         new ApplicationContextRunner()
@@ -117,7 +112,7 @@ class NoonPullSpringWiringContractTest {
                     assertThat(mapper.fact.getOrderLineIdentity()).isEqualTo("NAEI50094671190-1");
                     assertThat(mapper.fact.getOrderIdentity()).isEqualTo("NAEI50094671190");
                     assertThat(mapper.fact.getSourceBatchId()).isEqualTo("noon-report-order-130016-abcdef12");
-                    assertThat(mapper.historyFact).isSameAs(mapper.fact);
+                    assertThat(mapper.historyFact).isNull();
                     assertThat(mapper.nextIdCalls).isEqualTo(1);
                     assertThat(mapper.upsertCalls).isEqualTo(1);
                 });
@@ -126,8 +121,6 @@ class NoonPullSpringWiringContractTest {
     @Configuration
     @Import({
             NoonPullFoundationService.class,
-            NoonPullScheduler.class,
-            NoonBusinessReadinessService.class,
             NoonRiskBackoffGuard.class,
             NoonReportPuller.class,
             NoonInterfacePuller.class,
@@ -137,10 +130,7 @@ class NoonPullSpringWiringContractTest {
             NoonSalesReportPullService.class,
             NoonSalesPageQueryPullService.class,
             NoonOrderReportAdapter.class,
-            NoonOrderReportPullService.class,
-            NoonPullScheduledExecutionService.class,
-            NoonPullSmokeRunner.class,
-            NoonPullSmokeController.class
+            NoonOrderReportPullService.class
     })
     static class NoonPullWiringConfig {
     }
@@ -180,13 +170,16 @@ class NoonPullSpringWiringContractTest {
         }
 
         @Override
-        public com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit auditSalesProductViewsCompleteness(
-                Long ownerUserId,
-                String storeCode,
-                String siteCode
-        ) {
-            return com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit.missing();
+        public com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit
+                auditSalesProductViewsCompleteness(
+                        Long ownerUserId,
+                        String storeCode,
+                        String siteCode
+                ) {
+            return com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit
+                    .missing();
         }
+
     }
 
     private static final class RecordingNoonOrderFactMapper implements NoonOrderFactMapper {
@@ -209,18 +202,16 @@ class NoonPullSpringWiringContractTest {
         }
 
         @Override
+        public com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
+                auditSalesOrderCompleteness(Long ownerUserId, String storeCode, String siteCode) {
+            return com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit
+                    .notIntegrated("not_integrated");
+        }
+
+        // Deliberate legacy-call trap: fails this test if the forbidden mapper method is restored.
         public int markProductSiteOfferLogisticsHistoryByOrderLineFact(NoonOrderLineFact fact) {
             this.historyFact = fact;
             return 0;
-        }
-
-        @Override
-        public com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit auditSalesOrderCompleteness(
-                Long ownerUserId,
-                String storeCode,
-                String siteCode
-        ) {
-            return com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit.notIntegrated("not_integrated");
         }
 
         @Override

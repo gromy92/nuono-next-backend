@@ -54,13 +54,11 @@ class CompetitorMonitoringLegacyRecoveryTest {
         OperationalTask active = legacyTask();
         active.setUpdatedAt(LocalDateTime.parse("2026-07-28T02:55:00"));
         repository.insert(active);
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) ->
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) ->
                 CompetitorMonitoringEnqueueOutcome.CREATED
         );
 
-        CompetitorTaskView view = service.requestStore(
-                501L, "STORE", "SA", 601L, CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR
-        );
+        CompetitorTaskView view = service.requestStore(501L, "STORE", "SA", 601L);
 
         assertEquals(active.getId(), view.getTaskId());
         assertTrue(submitted.isEmpty());
@@ -78,14 +76,13 @@ class CompetitorMonitoringLegacyRecoveryTest {
             return afterId == 0L ? List.of(product(1L), product(2L)) : List.of();
         });
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
-            assertEquals(CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR, mode);
             assertTrue(batchKey != null && !batchKey.isBlank());
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        assertEquals(1, service.recoverStaleBatches());
+        assertEquals(1, service.recoverStaleManualBatches());
         submitted.get(0).run();
 
         assertEquals(List.of(1L, 2L), attempted);
@@ -122,12 +119,12 @@ class CompetitorMonitoringLegacyRecoveryTest {
                     .collect(Collectors.toList());
         });
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        assertEquals(1, service.resumeQueuedBatches());
+        assertEquals(1, service.resumeQueuedManualBatches());
         submitted.get(0).run();
 
         assertEquals(501, attempted.size());
@@ -160,18 +157,17 @@ class CompetitorMonitoringLegacyRecoveryTest {
         queued.setPayloadJson(checkpoint.toJson());
         repository.insert(queued);
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        assertEquals(1, service.resumeQueuedBatches());
-        submitted.get(0).run();
+        assertEquals(0, service.resumeQueuedManualBatches());
 
-        OperationalTask failed = repository.selectById(150000L);
-        assertEquals(OperationalTaskStatus.FAILED, failed.getStatus());
-        assertEquals("COMPETITOR_MONITOR_FAILED", failed.getErrorCode());
+        OperationalTask ignored = repository.selectById(150000L);
+        assertEquals(OperationalTaskStatus.QUEUED, ignored.getStatus());
         assertTrue(attempted.isEmpty());
+        assertTrue(submitted.isEmpty());
         verify(mapper, never()).listRefreshableWatchProducts(
                 anyLong(), any(), any(), anyLong(), anyLong(), anyInt()
         );

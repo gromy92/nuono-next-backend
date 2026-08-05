@@ -45,12 +45,11 @@ public interface PostSaleProfitBatchAttributionMapper {
             + " MAX(product_master.cover_image_url COLLATE utf8mb4_unicode_ci) AS product_image_url,"
             + " SUM(stock_line.qty) AS stock_quantity,"
             + " SUM(CASE WHEN UPPER(stock_line.stock_bucket) = 'SELLABLE' THEN stock_line.qty ELSE 0 END) AS sellable_stock_quantity"
-            + " FROM official_warehouse_inventory_snapshot_line stock_line"
+            + " FROM official_warehouse_effective_inventory_snapshot_line stock_line"
             + " LEFT JOIN product_master ON product_master.id = stock_line.product_master_id AND product_master.is_deleted = b'0'"
             + " WHERE stock_line.owner_user_id = #{ownerUserId}"
             + " AND stock_line.store_code COLLATE utf8mb4_unicode_ci = #{storeCode} COLLATE utf8mb4_unicode_ci"
             + " AND stock_line.site_code COLLATE utf8mb4_unicode_ci = #{siteCode} COLLATE utf8mb4_unicode_ci"
-            + " AND stock_line.is_current = b'1'"
             + " AND stock_line.is_deleted = b'0'"
             + " AND stock_line.qty > 0"
             + " AND COALESCE(NULLIF(stock_line.partner_sku, ''), NULLIF(stock_line.psku_code, '')) IS NOT NULL"
@@ -431,12 +430,11 @@ public interface PostSaleProfitBatchAttributionMapper {
             "SELECT CONVERT(COALESCE(NULLIF(stock_line.partner_sku, ''), NULLIF(stock_line.psku_code, '')) USING utf8mb4) COLLATE utf8mb4_unicode_ci AS partnerSku,",
             "       SUM(stock_line.qty) AS stockQuantity,",
             "       SUM(CASE WHEN UPPER(stock_line.stock_bucket) = 'SELLABLE' THEN stock_line.qty ELSE 0 END) AS sellableStockQuantity",
-            "FROM official_warehouse_inventory_snapshot_line stock_line",
+            "FROM official_warehouse_effective_inventory_snapshot_line stock_line",
             "WHERE stock_line.owner_user_id = #{ownerUserId}",
             "  AND stock_line.store_code COLLATE utf8mb4_unicode_ci = #{storeCode} COLLATE utf8mb4_unicode_ci",
             "  AND stock_line.site_code COLLATE utf8mb4_unicode_ci = #{siteCode} COLLATE utf8mb4_unicode_ci",
             "  AND CONVERT(COALESCE(NULLIF(stock_line.partner_sku, ''), NULLIF(stock_line.psku_code, '')) USING utf8mb4) COLLATE utf8mb4_unicode_ci = #{partnerSku} COLLATE utf8mb4_unicode_ci",
-            "  AND stock_line.is_current = b'1'",
             "  AND stock_line.is_deleted = b'0'",
             "  AND stock_line.qty > 0",
             "GROUP BY CONVERT(COALESCE(NULLIF(stock_line.partner_sku, ''), NULLIF(stock_line.psku_code, '')) USING utf8mb4) COLLATE utf8mb4_unicode_ci"

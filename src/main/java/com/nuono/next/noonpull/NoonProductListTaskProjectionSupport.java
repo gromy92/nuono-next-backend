@@ -23,7 +23,6 @@ final class NoonProductListTaskProjectionSupport {
                     .storeCode(task.getStoreCode())
                     .siteCode(task.getSiteCode())
                     .sourceBatchId(pullResult.getSourceBatchId())
-                    .automaticDetailBackfill(task.getTriggerMode() == NoonPullTriggerMode.SCHEDULED_DAILY)
                     .items(pullResult.getItems())
                     .build());
             return true;

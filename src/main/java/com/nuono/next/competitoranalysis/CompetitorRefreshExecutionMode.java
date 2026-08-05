@@ -34,6 +34,41 @@ enum CompetitorRefreshExecutionMode {
         return runsDetail;
     }
 
+    boolean isManual() {
+        return this == FULL_MANUAL || this == FULL_MANUAL_MONITOR;
+    }
+
+    static CompetitorRefreshExecutionMode requireManual(
+            CompetitorRefreshExecutionMode mode
+    ) {
+        if (mode == null || !mode.isManual()) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Legacy scheduled competitor execution is retired."
+            );
+        }
+        return mode;
+    }
+
+    static CompetitorRefreshExecutionMode requireKnown(CompetitorRefreshExecutionMode mode) {
+        if (mode == null) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Competitor refresh execution mode is required."
+            );
+        }
+        return mode;
+    }
+
+    static CompetitorRefreshExecutionMode requireManualMonitor(
+            CompetitorRefreshExecutionMode mode
+    ) {
+        if (mode != FULL_MANUAL_MONITOR) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Only manual competitor monitoring may use the batch executor."
+            );
+        }
+        return mode;
+    }
+
     static CompetitorRefreshExecutionMode strictFromTriggerMode(String triggerMode) {
         for (CompetitorRefreshExecutionMode mode : values()) {
             if (mode.triggerMode.equals(triggerMode)) {

@@ -83,13 +83,15 @@ final class CompetitorRefreshRecoveryCoordinator {
             String batchKey,
             int keywordTotal
     ) {
+        CompetitorRefreshExecutionMode manualMode =
+                CompetitorRefreshExecutionMode.requireManual(mode);
         return taskFactory.replaceStale(
                 staleTask,
                 staleRun,
                 watchProduct,
                 staleBefore,
                 actorUserId,
-                mode,
+                manualMode,
                 batchKey,
                 keywordTotal,
                 queued -> dispatchSafely(queued, watchProduct, actorUserId, mode)
@@ -102,6 +104,10 @@ final class CompetitorRefreshRecoveryCoordinator {
             CompetitorSearchRunRow run,
             LocalDateTime staleBefore
     ) {
+        CompetitorRefreshExecutionMode mode = manualMode(run);
+        if (mode == null) {
+            return false;
+        }
         if (watchProduct == null) {
             return taskFactory.failStale(
                     interruptedTask,
@@ -110,20 +116,6 @@ final class CompetitorRefreshRecoveryCoordinator {
                     "FAILED_STALE",
                     STALE_MESSAGE
             );
-        }
-        CompetitorRefreshExecutionMode mode;
-        try {
-            mode = CompetitorRefreshExecutionMode.strictFromTriggerMode(
-                    run.getTriggerMode()
-            );
-        } catch (CompetitorRefreshRecoveryIdentityException exception) {
-            return invalidRecovery.failStale(interruptedTask, run, staleBefore, false);
-        }
-        if (mode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
-                && !hasRecoverableDetailState(
-                        interruptedTask, watchProduct.getId(), mode
-                )) {
-            return invalidRecovery.failStale(interruptedTask, run, staleBefore, true);
         }
         int keywordTotal = mode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId()).size()
@@ -153,29 +145,15 @@ final class CompetitorRefreshRecoveryCoordinator {
         }
     }
 
-    private boolean hasRecoverableDetailState(
-            OperationalTask task,
-            Long watchProductId,
-            CompetitorRefreshExecutionMode mode
-    ) {
-        try {
-            CompetitorDetailRetryPayload.fromJson(
-                    task == null ? null : task.getPayloadJson()
-            );
-            return CompetitorRefreshRecoveryPayload.matchesIdentity(
-                    task, watchProductId, mode
-            );
-        } catch (CompetitorDetailRetryPayloadException
-                | CompetitorRefreshRecoveryPayloadException exception) {
-            return false;
-        }
-    }
-
     boolean resubmitQueued(
             OperationalTask task,
             CompetitorSearchRunRow run,
             CompetitorWatchProductRow watchProduct
     ) {
+        CompetitorRefreshExecutionMode mode = manualMode(run);
+        if (mode == null) {
+            return false;
+        }
         if (!isReady(task, run) || !executionAllowed.test(watchProduct)) {
             return false;
         }
@@ -185,9 +163,7 @@ final class CompetitorRefreshRecoveryCoordinator {
                     run,
                     watchProduct,
                     run.getRequestedBy(),
-                    CompetitorRefreshExecutionMode.strictFromTriggerMode(
-                            run.getTriggerMode()
-                    )
+                    mode
             );
         } catch (CompetitorRefreshRecoveryIdentityException exception) {
             invalidRecovery.failQueued(task, run);
@@ -201,6 +177,8 @@ final class CompetitorRefreshRecoveryCoordinator {
             Long actorUserId,
             CompetitorRefreshExecutionMode mode
     ) {
+        CompetitorRefreshExecutionMode manualMode =
+                CompetitorRefreshExecutionMode.requireManual(mode);
         OperationalTask task = queued == null || queued.getView() == null
                 ? null
                 : operationalTaskService.find(queued.getView().getTaskId()).orElse(null);
@@ -211,7 +189,7 @@ final class CompetitorRefreshRecoveryCoordinator {
                 && task.getStatus() == OperationalTaskStatus.QUEUED
                 && isReady(task, run)) {
             try {
-                submit(task, run, watchProduct, actorUserId, mode);
+                submit(task, run, watchProduct, actorUserId, manualMode);
             } catch (CompetitorRefreshRecoveryIdentityException exception) {
                 invalidRecovery.failQueued(task, run);
             }
@@ -235,7 +213,11 @@ final class CompetitorRefreshRecoveryCoordinator {
             Long actorUserId,
             CompetitorRefreshExecutionMode mode
     ) {
-        CompetitorRefreshRecoveryIdentity.validate(task, run, watchProduct, mode);
+        CompetitorRefreshExecutionMode manualMode =
+                CompetitorRefreshExecutionMode.requireManual(mode);
+        CompetitorRefreshRecoveryIdentity.validate(
+                task, run, watchProduct, manualMode
+        );
         return taskDispatcher.submit(
                 accountKey(watchProduct),
                 task,
@@ -247,9 +229,26 @@ final class CompetitorRefreshRecoveryCoordinator {
                         run.getId(),
                         watchProduct.getId(),
                         actorUserId,
-                        mode
+                        manualMode
                 )
         );
+    }
+
+    private CompetitorRefreshExecutionMode manualMode(
+            CompetitorSearchRunRow run
+    ) {
+        if (run == null) {
+            return null;
+        }
+        try {
+            return CompetitorRefreshExecutionMode.requireManual(
+                    CompetitorRefreshExecutionMode.strictFromTriggerMode(
+                            run.getTriggerMode()
+                    )
+            );
+        } catch (CompetitorRefreshRecoveryIdentityException nonManual) {
+            return null;
+        }
     }
 
     private void dispatchSafely(

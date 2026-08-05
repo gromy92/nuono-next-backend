@@ -1,5 +1,7 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import java.time.Clock;
 import java.util.Date;
 import java.util.concurrent.ScheduledFuture;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Profile("local-db")
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonPullExecutionScheduler implements SmartLifecycle {
     static final String THREAD_NAME_PREFIX = "noon-pull-execution-";
     private static final Logger LOGGER = LoggerFactory.getLogger(NoonPullExecutionScheduler.class);

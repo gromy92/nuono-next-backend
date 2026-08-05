@@ -64,8 +64,8 @@ class CompetitorAnalysisTaskRecoveryTest {
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(watchProduct);
         when(queuedTaskSubmitter.submit(queued, run, watchProduct)).thenReturn(true, false);
 
-        assertEquals(1, recovery.resumeQueuedRefreshTasks());
-        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+        assertEquals(1, recovery.resumeQueuedManualRefreshTasks());
+        assertEquals(0, recovery.resumeQueuedManualRefreshTasks());
         verify(queuedTaskSubmitter, times(2)).submit(queued, run, watchProduct);
     }
 
@@ -79,7 +79,7 @@ class CompetitorAnalysisTaskRecoveryTest {
                 .thenReturn(List.of());
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(runningRun);
 
-        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+        assertEquals(0, recovery.resumeQueuedManualRefreshTasks());
 
         verify(operationalTaskService, never()).fail(
                 org.mockito.ArgumentMatchers.anyLong(),
@@ -110,7 +110,7 @@ class CompetitorAnalysisTaskRecoveryTest {
         when(mapper.selectSearchRunByTaskId(150001L)).thenReturn(run);
         when(mapper.selectWatchProductForRefresh(180001L)).thenReturn(null);
 
-        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+        assertEquals(0, recovery.resumeQueuedManualRefreshTasks());
 
         verify(executionFinalizer).failQueued(
                 150001L,
@@ -136,7 +136,7 @@ class CompetitorAnalysisTaskRecoveryTest {
                 () -> 0
         );
 
-        assertEquals(0, recovery.resumeQueuedRefreshTasks());
+        assertEquals(0, recovery.resumeQueuedManualRefreshTasks());
 
         verify(operationalTaskService, never()).listActiveAfter(
                 CompetitorAnalysisRefreshService.TASK_TYPE,
@@ -163,7 +163,7 @@ class CompetitorAnalysisTaskRecoveryTest {
                 LocalDateTime.parse("2026-06-06T07:30:00")
         )).thenReturn(true);
 
-        assertEquals(1, recovery.recoverStaleRefreshTasks());
+        assertEquals(1, recovery.recoverStaleManualRefreshTasks());
 
         verify(interruptedTaskRetry).retry(
                 running,
@@ -198,7 +198,7 @@ class CompetitorAnalysisTaskRecoveryTest {
         when(queuedTaskSubmitter.submit(any(), eq(run), eq(watchProduct)))
                 .thenAnswer(invocation -> ((OperationalTask) invocation.getArgument(0)).getId() == 1001L);
 
-        assertEquals(1, recovery.resumeQueuedRefreshTasks());
+        assertEquals(1, recovery.resumeQueuedManualRefreshTasks());
         verify(queuedTaskSubmitter).submit(queued, run, watchProduct);
     }
 
@@ -219,7 +219,7 @@ class CompetitorAnalysisTaskRecoveryTest {
         run.setId(220001L);
         run.setWatchProductId(180001L);
         run.setStatus(status);
-        run.setTriggerMode("SCHEDULED_RANK_MONITOR");
+        run.setTriggerMode("MANUAL_REFRESH");
         return run;
     }
 

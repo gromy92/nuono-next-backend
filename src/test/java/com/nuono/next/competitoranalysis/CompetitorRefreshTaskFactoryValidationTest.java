@@ -70,6 +70,46 @@ class CompetitorRefreshTaskFactoryValidationTest {
         verifyNoClaimOrReplacement();
     }
 
+    @Test
+    void retiredScheduledModeFailsBeforeClaimingOrReplacing() {
+        assertThrows(
+                CompetitorRefreshRecoveryIdentityException.class,
+                () -> new CompetitorRefreshTaskFactory(
+                        mapper, operationalTaskService
+                ).replaceStale(
+                        staleTask(),
+                        staleRun(),
+                        watchProduct(),
+                        STALE_BEFORE,
+                        501L,
+                        CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                        null,
+                        0,
+                        ignored -> { }
+                )
+        );
+
+        verifyNoClaimOrReplacement();
+    }
+
+    @Test
+    void legacyScheduledFactoryRejectsManualModeBeforeQueueing() {
+        assertThrows(
+                CompetitorRefreshRecoveryIdentityException.class,
+                () -> new LegacyCompetitorScheduledTaskFactory(
+                        mapper, operationalTaskService
+                ).persist(
+                        watchProduct(),
+                        CompetitorRefreshExecutionMode.FULL_MANUAL,
+                        "watchProduct:180001:full",
+                        "batch-1",
+                        1
+                )
+        );
+
+        verify(operationalTaskService, never()).queue(any(), any(), any());
+    }
+
     private void replace(OperationalTask staleTask, CompetitorSearchRunRow staleRun) {
         new CompetitorRefreshTaskFactory(mapper, operationalTaskService).replaceStale(
                 staleTask,
@@ -77,7 +117,7 @@ class CompetitorRefreshTaskFactoryValidationTest {
                 watchProduct(),
                 STALE_BEFORE,
                 501L,
-                CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
                 null,
                 0,
                 ignored -> { }
@@ -98,7 +138,7 @@ class CompetitorRefreshTaskFactoryValidationTest {
         OperationalTask task = new OperationalTask();
         task.setId(150001L);
         task.setTaskType(CompetitorAnalysisRefreshService.TASK_TYPE);
-        task.setNaturalKey("watchProduct:180001:detail");
+        task.setNaturalKey("watchProduct:180001:full-monitor");
         task.setStatus(OperationalTaskStatus.RUNNING);
         task.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         return task;
@@ -110,7 +150,7 @@ class CompetitorRefreshTaskFactoryValidationTest {
         run.setTaskId(150001L);
         run.setWatchProductId(180001L);
         run.setStatus("RUNNING");
-        run.setTriggerMode("SCHEDULED_DETAIL_MONITOR");
+        run.setTriggerMode("MANUAL_MONITOR");
         run.setRequestedBy(501L);
         return run;
     }

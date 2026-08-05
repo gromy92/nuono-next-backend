@@ -62,7 +62,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
                 watchProduct(),
                 STALE_BEFORE,
                 staleRun.getRequestedBy(),
-                CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
                 "batch-20260606",
                 0,
                 ignored -> dispatched.set(true)
@@ -103,7 +103,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
                         watchProduct(),
                         STALE_BEFORE,
                         staleRun.getRequestedBy(),
-                        CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                        CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
                         "batch-20260606",
                         0,
                         ignored -> {
@@ -141,7 +141,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
                         watchProduct(),
                         STALE_BEFORE,
                         staleRun.getRequestedBy(),
-                        CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                        CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
                         "batch-20260606",
                         0,
                         ignored -> dispatched.set(true)
@@ -196,7 +196,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
                 watchProduct(),
                 STALE_BEFORE,
                 staleRun.getRequestedBy(),
-                CompetitorRefreshExecutionMode.SCHEDULED_DETAIL,
+                CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
                 "batch-20260606",
                 0,
                 ignored -> dispatched.set(true)
@@ -232,7 +232,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
         OperationalTask task = new OperationalTask();
         task.setId(150001L);
         task.setTaskType(CompetitorAnalysisRefreshService.TASK_TYPE);
-        task.setNaturalKey("watchProduct:180001:detail");
+        task.setNaturalKey("watchProduct:180001:full-monitor");
         task.setStatus(OperationalTaskStatus.RUNNING);
         task.setUpdatedAt(LocalDateTime.parse("2026-06-06T07:20:00"));
         return task;
@@ -252,7 +252,7 @@ class CompetitorRefreshTaskFactoryRecoveryTest {
         run.setTaskId(150001L);
         run.setWatchProductId(180001L);
         run.setStatus("RUNNING");
-        run.setTriggerMode("SCHEDULED_DETAIL_MONITOR");
+        run.setTriggerMode("MANUAL_MONITOR");
         run.setRequestedBy(501L);
         return run;
     }

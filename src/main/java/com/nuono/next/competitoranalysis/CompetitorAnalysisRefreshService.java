@@ -49,7 +49,6 @@ public class CompetitorAnalysisRefreshService {
     private final CompetitorMonitoringBatchService monitoringBatchService;
     private final CompetitorKeywordRefreshTransactionRunner keywordRefreshRunner;
     private final CompetitorProductDetailRefreshService productDetailRefreshService;
-    private final CompetitorDetailRetryCoordinator detailRetryCoordinator;
     private final CompetitorRiskBackoffSupport riskBackoff;
     private final Clock clock;
     @Autowired
@@ -138,7 +137,6 @@ public class CompetitorAnalysisRefreshService {
                 NoonRiskBackoffGuard.disabled()
         );
     }
-
     CompetitorAnalysisRefreshService(
             CompetitorAnalysisMapper mapper,
             CompetitorMonitoringMapper monitoringMapper,
@@ -162,7 +160,6 @@ public class CompetitorAnalysisRefreshService {
                 new CompetitorMonitoringRecoveryService(operationalTaskService)
         );
     }
-
     CompetitorAnalysisRefreshService(
             CompetitorAnalysisMapper mapper,
             CompetitorMonitoringMapper monitoringMapper,
@@ -187,7 +184,6 @@ public class CompetitorAnalysisRefreshService {
                 new CompetitorMonitoringRecoveryService(operationalTaskService)
         );
     }
-
     CompetitorAnalysisRefreshService(
             CompetitorAnalysisMapper mapper,
             CompetitorMonitoringMapper monitoringMapper,
@@ -214,7 +210,6 @@ public class CompetitorAnalysisRefreshService {
                 taskSubmitter
         );
     }
-
     CompetitorAnalysisRefreshService(
             CompetitorAnalysisMapper mapper,
             CompetitorMonitoringMapper monitoringMapper,
@@ -239,9 +234,6 @@ public class CompetitorAnalysisRefreshService {
         this.refreshTaskLocator = new CompetitorRefreshTaskLocator(
                 operationalTaskService
         );
-        this.detailRetryCoordinator = new CompetitorDetailRetryCoordinator(
-                refreshTaskFactory, this.clock
-        );
         this.refreshTaskDispatcher = new CompetitorRefreshTaskDispatcher(
                 mapper,
                 operationalTaskService,
@@ -253,7 +245,9 @@ public class CompetitorAnalysisRefreshService {
                 refreshTaskFactory,
                 refreshTaskDispatcher,
                 watchProduct -> riskBackoff.current(watchProduct).isEmpty(),
-                detailRetryCoordinator::isReady,
+                task -> CompetitorRefreshRecoveryPayload.isReady(
+                        task, LocalDateTime.now(this.clock)
+                ),
                 this::runRefresh, this.clock
         );
         this.taskRecovery = new CompetitorAnalysisTaskRecovery(
@@ -271,11 +265,10 @@ public class CompetitorAnalysisRefreshService {
                 monitoringRecoveryService,
                 monitoringTaskSubmitter == null ? this.taskSubmitter : monitoringTaskSubmitter,
                 this::enqueueMonitoringRefresh,
-                taskRecovery::resumeQueuedRefreshTasks,
+                taskRecovery::resumeQueuedManualRefreshTasks,
                 this.clock
         );
     }
-
     public CompetitorRefreshRunView requestRefresh(BusinessAccessContext context, Long watchProductId) {
         CompetitorWatchProductRow watchProduct = requireWatchProduct(context, watchProductId);
         return requestRefreshForWatchProduct(
@@ -284,7 +277,6 @@ public class CompetitorAnalysisRefreshService {
                 CompetitorRefreshExecutionMode.FULL_MANUAL
         );
     }
-
     public CompetitorTaskView requestStoreMonitoring(
             BusinessAccessContext context,
             String storeCode,
@@ -302,81 +294,17 @@ public class CompetitorAnalysisRefreshService {
                 ownerUserId,
                 normalizedStoreCode,
                 normalizedSiteCode,
-                actorUserId(context),
-                CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR
+                actorUserId(context)
         );
     }
-
-    public CompetitorTaskView requestScheduledStoreMonitoring(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode
-    ) {
-        return requestScheduledRankMonitoring(ownerUserId, storeCode, siteCode);
+    public int recoverStaleManualRefreshTasks() {
+        return monitoringBatchService.recoverStaleManualBatches()
+                + taskRecovery.recoverStaleManualRefreshTasks();
     }
-
-    public CompetitorTaskView requestScheduledRankMonitoring(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode
-    ) {
-        Long normalizedOwnerUserId = ownerUserId;
-        if (normalizedOwnerUserId == null) {
-            throw badRequest("COMPETITOR_OWNER_REQUIRED");
-        }
-        String normalizedStoreCode = normalizeRequired(storeCode, "COMPETITOR_STORE_REQUIRED");
-        String normalizedSiteCode = normalizeRequired(siteCode, "COMPETITOR_SITE_REQUIRED");
-        riskBackoff.rejectActive(normalizedOwnerUserId, normalizedStoreCode, normalizedSiteCode);
-        return monitoringBatchService.requestStore(
-                normalizedOwnerUserId,
-                normalizedStoreCode,
-                normalizedSiteCode,
-                null,
-                CompetitorRefreshExecutionMode.SCHEDULED_RANK
-        );
+    public int resumeQueuedManualRefreshTasks() {
+        return monitoringBatchService.resumeQueuedManualBatches()
+                + taskRecovery.resumeQueuedManualRefreshTasks();
     }
-
-    public CompetitorTaskView requestScheduledDetailMonitoring(
-            Long ownerUserId,
-            String storeCode,
-            String siteCode
-    ) {
-        Long normalizedOwnerUserId = ownerUserId;
-        if (normalizedOwnerUserId == null) {
-            throw badRequest("COMPETITOR_OWNER_REQUIRED");
-        }
-        String normalizedStoreCode = normalizeRequired(storeCode, "COMPETITOR_STORE_REQUIRED");
-        String normalizedSiteCode = normalizeRequired(siteCode, "COMPETITOR_SITE_REQUIRED");
-        riskBackoff.rejectActive(normalizedOwnerUserId, normalizedStoreCode, normalizedSiteCode);
-        return monitoringBatchService.requestStore(
-                normalizedOwnerUserId,
-                normalizedStoreCode,
-                normalizedSiteCode,
-                null,
-                CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
-        );
-    }
-
-    public int runScheduledRankCycle() {
-        return monitoringBatchService.runScheduledCycle(CompetitorRefreshExecutionMode.SCHEDULED_RANK);
-    }
-
-    public int runScheduledDetailCycle() {
-        return monitoringBatchService.runScheduledCycle(CompetitorRefreshExecutionMode.SCHEDULED_DETAIL);
-    }
-
-    public int recoverStaleRefreshTasks() {
-        return monitoringBatchService.recoverStaleBatches() + taskRecovery.recoverStaleRefreshTasks();
-    }
-
-    public int resumeQueuedRefreshTasks() {
-        return monitoringBatchService.resumeQueuedBatches() + taskRecovery.resumeQueuedRefreshTasks();
-    }
-
-    public int retryRecentTransientRankKeywordFailures(Duration lookback, int limit) {
-        return 0;
-    }
-
     private CompetitorRefreshRunView requestRefreshForWatchProduct(
             CompetitorWatchProductRow watchProduct, Long actorUserId,
             CompetitorRefreshExecutionMode executionMode
@@ -385,23 +313,26 @@ public class CompetitorAnalysisRefreshService {
                 watchProduct, actorUserId, executionMode, null, true
         ).getView();
     }
-
     private CompetitorMonitoringEnqueueOutcome enqueueMonitoringRefresh(
-            CompetitorWatchProductRow watchProduct, Long actorUserId,
-            CompetitorRefreshExecutionMode executionMode,
+            CompetitorWatchProductRow watchProduct,
+            Long actorUserId,
             String batchKey
     ) {
         return queueRefreshForWatchProduct(
-                watchProduct, actorUserId, executionMode, batchKey, false
+                watchProduct,
+                actorUserId,
+                CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR,
+                batchKey,
+                false
         ).getOutcome();
     }
-
     private CompetitorQueuedRefresh queueRefreshForWatchProduct(
             CompetitorWatchProductRow watchProduct, Long actorUserId,
             CompetitorRefreshExecutionMode executionMode, String batchKey,
             boolean dispatchNow
     ) {
-        CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
+        CompetitorRefreshExecutionMode safeMode =
+                CompetitorRefreshExecutionMode.requireManual(executionMode);
         CompetitorRefreshTaskLocator.Keys keys =
                 refreshTaskLocator.keys(watchProduct.getId(), safeMode, batchKey);
         String naturalKey = keys.current;
@@ -433,7 +364,6 @@ public class CompetitorAnalysisRefreshService {
                     watchProduct.getSiteCode()
             );
         }
-
         List<CompetitorKeywordRow> activeKeywords = safeMode.runsRank()
                 ? mapper.listActiveKeywordsByWatchProductId(watchProduct.getId())
                 : List.of();
@@ -475,7 +405,6 @@ public class CompetitorAnalysisRefreshService {
         }
         return queued;
     }
-
     private CompetitorQueuedRefresh existingRefresh(OperationalTask task, String batchKey) {
         CompetitorMonitoringEnqueueOutcome outcome = !StringUtils.hasText(batchKey)
                 || payloadHasBatchKey(task, batchKey)
@@ -486,7 +415,6 @@ public class CompetitorAnalysisRefreshService {
                 outcome
         );
     }
-
     public CompetitorRefreshRunView getRefreshRun(BusinessAccessContext context, Long runId) {
         if (runId == null) {
             throw badRequest("COMPETITOR_RUN_REQUIRED");
@@ -501,7 +429,6 @@ public class CompetitorAnalysisRefreshService {
                 : operationalTaskService.find(run.getTaskId()).orElse(null);
         return CompetitorRefreshRunView.from(task, run);
     }
-
     public CompetitorTaskView getTask(BusinessAccessContext context, Long taskId) {
         if (taskId == null) {
             throw badRequest("COMPETITOR_TASK_REQUIRED");
@@ -514,7 +441,6 @@ public class CompetitorAnalysisRefreshService {
         requireStoreInContext(context, task.getStoreCode());
         return CompetitorTaskView.from(task);
     }
-
     private void runRefresh(
             Long taskId,
             Long runId,
@@ -522,7 +448,8 @@ public class CompetitorAnalysisRefreshService {
             Long actorUserId,
             CompetitorRefreshExecutionMode executionMode
     ) {
-        CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
+        CompetitorRefreshExecutionMode safeMode =
+                CompetitorRefreshExecutionMode.requireKnown(executionMode);
         int success = 0;
         int failed = 0;
         int candidateUpsertedCount = 0;
@@ -533,7 +460,7 @@ public class CompetitorAnalysisRefreshService {
             refreshTaskFactory.executionFinalizer().progress(
                     taskId, runId, watchProductId, 5, RUNNING_MESSAGE
             );
-            OperationalTask runningTask = operationalTaskService.find(taskId)
+            operationalTaskService.find(taskId)
                     .orElseThrow(() -> new CompetitorRefreshLeaseLostException(
                             taskId, runId
                     ));
@@ -541,38 +468,19 @@ public class CompetitorAnalysisRefreshService {
             if (watchProduct == null) {
                 throw new IllegalStateException("监控商品不存在或已删除。");
             }
-            CompetitorDetailRetrySession detailRetrySession =
-                    openDetailRetrySession(
-                            runningTask, runId, watchProduct, safeMode
-                    );
             Optional<NoonRiskBackoffHold> activeRiskBackoff =
                     riskBackoff.current(watchProduct);
             if (activeRiskBackoff.isPresent()) {
                 String message = riskBackoff.message(activeRiskBackoff.get());
-                if (detailRetrySession != null
-                        && detailRetrySession.requeue(
-                                activeRiskBackoff.get(),
-                                COMPETITOR_RISK_BACKOFF,
-                                message
-                        )) {
-                    return;
-                }
-                if (detailRetrySession != null && detailRetrySession.isComplete()) {
-                    log.info(
-                            "competitor detail task finalized under existing risk hold taskId={}",
-                            taskId
-                    );
-                } else {
-                    refreshTaskFactory.executionFinalizer().fail(
-                            taskId,
-                            runId,
-                            watchProductId,
-                            COMPETITOR_RISK_BACKOFF,
-                            message,
-                            actorUserId
-                    );
-                    return;
-                }
+                refreshTaskFactory.executionFinalizer().fail(
+                        taskId,
+                        runId,
+                        watchProductId,
+                        COMPETITOR_RISK_BACKOFF,
+                        message,
+                        actorUserId
+                );
+                return;
             }
             CompetitorProductDetailRefreshResult detailResult = CompetitorProductDetailRefreshResult.empty();
             NoonRiskBackoffHold riskBackoffHold = null;
@@ -652,7 +560,7 @@ public class CompetitorAnalysisRefreshService {
             if (riskBackoffHold == null) {
                 detailResult = refreshConfirmedCompetitorDetails(
                         taskId, runId, watchProduct, actorUserId,
-                        safeMode, detailRetrySession
+                        safeMode
                 );
                 if (detailResult.getFailedCount() > 0) {
                     firstErrorCode = firstNonBlank(
@@ -665,38 +573,22 @@ public class CompetitorAnalysisRefreshService {
                         firstErrorCode = detailResult.getRiskErrorCode();
                         firstErrorMessage = detailResult.getRiskErrorMessage();
                         String riskErrorCode = firstErrorCode, riskErrorMessage = firstErrorMessage;
-                        riskBackoffHold = detailRetrySession == null
-                                ? refreshTaskFactory.executionFinalizer().withLease(
-                                        taskId, runId, watchProductId,
-                                        () -> riskBackoff.record(
-                                                watchProduct, taskId,
-                                                riskErrorCode, riskErrorMessage
-                                        )
-                                )
-                                : detailRetrySession.ensureRiskHold(
+                        riskBackoffHold = refreshTaskFactory.executionFinalizer().withLease(
+                                taskId, runId, watchProductId,
+                                () -> riskBackoff.record(
+                                        watchProduct, taskId,
                                         riskErrorCode, riskErrorMessage
-                                );
+                                )
+                        );
                     }
                 }
-            }
-            if (detailRetrySession != null) {
-                if (detailRetrySession.requeue(riskBackoffHold, firstErrorCode, firstErrorMessage)) {
-                    return;
-                }
-                detailRetrySession.applyCumulative(detailResult);
-                firstErrorCode = firstNonBlank(
-                        firstErrorCode, detailResult.getFirstErrorCode()
-                );
-                firstErrorMessage = firstNonBlank(
-                        firstErrorMessage, detailResult.getFirstErrorMessage()
-                );
             }
 
             String status = CompetitorRefreshRunResultSupport.status(
                     success, failed, detailResult
             );
             String message = resolveRunMessage(
-                    safeMode, status, success, failed, detailResult
+                    status, success, failed, detailResult
             );
             String taskErrorCode = riskBackoffHold != null
                     ? COMPETITOR_RISK_BACKOFF
@@ -772,49 +664,32 @@ public class CompetitorAnalysisRefreshService {
             );
         }
     }
+
+    void runLegacyScheduledRefresh(Long taskId, Long runId, Long watchProductId,
+                                   CompetitorRefreshExecutionMode mode) {
+        if (CompetitorRefreshExecutionMode.requireKnown(mode).isManual()) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Legacy competitor execution requires a scheduled mode."
+            );
+        }
+        runRefresh(taskId, runId, watchProductId, null, mode);
+    }
+
     private CompetitorProductDetailRefreshResult refreshConfirmedCompetitorDetails(
             Long taskId,
             Long runId,
             CompetitorWatchProductRow watchProduct,
             Long actorUserId,
-            CompetitorRefreshExecutionMode mode,
-            CompetitorDetailRetrySession retrySession
+            CompetitorRefreshExecutionMode mode
     ) {
         if (!mode.runsDetail() || productDetailRefreshService == null) {
             return CompetitorProductDetailRefreshResult.empty();
         }
-        CompetitorProductDetailRefreshResult result = retrySession == null
-                ? productDetailRefreshService.refreshConfirmedCompetitors(
+        CompetitorProductDetailRefreshResult result =
+                productDetailRefreshService.refreshConfirmedCompetitors(
                         watchProduct, runId, taskId, actorUserId
-                )
-                : productDetailRefreshService.refreshTargets(
-                        watchProduct,
-                        retrySession.readyTargets(),
-                        runId, taskId, actorUserId,
-                        retrySession,
-                        new CompetitorDetailBatchTakeoverFence(refreshTaskFactory
-                                .detailBatchTakeover(), taskId, runId, watchProduct.getId())
                 );
         return result == null ? CompetitorProductDetailRefreshResult.empty() : result;
-    }
-
-    private CompetitorDetailRetrySession openDetailRetrySession(
-            OperationalTask task,
-            Long runId,
-            CompetitorWatchProductRow watchProduct,
-            CompetitorRefreshExecutionMode mode
-    ) {
-        if (mode != CompetitorRefreshExecutionMode.SCHEDULED_DETAIL
-                || productDetailRefreshService == null) {
-            return null;
-        }
-        return detailRetryCoordinator.openSession(
-                task, runId, watchProduct.getId(),
-                productDetailRefreshService.currentTargets(watchProduct),
-                (errorCode, errorMessage) -> riskBackoff.record(
-                        watchProduct, task.getId(), errorCode, errorMessage
-                )
-        );
     }
 
     private boolean isStale(OperationalTask task) {
@@ -868,28 +743,11 @@ public class CompetitorAnalysisRefreshService {
     }
 
     private String resolveRunMessage(
-            CompetitorRefreshExecutionMode executionMode,
             String status,
             int success,
             int failed,
             CompetitorProductDetailRefreshResult detailResult
     ) {
-        CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
-        if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_DETAIL) {
-            if ("SUCCEEDED".equals(status)) {
-                return "竞品列表缺口补拉完成。";
-            }
-            return "竞品列表缺口补拉失败。";
-        }
-        if (safeMode == CompetitorRefreshExecutionMode.SCHEDULED_RANK) {
-            if ("SUCCEEDED".equals(status)) {
-                return "竞品排名刷新完成。";
-            }
-            if ("PARTIAL_FAILED".equals(status)) {
-                return "竞品排名部分关键词失败。";
-            }
-            return failed > 0 && success <= 0 ? "竞品排名刷新失败。" : FAILED_MESSAGE;
-        }
         if ("PARTIAL_FAILED".equals(status) && detailResult != null && detailResult.getFailedCount() > 0) {
             return "竞品刷新部分列表补拉失败。";
         }
@@ -940,7 +798,8 @@ public class CompetitorAnalysisRefreshService {
             CompetitorRefreshExecutionMode executionMode,
             CompetitorKeywordRefreshResult result
     ) {
-        CompetitorRefreshExecutionMode safeMode = executionMode == null ? CompetitorRefreshExecutionMode.FULL_MANUAL : executionMode;
+        CompetitorRefreshExecutionMode safeMode =
+                CompetitorRefreshExecutionMode.requireKnown(executionMode);
         if (!safeMode.runsRank() || result == null || result.isSuccess()) {
             return false;
         }
