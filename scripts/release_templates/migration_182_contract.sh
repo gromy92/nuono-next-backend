@@ -57,6 +57,84 @@ migration_182_state() {
         SELECT COUNT(*) FROM information_schema.columns
         WHERE table_schema = DATABASE()
           AND table_name = 'product_barcode'
+          AND (
+            (column_name = 'product_master_id'
+              AND column_type = 'bigint' AND is_nullable = 'YES'
+              AND column_default IS NULL)
+            OR (column_name = 'logical_store_id'
+              AND column_type = 'bigint' AND is_nullable = 'NO'
+              AND column_default IS NULL)
+            OR (column_name = 'partner_sku'
+              AND column_type = 'varchar(100)' AND is_nullable = 'YES'
+              AND column_default IS NULL)
+          )
+      ) = 3
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'idx_product_barcode_master'
+          AND non_unique = 1
+          AND index_type = 'BTREE'
+          AND sub_part IS NULL
+          AND ((seq_in_index = 1 AND column_name = 'product_master_id')
+            OR (seq_in_index = 2 AND column_name = 'is_deleted'))
+      ) = 2
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'idx_product_barcode_master'
+      ) = 2
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'idx_product_barcode_store_psku'
+          AND non_unique = 1
+          AND index_type = 'BTREE'
+          AND sub_part IS NULL
+          AND ((seq_in_index = 1 AND column_name = 'logical_store_id')
+            OR (seq_in_index = 2 AND column_name = 'partner_sku')
+            OR (seq_in_index = 3 AND column_name = 'is_deleted'))
+      ) = 3
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'idx_product_barcode_store_psku'
+      ) = 3
+      AND NOT EXISTS(
+        SELECT 1 FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'uk_product_barcode_barcode'
+      )
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'uk_product_barcode_store_barcode'
+          AND non_unique = 0
+          AND index_type = 'BTREE'
+          AND sub_part IS NULL
+          AND ((seq_in_index = 1 AND column_name = 'logical_store_id')
+            OR (seq_in_index = 2 AND column_name = 'barcode'))
+      ) = 2
+      AND (
+        SELECT COUNT(*) FROM information_schema.statistics
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
+          AND index_name = 'uk_product_barcode_store_barcode'
+      ) = 2
+      AND NOT EXISTS(
+        SELECT 1 FROM product_barcode WHERE logical_store_id IS NULL
+      )
+      THEN 'READY_SUCCESSOR_206'
+      WHEN (
+        SELECT COUNT(*) FROM information_schema.columns
+        WHERE table_schema = DATABASE()
+          AND table_name = 'product_barcode'
           AND column_name IN (
             'product_master_id', 'logical_store_id', 'partner_sku'
           )
@@ -94,7 +172,9 @@ assert_migration_182_mappable() {
 }
 
 postcheck_migration_182() {
-  [ "$(migration_182_state)" = READY ] || return 1
+  local state
+  state="$(migration_182_state)"
+  [ "$state" = READY ] || [ "$state" = READY_SUCCESSOR_206 ] || return 1
   local blockers
   blockers="$(db_scalar "
     SELECT COUNT(*)
@@ -132,6 +212,14 @@ ensure_migration_182() {
       apply_migration "$MIGRATION_182"
       postcheck_migration_182
       emit MIGRATION_182_ACTION APPLIED_DATA_REPAIR
+      ;;
+    READY_SUCCESSOR_206)
+      if postcheck_migration_182; then
+        emit MIGRATION_182_ACTION SKIPPED_READY_SUCCESSOR_206
+        return 0
+      fi
+      emit MIGRATION_182_ACTION BLOCKED_SUCCESSOR_DATA_DRIFT
+      return 1
       ;;
     EXACT_LEGACY)
       assert_migration_182_mappable

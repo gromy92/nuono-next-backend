@@ -121,6 +121,26 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertIn("MIGRATION_182_RELATION_BLOCKERS", script)
         self.assertIn("MIGRATION_182_DATA_BLOCKERS", script)
 
+    def test_182_contract_accepts_only_the_exact_206_successor_shape(self):
+        script = self.additive_script()
+        successor = script[
+            script.index("THEN 'READY'") + len("THEN 'READY'")
+            : script.index("THEN 'READY_SUCCESSOR_206'") + 40
+        ]
+
+        self.assertIn("is_nullable = 'NO'", successor)
+        self.assertIn("uk_product_barcode_store_barcode", successor)
+        self.assertIn("uk_product_barcode_barcode", successor)
+        self.assertIn("non_unique = 0", successor)
+        self.assertIn("logical_store_id IS NULL", successor)
+        self.assertIn("SKIPPED_READY_SUCCESSOR_206", script)
+        self.assertIn("BLOCKED_SUCCESSOR_DATA_DRIFT", script)
+        successor_branch = script[
+            script.index("READY_SUCCESSOR_206)")
+            : script.index("EXACT_LEGACY)")
+        ]
+        self.assertNotIn('apply_migration "$MIGRATION_182"', successor_branch)
+
     def test_182_and_206_are_extracted_from_same_active_frozen_jar(self):
         script = self.irreversible_script()
         validation = script[
