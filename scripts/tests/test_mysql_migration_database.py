@@ -103,6 +103,21 @@ class MySqlMigrationDatabaseTest(unittest.TestCase):
 
         self.assertFalse(database.postcheck(self.migration()))
 
+    def test_non_missing_table_postcheck_errors_remain_fail_closed(self):
+        class InvalidColumnClient(FakeClient):
+            def execute_readonly(self, sql, **kwargs):
+                raise MySqlExecutionError(
+                    "MySQL 1054 (42S22): invalid column",
+                    error_code=1054,
+                    sqlstate="42S22",
+                )
+
+        database = self.database(InvalidColumnClient())
+
+        with self.assertRaises(MySqlExecutionError) as caught:
+            database.postcheck(self.migration())
+        self.assertEqual(1054, caught.exception.error_code)
+
     def test_empty_history_reruns_bootstrap_script_before_baselining(self):
         database = self.database(FakeClient())
         database.history = MagicMock()

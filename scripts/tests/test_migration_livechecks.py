@@ -93,9 +93,20 @@ class MigrationLivecheckContractTest(unittest.TestCase):
             "expected_index",
             "a.is_nullable='YES'",
             "a.non_unique=1 AND a.safe_shape=1",
+            "chk_dp_snapshot_stage_authority_v2",
+            "chk_dp_snapshot_apply_authority_v2",
             "dp_pull_runtime_additive_livecheck",
         ):
             self.assertIn(marker, migration.livecheck_sql)
+
+        self.assertNotIn(
+            '{"t":"dp_pull_snapshot_stage","n":"chk_dp_snapshot_stage_authority"}',
+            migration.livecheck_sql,
+        )
+        self.assertNotIn(
+            '{"t":"dp_pull_snapshot_apply","n":"chk_dp_snapshot_apply_authority"}',
+            migration.livecheck_sql,
+        )
 
     def test_dp_successors_use_separate_additive_compatible_livechecks(self):
         markers = {
