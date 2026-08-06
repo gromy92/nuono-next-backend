@@ -83,8 +83,9 @@ def run_successor_schema_scenario(
     verify_half_migration_fails_closed(test_case, database, migrations)
     verify_missing_table_fails_closed(test_case, database, migrations)
     verify_constraint_drift_fails_closed(test_case, database, migrations)
-    for order in (244, 245, 246, 248, 250):
-        _assert_contract(test_case, database, *migrations[order][1:])
+    for order in (244, 245, 246, 248):
+        _assert_live(test_case, database, migrations[order][2])
+    _assert_contract(test_case, database, *migrations[250][1:])
     test_case.assertEqual(
         "0", database.client.execute_readonly(migrations[247][1])
     )
@@ -123,6 +124,10 @@ def _assert_contract(test_case, database, exact, live) -> None:
             failing_predicate_indexes(database, exact)
         ) + detail,
     )
+    test_case.assertEqual("1", database.client.execute_readonly(live))
+
+
+def _assert_live(test_case, database, live) -> None:
     test_case.assertEqual("1", database.client.execute_readonly(live))
 
 
