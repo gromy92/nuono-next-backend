@@ -7,29 +7,36 @@ import org.apache.ibatis.annotations.Select;
 /** One read-only snapshot of every retired DP task/waiting-task execution surface. */
 public interface DataPullLegacyCutoverMapper {
     String ACTIVE_NOON = "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')";
-    String NEVER_STARTED_SNAPSHOT =
-            "status = 'QUEUED'"
+    String SUPERSEDABLE_NOON =
+            ACTIVE_NOON
             + " AND trigger_mode = 'SCHEDULED_DAILY'"
-            + " AND pull_type = 'INTERFACE'"
-            + " AND ((data_domain = 'PRODUCT'"
-            + " AND target_identity LIKE 'product-list:%')"
-            + " OR (data_domain = 'OFFICIAL_WAREHOUSE_INVENTORY'"
-            + " AND target_identity LIKE 'official-warehouse-fbn-inventory:%'))"
-            + " AND started_at IS NULL AND locked_by IS NULL"
-            + " AND source_batch_id IS NULL AND auth_recovery_id IS NULL"
+            + " AND pull_type IN ('INTERFACE', 'REPORT')"
+            + " AND data_domain IN ('PRODUCT', 'SALES', 'ORDER', 'FINANCE_TRANSACTION',"
+            + " 'NOON_ADVERTISING', 'OFFICIAL_WAREHOUSE_ASN',"
+            + " 'OFFICIAL_WAREHOUSE_INVENTORY', 'OFFICIAL_WAREHOUSE_FBN_RECEIVED')"
+            + " AND ((status = 'BLOCKED_AUTH' AND retry_action = 'WAIT_FOR_AUTH')"
+            + " OR (status = 'QUEUED' AND started_at IS NULL)"
+            + " OR (status = 'RUNNING' AND started_at IS NOT NULL"
+            + " AND COALESCE(retry_action, '') <> 'WAIT_FOR_AUTH'))"
             + " AND checkpoint_cursor IS NULL AND next_resume_position IS NULL"
             + " AND last_safe_response_summary IS NULL"
-            + " AND report_export_id IS NULL AND report_download_url IS NULL"
-            + " AND report_export_status IS NULL AND report_total_rows IS NULL"
-            + " AND report_last_poll_at IS NULL AND report_next_poll_at IS NULL"
             + " AND COALESCE(processed_item_count, 0) = 0"
             + " AND COALESCE(request_count, 0) = 0"
-            + " AND COALESCE(report_poll_attempts, 0) = 0"
+            + " AND COALESCE(report_total_rows, 0) = 0"
+            + " AND finished_at IS NULL";
+    String SUPERSEDABLE_DP10 =
+            "status = 'running'"
+            + " AND COALESCE(processed_count, 0) = 0"
+            + " AND COALESCE(imported_count, 0) = 0"
+            + " AND COALESCE(failed_count, 0) = 0"
+            + " AND COALESCE(progress_percent, 0) = 0"
+            + " AND failure_code IS NULL AND failure_message IS NULL"
+            + " AND COALESCE(requires_manual_action, b'0') = b'0'"
             + " AND finished_at IS NULL";
 
     @Select({
             "SELECT 'NOON_PULL' AS recordKind, COUNT(*) AS activeCount,",
-            "  COALESCE(SUM(CASE WHEN " + NEVER_STARTED_SNAPSHOT,
+            "  COALESCE(SUM(CASE WHEN " + SUPERSEDABLE_NOON,
             "    THEN 1 ELSE 0 END), 0) AS supersedableSnapshotCount",
             "FROM noon_pull_task WHERE " + ACTIVE_NOON,
             "  AND is_deleted = b'0'",
@@ -39,10 +46,11 @@ public interface DataPullLegacyCutoverMapper {
             "WHERE task_type = 'PRODUCT_PUBLIC_DETAIL_SYNC'",
             "  AND status IN ('QUEUED', 'RUNNING') AND is_deleted = b'0'",
             "UNION ALL",
-            "SELECT 'DP10_SYNC_TASK', COUNT(*), 0",
+            "SELECT 'DP10_SYNC_TASK', COUNT(*),",
+            "  COALESCE(SUM(CASE WHEN " + SUPERSEDABLE_DP10,
+            "    THEN 1 ELSE 0 END), 0)",
             "FROM procurement_ali1688_order_sync_task",
-            "WHERE (status = 'running' OR (status IN ('failed', 'partial_success')",
-            "  AND COALESCE(retryable, b'1') = b'1')) AND is_deleted = b'0'",
+            "WHERE status = 'running' AND is_deleted = b'0'",
             "UNION ALL",
             "SELECT 'SALES_SYNC_TASK', COUNT(*), 0",
             "FROM sales_sync_task",
