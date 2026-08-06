@@ -139,7 +139,7 @@ for raw in open(sys.argv[1], encoding="utf-8"):
     if key.strip() != "NUONO_DATA_PULL_EXECUTION_MODE":
         continue
     value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+    if len(value) >= 2 and value[0] == value[-1] and ord(value[0]) in (34, 39):
         value = value[1:-1]
     values.append(value)
 if not values:
