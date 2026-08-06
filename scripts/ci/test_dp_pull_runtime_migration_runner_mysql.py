@@ -201,9 +201,34 @@ class DpPullRuntimeMigrationRunnerMySqlTest(unittest.TestCase):
     def _ensure_asn_line(mysql):
         mysql.client.execute(
             "CREATE TABLE IF NOT EXISTS official_warehouse_asn_line ("
-            "id BIGINT NOT NULL,qty INT DEFAULT NULL,PRIMARY KEY(id)) "
+            "id BIGINT NOT NULL,qty INT NOT NULL,PRIMARY KEY(id)) "
             "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
         )
+        qty_exists = mysql.client.execute_readonly(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema=DATABASE() "
+            "AND table_name='official_warehouse_asn_line' "
+            "AND column_name='qty';"
+        )
+        if qty_exists == "0":
+            mysql.client.execute(
+                "ALTER TABLE official_warehouse_asn_line "
+                "ADD COLUMN qty INT DEFAULT NULL;"
+            )
+        mysql.client.execute(
+            "UPDATE official_warehouse_asn_line SET qty=0 WHERE qty IS NULL;"
+            "ALTER TABLE official_warehouse_asn_line "
+            "MODIFY COLUMN qty INT NOT NULL;"
+        )
+        qty_shape = mysql.client.execute_readonly(
+            "SELECT CONCAT(DATA_TYPE,':',IS_NULLABLE,':',"
+            "IF(COLUMN_DEFAULT IS NULL,'NULL',COLUMN_DEFAULT)) "
+            "FROM information_schema.columns WHERE table_schema=DATABASE() "
+            "AND table_name='official_warehouse_asn_line' "
+            "AND column_name='qty';"
+        )
+        if qty_shape != "int:NO:NULL":
+            raise AssertionError(f"unexpected ASN qty fixture shape: {qty_shape}")
 
     @staticmethod
     def _drop_manual_quantity(mysql):
