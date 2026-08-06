@@ -1,5 +1,6 @@
 package com.nuono.next.datapull.orchestration;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -12,11 +13,37 @@ import java.util.Map;
 import javax.sql.DataSource;
 import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.support.GenericApplicationContext;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 class DataPullManagedReleaseStartupGuardTest {
+
+    @Test
+    void springContextConstructsGuardInLegacyDefaultAndExplicitRuntimeModes() {
+        ApplicationContextRunner legacyDefault = new ApplicationContextRunner()
+                .withPropertyValues("spring.profiles.active=local-db")
+                .withUserConfiguration(GuardConfiguration.class);
+        ApplicationContextRunner explicitRuntime = legacyDefault.withPropertyValues(
+                DataPullExecutionMode.PROPERTY + "=RUNTIME"
+        );
+
+        legacyDefault.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasSingleBean(DataPullManagedReleaseStartupGuard.class);
+            assertThat(DataPullExecutionMode.resolve(context.getEnvironment()))
+                    .isEqualTo(DataPullExecutionMode.LEGACY);
+        });
+        explicitRuntime.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(context).hasSingleBean(DataPullManagedReleaseStartupGuard.class);
+            assertThat(DataPullExecutionMode.resolve(context.getEnvironment()))
+                    .isEqualTo(DataPullExecutionMode.RUNTIME);
+        });
+    }
 
     @Test
     void managedReleaseCannotBypassRuntimeWithProfileOrExecutionModeOverrides() {
@@ -229,5 +256,10 @@ class DataPullManagedReleaseStartupGuardTest {
         markers.put(DataPullManagedReleaseProvenanceEvidence.SCHEMA_BINDING, "d".repeat(64));
         markers.put(DataPullManagedReleaseProvenanceEvidence.CUTOVER_BINDING, "e".repeat(64));
         return markers;
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @Import(DataPullManagedReleaseStartupGuard.class)
+    static class GuardConfiguration {
     }
 }

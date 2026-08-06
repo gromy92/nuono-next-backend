@@ -5,6 +5,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import javax.sql.DataSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
 import org.springframework.core.env.Environment;
@@ -30,6 +31,7 @@ public final class DataPullManagedReleaseStartupGuard
     private final ApplicationContext applicationContext;
     private final Map<String, String> processEnvironment;
 
+    @Autowired
     public DataPullManagedReleaseStartupGuard(
             Environment environment,
             ApplicationContext applicationContext
