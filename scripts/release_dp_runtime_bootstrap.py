@@ -215,6 +215,7 @@ rollback_managed_release_data() {
     [ "$cutover_count" = 11 ] || return 1
     verify_dp_runtime_database_binding || return 1
   fi
+  rollback_dp_runtime_legacy_cohort || return 1
   dp_runtime_db_scalar "START TRANSACTION;
     DELETE anchor FROM dp_pull_schedule_anchor anchor
       JOIN dp_pull_schedule_cutover cutover
@@ -228,11 +229,6 @@ rollback_managed_release_data() {
       WHERE cutover_key='dp-runtime-$EXPECTED_COMMIT';
     DELETE FROM dp_pull_scope_admission
       WHERE cutover_key='dp-runtime-$EXPECTED_COMMIT';
-    UPDATE noon_pull_task SET status='QUEUED', failure_type=NULL, retry_action=NULL,
-      retryable=NULL, requires_manual_action=NULL, diagnostic_summary=NULL,
-      finished_at=NULL, gmt_updated=NOW()
-      WHERE status='CANCELLED' AND failure_type='runtime_cutover_superseded'
-        AND diagnostic_summary='Managed DP runtime cutover $EXPECTED_COMMIT';
     COMMIT;"
   [ "$(dp_runtime_db_scalar 'SELECT COUNT(*) FROM dp_pull_schedule_cutover;')" = 0 ]
   require_legacy_cutover_ready

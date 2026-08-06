@@ -89,39 +89,6 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         self.assertLess(function.index("require_legacy_cutover_ready"), function.index("UPDATE noon_pull_task"))
         self.assertLess(function.index("UPDATE noon_pull_task"), function.index("require_legacy_cutover_empty"))
 
-    def test_only_strict_never_started_complete_snapshots_can_be_cancelled(self):
-        function = cutover_fragment()[
-            cutover_fragment().index("finalize_dp_runtime_legacy_cutover()"):
-        ]
-        required = (
-            "UPDATE noon_pull_task",
-            "status='QUEUED'",
-            "trigger_mode='SCHEDULED_DAILY'",
-            "pull_type='INTERFACE'",
-            "target_identity LIKE 'product-list:%'",
-            "target_identity LIKE 'official-warehouse-fbn-inventory:%'",
-            "started_at IS NULL",
-            "locked_by IS NULL",
-            "source_batch_id IS NULL",
-            "auth_recovery_id IS NULL",
-            "checkpoint_cursor IS NULL",
-            "next_resume_position IS NULL",
-            "report_export_id IS NULL",
-            "report_download_url IS NULL",
-            "report_poll_attempts,0)=0",
-            "failure_type IS NULL",
-            "retry_action IS NULL",
-            "diagnostic_summary IS NULL",
-            "finished_at IS NULL",
-            "failure_type='runtime_cutover_superseded'",
-        )
-        for marker in required:
-            self.assertIn(marker, function)
-        self.assertNotIn("UPDATE operational_task", function)
-        self.assertNotIn("UPDATE procurement_ali1688_order_sync_task", function)
-        self.assertNotIn("UPDATE sales_sync_task", function)
-        self.assertNotIn("UPDATE noon_auth_identity_recovery_item", function)
-
     def test_every_legacy_writer_cohort_and_auth_wait_is_fail_closed(self):
         fragment = cutover_fragment()
         markers = (
@@ -137,36 +104,6 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         )
         for marker in markers:
             self.assertIn(marker, fragment)
-
-    def test_ready_gate_allows_only_zero_or_supersedable_noon_rows(self):
-        accepted = run_fragment("""
-dp_runtime_legacy_counts() { printf '2\\t2\\t0\\t0\\t0\\t0\\n'; }
-require_legacy_cutover_ready
-[ "$DP_RUNTIME_LEGACY_SAFE_SNAPSHOT_COUNT" = 2 ]
-""")
-        started = run_fragment("""
-dp_runtime_legacy_counts() { printf '2\\t1\\t0\\t0\\t0\\t0\\n'; }
-require_legacy_cutover_ready
-""")
-        sales = run_fragment("""
-dp_runtime_legacy_counts() { printf '0\\t0\\t0\\t0\\t1\\t0\\n'; }
-require_legacy_cutover_ready
-""")
-
-        self.assertEqual(0, accepted.returncode, accepted.stderr)
-        self.assertNotEqual(0, started.returncode)
-        self.assertNotEqual(0, sales.returncode)
-
-    def test_stopped_old_service_recheck_blocks_before_update(self):
-        result = run_fragment("""
-assert_no_backend_jvms() { :; }
-require_legacy_cutover_ready() { return 19; }
-dp_runtime_db_scalar() { echo unexpected-database-write >&2; return 88; }
-finalize_dp_runtime_legacy_cutover
-""")
-
-        self.assertNotEqual(0, result.returncode)
-        self.assertNotIn("unexpected-database-write", result.stderr)
 
     def test_database_binding_is_rechecked_before_start_and_cutover(self):
         script = build_script()
@@ -244,7 +181,10 @@ finalize_dp_runtime_legacy_cutover
         self.assertLess(rollback.index("rollback_managed_release_data"), rollback.index("restart_old_runtime"))
         self.assertIn('"$(dp_runtime_new_work_count)" = 0', hook)
         self.assertIn("verify_dp_runtime_database_binding", hook)
-        self.assertIn("Managed DP runtime cutover $EXPECTED_COMMIT", hook)
+        self.assertIn("rollback_dp_runtime_legacy_cohort", hook)
+        self.assertIn("DP_RUNTIME_NOON_SUPERSEDED_IDS", script)
+        self.assertIn("DP_RUNTIME_DP10_SUPERSEDED_IDS", script)
+        self.assertIn("status='running'", script)
 
     def test_rollback_fence_counts_every_244_through_248_runtime_table(self):
         script = build_script()

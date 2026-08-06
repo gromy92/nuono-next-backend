@@ -44,32 +44,21 @@ class DataPullLegacyTaskDrainEvidenceTest {
     }
 
     @Test
-    void mapperAllowsOnlyStrictlyNeverStartedScheduledCompleteSnapshots() {
+    void mapperClassifiesOnlyZeroFactScheduledNoonTasksAsSupersedable() {
         String sql = mapperSql();
         assertContains(sql,
-                "status = 'QUEUED'",
+                "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
                 "trigger_mode = 'SCHEDULED_DAILY'",
-                "pull_type = 'INTERFACE'",
-                "data_domain = 'PRODUCT'",
-                "target_identity LIKE 'product-list:%'",
-                "data_domain = 'OFFICIAL_WAREHOUSE_INVENTORY'",
-                "target_identity LIKE 'official-warehouse-fbn-inventory:%'",
-                "started_at IS NULL",
-                "locked_by IS NULL",
-                "source_batch_id IS NULL",
-                "auth_recovery_id IS NULL",
+                "data_domain IN ('PRODUCT', 'SALES', 'ORDER', 'FINANCE_TRANSACTION'",
+                "status = 'BLOCKED_AUTH' AND retry_action = 'WAIT_FOR_AUTH'",
+                "status = 'QUEUED' AND started_at IS NULL",
+                "status = 'RUNNING' AND started_at IS NOT NULL",
                 "checkpoint_cursor IS NULL",
                 "next_resume_position IS NULL",
                 "last_safe_response_summary IS NULL",
-                "report_export_id IS NULL",
-                "report_download_url IS NULL",
-                "report_export_status IS NULL",
-                "report_total_rows IS NULL",
-                "report_last_poll_at IS NULL",
-                "report_next_poll_at IS NULL",
                 "COALESCE(processed_item_count, 0) = 0",
                 "COALESCE(request_count, 0) = 0",
-                "COALESCE(report_poll_attempts, 0) = 0",
+                "COALESCE(report_total_rows, 0) = 0",
                 "finished_at IS NULL"
         );
     }
@@ -81,6 +70,7 @@ class DataPullLegacyTaskDrainEvidenceTest {
                 "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
                 "task_type = 'PRODUCT_PUBLIC_DETAIL_SYNC'",
                 "FROM procurement_ali1688_order_sync_task",
+                "status = 'running'",
                 "FROM sales_sync_task",
                 "status IN ('queued', 'running', 'waiting_authorization')",
                 "status IN ('PENDING', 'VALIDATING')",
