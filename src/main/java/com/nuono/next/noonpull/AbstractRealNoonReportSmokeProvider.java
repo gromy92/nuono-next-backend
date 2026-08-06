@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonBinaryDownloadContractException;
+import com.nuono.next.noon.NoonBinaryDownloadSink;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Locale;
@@ -12,7 +14,6 @@ import java.util.Set;
 import org.springframework.util.StringUtils;
 
 abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider {
-    private static final String EMPTY_REPORT_URL_PREFIX = "memory://noon-empty-report/";
     private static final Set<String> FAILED_STATUS_CODES = Set.of(
             "FAILED",
             "FAILURE",
@@ -63,7 +64,9 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
             body.put("exportCategoryCode", exportCategoryCode(request));
             body.put("params", writeParams(buildParams(binding, request)));
 
-            JsonNode root = sessionFactory.login(binding).postJson(createUrl, body, true, reportHeaders(binding));
+            JsonNode root = sessionFactory.openOneShot(binding).postJsonOnce(
+                    createUrl, body, true, reportHeaders(binding)
+            );
             String providerError = providerError(root);
             if (StringUtils.hasText(providerError)) {
                 throw NoonPullProviderFailureMapper.explicit(
@@ -89,7 +92,9 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
             body.put("exportCode", exportId);
             body.put("log", false);
 
-            JsonNode root = sessionFactory.login(binding).postJson(statusUrl, body, true, reportHeaders(binding));
+            JsonNode root = sessionFactory.openOneShot(binding).postJsonOnce(
+                    statusUrl, body, true, reportHeaders(binding)
+            );
             String providerError = providerError(root);
             if (StringUtils.hasText(providerError)) {
                 throw NoonPullProviderFailureMapper.explicit("report export status", providerError);
@@ -99,14 +104,25 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
             String statusCode = firstText(exportNode, "status_code", "statusCode", "status");
             if ("COMPLETE".equalsIgnoreCase(statusCode) || "COMPLETED".equalsIgnoreCase(statusCode)) {
                 String downloadUrl = firstText(exportNode, "download_url", "downloadUrl", "download");
-                int totalRows = totalRows(exportNode.path("result"));
-                if (!StringUtils.hasText(downloadUrl) && totalRows <= 0) {
-                    return NoonReportExportStatus.ready(EMPTY_REPORT_URL_PREFIX + exportCategoryCode(request) + "/" + exportId);
-                }
-                if (!StringUtils.hasText(downloadUrl)) {
+                Integer totalRows = totalRows(exportNode.path("result"));
+                if (!StringUtils.hasText(downloadUrl)
+                        && (totalRows == null || totalRows != 0)) {
                     throw new NoonInterfacePullException("mapping failed: report export completed without download url");
                 }
-                return NoonReportExportStatus.ready(downloadUrl);
+                String providerExportId = firstText(
+                        exportNode,
+                        "export_code",
+                        "exportCode",
+                        "export",
+                        "code"
+                );
+                return StringUtils.hasText(providerExportId)
+                        ? NoonReportExportStatus.readyForProviderExport(
+                                providerExportId,
+                                downloadUrl,
+                                totalRows
+                        )
+                        : NoonReportExportStatus.ready(downloadUrl, totalRows);
             }
             if (FAILED_STATUS_CODES.contains(statusCode == null ? "" : statusCode.toUpperCase(Locale.ROOT))) {
                 throw new NoonInterfacePullException("provider unavailable: report export failed " + statusCode);
@@ -120,13 +136,39 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
     @Override
     public byte[] download(NoonReportPullRequest request, String downloadUrl) {
         try {
-            if (StringUtils.hasText(downloadUrl) && downloadUrl.startsWith(EMPTY_REPORT_URL_PREFIX)) {
-                return emptyReportCsv().getBytes(StandardCharsets.UTF_8);
-            }
             NoonPullStoreBinding binding = bindingResolver.resolve(request);
-            return sessionFactory.login(binding).getBytes(effectiveDownloadUrl(downloadUrl), false, Map.of("Accept", "text/csv,*/*"));
+            return sessionFactory.openOneShot(binding).getBytesOnce(
+                    effectiveDownloadUrl(downloadUrl),
+                    false,
+                    Map.of("Accept", "text/csv,*/*")
+            );
         } catch (RuntimeException exception) {
             throw NoonPullProviderFailureMapper.map("report download " + safeRequestContext(request), exception);
+        }
+    }
+
+    @Override
+    public void download(
+            NoonReportPullRequest request,
+            String downloadUrl,
+            NoonBinaryDownloadSink sink
+    ) {
+        try {
+            NoonPullStoreBinding binding = bindingResolver.resolve(request);
+            sessionFactory.openOneShot(binding).getBytesOnce(
+                    effectiveDownloadUrl(downloadUrl),
+                    false,
+                    Map.of("Accept", "text/csv,*/*", "Accept-Encoding", "identity"),
+                    sink
+            );
+        } catch (NoonBinaryDownloadContractException contractFailure) {
+            sink.abort(contractFailure);
+            throw contractFailure;
+        } catch (RuntimeException exception) {
+            sink.abort(exception);
+            throw NoonPullProviderFailureMapper.map(
+                    "report download " + safeRequestContext(request), exception
+            );
         }
     }
 
@@ -172,21 +214,46 @@ abstract class AbstractRealNoonReportSmokeProvider implements NoonReportProvider
         return null;
     }
 
-    private int totalRows(JsonNode resultNode) {
+    private Integer totalRows(JsonNode resultNode) {
         if (resultNode == null || resultNode.isMissingNode() || resultNode.isNull()) {
-            return 0;
+            return null;
         }
         if (resultNode.isObject()) {
-            return resultNode.path("total_rows").asInt(0);
+            return firstInteger(
+                    resultNode.path("total_rows"),
+                    resultNode.path("totalRows"),
+                    resultNode.path("row_count"),
+                    resultNode.path("rowCount")
+            );
         }
         if (!StringUtils.hasText(resultNode.asText())) {
-            return 0;
+            return null;
         }
         try {
-            return objectMapper.readTree(resultNode.asText()).path("total_rows").asInt(0);
+            return totalRows(objectMapper.readTree(resultNode.asText()));
         } catch (JsonProcessingException exception) {
-            return 0;
+            return null;
         }
+    }
+
+    private Integer firstInteger(JsonNode... nodes) {
+        for (JsonNode node : nodes) {
+            if (node == null || node.isMissingNode() || node.isNull()) {
+                continue;
+            }
+            if (node.isIntegralNumber() && node.canConvertToInt()) {
+                return node.asInt();
+            }
+            String text = node.asText(null);
+            if (StringUtils.hasText(text)) {
+                try {
+                    return Integer.parseInt(text.trim());
+                } catch (NumberFormatException ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 
     private String firstText(JsonNode node, String... fieldNames) {

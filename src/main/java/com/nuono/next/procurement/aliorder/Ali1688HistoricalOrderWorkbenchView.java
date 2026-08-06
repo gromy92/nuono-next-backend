@@ -12,12 +12,11 @@ public class Ali1688HistoricalOrderWorkbenchView {
     private AuthorizationView authorization;
     private StoreScopeView storeScope;
     private RoleCapabilities roleCapabilities;
-    private SyncSummaryView syncSummary;
     private List<OrderRowView> orders = new ArrayList<>();
     private PaginationView pagination;
 
     public static Ali1688HistoricalOrderWorkbenchView noAuthorization(BusinessAccessContext context) {
-        return base(context, AuthorizationView.notAuthorized(), false);
+        return base(context, AuthorizationView.notAuthorized());
     }
 
     public static Ali1688HistoricalOrderWorkbenchView noAuthorization(
@@ -44,7 +43,7 @@ public class Ali1688HistoricalOrderWorkbenchView {
             BusinessAccessContext context,
             Ali1688HistoricalOrderAuthorizationRow authorization
     ) {
-        return base(context, AuthorizationView.fromRow(authorization), true);
+        return base(context, AuthorizationView.fromRow(authorization));
     }
 
     public static Ali1688HistoricalOrderWorkbenchView authorizedWithOrders(
@@ -52,15 +51,12 @@ public class Ali1688HistoricalOrderWorkbenchView {
             Ali1688HistoricalOrderAuthorizationRow authorization,
             List<OrderRowView> orders,
             int totalOrderCount,
-            int totalItemCount,
-            Ali1688HistoricalOrderSyncTaskRow latestTask,
             Ali1688HistoricalOrderQuery query,
             StoreScopeView storeScope
     ) {
         Ali1688HistoricalOrderWorkbenchView view = authorized(context, authorization);
         view.setStoreScope(storeScope);
         view.setOrders(orders);
-        view.setSyncSummary(SyncSummaryView.fromCounts(totalOrderCount, totalItemCount, latestTask));
         PaginationView pagination = new PaginationView();
         Ali1688HistoricalOrderQuery resolvedQuery = query == null
                 ? Ali1688HistoricalOrderQuery.defaultQuery()
@@ -74,8 +70,7 @@ public class Ali1688HistoricalOrderWorkbenchView {
 
     private static Ali1688HistoricalOrderWorkbenchView base(
             BusinessAccessContext context,
-            AuthorizationView authorization,
-            boolean canTriggerSync
+            AuthorizationView authorization
     ) {
         Ali1688HistoricalOrderWorkbenchView view = new Ali1688HistoricalOrderWorkbenchView();
         view.setReady(true);
@@ -83,8 +78,7 @@ public class Ali1688HistoricalOrderWorkbenchView {
         view.setMessage(authorization.getMessage());
         view.setAuthorization(authorization);
         view.setStoreScope(StoreScopeView.ownerScope());
-        view.setRoleCapabilities(RoleCapabilities.fromContext(context, canTriggerSync));
-        view.setSyncSummary(SyncSummaryView.notStarted());
+        view.setRoleCapabilities(RoleCapabilities.fromContext(context));
         view.setOrders(List.of());
         PaginationView pagination = new PaginationView();
         pagination.setPage(1);
@@ -140,14 +134,6 @@ public class Ali1688HistoricalOrderWorkbenchView {
 
     public void setRoleCapabilities(RoleCapabilities roleCapabilities) {
         this.roleCapabilities = roleCapabilities;
-    }
-
-    public SyncSummaryView getSyncSummary() {
-        return syncSummary;
-    }
-
-    public void setSyncSummary(SyncSummaryView syncSummary) {
-        this.syncSummary = syncSummary;
     }
 
     public List<OrderRowView> getOrders() {
@@ -360,13 +346,11 @@ public class Ali1688HistoricalOrderWorkbenchView {
 
     public static class RoleCapabilities {
         private boolean canAuthorize;
-        private boolean canTriggerSync;
         private boolean canViewOrders;
 
-        static RoleCapabilities fromContext(BusinessAccessContext context, boolean canTriggerSync) {
+        static RoleCapabilities fromContext(BusinessAccessContext context) {
             RoleCapabilities capabilities = new RoleCapabilities();
             capabilities.setCanAuthorize(context != null && context.isBossAccount());
-            capabilities.setCanTriggerSync(canTriggerSync && Ali1688HistoricalOrderPermission.canTriggerSync(context));
             capabilities.setCanViewOrders(true);
             return capabilities;
         }
@@ -379,166 +363,12 @@ public class Ali1688HistoricalOrderWorkbenchView {
             this.canAuthorize = canAuthorize;
         }
 
-        public boolean isCanTriggerSync() {
-            return canTriggerSync;
-        }
-
-        public void setCanTriggerSync(boolean canTriggerSync) {
-            this.canTriggerSync = canTriggerSync;
-        }
-
         public boolean isCanViewOrders() {
             return canViewOrders;
         }
 
         public void setCanViewOrders(boolean canViewOrders) {
             this.canViewOrders = canViewOrders;
-        }
-    }
-
-    public static class SyncSummaryView {
-        private String latestTaskStatus;
-        private int totalOrderCount;
-        private int totalItemCount;
-        private int processedCount;
-        private int importedCount;
-        private int failedCount;
-        private int progressPercent;
-        private String failureCode;
-        private String failureMessage;
-        private boolean retryable;
-        private boolean requiresManualAction;
-        private String checkpointJson;
-
-        static SyncSummaryView notStarted() {
-            SyncSummaryView view = new SyncSummaryView();
-            view.setLatestTaskStatus("not_started");
-            view.setTotalOrderCount(0);
-            view.setTotalItemCount(0);
-            return view;
-        }
-
-        static SyncSummaryView fromCounts(
-                int totalOrderCount,
-                int totalItemCount,
-                Ali1688HistoricalOrderSyncTaskRow latestTask
-        ) {
-            SyncSummaryView view = new SyncSummaryView();
-            view.setLatestTaskStatus(latestTask == null
-                    ? (totalOrderCount > 0 || totalItemCount > 0 ? "success" : "not_started")
-                    : latestTask.getStatus());
-            view.setTotalOrderCount(totalOrderCount);
-            view.setTotalItemCount(totalItemCount);
-            view.setProcessedCount(latestTask == null ? 0 : nullToZero(latestTask.getProcessedCount()));
-            view.setImportedCount(latestTask == null ? totalItemCount : nullToZero(latestTask.getImportedCount()));
-            view.setFailedCount(latestTask == null ? 0 : nullToZero(latestTask.getFailedCount()));
-            view.setProgressPercent(latestTask == null ? 0 : nullToZero(latestTask.getProgressPercent()));
-            view.setFailureCode(latestTask == null ? null : latestTask.getFailureCode());
-            view.setFailureMessage(latestTask == null ? null : latestTask.getFailureMessage());
-            view.setRetryable(latestTask != null && Boolean.TRUE.equals(latestTask.getRetryable()));
-            view.setRequiresManualAction(latestTask != null && Boolean.TRUE.equals(latestTask.getRequiresManualAction()));
-            view.setCheckpointJson(latestTask == null ? null : latestTask.getCheckpointJson());
-            return view;
-        }
-
-        private static int nullToZero(Integer value) {
-            return value == null ? 0 : value;
-        }
-
-        public String getLatestTaskStatus() {
-            return latestTaskStatus;
-        }
-
-        public void setLatestTaskStatus(String latestTaskStatus) {
-            this.latestTaskStatus = latestTaskStatus;
-        }
-
-        public int getTotalOrderCount() {
-            return totalOrderCount;
-        }
-
-        public void setTotalOrderCount(int totalOrderCount) {
-            this.totalOrderCount = totalOrderCount;
-        }
-
-        public int getTotalItemCount() {
-            return totalItemCount;
-        }
-
-        public void setTotalItemCount(int totalItemCount) {
-            this.totalItemCount = totalItemCount;
-        }
-
-        public int getProcessedCount() {
-            return processedCount;
-        }
-
-        public void setProcessedCount(int processedCount) {
-            this.processedCount = processedCount;
-        }
-
-        public int getImportedCount() {
-            return importedCount;
-        }
-
-        public void setImportedCount(int importedCount) {
-            this.importedCount = importedCount;
-        }
-
-        public int getFailedCount() {
-            return failedCount;
-        }
-
-        public void setFailedCount(int failedCount) {
-            this.failedCount = failedCount;
-        }
-
-        public int getProgressPercent() {
-            return progressPercent;
-        }
-
-        public void setProgressPercent(int progressPercent) {
-            this.progressPercent = progressPercent;
-        }
-
-        public String getFailureCode() {
-            return failureCode;
-        }
-
-        public void setFailureCode(String failureCode) {
-            this.failureCode = failureCode;
-        }
-
-        public String getFailureMessage() {
-            return failureMessage;
-        }
-
-        public void setFailureMessage(String failureMessage) {
-            this.failureMessage = failureMessage;
-        }
-
-        public boolean isRetryable() {
-            return retryable;
-        }
-
-        public void setRetryable(boolean retryable) {
-            this.retryable = retryable;
-        }
-
-        public boolean isRequiresManualAction() {
-            return requiresManualAction;
-        }
-
-        public void setRequiresManualAction(boolean requiresManualAction) {
-            this.requiresManualAction = requiresManualAction;
-        }
-
-        public String getCheckpointJson() {
-            return checkpointJson;
-        }
-
-        public void setCheckpointJson(String checkpointJson) {
-            this.checkpointJson = checkpointJson;
         }
     }
 

@@ -5,13 +5,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
-@ConditionalOnProperty(prefix = "nuono.noon.pull.real-provider", name = "enabled", havingValue = "true")
+@Conditional(NoonPullRealProviderCondition.class)
 public class RealNoonOrderReportSmokeProvider extends NoonSalesDashboardExportProvider implements NoonOrderReportSmokeProvider {
     private static final String DEFAULT_GENERATE_URL =
             "https://reports.noon.partners/_vs/mp/mp-inventory-health-api-sales-dashboard/export/generate";

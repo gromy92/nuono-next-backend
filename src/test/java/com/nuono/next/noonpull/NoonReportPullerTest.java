@@ -5,16 +5,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,11 +20,14 @@ class NoonReportPullerTest {
     private InMemoryNoonPullRepository repository;
     private NoonPullFoundationService foundationService;
     private NoonReportPuller puller;
-    private MutableClock clock;
+    private NoonReportMutableClock clock;
 
     @BeforeEach
     void setUp() {
-        clock = new MutableClock(Instant.parse("2026-05-22T09:00:00Z"), ZoneOffset.UTC);
+        clock = new NoonReportMutableClock(
+                Instant.parse("2026-05-22T09:00:00Z"),
+                ZoneOffset.UTC
+        );
         repository = new InMemoryNoonPullRepository();
         foundationService = new NoonPullFoundationService(repository, clock, new NoonPullFailurePolicy(clock));
         puller = new NoonReportPuller(
@@ -60,7 +59,26 @@ class NoonReportPullerTest {
     }
 
     @Test
-    void shouldFailWithTypedFailureForMissingDownloadUrlAndFailedExportButKeepPendingRunning() {
+    void shouldCompleteWhenAdapterExplicitlyReportsBusinessRowSkips() {
+        NoonPullTaskRecord task = createSalesTask("sales:business-skips");
+
+        NoonReportPullResult result = puller.execute(
+                task.getId(),
+                salesRequest(),
+                FakeReportProvider.ready(
+                        "date,sku_parent,units_sold,sales_amount,currency\n2026-05-21,Z1,2,39.90,AED\n"
+                ),
+                (file) -> NoonReportProcessResult.succeededWithBusinessSkips(1, 2)
+        );
+
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
+        assertEquals(1, result.getImportedCount());
+        assertEquals(2, result.getExceptionCount());
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, repository.selectTask(task.getId()).getStatus());
+    }
+
+    @Test
+    void shouldRetryMissingDownloadUrlAndFailedExportButKeepPendingRunning() {
         NoonPullTaskRecord missingUrlTask = createSalesTask("sales:missing-url");
         NoonReportPullResult missingUrl = puller.execute(
                 missingUrlTask.getId(),
@@ -69,8 +87,8 @@ class NoonReportPullerTest {
                 (file) -> NoonReportProcessResult.succeeded(0, 0)
         );
 
-        assertEquals(NoonPullTaskStatus.FAILED, missingUrl.getStatus());
-        assertEquals("mapping_failed", repository.selectTask(missingUrlTask.getId()).getFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, missingUrl.getStatus());
+        assertEquals("provider_unavailable", repository.selectTask(missingUrlTask.getId()).getFailureType());
 
         NoonPullTaskRecord failedExportTask = createSalesTask("sales:failed-export");
         NoonReportPullResult failedExport = puller.execute(
@@ -165,13 +183,13 @@ class NoonReportPullerTest {
     }
 
     @Test
-    void shouldStopBeforeProviderCallWhenReportPollLimitIsExhausted() {
+    void shouldContinueTheSameExportBeyondTheLegacyPollAttemptLimit() {
         NoonPullTaskRecord task = createSalesTask("sales:poll-limit");
         FakeReportProvider provider = FakeReportProvider.pending();
 
         puller.execute(task.getId(), salesRequest(), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
         puller.execute(task.getId(), salesRequest(), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
-        NoonReportPullResult exhausted = puller.execute(
+        NoonReportPullResult continued = puller.execute(
                 task.getId(),
                 salesRequest(),
                 provider,
@@ -179,21 +197,24 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, exhausted.getStatus());
-        assertEquals("report_lifecycle_exceeded", persisted.getFailureType());
-        assertEquals(Boolean.FALSE, persisted.getRetryable());
-        assertEquals(Boolean.TRUE, persisted.getRequiresManualAction());
-        assertEquals(List.of("create", "poll:EXP-1", "poll:EXP-1"), provider.calls);
+        assertEquals(NoonPullTaskStatus.RUNNING, continued.getStatus());
+        assertEquals(null, persisted.getFailureType());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertEquals(3, intProperty(persisted, "reportPollAttempts"));
+        assertEquals(
+                List.of("create", "poll:EXP-1", "poll:EXP-1", "poll:EXP-1"),
+                provider.calls
+        );
     }
 
     @Test
-    void shouldStopBeforeProviderCallWhenRunningReportIsOlderThanTwoDays() {
+    void shouldContinueTheSameExportAfterTwoDaysWithoutInferringADeadLifecycle() {
         NoonPullTaskRecord task = createSalesTask("sales:age-limit");
         FakeReportProvider provider = FakeReportProvider.pending();
 
         puller.execute(task.getId(), salesRequest(18), provider, (file) -> NoonReportProcessResult.succeeded(0, 0));
         clock.setInstant(Instant.parse("2026-05-24T09:00:01Z"));
-        NoonReportPullResult exhausted = puller.execute(
+        NoonReportPullResult continued = puller.execute(
                 task.getId(),
                 salesRequest(18),
                 provider,
@@ -201,9 +222,10 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, exhausted.getStatus());
-        assertEquals("report_lifecycle_exceeded", persisted.getFailureType());
-        assertEquals(List.of("create", "poll:EXP-1"), provider.calls);
+        assertEquals(NoonPullTaskStatus.RUNNING, continued.getStatus());
+        assertEquals(null, persisted.getFailureType());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertEquals(List.of("create", "poll:EXP-1", "poll:EXP-1"), provider.calls);
     }
 
     @Test
@@ -245,7 +267,6 @@ class NoonReportPullerTest {
         assertEquals(NoonPullRetryAction.DELAY.name(), persisted.getRetryAction());
         assertEquals(Boolean.TRUE, persisted.getRetryable());
         assertEquals(Boolean.FALSE, persisted.getRequiresManualAction());
-        assertEquals("risk_backoff", stringProperty(persisted, "readinessState"));
         assertEquals(1, intProperty(persisted, "reportPollAttempts"));
         assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(persisted, "reportNextPollAt"));
         assertTrue(persisted.getDiagnosticSummary().contains("blocked by risk control"));
@@ -276,7 +297,7 @@ class NoonReportPullerTest {
     }
 
     @Test
-    void shouldDelayOrderReportWithoutCallingProviderWhileReportScopeIsInRiskBackoff() {
+    void shouldKeepSalesRiskBackoffIsolatedFromAnOrderScope() {
         NoonPullTaskRecord salesTask = createSalesTask("sales:risk-blocks-order");
         executeRiskFailure(salesTask, "blocked by risk control");
 
@@ -291,16 +312,13 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(orderTask.getId());
 
-        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
-        assertTrue(orderProvider.calls.isEmpty());
-        assertEquals("blocked_by_risk_control", persisted.getFailureType());
-        assertEquals(NoonPullRetryAction.DELAY.name(), persisted.getRetryAction());
-        assertEquals("risk_backoff", stringProperty(persisted, "readinessState"));
-        assertEquals(LocalDateTime.of(2026, 5, 22, 9, 2), property(persisted, "reportNextPollAt"));
+        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
+        assertEquals(List.of("create", "poll:EXP-1", "download"), orderProvider.calls);
+        assertEquals(null, persisted.getFailureType());
     }
 
     @Test
-    void shouldRecordProofForEmptySalesReportPendingConfirmation() {
+    void shouldKeepSalesExportPendingWhenOnlyTheDownloadedFileAppearsEmpty() {
         NoonPullTaskRecord task = createSalesTask("sales:empty-report");
         FakeReportProvider provider = FakeReportProvider.ready(
                 "Visit_Date,Partner_SKU,SKU,Currency_Code,Shipped_Units,Revenue_Shipped\n"
@@ -319,23 +337,38 @@ class NoonReportPullerTest {
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
         assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
-        assertEquals("empty_report_pending_confirmation", persisted.getFailureType());
+        assertEquals("report_not_ready", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
         assertTrue(persisted.getDiagnosticSummary().contains("exportStatus=READY"));
         assertTrue(persisted.getDiagnosticSummary().contains("download=true"));
-        assertTrue(persisted.getDiagnosticSummary().contains("totalRows=0"));
+        assertTrue(persisted.getDiagnosticSummary().contains("totalRows=unknown"));
         assertTrue(persisted.getDiagnosticSummary().contains("csvHeader=valid"));
         assertTrue(persisted.getDiagnosticSummary().contains("importedRows=0"));
-        assertTrue(persisted.getDiagnosticSummary().contains("confirmationDeadline="));
+        assertTrue(persisted.getDiagnosticSummary().contains(
+                "authoritative_empty_proof_unavailable"
+        ));
     }
 
     @Test
-    void shouldMarkConfirmedEmptyAfterSalesConfirmationWindow() {
+    void shouldNeverInferSalesEmptyFromTimeOrRepeatedLocalContent() {
         NoonPullTaskRecord task = createSalesTask("sales:confirmed-empty");
         FakeReportProvider provider = FakeReportProvider.ready(
                 "Visit_Date,Partner_SKU,SKU,Currency_Code,Shipped_Units,Revenue_Shipped\n"
         );
 
-        NoonReportPullResult result = puller.execute(
+        NoonReportPullResult first = puller.execute(
+                task.getId(),
+                salesRequest(),
+                provider,
+                new NoonSalesReportAdapter(
+                        (fact) -> {
+                        },
+                        Clock.fixed(Instant.parse("2026-05-26T09:00:00Z"), ZoneOffset.UTC)
+                )::process
+        );
+        clock.setInstant(Instant.parse("2026-05-26T09:00:00Z"));
+        NoonReportPullResult second = puller.execute(
                 task.getId(),
                 salesRequest(),
                 provider,
@@ -347,16 +380,20 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
-        assertEquals("confirmed_empty", persisted.getFailureType());
-        assertEquals(Boolean.FALSE, persisted.getRetryable());
-        assertTrue(persisted.getDiagnosticSummary().contains("exportStatus=READY"));
-        assertTrue(persisted.getDiagnosticSummary().contains("totalRows=0"));
-        assertTrue(persisted.getDiagnosticSummary().contains("confirmed_empty"));
+        assertEquals(NoonPullTaskStatus.RUNNING, first.getStatus());
+        assertEquals(NoonPullTaskStatus.RUNNING, second.getStatus());
+        assertEquals("report_not_ready", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertEquals(2, intProperty(persisted, "reportPollAttempts"));
+        assertEquals(
+                List.of("create", "poll:EXP-1", "download", "poll:EXP-1", "download"),
+                provider.calls
+        );
     }
 
     @Test
-    void shouldAcceptEmptyFinanceTransactionReportAsSuccessfulSettlementObservation() {
+    void shouldNotTreatALocallyEmptyFinanceFileAsAuthoritativeEmpty() {
         NoonPullTaskRecord task = createFinanceTask("finance:accepted-empty");
         FakeReportProvider provider = FakeReportProvider.ready(
                 String.join(",", NoonFinanceTransactionReportDescriptor.requiredColumns()) + "\n"
@@ -371,29 +408,28 @@ class NoonReportPullerTest {
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
         NoonPullPlanRecord plan = repository.selectPlan(task.getPlanId());
 
-        assertEquals(NoonPullTaskStatus.SUCCEEDED, result.getStatus());
-        assertEquals(NoonPullTaskStatus.SUCCEEDED, persisted.getStatus());
-        assertEquals(null, persisted.getFailureType());
-        assertEquals("confirmed_empty", persisted.getReadinessState());
-        assertTrue(persisted.getDiagnosticSummary().contains("confirmed_empty"));
-        assertTrue(persisted.getDiagnosticSummary().contains("accepted_empty_settlement_window"));
-        assertNotNull(plan.getLatestSuccessAt());
-        assertEquals(null, plan.getLatestFailureAt());
-        assertEquals(null, plan.getLatestFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals(NoonPullTaskStatus.RUNNING, persisted.getStatus());
+        assertEquals("report_not_ready", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertEquals(null, plan.getLatestSuccessAt());
+        assertNotNull(plan.getLatestFailureAt());
+        assertEquals("report_not_ready", plan.getLatestFailureType());
     }
 
     @Test
-    void shouldMarkWideWindowOrderReportWithNoTargetDateRowsAsConfirmedEmpty() {
+    void shouldRetryTheSameExportWhenTheOrderWindowContractIsRejected() {
         NoonPullTaskRecord task = createOrderTask("orders:2026-05-21..2026-05-21");
         FakeReportProvider provider = FakeReportProvider.ready(
                 "id_partner,src_country,country_code,dest_country,bayan_nr,item_nr,partner_sku,sku,status,"
                         + "offer_price,gmv_lcy,currency_code,brand_code,family,fulfillment_model,"
                         + "order_timestamp,shipment_timestamp,delivered_timestamp\n"
-                        + "108065,SA,SA,SA,,NSAI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
-                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "108065,AE,AE,AE,,NAEI50094671190-1,PAPERSAYSB359,Z02AD5F198C0C2E813C30Z-1,"
+                        + "Processing,65.8,65.8,AED,papersay,stationery,Fulfilled by Noon (FBN),"
                         + "2026-05-20 23:29:16,,\n"
-                        + "108065,SA,SA,SA,,NSAI50094671191-1,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
-                        + "Processing,65.8,65.8,SAR,papersay,stationery,Fulfilled by Noon (FBN),"
+                        + "108065,AE,AE,AE,,NAEI50094671191-1,PAPERSAYSB360,Z02AD5F198C0C2E813C31Z-1,"
+                        + "Processing,65.8,65.8,AED,papersay,stationery,Fulfilled by Noon (FBN),"
                         + "2026-05-22 00:01:00,,\n"
         );
 
@@ -409,18 +445,18 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
-        assertEquals("confirmed_empty", persisted.getFailureType());
-        assertEquals(Boolean.FALSE, persisted.getRetryable());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals("provider_unavailable", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
         assertEquals(Boolean.FALSE, persisted.getRequiresManualAction());
-        assertEquals("confirmed_empty", stringProperty(persisted, "readinessState"));
-        assertTrue(persisted.getDiagnosticSummary().contains("provider_reused_latest_export"));
-        assertTrue(persisted.getDiagnosticSummary().contains("requested=2026-05-21..2026-05-21"));
-        assertTrue(persisted.getDiagnosticSummary().contains("confirmed_empty"));
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
+        assertTrue(persisted.getDiagnosticSummary().contains(
+                "report_payload_contract_rejected"
+        ));
     }
 
     @Test
-    void shouldPersistMappingFailedDiagnosticFromReportHandler() {
+    void shouldPersistRejectedPayloadDiagnosticWhileRetryingTheSameExport() {
         NoonPullTaskRecord task = createSalesTask("sales:reused-latest-export");
 
         NoonReportPullResult result = puller.execute(
@@ -434,8 +470,10 @@ class NoonReportPullerTest {
         );
         NoonPullTaskRecord persisted = repository.selectTask(task.getId());
 
-        assertEquals(NoonPullTaskStatus.FAILED, result.getStatus());
-        assertEquals("mapping_failed", persisted.getFailureType());
+        assertEquals(NoonPullTaskStatus.RUNNING, result.getStatus());
+        assertEquals("provider_unavailable", persisted.getFailureType());
+        assertEquals(Boolean.TRUE, persisted.getRetryable());
+        assertEquals("EXP-1", stringProperty(persisted, "reportExportId"));
         assertTrue(persisted.getDiagnosticSummary().contains("provider_reused_latest_export"));
         assertTrue(persisted.getDiagnosticSummary().contains("requested=2025-11-28..2025-12-27"));
         assertTrue(persisted.getDiagnosticSummary().contains("actual=2026-05-19..2026-05-19"));
@@ -567,75 +605,6 @@ class NoonReportPullerTest {
                 .build()).orElseThrow();
     }
 
-    private static final class FakeReportProvider implements NoonReportProvider {
-        private final List<String> calls = new ArrayList<>();
-        private final List<NoonReportExportStatus> pollStatuses;
-        private final byte[] content;
-        private final RuntimeException pollException;
-        private FakeReportProvider(NoonReportExportStatus pollStatus, String content) {
-            this(List.of(pollStatus), content, null);
-        }
-
-        private FakeReportProvider(List<NoonReportExportStatus> pollStatuses, String content, RuntimeException pollException) {
-            this.pollStatuses = new ArrayList<>(pollStatuses);
-            this.content = content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8);
-            this.pollException = pollException;
-        }
-
-        private static FakeReportProvider ready(String content) {
-            return new FakeReportProvider(NoonReportExportStatus.ready("https://download.test/sales.csv"), content);
-        }
-
-        private static FakeReportProvider missingDownloadUrl() {
-            return new FakeReportProvider(NoonReportExportStatus.ready(null), "");
-        }
-
-        private static FakeReportProvider pending() {
-            return new FakeReportProvider(NoonReportExportStatus.pending(), "");
-        }
-
-        private static FakeReportProvider failedExport() {
-            return new FakeReportProvider(NoonReportExportStatus.failed("export failed"), "");
-        }
-
-        private static FakeReportProvider sequence(NoonReportExportStatus... statuses) {
-            return new FakeReportProvider(Arrays.asList(statuses),
-                    "date,sku_parent,units_sold,sales_amount,currency\n2026-05-21,Z1,2,39.90,AED\n",
-                    null);
-        }
-
-        private static FakeReportProvider throwingOnPoll(String message) {
-            return new FakeReportProvider(List.of(NoonReportExportStatus.pending()), "", new RuntimeException(message));
-        }
-
-        @Override
-        public String createExport(NoonReportPullRequest request) {
-            calls.add("create");
-            return "EXP-1";
-        }
-
-        @Override
-        public NoonReportExportStatus pollExport(NoonReportPullRequest request, String exportId) {
-            calls.add("poll:" + exportId);
-            if (pollException != null) {
-                throw pollException;
-            }
-            if (pollStatuses.isEmpty()) {
-                return NoonReportExportStatus.pending();
-            }
-            if (pollStatuses.size() == 1) {
-                return pollStatuses.get(0);
-            }
-            return pollStatuses.remove(0);
-        }
-
-        @Override
-        public byte[] download(NoonReportPullRequest request, String downloadUrl) {
-            calls.add("download");
-            return content;
-        }
-    }
-
     private Object property(NoonPullTaskRecord task, String propertyName) {
         try {
             Method method = NoonPullTaskRecord.class.getMethod(
@@ -660,32 +629,4 @@ class NoonReportPullerTest {
         throw new AssertionError("Expected numeric property: " + propertyName + ", got " + value);
     }
 
-    private static final class MutableClock extends Clock {
-        private Instant instant;
-        private final ZoneId zone;
-
-        private MutableClock(Instant instant, ZoneId zone) {
-            this.instant = instant;
-            this.zone = zone;
-        }
-
-        void setInstant(Instant instant) {
-            this.instant = instant;
-        }
-
-        @Override
-        public ZoneId getZone() {
-            return zone;
-        }
-
-        @Override
-        public Clock withZone(ZoneId zone) {
-            return new MutableClock(instant, zone);
-        }
-
-        @Override
-        public Instant instant() {
-            return instant;
-        }
-    }
 }

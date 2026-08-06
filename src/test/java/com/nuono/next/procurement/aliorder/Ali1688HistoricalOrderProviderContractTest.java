@@ -2,6 +2,7 @@ package com.nuono.next.procurement.aliorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 class Ali1688HistoricalOrderProviderContractTest {
@@ -41,6 +42,30 @@ class Ali1688HistoricalOrderProviderContractTest {
         assertThat(item.getUnit()).isEqualTo("套");
         assertThat(item.getLogisticsCompany()).isEqualTo("中通快递(ZTO)");
         assertThat(item.getTrackingNo()).isEqualTo("ZTO20260525001");
+    }
+
+    @Test
+    void dp10RequestCarriesOneFixedOfficialWindowAndPageIdentity() {
+        Instant windowStart = Instant.parse("2026-08-01T04:30:00Z");
+        Instant windowEnd = Instant.parse("2026-08-02T04:00:00Z");
+
+        Ali1688HistoricalOrderRequest request =
+                Ali1688HistoricalOrderRequest.window(
+                        authorization(),
+                        Ali1688HistoricalOrderProvider.SyncMode.INCREMENTAL,
+                        Ali1688HistoricalOrderProvider.Partition.HISTORY,
+                        2,
+                        20,
+                        windowStart,
+                        windowEnd
+                );
+
+        assertThat(request.getMode()).isEqualTo(Ali1688HistoricalOrderProvider.SyncMode.INCREMENTAL);
+        assertThat(request.getPartition()).isEqualTo(Ali1688HistoricalOrderProvider.Partition.HISTORY);
+        assertThat(request.getPageNo()).isEqualTo(2);
+        assertThat(request.getPageSize()).isEqualTo(20);
+        assertThat(request.getModifiedFrom()).isEqualTo(windowStart);
+        assertThat(request.getModifiedTo()).isEqualTo(windowEnd);
     }
 
     private Ali1688HistoricalOrderAuthorizationRow authorization() {

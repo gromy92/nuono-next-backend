@@ -1,10 +1,13 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListPullService;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 @Service
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class NoonPullRetryExecutor {
     private final NoonPullFoundationService foundationService;
     private final NoonPullRetryCoordinator retryCoordinator;

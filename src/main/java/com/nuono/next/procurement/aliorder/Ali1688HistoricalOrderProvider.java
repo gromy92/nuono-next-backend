@@ -1,5 +1,7 @@
 package com.nuono.next.procurement.aliorder;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -9,75 +11,100 @@ public interface Ali1688HistoricalOrderProvider {
         return fetchPage(authorization, null);
     }
 
-    Page fetchPage(Ali1688HistoricalOrderAuthorizationRow authorization, String cursor);
+    default Page fetchPage(Ali1688HistoricalOrderAuthorizationRow authorization, String cursor) {
+        return fetchPage(Ali1688HistoricalOrderRequest.full(authorization, cursor));
+    }
 
-    class Page {
-        private final List<OrderSnapshot> orders;
-        private String nextCursor;
-        private boolean hasMore;
-        private int progressPercent = 100;
-        private String failureCode;
-        private String failureMessage;
-        private boolean retryableFailure;
+    /**
+     * Legacy request-aware entry. Adapters may override it when manual refresh needs details in the
+     * same call; DP-10 always calls {@link #fetchOrderList(Ali1688HistoricalOrderRequest)}.
+     */
+    default Page fetchPage(Ali1688HistoricalOrderRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request must not be null");
+        }
+        return fetchOrderList(request);
+    }
 
+    /** Required DP-10 Seam. Implementations must consume mode, cursor, modifiedFrom and overlap. */
+    Page fetchOrderList(Ali1688HistoricalOrderRequest request);
+
+    /** Pure local contract value captured into the task checkpoint at initialization. */
+    default int listPageSize() {
+        return 20;
+    }
+
+    /** One official detail call for one exact order identity. */
+    default DetailResult fetchOrderDetail(
+            Ali1688HistoricalOrderAuthorizationRow authorization,
+            String providerOrderNo
+    ) {
+        return DetailResult.failure(
+                Ali1688HistoricalOrderFailureCode.PROVIDER_NOT_CONFIGURED.getCode(),
+                null
+        );
+    }
+
+    /** Pure local check used to keep refresh and data HTTP calls in separate runtime advances. */
+    default boolean requiresAuthorizationRefresh(
+            Ali1688HistoricalOrderAuthorizationRow authorization
+    ) {
+        return false;
+    }
+
+    /** Performs at most one refresh HTTP call and persists its sanitized result. */
+    default Ali1688HistoricalOrderAuthorizationRefreshResult refreshAuthorization(
+            Ali1688HistoricalOrderAuthorizationRow authorization
+    ) {
+        return Ali1688HistoricalOrderAuthorizationRefreshResult.success();
+    }
+
+    enum SyncMode {
+        FULL,
+        INCREMENTAL
+    }
+
+    enum Partition {
+        CURRENT(false),
+        HISTORY(true);
+
+        private final boolean historical;
+
+        Partition(boolean historical) {
+            this.historical = historical;
+        }
+
+        public boolean isHistorical() {
+            return historical;
+        }
+    }
+
+    enum DetailStatus {
+        SUCCESS,
+        NOT_FOUND,
+        FAILURE
+    }
+
+    final class DetailResult extends Ali1688HistoricalOrderDetailResult {
+        private DetailResult(DetailStatus status, OrderSnapshot order, String code, Duration retry) {
+            super(status, order, code, retry);
+        }
+        public static DetailResult success(OrderSnapshot order) {
+            if (order == null) throw new IllegalArgumentException("detail order is required");
+            return new DetailResult(DetailStatus.SUCCESS, order, null, null);
+        }
+        public static DetailResult notFound() {
+            return new DetailResult(DetailStatus.NOT_FOUND, null, null, null);
+        }
+        public static DetailResult failure(String failureCode, Duration retryAfter) {
+            if (failureCode == null || failureCode.isBlank()) throw new IllegalArgumentException("code required");
+            return new DetailResult(DetailStatus.FAILURE, null, failureCode, retryAfter);
+        }
+    }
+
+    class Page extends Ali1688HistoricalOrderPage {
         public Page(List<OrderSnapshot> orders) {
-            this.orders = orders == null ? List.of() : orders;
-        }
-
-        public List<OrderSnapshot> getOrders() {
-            return orders;
-        }
-
-        public String getNextCursor() {
-            return nextCursor;
-        }
-
-        public void setNextCursor(String nextCursor) {
-            this.nextCursor = nextCursor;
-        }
-
-        public boolean isHasMore() {
-            return hasMore;
-        }
-
-        public void setHasMore(boolean hasMore) {
-            this.hasMore = hasMore;
-        }
-
-        public int getProgressPercent() {
-            return progressPercent;
-        }
-
-        public void setProgressPercent(int progressPercent) {
-            this.progressPercent = progressPercent;
-        }
-
-        public String getFailureCode() {
-            return failureCode;
-        }
-
-        public void setFailureCode(String failureCode) {
-            this.failureCode = failureCode;
-        }
-
-        public String getFailureMessage() {
-            return failureMessage;
-        }
-
-        public void setFailureMessage(String failureMessage) {
-            this.failureMessage = failureMessage;
-        }
-
-        public boolean isRetryableFailure() {
-            return retryableFailure;
-        }
-
-        public void setRetryableFailure(boolean retryableFailure) {
-            this.retryableFailure = retryableFailure;
-        }
-
-        public boolean hasFailure() {
-            return failureCode != null && !failureCode.isBlank();
+            super(orders);
         }
     }
 
@@ -111,6 +138,7 @@ public interface Ali1688HistoricalOrderProvider {
         private String sourceBatchNo;
         private String downstreamOrderNo;
         private String rawSnapshotJson;
+        private Instant providerModifiedAt;
         private List<OrderItemSnapshot> items = new ArrayList<>();
 
         public String getProviderOrderNo() {
@@ -345,6 +373,14 @@ public interface Ali1688HistoricalOrderProvider {
             this.rawSnapshotJson = rawSnapshotJson;
         }
 
+        public Instant getProviderModifiedAt() {
+            return providerModifiedAt;
+        }
+
+        public void setProviderModifiedAt(Instant providerModifiedAt) {
+            this.providerModifiedAt = providerModifiedAt;
+        }
+
         public List<OrderItemSnapshot> getItems() {
             return items;
         }
@@ -354,141 +390,6 @@ public interface Ali1688HistoricalOrderProvider {
         }
     }
 
-    class OrderItemSnapshot {
-        private String offerId;
-        private String skuId;
-        private String title;
-        private String skuText;
-        private String modelText;
-        private String productCode;
-        private String singleProductCode;
-        private Integer quantity;
-        private String unit;
-        private String unitPriceText;
-        private String amountText;
-        private String imageUrl;
-        private String logisticsCompany;
-        private String trackingNo;
-        private String rawSnapshotJson;
-
-        public String getOfferId() {
-            return offerId;
-        }
-
-        public void setOfferId(String offerId) {
-            this.offerId = offerId;
-        }
-
-        public String getSkuId() {
-            return skuId;
-        }
-
-        public void setSkuId(String skuId) {
-            this.skuId = skuId;
-        }
-
-        public String getTitle() {
-            return title;
-        }
-
-        public void setTitle(String title) {
-            this.title = title;
-        }
-
-        public String getSkuText() {
-            return skuText;
-        }
-
-        public void setSkuText(String skuText) {
-            this.skuText = skuText;
-        }
-
-        public String getModelText() {
-            return modelText;
-        }
-
-        public void setModelText(String modelText) {
-            this.modelText = modelText;
-        }
-
-        public String getProductCode() {
-            return productCode;
-        }
-
-        public void setProductCode(String productCode) {
-            this.productCode = productCode;
-        }
-
-        public String getSingleProductCode() {
-            return singleProductCode;
-        }
-
-        public void setSingleProductCode(String singleProductCode) {
-            this.singleProductCode = singleProductCode;
-        }
-
-        public Integer getQuantity() {
-            return quantity;
-        }
-
-        public void setQuantity(Integer quantity) {
-            this.quantity = quantity;
-        }
-
-        public String getUnit() {
-            return unit;
-        }
-
-        public void setUnit(String unit) {
-            this.unit = unit;
-        }
-
-        public String getUnitPriceText() {
-            return unitPriceText;
-        }
-
-        public void setUnitPriceText(String unitPriceText) {
-            this.unitPriceText = unitPriceText;
-        }
-
-        public String getAmountText() {
-            return amountText;
-        }
-
-        public void setAmountText(String amountText) {
-            this.amountText = amountText;
-        }
-
-        public String getImageUrl() {
-            return imageUrl;
-        }
-
-        public void setImageUrl(String imageUrl) {
-            this.imageUrl = imageUrl;
-        }
-
-        public String getLogisticsCompany() {
-            return logisticsCompany;
-        }
-
-        public void setLogisticsCompany(String logisticsCompany) {
-            this.logisticsCompany = logisticsCompany;
-        }
-
-        public String getTrackingNo() {
-            return trackingNo;
-        }
-
-        public void setTrackingNo(String trackingNo) {
-            this.trackingNo = trackingNo;
-        }
-
-        public String getRawSnapshotJson() {
-            return rawSnapshotJson;
-        }
-
-        public void setRawSnapshotJson(String rawSnapshotJson) {
-            this.rawSnapshotJson = rawSnapshotJson;
-        }
+    class OrderItemSnapshot extends Ali1688HistoricalOrderItemSnapshot {
     }
 }

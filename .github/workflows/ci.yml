@@ -67,6 +67,7 @@ jobs:
           scripts/tests/test_release_schema_drain.py
           scripts/tests/test_release_schema_cutover.py
           scripts/tests/test_file_parse_retirement_cutover.py
+          scripts/tests/test_release_dp_runtime_cutover.py
 
       - name: Verify competitor business-date correction contracts
         env:
@@ -108,9 +109,13 @@ jobs:
           python3 -m unittest
           scripts/ci/test_package_release_artifact.py
           scripts/ci/test_competitor_release_artifact.py
+          scripts/ci/test_verify_dp_candidate_jar.py
           scripts/tests/test_pre_catalog_baseline_gate.py
           scripts/tests/test_official_warehouse_collation_migration_contract.py
           scripts/tests/test_repository_migration_catalog.py
+          scripts/tests/test_migration_livechecks.py
+          scripts/tests/test_dp_pull_runtime_migration_contract.py
+          scripts/tests/test_dp_pull_deadline_ci_contract.py
           scripts/tests/test_release_schema_migrations.py
           scripts/tests/test_schema_migration_artifact.py
           scripts/tests/test_mysql_migration_client.py
@@ -149,13 +154,23 @@ jobs:
             'database=nuono_schema_migration_ci' \
             > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
           python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py \
-            scripts/ci/test_file_parse_retirement_mysql.py
+            scripts/ci/test_file_parse_retirement_mysql.py \
+            scripts/ci/test_dp_pull_runtime_schema_mysql.py
 
-      - name: Verify migrations against production RDS engine policy
+      - name: Verify migrations and DP deadlines against RDS-compatible MySQL 8 policy
         env:
           NUONO_MIGRATION_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/nuono-rds-migration.cnf
           NUONO_MIGRATION_EXPECTED_SCHEMA: nuono_schema_migration_rds_ci
           NUONO_MIGRATION_EXPECTED_PORT: "3307"
+          NUONO_DP_DEADLINE_MYSQL_URL: jdbc:mysql://127.0.0.1:3307/nuono_schema_migration_rds_ci?useSSL=false&allowPublicKeyRetrieval=true
+          NUONO_DP_DEADLINE_MYSQL_USERNAME: migration_ci
+          NUONO_DP_DEADLINE_MYSQL_PASSWORD: migration_ci
+          NUONO_DP10_EXACT_MYSQL_DEFAULTS_FILE: ${{ runner.temp }}/nuono-rds-dp10-exact.cnf
+          NUONO_DP10_EXACT_EXPECTED_SCHEMA: nuono_dp10_exact_rds_ci
+          NUONO_DP10_EXACT_EXPECTED_PORT: "3307"
+          NUONO_DP10_EXACT_MYSQL_URL: jdbc:mysql://127.0.0.1:3307/nuono_dp10_exact_rds_ci?useSSL=false&allowPublicKeyRetrieval=true
+          NUONO_DP10_EXACT_MYSQL_USERNAME: migration_ci
+          NUONO_DP10_EXACT_MYSQL_PASSWORD: migration_ci
         run: |
           container_name="nuono-mysql-rds-policy-${{ github.run_id }}-${{ github.run_attempt }}"
           cleanup_rds_mysql() { docker rm --force "$container_name" >/dev/null 2>&1 || true; }
@@ -183,7 +198,11 @@ jobs:
           test "$ready" = "1"
           MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3307 \
             --user=root \
-            --execute="SET GLOBAL log_bin_trust_function_creators=ON;"
+            --execute="SET GLOBAL log_bin_trust_function_creators=ON; \
+              CREATE DATABASE nuono_dp10_exact_rds_ci \
+                CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; \
+              GRANT ALL PRIVILEGES ON nuono_dp10_exact_rds_ci.* \
+                TO 'migration_ci'@'%'; FLUSH PRIVILEGES;"
           disabled_engines="$(
             MYSQL_PWD=root mysql --protocol=TCP --host=127.0.0.1 --port=3307 \
               --user=root --batch --skip-column-names \
@@ -199,11 +218,28 @@ jobs:
             'password=migration_ci' \
             'database=nuono_schema_migration_rds_ci' \
             > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
+          printf '%s\n' \
+            '[client]' \
+            'host=127.0.0.1' \
+            'port=3307' \
+            'user=migration_ci' \
+            'password=migration_ci' \
+            'database=nuono_dp10_exact_rds_ci' \
+            > "$NUONO_DP10_EXACT_MYSQL_DEFAULTS_FILE"
           python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py \
-            scripts/ci/test_file_parse_retirement_mysql.py
+            scripts/ci/test_file_parse_retirement_mysql.py \
+            scripts/ci/test_dp_pull_runtime_schema_mysql.py
+          python3 scripts/ci/prepare_dp10_exact_path_mysql.py
+          dp_deadline_tests="DataPullDatabaseDeadlineMySqlTest,DataPullDatabaseDeadlineConcurrencyMySqlTest,DataPullConnectionHandshakeMySqlTest,DataPullTransactionBeginNetworkMySqlTest,DataPullRuntimeSchedulerPhaseMySqlTest,DataPullRuntimeIndependentPhaseBudgetTest,RuntimeExecutorDeadlineTest,DataPullRuntimeSchedulerTest,DataPullAdvanceDeadlineRaceTest,Ali1688Dp10ExactPathMySqlTest,Ali1688Dp10TombstoneMySqlTest"
+          mvn -q -Dtest="$dp_deadline_tests" test
 
       - name: Test and package
         run: mvn -q package
+
+      - name: Verify packaged DP candidate boundary
+        run: >-
+          python3 scripts/ci/verify_dp_candidate_jar.py
+          --jar target/nuono-next-backend-0.0.1-SNAPSHOT.jar
 
       - name: Prepare master release artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'

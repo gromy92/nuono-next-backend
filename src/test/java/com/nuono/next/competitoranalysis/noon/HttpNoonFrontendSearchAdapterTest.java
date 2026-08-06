@@ -126,6 +126,22 @@ class HttpNoonFrontendSearchAdapterTest {
     }
 
     @Test
+    void mapsUnauthorizedStatusToAuthenticationRequired() {
+        HttpNoonFrontendSearchAdapter adapter = adapter();
+
+        NoonSearchProviderException error = assertThrows(
+                NoonSearchProviderException.class,
+                () -> adapter.mapUnsuccessfulStatus(
+                        401,
+                        "https://www.noon.com/saudi-en/search?q=x"
+                )
+        );
+
+        assertEquals("AUTH_REQUIRED", error.getErrorCode());
+        assertEquals(401, error.getProviderHttpStatus());
+    }
+
+    @Test
     void buildsCustomerCatalogV3RequestWithNoonFrontendCookieAndBrowserHeaders() {
         HttpNoonFrontendSearchAdapter adapter = new HttpNoonFrontendSearchAdapter(
                 new NoonFrontendSearchPageParser(new ObjectMapper()),

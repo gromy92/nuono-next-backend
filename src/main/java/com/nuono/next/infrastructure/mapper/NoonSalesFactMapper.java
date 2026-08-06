@@ -1,10 +1,8 @@
 package com.nuono.next.infrastructure.mapper;
 
-import com.nuono.next.nooncompleteness.NoonSalesProductViewsCompletenessAudit;
 import com.nuono.next.noonpull.NoonSalesDailyFact;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Param;
-import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 
 public interface NoonSalesFactMapper {
@@ -54,20 +52,4 @@ public interface NoonSalesFactMapper {
     })
     int upsertDailySalesFact(@Param("id") Long id, @Param("fact") NoonSalesDailyFact fact);
 
-    @Select({
-            "SELECT",
-            "  MAX(fact_date) AS latestFactDate,",
-            "  MIN(fact_date) AS historyCoveredFrom,",
-            "  MAX(fact_date) AS historyCoveredTo,",
-            "  COUNT(1) AS factRowCount",
-            "FROM daily_sales_fact",
-            "WHERE owner_user_id = #{ownerUserId}",
-            "  AND store_code = #{storeCode}",
-            "  AND site_code = #{siteCode}"
-    })
-    NoonSalesProductViewsCompletenessAudit auditSalesProductViewsCompleteness(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode
-    );
 }

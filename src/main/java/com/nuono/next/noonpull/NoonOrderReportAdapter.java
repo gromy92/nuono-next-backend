@@ -1,13 +1,10 @@
 package com.nuono.next.noonpull;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,191 +19,194 @@ import org.springframework.util.StringUtils;
 
 @Service
 public class NoonOrderReportAdapter {
-    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
-    private static final LocalTime ORDER_READY_AFTER = LocalTime.of(8, 30);
     private static final DateTimeFormatter NOON_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Pattern ORDER_LINE_SUFFIX = Pattern.compile("-\\d+$");
 
     private final NoonOrderFactWriter factWriter;
     private final ObjectProvider<NoonOrderFactWriter> factWriterProvider;
-    private final Clock clock;
+    private final NoonOrderReportWindowPolicy windowPolicy;
 
     public NoonOrderReportAdapter(NoonOrderFactWriter factWriter, Clock clock) {
         this.factWriter = factWriter;
         this.factWriterProvider = null;
-        this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.windowPolicy = new NoonOrderReportWindowPolicy(clock);
     }
 
     @Autowired
     public NoonOrderReportAdapter(ObjectProvider<NoonOrderFactWriter> factWriterProvider) {
         this.factWriter = null;
         this.factWriterProvider = factWriterProvider;
-        this.clock = Clock.systemUTC();
+        this.windowPolicy = new NoonOrderReportWindowPolicy(Clock.systemUTC());
     }
 
     public NoonReportProcessResult process(NoonReportDownloadedFile file) {
-        NoonOrderFactWriter writer = factWriter();
-        String csv = new String(file.getContent(), StandardCharsets.UTF_8);
-        String[] lines = csv.split("\\r?\\n", -1);
-        if (lines.length == 0 || !StringUtils.hasText(lines[0])) {
-            return emptyOrNotReady();
+        if (file == null || file.getRequest() == null) {
+            return NoonReportProcessResult.mappingFailed(1, "missing_report_request");
+        }
+        List<String[]> records;
+        try {
+            records = NoonReportCsvRecords.parseRectangular(file.getContent());
+        } catch (IllegalArgumentException invalidCsv) {
+            return NoonReportProcessResult.mappingFailed(1, "invalid_csv");
+        }
+        if (records.isEmpty() || isBlank(records.get(0))) {
+            return windowPolicy.emptyOrNotReady();
         }
 
-        Map<String, Integer> headerIndex = headerIndex(split(lines[0]));
+        Map<String, Integer> headerIndex = headerIndex(records.get(0));
         if (!hasRequiredColumns(headerIndex)) {
-            return NoonReportProcessResult.missingColumns(missingColumnsDiagnostic(headerIndex));
+            return NoonReportProcessResult.mappingFailed(1, missingColumnsDiagnostic(headerIndex));
         }
 
-        int exceptions = 0;
-        int outsideWindowRows = 0;
-        LocalDate actualDateFrom = null;
-        LocalDate actualDateTo = null;
-        List<NoonOrderLineFact> factsToWrite = new ArrayList<>();
-        for (int i = 1; i < lines.length; i++) {
-            if (!StringUtils.hasText(lines[i])) {
+        int businessSkips = 0;
+        Map<String, NoonOrderLineFact> factsByIdentity = new LinkedHashMap<>();
+        for (int i = 1; i < records.size(); i++) {
+            String[] columns = records.get(i);
+            if (isBlank(columns)) {
+                businessSkips++;
                 continue;
             }
-            try {
-                NoonOrderLineFact fact = toFact(file, split(lines[i]), headerIndex);
-                LocalDate orderDate = orderDate(fact);
-                if (orderDate != null) {
-                    actualDateFrom = min(actualDateFrom, orderDate);
-                    actualDateTo = max(actualDateTo, orderDate);
-                }
-                if (outsideRequestedWindow(orderDate, file.getRequest())) {
-                    outsideWindowRows++;
-                    continue;
-                }
-                factsToWrite.add(fact);
-            } catch (RuntimeException exception) {
-                exceptions++;
+            NoonReportRowDecision<NoonOrderLineFact> decision = classifyRow(file, columns, headerIndex);
+            if (decision.getKind() == NoonReportRowDecision.Kind.CONTAINER_CONTRACT_ERROR) {
+                return NoonReportProcessResult.mappingFailed(1, "row_outside_container");
+            }
+            if (decision.getKind() == NoonReportRowDecision.Kind.BUSINESS_SKIP) {
+                businessSkips++;
+                continue;
+            }
+            NoonOrderLineFact fact = decision.getAccepted();
+            if (factsByIdentity.putIfAbsent(stableIdentity(fact), fact) != null) {
+                businessSkips++;
             }
         }
-        if (factsToWrite.isEmpty()) {
-            if (outsideWindowRows > 0) {
-                String diagnostic = outsideWindowDiagnostic(file, outsideWindowRows, actualDateFrom, actualDateTo);
-                if (actualWindowCoversRequestedWindow(file.getRequest(), actualDateFrom, actualDateTo)) {
-                    return emptyOrNotReady(diagnostic);
-                }
-                if (exceptions == 0
-                        && file.getRequest() != null
-                        && file.getRequest().getDateFrom() != null
-                        && actualDateTo != null
-                        && actualDateTo.isBefore(file.getRequest().getDateFrom())) {
-                    return emptyOrNotReady(diagnostic, true);
-                }
-                return NoonReportProcessResult.mappingFailed(
-                        outsideWindowRows + exceptions,
-                        diagnostic
-                );
-            }
-            if (exceptions == 0) {
-                return emptyOrNotReady();
-            }
+        List<NoonOrderLineFact> factsToWrite = new ArrayList<>(factsByIdentity.values());
+        if (factsToWrite.isEmpty() && businessSkips == 0) {
+            return windowPolicy.emptyOrNotReady();
         }
 
-        int imported = 0;
-        for (NoonOrderLineFact fact : factsToWrite) {
-            try {
-                writer.upsertLine(fact);
-                imported++;
-            } catch (RuntimeException exception) {
-                exceptions++;
-            }
+        int imported = factsToWrite.size();
+        if (imported > 0) {
+            factWriter().upsertLines(factsToWrite);
         }
-        if (imported == 0) {
-            return NoonReportProcessResult.mappingFailed(exceptions);
-        }
-        if (exceptions > 0) {
-            return NoonReportProcessResult.partialSuccess(imported, exceptions);
+        if (businessSkips > 0) {
+            return NoonReportProcessResult.succeededWithBusinessSkips(imported, businessSkips);
         }
         return NoonReportProcessResult.succeeded(imported, 0);
     }
 
-    private NoonOrderLineFact toFact(NoonReportDownloadedFile file, String[] columns, Map<String, Integer> headerIndex) {
-        NoonReportPullRequest request = file.getRequest();
-        String orderLineIdentity = requiredValue(columns, headerIndex, "item_nr");
-        return new NoonOrderLineFact(
-                request.getOwnerUserId(),
-                request.getStoreCode(),
-                request.getSiteCode(),
-                requiredValue(columns, headerIndex, "id_partner"),
-                requiredValue(columns, headerIndex, "src_country"),
-                requiredValue(columns, headerIndex, "country_code"),
-                requiredValue(columns, headerIndex, "dest_country"),
-                optionalValue(columns, headerIndex, "bayan_nr"),
-                orderLineIdentity,
-                deriveOrderIdentity(orderLineIdentity),
-                requiredValue(columns, headerIndex, "partner_sku"),
-                requiredValue(columns, headerIndex, "sku"),
-                requiredValue(columns, headerIndex, "status"),
-                decimalValue(columns, headerIndex, "offer_price"),
-                decimalValue(columns, headerIndex, "gmv_lcy"),
-                requiredValue(columns, headerIndex, "currency_code"),
-                requiredValue(columns, headerIndex, "brand_code"),
-                requiredValue(columns, headerIndex, "family"),
-                requiredValue(columns, headerIndex, "fulfillment_model"),
-                timestampValue(columns, headerIndex, "order_timestamp"),
-                timestampValue(columns, headerIndex, "shipment_timestamp"),
-                timestampValue(columns, headerIndex, "delivered_timestamp"),
-                request.getDateFrom(),
-                request.getDateTo(),
-                file.getSourceBatchId()
-        );
-    }
-
-    private LocalDate orderDate(NoonOrderLineFact fact) {
-        return fact.getOrderTimestamp() == null ? null : fact.getOrderTimestamp().toLocalDate();
-    }
-
-    private boolean outsideRequestedWindow(LocalDate actualDate, NoonReportPullRequest request) {
-        if (actualDate == null || request.getDateFrom() == null || request.getDateTo() == null) {
-            return false;
+    /** Header Interface used by the bounded DP report Fact Writer before any fact mutation. */
+    public void requireStageHeader(String[] header) {
+        Map<String, Integer> indexes = headerIndex(header == null ? new String[0] : header);
+        if (!hasRequiredColumns(indexes)) {
+            throw new IllegalArgumentException(missingColumnsDiagnostic(indexes));
         }
-        return actualDate.isBefore(request.getDateFrom()) || actualDate.isAfter(request.getDateTo());
     }
 
-    private boolean actualWindowCoversRequestedWindow(
-            NoonReportPullRequest request,
-            LocalDate actualDateFrom,
-            LocalDate actualDateTo
-    ) {
-        if (request == null
-                || request.getDateFrom() == null
-                || request.getDateTo() == null
-                || actualDateFrom == null
-                || actualDateTo == null) {
-            return false;
-        }
-        return !actualDateFrom.isAfter(request.getDateFrom())
-                && !actualDateTo.isBefore(request.getDateTo());
-    }
-
-    private LocalDate min(LocalDate left, LocalDate right) {
-        if (left == null) {
-            return right;
-        }
-        return right.isBefore(left) ? right : left;
-    }
-
-    private LocalDate max(LocalDate left, LocalDate right) {
-        if (left == null) {
-            return right;
-        }
-        return right.isAfter(left) ? right : left;
-    }
-
-    private String outsideWindowDiagnostic(
+    /** Pure row classifier used while the complete report container is staged. */
+    public List<NoonReportRowDecision<NoonOrderLineFact>> classifyStageRows(
             NoonReportDownloadedFile file,
-            int outsideWindowRows,
-            LocalDate actualDateFrom,
-            LocalDate actualDateTo
+            String[] header,
+            List<String[]> rows
+    ) {
+        requireStageHeader(header);
+        Map<String, Integer> indexes = headerIndex(header);
+        List<NoonReportRowDecision<NoonOrderLineFact>> result = new ArrayList<>();
+        for (String[] row : rows) {
+            result.add(isBlank(row)
+                    ? NoonReportRowDecision.businessSkip()
+                    : classifyRow(file, row, indexes));
+        }
+        return List.copyOf(result);
+    }
+
+    public String stageIdentity(NoonOrderLineFact fact) {
+        return stableIdentity(fact);
+    }
+
+    private NoonReportRowDecision<NoonOrderLineFact> classifyRow(
+            NoonReportDownloadedFile file, String[] columns, Map<String, Integer> headerIndex
+    ) {
+        try {
+            return toFact(file, columns, headerIndex);
+        } catch (IllegalArgumentException invalidRow) {
+            return NoonReportRowDecision.businessSkip();
+        }
+    }
+
+    private NoonReportRowDecision<NoonOrderLineFact> toFact(
+            NoonReportDownloadedFile file, String[] columns, Map<String, Integer> headerIndex
     ) {
         NoonReportPullRequest request = file.getRequest();
-        return "provider_reused_latest_export: requested=" + request.getDateFrom() + ".." + request.getDateTo()
-                + "; actual=" + actualDateFrom + ".." + actualDateTo
-                + "; outside_rows=" + outsideWindowRows
-                + "; source_batch_id=" + file.getSourceBatchId();
+        String idPartner = optionalValue(columns, headerIndex, "id_partner");
+        String sourceCountry = optionalValue(columns, headerIndex, "src_country");
+        String countryCode = optionalValue(columns, headerIndex, "country_code");
+        String destinationCountry = optionalValue(columns, headerIndex, "dest_country");
+        String requestedSite = NoonReportContainerContract.recognizedSite(request.getSiteCode());
+        if (!StringUtils.hasText(requestedSite)) {
+            return NoonReportRowDecision.containerContractError();
+        }
+        String sourceSite = NoonReportContainerContract.recognizedSite(sourceCountry);
+        String contentSite = NoonReportContainerContract.recognizedSite(countryCode);
+        if (NoonReportContainerContract.mismatch(requestedSite, sourceSite)
+                || NoonReportContainerContract.mismatch(requestedSite, contentSite)) {
+            return NoonReportRowDecision.containerContractError();
+        }
+        LocalDateTime orderTimestamp = timestampValue(columns, headerIndex, "order_timestamp");
+        if (orderTimestamp != null
+                && windowPolicy.outsideRequestedWindow(orderTimestamp.toLocalDate(), request)) {
+            return NoonReportRowDecision.containerContractError();
+        }
+        if (!StringUtils.hasText(sourceSite) && !StringUtils.hasText(contentSite)) {
+            return NoonReportRowDecision.businessSkip();
+        }
+
+        String orderLineIdentity = optionalValue(columns, headerIndex, "item_nr");
+        String partnerSku = optionalValue(columns, headerIndex, "partner_sku");
+        String sku = optionalValue(columns, headerIndex, "sku");
+        String status = optionalValue(columns, headerIndex, "status");
+        String currencyCode = optionalValue(columns, headerIndex, "currency_code");
+        String brandCode = optionalValue(columns, headerIndex, "brand_code");
+        String family = optionalValue(columns, headerIndex, "family");
+        String fulfillmentModel = optionalValue(columns, headerIndex, "fulfillment_model");
+        BigDecimal offerPrice = optionalDecimalValue(columns, headerIndex, "offer_price");
+        BigDecimal gmvLcy = optionalDecimalValue(columns, headerIndex, "gmv_lcy");
+        LocalDateTime shipmentTimestamp = timestampValue(columns, headerIndex, "shipment_timestamp");
+        LocalDateTime deliveredTimestamp = timestampValue(columns, headerIndex, "delivered_timestamp");
+        if (NoonReportContainerContract.hasBlank(
+                idPartner, sourceCountry, countryCode, destinationCountry,
+                orderLineIdentity, partnerSku, sku, status,
+                currencyCode, brandCode, family, fulfillmentModel
+        ) || offerPrice == null || gmvLcy == null || orderTimestamp == null) {
+            return NoonReportRowDecision.businessSkip();
+        }
+        return NoonReportRowDecision.accept(NoonOrderFactColumnContract.requirePersistable(
+                new NoonOrderLineFact(
+                        request.getOwnerUserId(),
+                        request.getStoreCode(),
+                        request.getSiteCode(),
+                        idPartner,
+                        sourceCountry,
+                        countryCode,
+                        destinationCountry,
+                        nullableColumnValue(columns, headerIndex, "bayan_nr"),
+                        orderLineIdentity,
+                        deriveOrderIdentity(orderLineIdentity),
+                        partnerSku,
+                        sku,
+                        status,
+                        offerPrice,
+                        gmvLcy,
+                        currencyCode,
+                        brandCode,
+                        family,
+                        fulfillmentModel,
+                        orderTimestamp,
+                        shipmentTimestamp,
+                        deliveredTimestamp,
+                        request.getDateFrom(),
+                        request.getDateTo(),
+                        file.getSourceBatchId()
+                )));
     }
 
     private NoonOrderFactWriter factWriter() {
@@ -220,28 +220,13 @@ public class NoonOrderReportAdapter {
         return writer;
     }
 
-    private NoonReportProcessResult emptyOrNotReady() {
-        return emptyOrNotReady(null, false);
-    }
-
-    private NoonReportProcessResult emptyOrNotReady(String diagnosticMessage) {
-        return emptyOrNotReady(diagnosticMessage, false);
-    }
-
-    private NoonReportProcessResult emptyOrNotReady(String diagnosticMessage, boolean pendingConfirmation) {
-        LocalTime localTime = LocalTime.now(clock.withZone(SHANGHAI));
-        if (localTime.isBefore(ORDER_READY_AFTER)) {
-            return NoonReportProcessResult.reportNotReady();
+    private boolean isBlank(String[] record) {
+        for (String value : record) {
+            if (StringUtils.hasText(value)) {
+                return false;
+            }
         }
-        if (pendingConfirmation) {
-            return NoonReportProcessResult.emptyReportPendingConfirmation(diagnosticMessage);
-        }
-        return StringUtils.hasText(diagnosticMessage)
-                ? NoonReportProcessResult.emptyReport(diagnosticMessage)
-                : NoonReportProcessResult.emptyReport();
-    }
-    private String[] split(String line) {
-        return line.split(",", -1);
+        return true;
     }
 
     private Map<String, Integer> headerIndex(String[] headers) {
@@ -266,14 +251,6 @@ public class NoonOrderReportAdapter {
         return "missing=" + missing + "; actual_headers=" + actualHeaders;
     }
 
-    private String requiredValue(String[] columns, Map<String, Integer> headerIndex, String key) {
-        String value = optionalValue(columns, headerIndex, key);
-        if (!StringUtils.hasText(value)) {
-            throw new IllegalArgumentException("Blank column value: " + key);
-        }
-        return value;
-    }
-
     private String optionalValue(String[] columns, Map<String, Integer> headerIndex, String key) {
         Integer index = headerIndex.get(key);
         if (index == null || index < 0 || index >= columns.length) {
@@ -282,8 +259,20 @@ public class NoonOrderReportAdapter {
         return columns[index].trim();
     }
 
-    private BigDecimal decimalValue(String[] columns, Map<String, Integer> headerIndex, String key) {
-        return new BigDecimal(requiredValue(columns, headerIndex, key));
+    private String nullableColumnValue(String[] columns, Map<String, Integer> headerIndex, String key) {
+        Integer index = headerIndex.get(key);
+        if (index == null) {
+            return "";
+        }
+        if (index < 0 || index >= columns.length) {
+            throw new IllegalArgumentException("Missing column value: " + key);
+        }
+        return columns[index].trim();
+    }
+
+    private BigDecimal optionalDecimalValue(String[] columns, Map<String, Integer> headerIndex, String key) {
+        String value = optionalValue(columns, headerIndex, key);
+        return StringUtils.hasText(value) ? new BigDecimal(value) : null;
     }
 
     private LocalDateTime timestampValue(String[] columns, Map<String, Integer> headerIndex, String key) {
@@ -291,10 +280,21 @@ public class NoonOrderReportAdapter {
         if (!StringUtils.hasText(value)) {
             return null;
         }
-        return LocalDateTime.parse(value, NOON_TIMESTAMP);
+        try {
+            return LocalDateTime.parse(value, NOON_TIMESTAMP);
+        } catch (DateTimeParseException invalidTimestamp) {
+            throw new IllegalArgumentException("Invalid timestamp value: " + key, invalidTimestamp);
+        }
     }
 
     private String deriveOrderIdentity(String orderLineIdentity) {
         return ORDER_LINE_SUFFIX.matcher(orderLineIdentity).replaceFirst("");
+    }
+
+    private String stableIdentity(NoonOrderLineFact fact) {
+        return "noon_order_report|"
+                + fact.getIdPartner() + '|'
+                + fact.getCountryCode() + '|'
+                + fact.getOrderLineIdentity();
     }
 }

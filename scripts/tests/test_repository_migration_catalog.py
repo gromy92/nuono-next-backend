@@ -16,15 +16,19 @@ from ci.release_schema_mysql_pre_catalog_scenario import (  # noqa: E402
 
 
 class RepositoryMigrationCatalogTest(unittest.TestCase):
+    RESOURCE_ROOT = SCRIPT_DIR.parent / "src/main/resources"
+
+    def migration(self, key):
+        return next(item for item in load_catalog(self.RESOURCE_ROOT) if item.key == key)
+
     def test_published_pre_catalog_migrations_are_immutable_and_not_cataloged(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
         catalog_keys = {
-            migration.key for migration in load_catalog(resource_root)
+            migration.key for migration in load_catalog(self.RESOURCE_ROOT)
         }
 
         for key, expected_sha256 in PUBLISHED_PRE_CATALOG_SHA256.items():
             with self.subTest(key=key):
-                published = resource_root / "db/init" / key
+                published = self.RESOURCE_ROOT / "db/init" / key
                 self.assertEqual(
                     expected_sha256,
                     sha256_bytes(published.read_bytes()),
@@ -32,9 +36,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 self.assertNotIn(key, catalog_keys)
 
     def test_catalog_owns_history_and_every_removed_runtime_schema(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-
-        migrations = load_catalog(resource_root)
+        migrations = load_catalog(self.RESOURCE_ROOT)
         sql = "\n".join(migration.script_sql for migration in migrations)
 
         self.assertEqual(
@@ -52,8 +54,13 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "237_warehouse_forwarder_quote_and_transport_eligibility.sql",
                 "238_noon_auth_business_wait_queue.sql",
                 "239_official_warehouse_scope_collation_alignment.sql",
-                "240_operations_competitor_snapshot_active_uniqueness.sql",
-                "241_operations_competitor_correction_writer_fence.sql", "242_file_management_parse_retirement.sql",
+                "240_operations_competitor_snapshot_active_uniqueness.sql", "241_operations_competitor_correction_writer_fence.sql",
+                "242_file_management_parse_retirement.sql", "243_dp_pull_runtime.sql",
+                "244_dp_pull_report_bounded_apply.sql",
+                "245_dp_pull_snapshot_bounded_apply.sql",
+                "246_dp_pull_advertising_generation.sql",
+                "247_dp_pull_schedule_core.sql",
+                "248_dp_pull_dp08_member_retention.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -68,12 +75,19 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "MANAGED",
                 "AUTO_ADDITIVE",
-                "MANAGED", "MANAGED",
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
+                "MANAGED",
+                "MANAGED",
+                "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
         )
@@ -89,12 +103,8 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
             self.assertIn(f"CREATE TABLE IF NOT EXISTS `{table}`", sql)
 
     def test_fulfillment_balance_invariant_is_fail_closed(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = next(
-            migration
-            for migration in load_catalog(resource_root)
-            if migration.key
-            == "231_procurement_fulfillment_balance_quantity_invariant.sql"
+        migration = self.migration(
+            "231_procurement_fulfillment_balance_quantity_invariant.sql"
         )
         script = migration.script_sql
         postcheck = migration.postcheck_sql
@@ -163,12 +173,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
         )
 
     def test_warehouse_request_idempotency_is_additive_and_fail_closed(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = next(
-            migration
-            for migration in load_catalog(resource_root)
-            if migration.key == "232_warehouse_command_request_idempotency.sql"
-        )
+        migration = self.migration("232_warehouse_command_request_idempotency.sql")
 
         self.assertEqual("AUTO_ADDITIVE", migration.kind)
         self.assertIn("duplicate_group_count", migration.script_sql)
@@ -199,12 +204,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
         )
 
     def test_packing_soft_delete_index_is_exact_and_additive(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = next(
-            migration
-            for migration in load_catalog(resource_root)
-            if migration.key == "233_warehouse_packing_soft_delete_index.sql"
-        )
+        migration = self.migration("233_warehouse_packing_soft_delete_index.sql")
 
         self.assertEqual("AUTO_ADDITIVE", migration.kind)
         self.assertIn("idx_packing_box_item_list", migration.script_sql)
@@ -226,11 +226,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
         )
 
     def test_appointment_concurrency_is_managed_and_fail_closed(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = next(
-            item for item in load_catalog(resource_root)
-            if item.key == "234_official_warehouse_appointment_concurrency.sql"
-        )
+        migration = self.migration("234_official_warehouse_appointment_concurrency.sql")
 
         self.assertEqual("MANAGED", migration.kind)
         for marker in (
@@ -261,11 +257,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
         self.assertNotIn("nuono_217_", migration.script_sql)
 
     def test_shipping_batch_request_idempotency_is_additive_and_exact(self):
-        resource_root = SCRIPT_DIR.parent / "src/main/resources"
-        migration = next(
-            item for item in load_catalog(resource_root)
-            if item.key == "235_warehouse_shipping_batch_request_idempotency.sql"
-        )
+        migration = self.migration("235_warehouse_shipping_batch_request_idempotency.sql")
 
         self.assertEqual("AUTO_ADDITIVE", migration.kind)
         for marker in (

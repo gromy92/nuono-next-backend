@@ -43,6 +43,7 @@ public class NoonAuthRecoveryWorker {
     private final NoonAuthRecoveryProperties properties;
     private final NoonAuthRecoveryGateway gateway;
     private final NoonAuthTransientOrchestrator transientOrchestrator;
+    private final NoonAuthWaitingTaskCoordinator waitingTaskCoordinator;
     private final NoonAuthRecoveryProjectOutcomeHandler projectOutcomeHandler;
     private final Clock clock;
     private final String workerId;
@@ -107,8 +108,11 @@ public class NoonAuthRecoveryWorker {
                 : transientBackoffGuard;
         this.transientOrchestrator =
                 new NoonAuthTransientOrchestrator(resolvedTransientBackoffGuard);
+        this.waitingTaskCoordinator = new NoonAuthWaitingTaskCoordinator(repository);
         this.projectOutcomeHandler =
-                new NoonAuthRecoveryProjectOutcomeHandler(repository, transientOrchestrator);
+                new NoonAuthRecoveryProjectOutcomeHandler(
+                        repository, transientOrchestrator, waitingTaskCoordinator
+                );
         this.clock = clock;
         this.workerId = StringUtils.hasText(workerId) ? workerId : "noon-auth-recovery-worker";
         this.configuredIdentityKey = StringUtils.hasText(configuredEmail)
@@ -126,7 +130,7 @@ public class NoonAuthRecoveryWorker {
 
     @Autowired(required = false)
     void setWaitingTaskHandlers(List<NoonAuthWaitingTaskHandler> handlers) {
-        projectOutcomeHandler.setWaitingTaskHandlers(handlers);
+        waitingTaskCoordinator.setHandlers(handlers);
     }
     NoonAuthRecoveryWorker(
             NoonAuthRecoveryRepository repository,
@@ -559,6 +563,16 @@ public class NoonAuthRecoveryWorker {
             )) {
                 return;
             }
+            if (!waitingTaskCoordinator.holdSourceTasks(
+                    this,
+                    pending,
+                    NoonAuthRecoveryWorkerValues.target(item),
+                    fence,
+                    code.name(),
+                    safeDiagnostic(diagnostic)
+            )) {
+                return;
+            }
         }
         boolean held = transition(
                 fence,
@@ -788,10 +802,10 @@ public class NoonAuthRecoveryWorker {
             LocalDateTime now
     ) {
         Set<Long> taskTerminalItemIds = new LinkedHashSet<>();
-        if (!failSourceTasks(
+        if (!waitingTaskCoordinator.failSourceTasks(
+                this,
                 items,
                 target,
-                recoveryId,
                 fence,
                 failureCode,
                 diagnostic,
@@ -827,46 +841,6 @@ public class NoonAuthRecoveryWorker {
             if (!transitioned && !renewFence(fence)) {
                 return false;
             }
-        }
-        return true;
-    }
-
-    private boolean failSourceTasks(
-            List<NoonAuthRecoveryItemRecord> items,
-            NoonAuthRecoveryProjectTarget target,
-            Long recoveryId,
-            ExecutionFence fence,
-            String failureCode,
-            String diagnostic,
-            LocalDateTime now,
-            Set<Long> taskTerminalItemIds
-    ) {
-        for (NoonAuthRecoveryItemRecord item : items) {
-            if (item == null || item.getId() == null || !target.key().equals(projectKey(item))) {
-                continue;
-            }
-            if (item.getSourceTaskId() == null) {
-                taskTerminalItemIds.add(item.getId());
-                continue;
-            }
-            if (!renewFence(fence)) {
-                return false;
-            }
-            now = now();
-            NoonAuthWaitingTaskOutcome outcome = projectOutcomeHandler.failWaitingTask(
-                    item,
-                    fence,
-                    failureCode,
-                    safeDiagnostic(diagnostic),
-                    now
-            );
-            if (outcome == NoonAuthWaitingTaskOutcome.STALE && !renewFence(fence)) {
-                return false;
-            }
-            // Always attempt the per-item terminal CAS after a live recovery-fence check.
-            // Its SQL guard refuses to hide an item while its source task is still BLOCKED_AUTH
-            // for this recovery, but lets already-finished/stale source tasks drain safely.
-            taskTerminalItemIds.add(item.getId());
         }
         return true;
     }

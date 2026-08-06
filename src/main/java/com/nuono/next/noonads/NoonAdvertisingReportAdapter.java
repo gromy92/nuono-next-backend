@@ -1,14 +1,15 @@
 package com.nuono.next.noonads;
 
+import com.nuono.next.noonpull.NoonAdvertisingLegacyNumericContract;
 import com.nuono.next.noonpull.NoonReportDownloadedFile;
 import com.nuono.next.noonpull.NoonReportProcessResult;
 import com.nuono.next.noonpull.NoonReportPullRequest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -29,7 +30,7 @@ public class NoonAdvertisingReportAdapter {
 
     public NoonReportProcessResult process(NoonReportDownloadedFile file) {
         try {
-            List<List<String>> rows = parseCsv(decode(file));
+            List<List<String>> rows = NoonAdvertisingCsvDecoder.parse(file);
             if (rows.isEmpty() || rows.get(0).isEmpty()) {
                 return NoonReportProcessResult.emptyReport();
             }
@@ -38,8 +39,8 @@ public class NoonAdvertisingReportAdapter {
                 return NoonReportProcessResult.missingColumns("missing required Ads columns");
             }
 
-            List<NoonAdvertisingCampaignFact> campaignRows = new ArrayList<>();
-            List<NoonAdvertisingQueryFact> queryRows = new ArrayList<>();
+            Map<String, NoonAdvertisingCampaignFact> campaignsByIdentity = new LinkedHashMap<>();
+            Map<String, NoonAdvertisingQueryFact> queriesByIdentity = new LinkedHashMap<>();
             int exceptions = 0;
             String projectCode = null;
             for (int rowNumber = 1; rowNumber < rows.size(); rowNumber++) {
@@ -51,16 +52,24 @@ public class NoonAdvertisingReportAdapter {
                     projectCode = mergeProjectCode(projectCode, optionalValue(row, headerIndex, "project_code"));
                     String rowType = rowType(row, headerIndex);
                     if ("campaign".equals(rowType)) {
-                        campaignRows.add(campaignFact(row, headerIndex));
+                        NoonAdvertisingCampaignFact fact = campaignFact(row, headerIndex);
+                        if (campaignsByIdentity.putIfAbsent(campaignIdentity(fact), fact) != null) {
+                            exceptions++;
+                        }
                     } else if ("query".equals(rowType)) {
-                        queryRows.add(queryFact(row, headerIndex));
+                        NoonAdvertisingQueryFact fact = queryFact(row, headerIndex);
+                        if (queriesByIdentity.putIfAbsent(queryIdentity(fact), fact) != null) {
+                            exceptions++;
+                        }
                     } else {
                         throw new IllegalArgumentException("Unsupported Noon Ads row_type: " + rowType);
                     }
-                } catch (RuntimeException exception) {
+                } catch (IllegalArgumentException exception) {
                     exceptions++;
                 }
             }
+            List<NoonAdvertisingCampaignFact> campaignRows = new ArrayList<>(campaignsByIdentity.values());
+            List<NoonAdvertisingQueryFact> queryRows = new ArrayList<>(queriesByIdentity.values());
             if (campaignRows.isEmpty() && queryRows.isEmpty()) {
                 return exceptions > 0
                         ? NoonReportProcessResult.mappingFailed(exceptions)
@@ -196,12 +205,22 @@ public class NoonAdvertisingReportAdapter {
         return current;
     }
 
-    private String decode(NoonReportDownloadedFile file) {
-        String csv = new String(file == null ? new byte[0] : file.getContent(), StandardCharsets.UTF_8);
-        if (!csv.isEmpty() && csv.charAt(0) == '\ufeff') {
-            return csv.substring(1);
-        }
-        return csv;
+    private String campaignIdentity(NoonAdvertisingCampaignFact fact) {
+        return normalizeIdentityPart(fact.getCampaignCode());
+    }
+
+    private String queryIdentity(NoonAdvertisingQueryFact fact) {
+        return String.join("\u001f",
+                normalizeIdentityPart(fact.getCampaignCode()),
+                normalizeIdentityPart(fact.getPartnerSku()),
+                normalizeIdentityPart(fact.getAdSkuCode()),
+                normalizeIdentityPart(fact.getQueryText()),
+                normalizeIdentityPart(fact.getQueryKind())
+        );
+    }
+
+    private String normalizeIdentityPart(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private Map<String, Integer> headerIndex(List<String> headers) {
@@ -241,12 +260,16 @@ public class NoonAdvertisingReportAdapter {
 
     private long longValue(List<String> row, Map<String, Integer> headerIndex, String... keys) {
         String value = optionalValue(row, headerIndex, keys);
-        return StringUtils.hasText(value) ? new BigDecimal(cleanNumber(value)).setScale(0, RoundingMode.DOWN).longValue() : 0L;
+        return StringUtils.hasText(value)
+                ? NoonAdvertisingLegacyNumericContract.requireIntCount(value)
+                : 0L;
     }
 
     private BigDecimal decimalValue(List<String> row, Map<String, Integer> headerIndex, String... keys) {
         String value = optionalValue(row, headerIndex, keys);
-        return StringUtils.hasText(value) ? new BigDecimal(cleanNumber(value)) : BigDecimal.ZERO;
+        return StringUtils.hasText(value)
+                ? new BigDecimal(NoonAdvertisingLegacyNumericContract.normalize(value))
+                : BigDecimal.ZERO;
     }
 
     private BigDecimal percentageValue(List<String> row, Map<String, Integer> headerIndex, String... keys) {
@@ -254,7 +277,9 @@ public class NoonAdvertisingReportAdapter {
         if (!StringUtils.hasText(matched.value())) {
             return BigDecimal.ZERO;
         }
-        BigDecimal value = new BigDecimal(cleanNumber(matched.value()));
+        BigDecimal value = new BigDecimal(
+                NoonAdvertisingLegacyNumericContract.normalize(matched.value())
+        );
         String matchedKey = matched.key();
         if ("ctr".equals(matchedKey) || "cvr".equals(matchedKey)) {
             return value.divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP).stripTrailingZeros();
@@ -303,17 +328,7 @@ public class NoonAdvertisingReportAdapter {
     }
 
     private String normalizeHeader(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        String camelSeparated = value.trim().replaceAll("([a-z0-9])([A-Z])", "$1_$2");
-        return camelSeparated.toLowerCase(Locale.ROOT)
-                .replaceAll("[^a-z0-9]+", "_")
-                .replaceAll("^_+|_+$", "");
-    }
-
-    private String cleanNumber(String value) {
-        return value == null ? "" : value.trim().replace(",", "").replace("%", "");
+        return NoonAdvertisingHeaderContract.normalize(value);
     }
 
     private static final class MatchedValue {
@@ -334,46 +349,4 @@ public class NoonAdvertisingReportAdapter {
         }
     }
 
-    private List<List<String>> parseCsv(String csv) {
-        List<List<String>> rows = new ArrayList<>();
-        List<String> row = new ArrayList<>();
-        StringBuilder field = new StringBuilder();
-        boolean inQuotes = false;
-        boolean sawAnyCharacter = false;
-        for (int i = 0; i < csv.length(); i++) {
-            char current = csv.charAt(i);
-            sawAnyCharacter = true;
-            if (inQuotes) {
-                if (current == '"') {
-                    if (i + 1 < csv.length() && csv.charAt(i + 1) == '"') {
-                        field.append('"');
-                        i++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    field.append(current);
-                }
-                continue;
-            }
-            if (current == '"') {
-                inQuotes = true;
-            } else if (current == ',') {
-                row.add(field.toString());
-                field.setLength(0);
-            } else if (current == '\n') {
-                row.add(field.toString());
-                rows.add(row);
-                row = new ArrayList<>();
-                field.setLength(0);
-            } else if (current != '\r') {
-                field.append(current);
-            }
-        }
-        if (sawAnyCharacter || field.length() > 0 || !row.isEmpty()) {
-            row.add(field.toString());
-            rows.add(row);
-        }
-        return rows;
-    }
 }

@@ -4,9 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.nuono.next.noonsync.NoonBusinessSyncStatusService;
-import com.nuono.next.noonsync.NoonSalesSyncSurfaceState;
-import com.nuono.next.noonsync.NoonSyncFoundationService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
@@ -42,26 +39,9 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
-    void returnsEmptyReportQualityStateWhenRangeHasNoUsableFacts() {
+    void returnsOnlyAnEmptyFactCollectionWhenRangeHasNoFacts() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of();
-        repository.batches = List.of(new SalesImportBatchRecord(
-                10001L,
-                NoonSalesCsvImportService.SOURCE_SYSTEM,
-                "header-only.csv",
-                10002L,
-                245027L,
-                "STR245027-SAU",
-                "SA",
-                null,
-                null,
-                0,
-                0,
-                0,
-                "empty",
-                null,
-                null
-        ));
         SalesAnalyticsService service = new SalesAnalyticsService(repository);
 
         SalesDailyFactsView view = service.listDailyFacts(new SalesFactQuery(
@@ -75,30 +55,24 @@ class SalesAnalyticsServiceTest {
         ));
 
         assertEquals(0, view.getTotal());
-        assertEquals(1, view.getQualityStates().size());
-        assertEquals("empty_report", view.getQualityStates().get(0).getCode());
-        assertEquals(10001L, view.getQualityStates().get(0).getSourceBatchId());
+        assertEquals(List.of(), view.getItems());
     }
 
     @Test
-    void salesAnalyticsSummaryAndFactsExposeSharedSyncStatusForNoData() {
+    void salesAnalyticsDoesNotExposeReadinessForNoData() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of();
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
-        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
 
         SalesAnalyticsSummary summary = service.getSummary(defaultQuery());
         SalesDailyFactsView factsView = service.listDailyFacts(defaultQuery());
 
-        assertFalse(summary.isBusinessMetricsAvailable());
-        assertEquals(NoonSalesSyncSurfaceState.NO_DATA_BACKFILL_REQUIRED, summary.getSyncStatus().getState());
-        assertEquals(NoonSalesSyncSurfaceState.NO_DATA_BACKFILL_REQUIRED, factsView.getSyncStatus().getState());
+        assertEquals(0, summary.getNetUnits());
+        assertEquals(0, factsView.getTotal());
     }
 
     @Test
-    void salesAnalyticsMarksStaleLatestSalesDateWithoutPretendingMissingDaysAreZero() {
+    void salesAnalyticsDoesNotPretendMissingDaysAreZero() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of(fact(
                 LocalDate.of(2026, 5, 10),
@@ -114,11 +88,7 @@ class SalesAnalyticsServiceTest {
                 null,
                 null
         ));
-        repository.latestFactDate = LocalDate.of(2026, 5, 10);
-        SalesAnalyticsService service = new SalesAnalyticsService(
-                repository,
-                new NoonBusinessSyncStatusService(new NoonSyncFoundationService())
-        );
+        SalesAnalyticsService service = new SalesAnalyticsService(repository);
 
         SalesAnalyticsSummary summary = service.getSummary(new SalesFactQuery(
                 10002L,
@@ -130,8 +100,8 @@ class SalesAnalyticsServiceTest {
                 null
         ));
 
-        assertEquals(NoonSalesSyncSurfaceState.STALE_LATEST_SALES, summary.getSyncStatus().getState());
-        assertEquals(LocalDate.of(2026, 5, 10), summary.getSyncStatus().getLatestAvailableSalesDate());
+        assertEquals(1, summary.getNetUnits());
+        assertEquals(BigDecimal.TEN, summary.getRevenueShipped());
     }
 
     @Test
@@ -157,7 +127,7 @@ class SalesAnalyticsServiceTest {
     }
 
     @Test
-    void marksBusinessMetricsUnavailableWhenTrafficColumnsAreMissing() {
+    void keepsMissingTrafficColumnsNullWithoutPublishingAnAvailabilityVerdict() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         repository.facts = List.of(
                 fact(LocalDate.of(2026, 5, 18), "SAMPLE-SKU-001", "Z57C90A4184D0CFD75218Z-1", 10, 10, 0, 10, new BigDecimal("348.00"), null, null, null, null)
@@ -170,9 +140,9 @@ class SalesAnalyticsServiceTest {
         assertEquals(10, summary.getNetUnits());
         assertEquals(0, summary.getYourVisitors());
         assertEquals(null, summary.getConversionVisitorsPercentage());
-        assertEquals(false, summary.isBusinessMetricsAvailable());
-        assertEquals(false, row.isBusinessMetricsAvailable());
-        assertEquals(false, row.isLatestBusinessMetricsAvailable());
+        assertEquals(0, row.getYourVisitors());
+        assertEquals(0, row.getLatestYourVisitors());
+        assertEquals(null, row.getLatestConversionVisitorsPercentage());
     }
 
     @Test
@@ -420,7 +390,7 @@ class SalesAnalyticsServiceTest {
         assertEquals(null, unmatched.getBrand());
         assertEquals(null, unmatched.getProductFulltype());
         assertEquals(List.of("product_dimension_missing"), unmatched.getDimensionQualityCodes());
-        assertEquals(List.of("sales_fact_ready", "product_dimension_missing"), unmatched.getDataQualityCodes());
+        assertEquals(List.of("product_dimension_missing"), unmatched.getDataQualityCodes());
 
         SalesProductRow matched = productRow(rows, "MATCHED-PSKU");
         assertEquals("MATCHED-PSKU", matched.getPartnerSku());
@@ -429,12 +399,12 @@ class SalesAnalyticsServiceTest {
         assertEquals(true, matched.isDimensionMatched());
         assertEquals("PRODUCT_MANAGEMENT", matched.getDimensionSource());
         assertEquals(List.of("product_dimension_matched"), matched.getDimensionQualityCodes());
-        assertEquals(List.of("sales_fact_ready", "product_dimension_matched"), matched.getDataQualityCodes());
+        assertEquals(List.of("product_dimension_matched"), matched.getDataQualityCodes());
 
         SalesProductRow partial = productRow(rows, "PARTIAL-PSKU");
         assertEquals(true, partial.isDimensionMatched());
         assertEquals(List.of("product_dimension_matched", "brand_missing", "backend_fulltype_missing"), partial.getDimensionQualityCodes());
-        assertEquals(List.of("sales_fact_ready", "product_dimension_matched", "brand_missing", "backend_fulltype_missing"), partial.getDataQualityCodes());
+        assertEquals(List.of("product_dimension_matched", "brand_missing", "backend_fulltype_missing"), partial.getDataQualityCodes());
     }
 
     @Test
@@ -655,14 +625,12 @@ class SalesAnalyticsServiceTest {
         assertEquals(query, repository.lastQuery);
         String[] lines = csv.split("\\R");
         assertEquals("factDate,sourceSystem,partnerSku,sku,brand,productFulltype,dataQualityCodes,productTitle,netUnits,grossUnits,shippedUnits,cancelledUnits,revenueShipped,yourVisitors,totalVisitors,conversionVisitorsPercentage,buyBoxVisitorPercentage", lines[0]);
-        assertEquals("2026-05-18,noon_productviewsandsalesdata,SAMPLE-SKU-001,Z57C90A4184D0CFD75218Z-1,Paper Says,Stationery-Paper-Sticker,sales_fact_ready|product_dimension_matched,Sanitized sample product,8,10,9,2,120.50,100,200,50,80", lines[1]);
+        assertEquals("2026-05-18,noon_productviewsandsalesdata,SAMPLE-SKU-001,Z57C90A4184D0CFD75218Z-1,Paper Says,Stationery-Paper-Sticker,product_dimension_matched,Sanitized sample product,8,10,9,2,120.50,100,200,50,80", lines[1]);
     }
 
     private static class RecordingSalesFactRepository implements SalesFactRepository {
         private SalesFactQuery lastQuery;
         private List<DailySalesFact> facts;
-        private List<SalesImportBatchRecord> batches = List.of();
-        private LocalDate latestFactDate;
 
         @Override
         public long saveBatch(SalesImportBatch batch) {
@@ -707,16 +675,6 @@ class SalesAnalyticsServiceTest {
                 result.add(fact);
             }
             return result;
-        }
-
-        @Override
-        public List<SalesImportBatchRecord> listImportBatches(SalesImportBatchQuery query) {
-            return batches;
-        }
-
-        @Override
-        public LocalDate findLatestFactDate(Long ownerUserId, String storeCode, String siteCode) {
-            return latestFactDate;
         }
 
         private DailySalesFact fact() {
@@ -853,7 +811,7 @@ class SalesAnalyticsServiceTest {
 
     private DailySalesFact legacyFact(LocalDate factDate, String partnerSku, String sku, int netUnits) {
         return new DailySalesFact(
-                LegacySalesBackfillService.SOURCE_SYSTEM,
+                "legacy_product_sales_data",
                 10002L,
                 10002L,
                 245027L,

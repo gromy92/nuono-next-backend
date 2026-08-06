@@ -6,7 +6,6 @@ import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.time.LocalDateTime;
 import java.util.Objects;
 import java.util.Optional;
-import org.springframework.util.StringUtils;
 
 /** Atomically attaches one durable pull task to the shared authorization queue. */
 final class NoonPullAuthWaitSupport {
@@ -33,7 +32,7 @@ final class NoonPullAuthWaitSupport {
         Optional<Long> recoveryId = queue.enqueue(NoonAuthWaitRequest.task(
                 task.getOwnerUserId(), null, task.getStoreCode(), task.getSiteCode(),
                 sourceDomain, task.getId(),
-                StringUtils.hasText(task.getReadinessState()) ? task.getReadinessState() : sourceDomain,
+                sourceCheckpoint(task),
                 NoonAuthResumePolicy.AUTO_RESUME, task.getStartedAt()
         ));
         if (recoveryId.isEmpty()) {
@@ -56,6 +55,24 @@ final class NoonPullAuthWaitSupport {
         plan.setUpdatedAt(now);
         repository.updatePlan(plan);
         return blocked.copy();
+    }
+
+    private String sourceCheckpoint(NoonPullTaskRecord task) {
+        String checkpoint = firstNonBlank(
+                task.getCheckpointCursor(),
+                task.getNextResumePosition(),
+                "PERSISTED_TASK_STATE"
+        );
+        return checkpoint.length() <= 64 ? checkpoint : checkpoint.substring(0, 64);
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value.trim();
+            }
+        }
+        throw new IllegalStateException("Noon pull auth checkpoint is unavailable.");
     }
 
     private NoonPullTaskRecord requireTask(Long taskId) {

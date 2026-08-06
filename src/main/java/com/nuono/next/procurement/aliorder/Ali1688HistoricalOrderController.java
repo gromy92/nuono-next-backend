@@ -197,18 +197,6 @@ public class Ali1688HistoricalOrderController {
         return historicalOrderService().revokeAuthorization(context, authorizationId);
     }
 
-    @PostMapping("/sync-tasks/initial-backfill")
-    public Ali1688HistoricalOrderWorkbenchView runInitialBackfill(HttpServletRequest request) {
-        BusinessAccessContext context = requireBoss(authorizedContext(request));
-        return historicalOrderService().runInitialBackfill(context);
-    }
-
-    @PostMapping("/sync-tasks/manual-refresh")
-    public Ali1688HistoricalOrderWorkbenchView runManualRefresh(HttpServletRequest request) {
-        BusinessAccessContext context = requireRefreshOperator(authorizedContext(request));
-        return historicalOrderService().runManualRefresh(context);
-    }
-
     @GetMapping("/sku-purchase-history")
     public Ali1688SkuPurchaseHistoryView skuPurchaseHistory(
             @RequestParam("storeCode") String storeCode,
@@ -410,10 +398,4 @@ public class Ali1688HistoricalOrderController {
         return context;
     }
 
-    private BusinessAccessContext requireRefreshOperator(BusinessAccessContext context) {
-        if (context == null || !Ali1688HistoricalOrderPermission.canTriggerSync(context)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号不能刷新 1688 历史订单。");
-        }
-        return context;
-    }
 }

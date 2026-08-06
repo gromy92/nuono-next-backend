@@ -4,10 +4,11 @@ import java.util.Arrays;
 
 public enum Ali1688HistoricalOrderFailureCode {
     AUTH_REQUIRED("auth_required", false, true),
+    AUTH_REFRESH_OUTCOME_UNKNOWN("auth_refresh_outcome_unknown", false, true),
     PROVIDER_NOT_CONFIGURED("provider_not_configured", false, true),
     PROVIDER_UNAVAILABLE("provider_unavailable", true, false),
     RATE_LIMITED("rate_limited", true, false),
-    BLOCKED_BY_RISK_CONTROL("blocked_by_risk_control", false, true),
+    BLOCKED_BY_RISK_CONTROL("blocked_by_risk_control", true, false),
     MISSING_FIELDS("missing_fields", true, false),
     PARTIAL_SUCCESS("partial_success", true, false),
     UNEXPECTED_RESPONSE("unexpected_response", true, false);

@@ -1,6 +1,5 @@
 package com.nuono.next.infrastructure.mapper;
 
-import com.nuono.next.nooncompleteness.NoonProductCompletenessAudit;
 import com.nuono.next.product.ProductActionLogRecord;
 import com.nuono.next.product.ProductClassificationOptionRecord;
 import com.nuono.next.product.ProductGroupCandidateContextRecord;
@@ -32,7 +31,7 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
 
-public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper, ProductProjectionIdentityRecoveryMapper {
+public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapper, ProductRebuildWorkflowMapper, ProductListActiveStateMapper, ProductProjectionIdentityRecoveryMapper, Dp04ProductScopeMapper {
 
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
@@ -50,39 +49,6 @@ public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapp
             resultType = Long.class
     )
     int allocateProductManagementId(IdSequenceCommand command);
-
-    @Select({
-            "SELECT",
-            "  COUNT(DISTINCT pm.id) AS productMasterCount,",
-            "  COUNT(DISTINCT pso.id) AS siteOfferCount,",
-            "  COUNT(DISTINCT CASE WHEN pms.id IS NOT NULL THEN pm.id END) AS detailBaselineCount",
-            "FROM logical_store ls",
-            "JOIN logical_store_site lss",
-            "  ON lss.logical_store_id = ls.id",
-            " AND lss.store_code = #{storeCode}",
-            " AND lss.site = #{siteCode}",
-            "LEFT JOIN product_master pm",
-            "  ON pm.logical_store_id = ls.id",
-            " AND pm.is_deleted = 0",
-            "LEFT JOIN product_variant pv",
-            "  ON pv.product_master_id = pm.id",
-            " AND pv.is_deleted = 0",
-            "LEFT JOIN product_site_offer pso",
-            "  ON pso.variant_id = pv.id",
-            " AND pso.site_id = lss.id",
-            " AND pso.is_deleted = 0",
-            "LEFT JOIN product_master_snapshot pms",
-            "  ON pms.product_master_id = pm.id",
-            " AND pms.snapshot_type = 'baseline'",
-            " AND pms.is_deleted = 0",
-            "WHERE ls.owner_user_id = #{ownerUserId}",
-            "  AND ls.is_deleted = 0"
-    })
-    NoonProductCompletenessAudit auditNoonProductCompleteness(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode
-    );
 
     default Long nextProductManagementId(String sequenceName, long initialValue) {
         IdSequenceCommand command = new IdSequenceCommand(sequenceName, initialValue);
@@ -118,7 +84,7 @@ public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapp
             "  0, #{ownerUserId}, #{ownerUserId}, NOW(), NOW()",
             ")",
             "ON DUPLICATE KEY UPDATE",
-            "  project_name = VALUES(project_name),",
+            "  project_name = COALESCE(VALUES(project_name), project_name),",
             "  status = VALUES(status),",
             "  is_deleted = 0,",
             "  updated_by = VALUES(updated_by),",
@@ -3569,32 +3535,6 @@ public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapp
     int backfillProductSiteOfferListingStartedAtById(
             @Param("productSiteOfferId") Long productSiteOfferId,
             @Param("fallbackNow") LocalDateTime fallbackNow,
-            @Param("updatedBy") Long updatedBy
-    );
-
-    @Update({
-            "UPDATE product_site_offer pso",
-            "JOIN logical_store_site lss",
-            "  ON lss.id = pso.site_id",
-            " AND lss.is_deleted = 0",
-            "JOIN logical_store ls",
-            "  ON ls.id = lss.logical_store_id",
-            " AND ls.is_deleted = 0",
-            "SET pso.listing_started_at = NULL,",
-            "    pso.listing_started_source = 'not_listed',",
-            "    pso.updated_by = #{updatedBy},",
-            "    pso.gmt_updated = NOW()",
-            "WHERE ls.owner_user_id = #{ownerUserId}",
-            "  AND lss.store_code = #{storeCode}",
-            "  AND lss.site = #{siteCode}",
-            "  AND pso.is_deleted = 0",
-            "  AND pso.listing_started_at IS NULL",
-            "  AND (pso.listing_started_source IS NULL OR pso.listing_started_source IN ('data_missing', 'not_listed'))"
-    })
-    int markSiteProductOffersNotListedForEmptySalesReport(
-            @Param("ownerUserId") Long ownerUserId,
-            @Param("storeCode") String storeCode,
-            @Param("siteCode") String siteCode,
             @Param("updatedBy") Long updatedBy
     );
 

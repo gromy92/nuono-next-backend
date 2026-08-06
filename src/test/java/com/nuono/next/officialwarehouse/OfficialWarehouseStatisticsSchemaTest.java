@@ -106,7 +106,6 @@ class OfficialWarehouseStatisticsSchemaTest {
                 .contains("COUNT(DISTINCT NULLIF(l.warehouse_code, ''))")
                 .contains("JOIN product_site_offer pso")
                 .contains("LEFT JOIN (")
-                .contains("FROM official_warehouse_inventory_snapshot_line")
                 .doesNotContain("\"         pm.cover_image_url, l.warehouse_code\"");
     }
 

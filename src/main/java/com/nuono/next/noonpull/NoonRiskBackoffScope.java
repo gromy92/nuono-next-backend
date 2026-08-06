@@ -44,7 +44,16 @@ public class NoonRiskBackoffScope {
         if (request == null) {
             return report(null, null, null);
         }
-        return report(request.getOwnerUserId(), request.getStoreCode(), request.getSiteCode());
+        String operation = request.getDataDomain() == null
+                ? "REPORT"
+                : "REPORT_" + request.getDataDomain().name();
+        return new NoonRiskBackoffScope(
+                "OWNER_STORE_SITE",
+                request.getOwnerUserId(),
+                request.getStoreCode(),
+                request.getSiteCode(),
+                operation
+        );
     }
 
     public static NoonRiskBackoffScope productInterface(Long ownerUserId, String storeCode, String siteCode) {
@@ -122,6 +131,9 @@ public class NoonRiskBackoffScope {
     }
 
     boolean acceptsAccountWideSourceDomain(String sourceDomain) {
+        if (operationGroup != null && operationGroup.startsWith("REPORT_")) {
+            return operationGroup.substring("REPORT_".length()).equals(normalize(sourceDomain));
+        }
         if (!PARTNER_ACCOUNT_WIDE_OPERATION.equals(operationGroup)
                 && !PUBLIC_ACCOUNT_WIDE_OPERATION.equals(operationGroup)) {
             return true;

@@ -20,7 +20,7 @@ final class NoonAdsAdvertiserContextResolver {
             NoonPullGatewaySession session,
             NoonPullStoreBinding binding
     ) {
-        byte[] responseBytes = session.getBytes(
+        byte[] responseBytes = session.getBytesOnce(
                 advertiserAccountsUrl,
                 false,
                 headers(binding, null, "application/json, text/plain, */*")

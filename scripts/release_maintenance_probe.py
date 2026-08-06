@@ -37,7 +37,7 @@ def trap_safe_capture_functions() -> str:
   return "$status"
 }
 post_switch_external_health() {
-  curl -fsS --max-time 10 "$EXTERNAL_HEALTH_URL" |
+  curl -fsS --max-time 10 -- "$EXTERNAL_HEALTH_URL" |
     sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
 }'''
 

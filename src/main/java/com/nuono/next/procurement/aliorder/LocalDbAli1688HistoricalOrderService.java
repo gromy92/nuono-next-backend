@@ -14,7 +14,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,9 +27,6 @@ public class LocalDbAli1688HistoricalOrderService {
     static final String OPEN_API_PROVIDER_CODE = Ali1688HistoricalOrderOAuthService.PROVIDER_CODE;
     static final String LOCAL_EXCEL_PROVIDER_CODE = "ALI1688_EXCEL_LOCAL";
     static final String EXCEL_UPLOAD_PROVIDER_CODE = "ALI1688_EXCEL_UPLOAD";
-    static final String INITIAL_BACKFILL_TASK_TYPE = "initial_backfill";
-    static final String MANUAL_REFRESH_TASK_TYPE = "manual_refresh";
-    static final String SCHEDULED_WEEKLY_TASK_TYPE = "scheduled_weekly";
     static final String DEV_ACCOUNT_LABEL = "1688 开发授权账号";
     static final String ORDER_READ_SCOPE = "读取 1688 历史订单，不会付款或创建订单。";
     static final String EXCEL_UPLOAD_SCOPE = "用户上传 1688 历史订单 Excel，只写只读历史订单事实。";
@@ -41,19 +37,9 @@ public class LocalDbAli1688HistoricalOrderService {
     private static final BigDecimal PURCHASE_PRICE_ANOMALY_THRESHOLD_RATIO = new BigDecimal("0.10");
 
     private final Ali1688HistoricalOrderMapper mapper;
-    private final Ali1688HistoricalOrderProvider provider;
-
-    @Autowired
-    public LocalDbAli1688HistoricalOrderService(
-            Ali1688HistoricalOrderMapper mapper,
-            Ali1688HistoricalOrderProvider provider
-    ) {
-        this.mapper = mapper;
-        this.provider = provider;
-    }
 
     public LocalDbAli1688HistoricalOrderService(Ali1688HistoricalOrderMapper mapper) {
-        this(mapper, new FakeAli1688HistoricalOrderProvider());
+        this.mapper = mapper;
     }
 
     public Ali1688HistoricalOrderWorkbenchView buildWorkbench(BusinessAccessContext context) {
@@ -733,228 +719,6 @@ public class LocalDbAli1688HistoricalOrderService {
             throw new IllegalStateException("SHA-256 digest is unavailable.", ex);
         }
     }
-
-    private Ali1688HistoricalOrderSyncTaskRow createInitialBackfillTask(
-            BusinessAccessContext context,
-            Long ownerUserId,
-            Ali1688HistoricalOrderAuthorizationRow authorization
-    ) {
-        return createSyncTask(context, ownerUserId, authorization, INITIAL_BACKFILL_TASK_TYPE);
-    }
-
-    private Ali1688HistoricalOrderSyncTaskRow createSyncTask(
-            BusinessAccessContext context,
-            Long ownerUserId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            String taskType
-    ) {
-        return createSyncTask(ownerUserId, authorization, taskType, operatorUserId(context));
-    }
-
-    private Ali1688HistoricalOrderSyncTaskRow createSyncTask(
-            Long ownerUserId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            String taskType,
-            Long operatorUserId
-    ) {
-        Ali1688HistoricalOrderSyncTaskRow task = new Ali1688HistoricalOrderSyncTaskRow();
-        task.setId(mapper.nextSyncTaskId());
-        task.setOwnerUserId(ownerUserId);
-        task.setAuthorizationId(authorization.getId());
-        task.setTaskType(taskType);
-        task.setStatus("running");
-        task.setProcessedCount(0);
-        task.setImportedCount(0);
-        task.setFailedCount(0);
-        task.setProgressPercent(0);
-        task.setCheckpointJson(checkpointJson(null));
-        task.setCreatedBy(operatorUserId);
-        task.setUpdatedBy(operatorUserId);
-        mapper.insertSyncTask(task);
-        return task;
-    }
-
-    public Ali1688HistoricalOrderWorkbenchView runInitialBackfill(BusinessAccessContext context) {
-        Long ownerUserId = ownerUserId(context);
-        Ali1688HistoricalOrderAuthorizationRow authorization = ownerUserId == null
-                ? null
-                : mapper.selectCurrentAuthorization(ownerUserId);
-        if (authorization == null) {
-            return Ali1688HistoricalOrderWorkbenchView.noAuthorization(context);
-        }
-
-        Ali1688HistoricalOrderSyncTaskRow task = mapper.selectLatestResumableTask(ownerUserId, authorization.getId());
-        if (task == null) {
-            task = createInitialBackfillTask(context, ownerUserId, authorization);
-        }
-
-        executeProviderSync(ownerUserId, authorization, task);
-        return buildWorkbench(context);
-    }
-
-    public Ali1688HistoricalOrderWorkbenchView runManualRefresh(BusinessAccessContext context) {
-        Long ownerUserId = ownerUserId(context);
-        Ali1688HistoricalOrderAuthorizationRow authorization = ownerUserId == null
-                ? null
-                : mapper.selectCurrentAuthorization(ownerUserId);
-        if (authorization == null) {
-            return Ali1688HistoricalOrderWorkbenchView.noAuthorization(context);
-        }
-        if (LOCAL_EXCEL_PROVIDER_CODE.equals(authorization.getProviderCode())) {
-            return buildAuthorizedWorkbench(context, authorization, Ali1688HistoricalOrderQuery.defaultQuery());
-        }
-        Ali1688HistoricalOrderSyncTaskRow task = createSyncTask(
-                context,
-                ownerUserId,
-                authorization,
-                MANUAL_REFRESH_TASK_TYPE
-        );
-        executeProviderSync(ownerUserId, authorization, task);
-        return buildWorkbench(context);
-    }
-
-    public Ali1688HistoricalOrderSyncTaskRow runScheduledWeekly(
-            Long ownerUserId,
-            Long authorizationId,
-            Long operatorUserId
-    ) {
-        if (ownerUserId == null || authorizationId == null) {
-            return null;
-        }
-        Ali1688HistoricalOrderAuthorizationRow authorization =
-                mapper.selectAuthorizationById(ownerUserId, authorizationId);
-        if (authorization == null || !OPEN_API_PROVIDER_CODE.equals(authorization.getProviderCode())) {
-            return null;
-        }
-        Ali1688HistoricalOrderSyncTaskRow task = createSyncTask(
-                ownerUserId,
-                authorization,
-                SCHEDULED_WEEKLY_TASK_TYPE,
-                operatorUserId
-        );
-        executeProviderSync(ownerUserId, authorization, task);
-        return task;
-    }
-
-    private void executeProviderSync(
-            Long ownerUserId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            Ali1688HistoricalOrderSyncTaskRow task
-    ) {
-        int processedCount = defaultInt(task.getProcessedCount());
-        int importedItemCount = defaultInt(task.getImportedCount());
-        int failedCount = defaultInt(task.getFailedCount());
-        String cursor = cursorFromCheckpoint(task.getCheckpointJson());
-
-        while (true) {
-            Ali1688HistoricalOrderProvider.Page page = provider.fetchPage(authorization, cursor);
-            for (Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot : page.getOrders()) {
-                processedCount++;
-                if (shouldSkipProviderOrder(orderSnapshot)) {
-                    continue;
-                }
-                Long orderId = mapper.nextOrderId();
-                Ali1688HistoricalOrderRow order = toOrderRow(ownerUserId, authorization, orderId, orderSnapshot);
-                mapper.upsertOrder(order);
-
-                int lineNo = 1;
-                for (Ali1688HistoricalOrderProvider.OrderItemSnapshot itemSnapshot : orderSnapshot.getItems()) {
-                    Ali1688HistoricalOrderItemRow item = toItemRow(
-                            mapper.nextOrderItemId(),
-                            orderId,
-                            authorization,
-                            orderSnapshot,
-                            itemSnapshot,
-                            lineNo
-                    );
-                    mapper.upsertOrderItem(item);
-                    if (hasText(itemSnapshot.getLogisticsCompany()) || hasText(itemSnapshot.getTrackingNo())) {
-                        Ali1688HistoricalOrderLogisticsRow logistics = toLogisticsRow(
-                                mapper.nextOrderLogisticsId(),
-                                orderId,
-                                item.getId(),
-                                authorization,
-                                orderSnapshot,
-                                itemSnapshot,
-                                lineNo
-                        );
-                        mapper.upsertOrderLogistics(logistics);
-                    }
-                    importedItemCount++;
-                    lineNo++;
-                }
-            }
-
-            String checkpointJson = checkpointJson(page.getNextCursor());
-            if (page.hasFailure()) {
-                failedCount++;
-                Ali1688HistoricalOrderFailureCode failureCode =
-                        Ali1688HistoricalOrderFailureCode.fromCode(page.getFailureCode());
-                boolean retryable = page.isRetryableFailure() || failureCode.isRetryable();
-                boolean requiresManualAction = failureCode.isRequiresManualAction();
-                if (processedCount == 0 && importedItemCount == 0) {
-                    mapper.markSyncTaskFailed(
-                            task.getId(),
-                            processedCount,
-                            importedItemCount,
-                            failedCount,
-                            failureCode.getCode(),
-                            page.getFailureMessage(),
-                            checkpointJson,
-                            retryable,
-                            requiresManualAction
-                    );
-                    return;
-                }
-                mapper.markSyncTaskPartialSuccess(
-                        task.getId(),
-                        processedCount,
-                        importedItemCount,
-                        failedCount,
-                        failureCode.getCode(),
-                        page.getFailureMessage(),
-                        checkpointJson,
-                        retryable,
-                        requiresManualAction
-                );
-                return;
-            }
-            if (!page.isHasMore()) {
-                mapper.markSyncTaskSuccess(task.getId(), processedCount, importedItemCount, failedCount, checkpointJson);
-                return;
-            }
-            mapper.updateSyncTaskCheckpoint(
-                    task.getId(),
-                    checkpointJson,
-                    page.getProgressPercent(),
-                    processedCount,
-                    importedItemCount,
-                    failedCount
-            );
-            cursor = page.getNextCursor();
-        }
-    }
-
-    private boolean shouldSkipProviderOrder(Ali1688HistoricalOrderProvider.OrderSnapshot orderSnapshot) {
-        if (orderSnapshot == null || !hasText(orderSnapshot.getProviderOrderNo())) {
-            return true;
-        }
-        String status = normalizeProviderOrderStatus(orderSnapshot.getOrderStatus());
-        return status.contains("取消")
-                || status.contains("删除")
-                || status.contains("交易关闭")
-                || status.contains("已关闭")
-                || status.contains("作废")
-                || status.contains("cancel")
-                || status.contains("closed")
-                || status.contains("deleted")
-                || status.contains("removed");
-    }
-
-    private String normalizeProviderOrderStatus(String value) {
-        return value == null ? "" : value.trim().toLowerCase(java.util.Locale.ROOT);
-    }
-
     public Ali1688HistoricalOrderWorkbenchView revokeAuthorization(
             BusinessAccessContext context,
             Long authorizationId
@@ -1830,15 +1594,12 @@ public class LocalDbAli1688HistoricalOrderService {
                 : query;
         validateRequestedStore(context, resolvedQuery);
         List<Long> visibleAuthorizationIds = visibleAuthorizationIds(ownerUserId, resolvedQuery, authorization);
-        Ali1688HistoricalOrderSyncTaskRow latestTask = mapper.selectLatestTask(ownerUserId, authorization.getId());
         if (visibleAuthorizationIds.isEmpty()) {
             return Ali1688HistoricalOrderWorkbenchView.authorizedWithOrders(
                     context,
                     authorization,
                     List.of(),
                     0,
-                    0,
-                    latestTask,
                     resolvedQuery,
                     Ali1688HistoricalOrderWorkbenchView.StoreScopeView.unbound(resolvedQuery)
             );
@@ -1905,8 +1666,6 @@ public class LocalDbAli1688HistoricalOrderService {
                 primaryAuthorization,
                 orderViews,
                 mapper.countOrders(ownerUserId, visibleAuthorizationIds, resolvedQuery),
-                mapper.countOrderItems(ownerUserId, visibleAuthorizationIds),
-                latestTask,
                 resolvedQuery,
                 Ali1688HistoricalOrderWorkbenchView.StoreScopeView.bound(resolvedQuery, visibleAuthorizationIds)
         );
@@ -2002,116 +1761,6 @@ public class LocalDbAli1688HistoricalOrderService {
         if (!"active".equals(assignment.getStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "只能调整或撤回有效分配记录。");
         }
-    }
-
-    private Ali1688HistoricalOrderRow toOrderRow(
-            Long ownerUserId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            Long orderId,
-            Ali1688HistoricalOrderProvider.OrderSnapshot snapshot
-    ) {
-        Ali1688HistoricalOrderRow row = new Ali1688HistoricalOrderRow();
-        row.setId(orderId);
-        row.setOwnerUserId(ownerUserId);
-        row.setAuthorizationId(authorization.getId());
-        row.setOrderNaturalKey(authorization.getId() + ":" + snapshot.getProviderOrderNo());
-        row.setProviderOrderNo(snapshot.getProviderOrderNo());
-        row.setOrderTime(snapshot.getOrderTime());
-        row.setPaidAt(snapshot.getPaidAt());
-        row.setBuyerCompanyName(snapshot.getBuyerCompanyName());
-        row.setBuyerMemberName(snapshot.getBuyerMemberName());
-        row.setSupplierName(snapshot.getSupplierName());
-        row.setSellerMemberName(snapshot.getSellerMemberName());
-        row.setGoodsTotalText(snapshot.getGoodsTotalText());
-        row.setFreightText(snapshot.getFreightText());
-        row.setPaidAmountText(snapshot.getPaidAmountText());
-        row.setAmountText(snapshot.getAmountText());
-        row.setAmountValue(parseMoney(snapshot.getAmountText()));
-        row.setCurrency(snapshot.getCurrency());
-        row.setOrderStatus(snapshot.getOrderStatus());
-        row.setLogisticsStatus(snapshot.getLogisticsStatus());
-        row.setShipperName(snapshot.getShipperName());
-        row.setOriginalUrl(snapshot.getOriginalUrl());
-        row.setReceiverName(snapshot.getReceiverName());
-        row.setReceiverPostalCode(snapshot.getReceiverPostalCode());
-        row.setReceiverTelephone(snapshot.getReceiverTelephone());
-        row.setReceiverMobile(snapshot.getReceiverMobile());
-        row.setReceiverPhone(snapshot.getReceiverPhone());
-        row.setReceiverAddress(snapshot.getReceiverAddress());
-        row.setBuyerRemark(snapshot.getBuyerRemark());
-        row.setSupplierContact(snapshot.getSupplierContact());
-        row.setInitiatorLoginName(snapshot.getInitiatorLoginName());
-        row.setSourceBatchNo(snapshot.getSourceBatchNo());
-        row.setDownstreamOrderNo(snapshot.getDownstreamOrderNo());
-        row.setRawSnapshotJson(snapshot.getRawSnapshotJson());
-        return row;
-    }
-
-    private Ali1688HistoricalOrderItemRow toItemRow(
-            Long itemId,
-            Long orderId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            Ali1688HistoricalOrderProvider.OrderSnapshot order,
-            Ali1688HistoricalOrderProvider.OrderItemSnapshot snapshot,
-            int lineNo
-    ) {
-        Ali1688HistoricalOrderItemRow row = new Ali1688HistoricalOrderItemRow();
-        row.setId(itemId);
-        row.setOrderId(orderId);
-        row.setItemNaturalKey(String.join(
-                ":",
-                String.valueOf(authorization.getId()),
-                order.getProviderOrderNo(),
-                nullToEmpty(snapshot.getOfferId()),
-                nullToEmpty(snapshot.getSkuText()),
-                String.valueOf(lineNo)
-        ));
-        row.setOfferId(snapshot.getOfferId());
-        row.setSkuId(snapshot.getSkuId());
-        row.setTitle(snapshot.getTitle());
-        row.setSkuText(snapshot.getSkuText());
-        row.setModelText(snapshot.getModelText());
-        row.setProductCode(snapshot.getProductCode());
-        row.setSingleProductCode(snapshot.getSingleProductCode());
-        row.setQuantity(snapshot.getQuantity());
-        row.setUnit(snapshot.getUnit());
-        row.setUnitPriceText(snapshot.getUnitPriceText());
-        row.setAmountText(snapshot.getAmountText());
-        row.setImageUrl(snapshot.getImageUrl());
-        row.setRawSnapshotJson(snapshot.getRawSnapshotJson());
-        return row;
-    }
-
-    private Ali1688HistoricalOrderLogisticsRow toLogisticsRow(
-            Long logisticsId,
-            Long orderId,
-            Long itemId,
-            Ali1688HistoricalOrderAuthorizationRow authorization,
-            Ali1688HistoricalOrderProvider.OrderSnapshot order,
-            Ali1688HistoricalOrderProvider.OrderItemSnapshot snapshot,
-            int lineNo
-    ) {
-        if (!hasText(snapshot.getLogisticsCompany()) && !hasText(snapshot.getTrackingNo())) {
-            return null;
-        }
-        String logisticsKeyTail = hasText(snapshot.getTrackingNo())
-                ? snapshot.getTrackingNo()
-                : "line-" + lineNo;
-        Ali1688HistoricalOrderLogisticsRow row = new Ali1688HistoricalOrderLogisticsRow();
-        row.setId(logisticsId);
-        row.setOrderId(orderId);
-        row.setItemId(itemId);
-        row.setLogisticsNaturalKey(String.join(
-                ":",
-                String.valueOf(authorization.getId()),
-                order.getProviderOrderNo(),
-                String.valueOf(itemId),
-                logisticsKeyTail
-        ));
-        row.setLogisticsCompany(snapshot.getLogisticsCompany());
-        row.setTrackingNo(snapshot.getTrackingNo());
-        row.setRawSnapshotJson(snapshot.getRawSnapshotJson());
-        return row;
     }
 
     private Map<Long, List<Ali1688HistoricalOrderLogisticsRow>> logisticsByItemId(
@@ -3384,27 +3033,6 @@ public class LocalDbAli1688HistoricalOrderService {
 
     private int defaultInt(Integer value) {
         return value == null ? 0 : value;
-    }
-
-    private String checkpointJson(String nextCursor) {
-        if (nextCursor == null || nextCursor.isBlank()) {
-            return "{\"nextCursor\":null}";
-        }
-        return "{\"nextCursor\":\"" + nextCursor.replace("\"", "\\\"") + "\"}";
-    }
-
-    private String cursorFromCheckpoint(String checkpointJson) {
-        if (checkpointJson == null || checkpointJson.isBlank() || checkpointJson.contains("\"nextCursor\":null")) {
-            return null;
-        }
-        String marker = "\"nextCursor\":\"";
-        int start = checkpointJson.indexOf(marker);
-        if (start < 0) {
-            return null;
-        }
-        int valueStart = start + marker.length();
-        int valueEnd = checkpointJson.indexOf('"', valueStart);
-        return valueEnd < 0 ? null : checkpointJson.substring(valueStart, valueEnd);
     }
 
     private Long ownerUserId(BusinessAccessContext context) {

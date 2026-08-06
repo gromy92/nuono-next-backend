@@ -1,0 +1,116 @@
+package com.nuono.next.infrastructure.mapper;
+
+import com.nuono.next.competitoranalysis.dp08.Dp08KeywordScopeRow;
+import com.nuono.next.competitoranalysis.dp08.Dp08ListTargetRow;
+import java.time.LocalDate;
+import java.util.List;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+
+/** Read-only active-scope Adapter for DP-08-A/B task reconciliation. */
+public interface Dp08ScopeMapper {
+
+    @Select({
+            "SELECT target.ownerUserId, target.logicalStoreId, target.watchProductId,",
+            "       target.keywordId, target.storeCode, target.siteCode, target.keyword,",
+            "       target.locale, target.trackedProductType, target.competitorProductId,",
+            "       target.trackedNoonProductCode, target.sourceUpdatedAtUtc",
+            "FROM (",
+            "  SELECT wp.owner_user_id AS ownerUserId, wp.logical_store_id AS logicalStoreId,",
+            "         wp.id AS watchProductId, kw.id AS keywordId,",
+            "         wp.store_code AS storeCode, UPPER(wp.site_code) AS siteCode,",
+            "         kw.keyword, kw.locale, 'SELF' AS trackedProductType,",
+            "         NULL AS competitorProductId,",
+            "         UPPER(TRIM(wp.self_noon_product_code)) AS trackedNoonProductCode,",
+            "         GREATEST(wp.gmt_updated, kw.gmt_updated) AS sourceUpdatedAtUtc",
+            "  FROM operations_competitor_watch_product wp",
+            "  JOIN operations_competitor_keyword kw",
+            "    ON kw.watch_product_id = wp.id",
+            "   AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
+            "  WHERE wp.status = 'ACTIVE' AND wp.is_deleted = b'0'",
+            "    AND NULLIF(TRIM(wp.self_noon_product_code), '') IS NOT NULL",
+            "  UNION ALL",
+            "  SELECT wp.owner_user_id, wp.logical_store_id, wp.id, kw.id,",
+            "         wp.store_code, UPPER(wp.site_code), kw.keyword, kw.locale,",
+            "         'COMPETITOR', cp.id, UPPER(TRIM(cp.noon_product_code)),",
+            "         GREATEST(wp.gmt_updated, kw.gmt_updated, kp.gmt_updated, cp.gmt_updated)",
+            "  FROM operations_competitor_watch_product wp",
+            "  JOIN operations_competitor_keyword kw",
+            "    ON kw.watch_product_id = wp.id",
+            "   AND kw.status = 'ACTIVE' AND kw.is_deleted = b'0'",
+            "  JOIN operations_competitor_keyword_product kp",
+            "    ON kp.keyword_id = kw.id",
+            "   AND kp.relation_status <> 'IGNORED' AND kp.is_deleted = b'0'",
+            "  JOIN operations_competitor_product cp",
+            "    ON cp.id = kp.competitor_product_id",
+            "   AND cp.watch_product_id = wp.id",
+            "   AND cp.review_status = 'CONFIRMED' AND cp.is_deleted = b'0'",
+            "  WHERE wp.status = 'ACTIVE' AND wp.is_deleted = b'0'",
+            "    AND NULLIF(TRIM(cp.noon_product_code), '') IS NOT NULL",
+            ") target",
+            "ORDER BY target.ownerUserId, target.storeCode, target.siteCode,",
+            "         target.watchProductId, target.keywordId, target.trackedProductType DESC,",
+            "         target.competitorProductId"
+    })
+    List<Dp08KeywordScopeRow> listActiveKeywordScopes();
+
+    @Select({
+            "SELECT target.ownerUserId, target.logicalStoreId, target.storeCode, target.siteCode,",
+            "       target.noonProductCode, target.watchProductId, target.competitorProductId,",
+            "       target.sourceUpdatedAtUtc,",
+            "       CASE WHEN EXISTS (",
+            "         SELECT 1 FROM operations_competitor_rank_fact rf",
+            "         WHERE rf.watch_product_id = target.watchProductId",
+            "           AND UPPER(rf.noon_product_code) = target.noonProductCode",
+            "           AND rf.fact_date = #{factDate} AND rf.rank_status = 'RANKED'",
+            "           AND rf.scan_depth = 200 AND rf.is_deleted = b'0'",
+            "       ) THEN TRUE ELSE FALSE END AS rankedToday,",
+            "       (SELECT MAX(rf.gmt_updated) FROM operations_competitor_rank_fact rf",
+            "        WHERE rf.watch_product_id = target.watchProductId",
+            "          AND UPPER(rf.noon_product_code) = target.noonProductCode",
+            "          AND rf.fact_date = #{factDate} AND rf.rank_status = 'RANKED'",
+            "          AND rf.scan_depth = 200 AND rf.is_deleted = b'0') AS rankEvidenceUpdatedAtUtc,",
+            "       CASE WHEN EXISTS (",
+            "         SELECT 1 FROM operations_competitor_product_snapshot snap",
+            "         WHERE snap.watch_product_id = target.watchProductId",
+            "           AND UPPER(snap.noon_product_code) = target.noonProductCode",
+            "           AND snap.fact_date = #{factDate}",
+            "           AND NULLIF(TRIM(snap.title_en), '') IS NOT NULL",
+            "           AND NULLIF(TRIM(snap.title_ar), '') IS NOT NULL",
+            "           AND snap.is_deleted = b'0'",
+            "       ) THEN TRUE ELSE FALSE END AS completeTitlesToday,",
+            "       (SELECT MAX(snap.gmt_updated) FROM operations_competitor_product_snapshot snap",
+            "        WHERE snap.watch_product_id = target.watchProductId",
+            "          AND UPPER(snap.noon_product_code) = target.noonProductCode",
+            "          AND snap.fact_date = #{factDate}",
+            "          AND NULLIF(TRIM(snap.title_en), '') IS NOT NULL",
+            "          AND NULLIF(TRIM(snap.title_ar), '') IS NOT NULL",
+            "          AND snap.is_deleted = b'0') AS titleEvidenceUpdatedAtUtc",
+            "FROM (",
+            "  SELECT wp.owner_user_id AS ownerUserId, wp.logical_store_id AS logicalStoreId,",
+            "         wp.store_code AS storeCode, UPPER(wp.site_code) AS siteCode,",
+            "         UPPER(TRIM(wp.self_noon_product_code)) AS noonProductCode,",
+            "         wp.id AS watchProductId, NULL AS competitorProductId,",
+            "         wp.gmt_updated AS sourceUpdatedAtUtc",
+            "  FROM operations_competitor_watch_product wp",
+            "  WHERE wp.status = 'ACTIVE' AND wp.is_deleted = b'0'",
+            "    AND NULLIF(TRIM(wp.self_noon_product_code), '') IS NOT NULL",
+            "  UNION ALL",
+            "  SELECT wp.owner_user_id, wp.logical_store_id, wp.store_code, UPPER(wp.site_code),",
+            "         UPPER(TRIM(cp.noon_product_code)), wp.id, cp.id,",
+            "         GREATEST(wp.gmt_updated, cp.gmt_updated)",
+            "  FROM operations_competitor_watch_product wp",
+            "  JOIN operations_competitor_product cp",
+            "    ON cp.watch_product_id = wp.id",
+            "   AND cp.review_status = 'CONFIRMED' AND cp.is_deleted = b'0'",
+            "  WHERE wp.status = 'ACTIVE' AND wp.is_deleted = b'0'",
+            "    AND NULLIF(TRIM(cp.noon_product_code), '') IS NOT NULL",
+            "    AND UPPER(TRIM(cp.noon_product_code))",
+            "        <> COALESCE(UPPER(TRIM(wp.self_noon_product_code)), '')",
+            ") target",
+            "WHERE target.noonProductCode LIKE 'Z%' OR target.noonProductCode LIKE 'N%'",
+            "ORDER BY target.ownerUserId, target.storeCode, target.siteCode,",
+            "         target.noonProductCode, target.watchProductId, target.competitorProductId"
+    })
+    List<Dp08ListTargetRow> listActiveListTargetRows(@Param("factDate") LocalDate factDate);
+}

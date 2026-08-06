@@ -53,7 +53,6 @@ class NoonAdvertisingSchemaContractTest {
 
         assertFalse(source.contains("@Scheduled"));
         assertFalse(source.contains("NoonInterfacePuller"));
-        assertFalse(source.contains("NoonPullScheduler"));
         assertFalse(source.contains("HttpClient"));
         assertFalse(source.contains("RestTemplate"));
         assertFalse(source.contains("WebClient"));

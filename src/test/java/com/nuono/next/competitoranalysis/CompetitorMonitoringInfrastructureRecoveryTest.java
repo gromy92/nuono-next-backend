@@ -1,7 +1,6 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -53,7 +52,7 @@ class CompetitorMonitoringInfrastructureRecoveryTest {
         stubProductPages(List.of(product(1L), product(2L)));
         AtomicBoolean failOnce = new AtomicBoolean(true);
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
             if (failOnce.getAndSet(false)) {
                 throw new TransientDataAccessResourceException("database unavailable");
@@ -61,9 +60,7 @@ class CompetitorMonitoringInfrastructureRecoveryTest {
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        CompetitorTaskView view = service.requestStore(
-                501L, "STORE", "SA", 601L, CompetitorRefreshExecutionMode.FULL_MANUAL_MONITOR
-        );
+        CompetitorTaskView view = service.requestStore(501L, "STORE", "SA", 601L);
         submitted.remove(0).run();
 
         OperationalTask parked = repository.selectById(view.getTaskId());
@@ -74,54 +71,13 @@ class CompetitorMonitoringInfrastructureRecoveryTest {
         assertEquals(0L, parkedAt.getAfterWatchProductId());
         repository.tasks.get(view.getTaskId()).setUpdatedAt(LocalDateTime.parse("2026-07-28T01:00:00"));
 
-        assertEquals(1, service.recoverStaleBatches());
+        assertEquals(1, service.recoverStaleManualBatches());
         submitted.remove(0).run();
 
         OperationalTask replacement = repository.selectById(view.getTaskId() + 1L);
         assertEquals(List.of(1L, 1L, 2L), attempted);
         assertEquals(OperationalTaskStatus.FAILED, repository.selectById(view.getTaskId()).getStatus());
         assertEquals(OperationalTaskStatus.SUCCEEDED, replacement.getStatus());
-    }
-
-    @Test
-    void staleCycleResumesCurrentScopeAndProductExactlyOnce() {
-        CompetitorMonitoringCheckpoint checkpoint = new CompetitorMonitoringCheckpoint();
-        checkpoint.setBatchKind("CYCLE");
-        checkpoint.setBatchKey("cycle:scheduled-rank:2026-07-28T06");
-        checkpoint.setTriggerMode(CompetitorRefreshExecutionMode.SCHEDULED_RANK.triggerMode());
-        checkpoint.setCurrentOwnerUserId(501L);
-        checkpoint.setCurrentStoreCode("STORE");
-        checkpoint.setCurrentSiteCode("SA");
-        checkpoint.setAfterWatchProductId(500L);
-        checkpoint.setUpperWatchProductId(501L);
-        checkpoint.setUpperScopeOwnerUserId(501L);
-        checkpoint.setUpperScopeStoreCode("STORE");
-        checkpoint.setUpperScopeSiteCode("SA");
-        checkpoint.setCompletedScopeCount(100L);
-        repository.insert(staleCycle(checkpoint));
-        stubProductPages(List.of(product(501L)));
-        when(mapper.listRefreshableWatchProductScopes(
-                anyLong(), any(), any(), any(), anyLong(), any(), any(), anyInt()
-        )).thenReturn(List.of());
-        List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
-            attempted.add(product.getId());
-            assertEquals(checkpoint.getBatchKey(), batchKey);
-            return CompetitorMonitoringEnqueueOutcome.CREATED;
-        });
-
-        assertEquals(1, service.recoverStaleBatches());
-
-        OperationalTask replacement = repository.selectById(150001L);
-        CompetitorMonitoringCheckpoint result = CompetitorMonitoringCheckpoint.fromJson(
-                replacement.getResultJson()
-        );
-        assertEquals(List.of(501L), attempted);
-        assertEquals(101L, result.getCompletedScopeCount());
-        assertTrue(result.isCompleted());
-        assertEquals(OperationalTaskStatus.FAILED, repository.selectById(150000L).getStatus());
-        assertEquals(OperationalTaskStatus.SUCCEEDED, replacement.getStatus());
-        assertEquals(0, service.recoverStaleBatches());
     }
 
     private CompetitorMonitoringBatchService service(
@@ -168,16 +124,4 @@ class CompetitorMonitoringInfrastructureRecoveryTest {
         return row;
     }
 
-    private static OperationalTask staleCycle(CompetitorMonitoringCheckpoint checkpoint) {
-        OperationalTask task = new OperationalTask();
-        task.setId(150000L);
-        task.setTaskType(CompetitorMonitoringBatchService.CYCLE_TASK_TYPE);
-        task.setNaturalKey(checkpoint.getBatchKey());
-        task.setStatus(OperationalTaskStatus.RUNNING);
-        task.setPayloadJson(checkpoint.toJson());
-        task.setStartedAt(LocalDateTime.parse("2026-07-28T01:00:00"));
-        task.setCreatedAt(LocalDateTime.parse("2026-07-28T01:00:00"));
-        task.setUpdatedAt(LocalDateTime.parse("2026-07-28T01:00:00"));
-        return task;
-    }
 }

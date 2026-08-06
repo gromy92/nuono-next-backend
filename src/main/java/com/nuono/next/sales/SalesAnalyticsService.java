@@ -1,9 +1,5 @@
 package com.nuono.next.sales;
 
-import com.nuono.next.noonsync.NoonBusinessSyncStatusService;
-import com.nuono.next.noonsync.NoonSalesSurfaceSyncInput;
-import com.nuono.next.noonsync.NoonSalesSyncReadModel;
-import com.nuono.next.noonsync.NoonSyncScope;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
@@ -30,94 +26,52 @@ import org.springframework.stereotype.Service;
 public class SalesAnalyticsService {
 
     private final SalesFactRepository salesFactRepository;
-    private final NoonBusinessSyncStatusService syncStatusService;
     private final SalesProductDimensionRepository productDimensionRepository;
     private final SalesPriceTrendRepository priceTrendRepository;
-    private final SalesHistoryBackfillService historyBackfillService;
 
     @Autowired
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            ObjectProvider<NoonBusinessSyncStatusService> syncStatusServiceProvider,
             ObjectProvider<SalesProductDimensionRepository> productDimensionRepositoryProvider,
-            ObjectProvider<SalesPriceTrendRepository> priceTrendRepositoryProvider,
-            ObjectProvider<SalesHistoryBackfillService> historyBackfillServiceProvider
+            ObjectProvider<SalesPriceTrendRepository> priceTrendRepositoryProvider
     ) {
         this(
                 salesFactRepository,
-                syncStatusServiceProvider == null ? null : syncStatusServiceProvider.getIfAvailable(),
                 productDimensionRepositoryProvider == null ? null : productDimensionRepositoryProvider.getIfAvailable(),
-                priceTrendRepositoryProvider == null ? null : priceTrendRepositoryProvider.getIfAvailable(),
-                historyBackfillServiceProvider == null ? null : historyBackfillServiceProvider.getIfAvailable()
+                priceTrendRepositoryProvider == null ? null : priceTrendRepositoryProvider.getIfAvailable()
         );
     }
 
     public SalesAnalyticsService(SalesFactRepository salesFactRepository) {
-        this(salesFactRepository, (NoonBusinessSyncStatusService) null, null, null, null);
-    }
-
-    public SalesAnalyticsService(
-            SalesFactRepository salesFactRepository,
-            NoonBusinessSyncStatusService syncStatusService
-    ) {
-        this(salesFactRepository, syncStatusService, null, null, null);
+        this(salesFactRepository, (SalesProductDimensionRepository) null, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
             SalesProductDimensionRepository productDimensionRepository
     ) {
-        this(salesFactRepository, null, productDimensionRepository, null, null);
+        this(salesFactRepository, productDimensionRepository, null);
     }
 
     public SalesAnalyticsService(
             SalesFactRepository salesFactRepository,
-            NoonBusinessSyncStatusService syncStatusService,
-            SalesProductDimensionRepository productDimensionRepository
-    ) {
-        this(salesFactRepository, syncStatusService, productDimensionRepository, null, null);
-    }
-
-    public SalesAnalyticsService(
-            SalesFactRepository salesFactRepository,
-            NoonBusinessSyncStatusService syncStatusService,
             SalesProductDimensionRepository productDimensionRepository,
             SalesPriceTrendRepository priceTrendRepository
     ) {
-        this(salesFactRepository, syncStatusService, productDimensionRepository, priceTrendRepository, null);
-    }
-
-    public SalesAnalyticsService(
-            SalesFactRepository salesFactRepository,
-            NoonBusinessSyncStatusService syncStatusService,
-            SalesProductDimensionRepository productDimensionRepository,
-            SalesPriceTrendRepository priceTrendRepository,
-            SalesHistoryBackfillService historyBackfillService
-    ) {
         this.salesFactRepository = salesFactRepository;
-        this.syncStatusService = syncStatusService;
         this.productDimensionRepository = productDimensionRepository;
         this.priceTrendRepository = priceTrendRepository;
-        this.historyBackfillService = historyBackfillService;
     }
 
     public SalesDailyFactsView listDailyFacts(SalesFactQuery query) {
         List<DailySalesFact> facts = salesFactRepository.list(query);
-        if (facts == null || facts.isEmpty()) {
-            List<SalesDataQualityState> qualityStates = qualityStatesForEmptyFacts(query);
-            return new SalesDailyFactsView(List.of(), qualityStates, syncStatusFor(query, List.of(), qualityStates));
-        }
-        return new SalesDailyFactsView(facts, List.of(), syncStatusFor(query, facts, List.of()));
+        return new SalesDailyFactsView(facts);
     }
 
     public SalesAnalyticsSummary getSummary(SalesFactQuery query) {
         List<DailySalesFact> rawFacts = listFacts(query);
         List<DailySalesFact> facts = applyProductFilters(query, rawFacts);
-        List<SalesDataQualityState> qualityStates = rawFacts.isEmpty()
-                ? qualityStatesForEmptyFacts(query)
-                : List.of();
-        NoonSalesSyncReadModel syncStatus = syncStatusFor(query, rawFacts, qualityStates);
-        return summarize(facts, syncStatus);
+        return summarize(facts);
     }
 
     public List<SalesTrendBucket> getTrends(SalesFactQuery query, String granularity) {
@@ -166,7 +120,6 @@ public class SalesAnalyticsService {
         Map<String, SalesProductDimensionSnapshot> dimensionsByProduct = dimensionsByProduct(productQuery);
         SalesProductDimensionSnapshot queryDimension = dimensionsByProduct.get(productKey(productQuery, productQuery.getPartnerSku()));
         SalesPriceTrendResult priceTrend = priceTrendFor(productQuery, "day");
-        SalesHistoryCoverage historyCoverage = historyCoverageFor(productQuery, facts, priceTrend);
         if (facts.isEmpty()) {
             return new SalesProductDetail(
                     productQuery.getPartnerSku(),
@@ -183,8 +136,7 @@ public class SalesAnalyticsService {
                     queryDimension == null ? null : queryDimension.getFbpStock(),
                     null,
                     priceTrend.getBuckets(),
-                    priceTrend.getState(),
-                    historyCoverage
+                    priceTrend.getState()
             );
         }
         DailySalesFact latest = latestFact(facts);
@@ -205,8 +157,7 @@ public class SalesAnalyticsService {
                 dimension == null ? null : dimension.getFbpStock(),
                 stockCoverDays(dimension, summary, facts),
                 priceTrend.getBuckets(),
-                priceTrend.getState(),
-                historyCoverage
+                priceTrend.getState()
         );
     }
 
@@ -217,30 +168,12 @@ public class SalesAnalyticsService {
         return query.withSku(null);
     }
 
-    public SalesHistoryBackfillResult requestHistoryBackfill(SalesHistoryBackfillCommand command) {
-        if (historyBackfillService == null) {
-            throw new IllegalStateException("历史补全服务未启用。");
-        }
-        return historyBackfillService.requestBackfill(command);
-    }
-
     private SalesPriceTrendResult priceTrendFor(SalesFactQuery query, String granularity) {
         if (priceTrendRepository == null) {
             return SalesPriceTrendResult.empty();
         }
         SalesPriceTrendResult result = priceTrendRepository.getPriceTrend(query, granularity);
         return result == null ? SalesPriceTrendResult.empty() : result;
-    }
-
-    private SalesHistoryCoverage historyCoverageFor(
-            SalesFactQuery query,
-            List<DailySalesFact> facts,
-            SalesPriceTrendResult priceTrend
-    ) {
-        if (historyBackfillService == null) {
-            return null;
-        }
-        return historyBackfillService.coverage(query, facts, priceTrend);
     }
 
     public String exportDailyFactsCsv(SalesFactQuery query) {
@@ -273,10 +206,6 @@ public class SalesAnalyticsService {
     }
 
     private SalesAnalyticsSummary summarize(List<DailySalesFact> facts) {
-        return summarize(facts, null);
-    }
-
-    private SalesAnalyticsSummary summarize(List<DailySalesFact> facts, NoonSalesSyncReadModel syncStatus) {
         int netUnits = 0;
         int grossUnits = 0;
         int shippedUnits = 0;
@@ -308,7 +237,6 @@ public class SalesAnalyticsService {
                 buyBoxCount++;
             }
         }
-        boolean businessMetricsAvailable = hasBusinessMetrics(facts);
         return new SalesAnalyticsSummary(
                 netUnits,
                 grossUnits,
@@ -318,48 +246,8 @@ public class SalesAnalyticsService {
                 yourVisitors,
                 totalVisitors,
                 average(conversionTotal, conversionCount),
-                average(buyBoxTotal, buyBoxCount),
-                syncStatus,
-                businessMetricsAvailable && (syncStatus == null || syncStatus.isBusinessMetricsAllowed())
+                average(buyBoxTotal, buyBoxCount)
         );
-    }
-
-    private boolean hasBusinessMetrics(List<DailySalesFact> facts) {
-        if (facts == null || facts.isEmpty()) {
-            return false;
-        }
-        return facts.stream().anyMatch(fact -> fact.getYourVisitors() != null
-                || fact.getTotalVisitors() != null
-                || fact.getConversionVisitorsPercentage() != null
-                || fact.getBuyBoxVisitorPercentage() != null);
-    }
-
-    private NoonSalesSyncReadModel syncStatusFor(
-            SalesFactQuery query,
-            List<DailySalesFact> facts,
-            List<SalesDataQualityState> qualityStates
-    ) {
-        if (syncStatusService == null) {
-            return null;
-        }
-        LocalDate latestFactDate = salesFactRepository.findLatestFactDate(
-                query.getOwnerUserId(),
-                query.getStoreCode(),
-                query.getSiteCode()
-        );
-        if (latestFactDate == null && facts != null && !facts.isEmpty()) {
-            latestFactDate = facts.stream()
-                    .map(DailySalesFact::getFactDate)
-                    .max(Comparator.naturalOrder())
-                    .orElse(null);
-        }
-        return syncStatusService.describeSalesSurface(new NoonSalesSurfaceSyncInput(
-                NoonSyncScope.of(query.getOwnerUserId(), null, query.getStoreCode(), query.getSiteCode()),
-                latestFactDate,
-                query.getDateTo(),
-                qualityStates,
-                false
-        ));
     }
 
     private LocalDate bucketStart(LocalDate factDate, String granularity) {
@@ -527,10 +415,7 @@ public class SalesAnalyticsService {
     }
 
     private List<String> dataQualityCodes(SalesProductDimensionSnapshot dimension) {
-        List<String> codes = new ArrayList<>();
-        codes.add("sales_fact_ready");
-        codes.addAll(dimensionQualityCodes(dimension));
-        return codes;
+        return dimensionQualityCodes(dimension);
     }
 
     private boolean hasProductDimensionFilters(SalesFactQuery query) {
@@ -564,10 +449,7 @@ public class SalesAnalyticsService {
         if (!hasText(query.getDataQualityCode())) {
             return true;
         }
-        List<String> codes = new ArrayList<>();
-        codes.add("sales_fact_ready");
-        codes.addAll(dimensionQualityCodes(dimension));
-        return codes.contains(query.getDataQualityCode());
+        return dimensionQualityCodes(dimension).contains(query.getDataQualityCode());
     }
 
     private boolean hasText(String value) {
@@ -649,50 +531,6 @@ public class SalesAnalyticsService {
             return "\"" + text.replace("\"", "\"\"") + "\"";
         }
         return text;
-    }
-
-    private List<SalesDataQualityState> qualityStatesForEmptyFacts(SalesFactQuery query) {
-        List<SalesImportBatchRecord> batches = salesFactRepository.listImportBatches(new SalesImportBatchQuery(
-                query.getOwnerUserId(),
-                query.getStoreCode(),
-                query.getSiteCode(),
-                query.getDateFrom(),
-                query.getDateTo()
-        ));
-        if (batches == null || batches.isEmpty()) {
-            return List.of(new SalesDataQualityState(
-                    "no_usable_facts",
-                    "当前筛选范围内没有可用销量事实，也没有匹配的导入批次。",
-                    null
-            ));
-        }
-        SalesImportBatchRecord latest = batches.get(0);
-        if ("empty".equals(latest.getStatus())) {
-            return List.of(new SalesDataQualityState(
-                    "empty_report",
-                    "最近一次匹配导入为空报表，没有生成销量事实。",
-                    latest.getId()
-            ));
-        }
-        if ("failed".equals(latest.getStatus())) {
-            return List.of(new SalesDataQualityState(
-                    "import_failed",
-                    "最近一次匹配导入失败，请查看导入批次异常。",
-                    latest.getId()
-            ));
-        }
-        if ("imported_with_exceptions".equals(latest.getStatus())) {
-            return List.of(new SalesDataQualityState(
-                    "data_quality_exceptions",
-                    "最近一次匹配导入存在异常行，当前筛选范围没有可用销量事实。",
-                    latest.getId()
-            ));
-        }
-        return List.of(new SalesDataQualityState(
-                "no_usable_facts",
-                "当前筛选范围内没有可用销量事实。",
-                latest.getId()
-        ));
     }
 
     private int valueOrZero(Integer value) {

@@ -10,7 +10,6 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.web.server.ResponseStatusException;
 
 final class CompetitorMonitoringBatchRunner {
-    static final int SCOPE_PAGE_SIZE = 100;
     static final int PRODUCT_PAGE_SIZE = 500;
     static final String RUNNING_MESSAGE = "竞品监控批次正在持久化待执行任务。";
 
@@ -34,27 +33,27 @@ final class CompetitorMonitoringBatchRunner {
     }
 
     int run(OperationalTask task) {
-        if (task == null || !operationalTaskService.claimQueued(task.getId(), RUNNING_MESSAGE)) {
+        if (task == null
+                || !CompetitorMonitoringBatchService.STORE_TASK_TYPE.equals(task.getTaskType())) {
             return 0;
         }
         CompetitorMonitoringCheckpoint checkpoint;
         try {
             checkpoint = CompetitorMonitoringCheckpoint.fromJson(task.getPayloadJson());
+            requireManualStoreCheckpoint(checkpoint);
         } catch (RuntimeException exception) {
-            safeFail(task.getId(), exception);
-            log.warn("invalid competitor monitoring checkpoint taskId={}", task.getId(), exception);
+            log.warn(
+                    "competitor non-manual or invalid monitoring batch ignored taskId={} errorType={}",
+                    task.getId(),
+                    exception.getClass().getSimpleName()
+            );
+            return 0;
+        }
+        if (!operationalTaskService.claimQueued(task.getId(), RUNNING_MESSAGE)) {
             return 0;
         }
         try {
-            if ("CYCLE".equals(checkpoint.getBatchKind())) {
-                runCycle(task.getId(), checkpoint);
-            } else if ("STORE".equals(checkpoint.getBatchKind())) {
-                runStore(task.getId(), checkpoint);
-            } else {
-                throw new IllegalStateException(
-                        "Invalid competitor monitoring batch kind: " + checkpoint.getBatchKind()
-                );
-            }
+            runStore(task.getId(), checkpoint);
             checkpoint.setCompleted(true);
             operationalTaskService.complete(task.getId(), checkpoint.toJson(), completionMessage(checkpoint));
             childTaskPump.run();
@@ -82,45 +81,11 @@ final class CompetitorMonitoringBatchRunner {
         }
     }
 
-    private void runCycle(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
-        if (checkpoint.getCurrentOwnerUserId() != null) {
-            drainCurrentScope(taskId, checkpoint);
-            finishCurrentScope(taskId, checkpoint);
-        }
-        while (true) {
-            List<CompetitorWatchProductScopeRow> scopes = mapper.listRefreshableWatchProductScopes(
-                    checkpoint.getUpperWatchProductId(),
-                    checkpoint.getAfterScopeOwnerUserId(),
-                    checkpoint.getAfterScopeStoreCode(),
-                    checkpoint.getAfterScopeSiteCode(),
-                    checkpoint.getUpperScopeOwnerUserId(),
-                    checkpoint.getUpperScopeStoreCode(),
-                    checkpoint.getUpperScopeSiteCode(),
-                    SCOPE_PAGE_SIZE
-            );
-            if (scopes.isEmpty()) {
-                return;
-            }
-            for (CompetitorWatchProductScopeRow scope : scopes) {
-                checkpoint.setCurrentOwnerUserId(scope.getOwnerUserId());
-                checkpoint.setCurrentStoreCode(scope.getStoreCode());
-                checkpoint.setCurrentSiteCode(scope.getSiteCode());
-                checkpoint.setAfterWatchProductId(0L);
-                save(taskId, checkpoint);
-                drainCurrentScope(taskId, checkpoint);
-                finishCurrentScope(taskId, checkpoint);
-            }
-        }
-    }
-
     private void runStore(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
         drainCurrentScope(taskId, checkpoint);
     }
 
     private void drainCurrentScope(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
-        CompetitorRefreshExecutionMode mode = CompetitorRefreshExecutionMode.strictFromTriggerMode(
-                checkpoint.getTriggerMode()
-        );
         while (true) {
             List<CompetitorWatchProductRow> products = mapper.listRefreshableWatchProducts(
                     checkpoint.getCurrentOwnerUserId(),
@@ -138,7 +103,6 @@ final class CompetitorMonitoringBatchRunner {
                     CompetitorMonitoringEnqueueOutcome outcome = productEnqueuer.enqueue(
                             product,
                             checkpoint.getRequestedBy(),
-                            mode,
                             checkpoint.getBatchKey()
                     );
                     checkpoint.record(outcome);
@@ -160,16 +124,25 @@ final class CompetitorMonitoringBatchRunner {
         }
     }
 
-    private void finishCurrentScope(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
-        checkpoint.setAfterScopeOwnerUserId(checkpoint.getCurrentOwnerUserId());
-        checkpoint.setAfterScopeStoreCode(checkpoint.getCurrentStoreCode());
-        checkpoint.setAfterScopeSiteCode(checkpoint.getCurrentSiteCode());
-        checkpoint.setCurrentOwnerUserId(null);
-        checkpoint.setCurrentStoreCode(null);
-        checkpoint.setCurrentSiteCode(null);
-        checkpoint.setAfterWatchProductId(0L);
-        checkpoint.setCompletedScopeCount(checkpoint.getCompletedScopeCount() + 1L);
-        save(taskId, checkpoint);
+    private void requireManualStoreCheckpoint(
+            CompetitorMonitoringCheckpoint checkpoint
+    ) {
+        if (!"STORE".equals(checkpoint.getBatchKind())) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Only manual store-monitoring batches may execute."
+            );
+        }
+        CompetitorRefreshExecutionMode mode =
+                CompetitorRefreshExecutionMode.requireManualMonitor(
+                        CompetitorRefreshExecutionMode.strictFromTriggerMode(
+                                checkpoint.getTriggerMode()
+                        )
+                );
+        if (!mode.taskKey().equals(checkpoint.getExecutionMode())) {
+            throw new CompetitorRefreshRecoveryIdentityException(
+                    "Manual store-monitoring checkpoint identity does not match."
+            );
+        }
     }
 
     private void save(Long taskId, CompetitorMonitoringCheckpoint checkpoint) {
@@ -208,7 +181,6 @@ final class CompetitorMonitoringBatchRunner {
         CompetitorMonitoringEnqueueOutcome enqueue(
                 CompetitorWatchProductRow product,
                 Long requestedBy,
-                CompetitorRefreshExecutionMode mode,
                 String batchKey
         );
     }

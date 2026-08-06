@@ -1,5 +1,7 @@
 package com.nuono.next.productpublicdetail;
 
+import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
+import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.infrastructure.mapper.ProductPublicDetailMapper;
 import com.nuono.next.noonmaintenance.StoreSiteMaintenanceGate;
 import java.util.List;
@@ -12,10 +14,11 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
 public class ProductPublicDetailSyncScheduler {
     private static final Logger LOGGER = LoggerFactory.getLogger(ProductPublicDetailSyncScheduler.class);
     private final ProductPublicDetailMapper mapper;
-    private final ProductPublicDetailSyncService syncService;
+    private final LegacyProductPublicDetailSyncService syncService;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final boolean enabled;
     private final int maxScopesPerTick;
@@ -25,7 +28,7 @@ public class ProductPublicDetailSyncScheduler {
 
     public ProductPublicDetailSyncScheduler(
             ProductPublicDetailMapper mapper,
-            ProductPublicDetailSyncService syncService,
+            LegacyProductPublicDetailSyncService syncService,
             @Value("${nuono.product-public-detail.scheduler.enabled:false}") boolean enabled,
             @Value("${nuono.product-public-detail.scheduler.max-scopes-per-tick:50}") int maxScopesPerTick,
             @Value("${nuono.product-public-detail.scheduler.stale-days:1}") int staleDays,

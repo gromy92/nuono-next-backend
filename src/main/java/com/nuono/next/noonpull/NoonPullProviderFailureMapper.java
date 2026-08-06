@@ -37,8 +37,10 @@ final class NoonPullProviderFailureMapper {
                 || normalized.contains("missing noon")) {
             return "provider not configured";
         }
+        if (normalized.contains("403") || normalized.contains("forbidden")) {
+            return "blocked by risk control";
+        }
         if (normalized.contains("401")
-                || normalized.contains("403")
                 || normalized.contains("unauthorized")
                 || normalized.contains("invalid session")
                 || normalized.contains("signin")

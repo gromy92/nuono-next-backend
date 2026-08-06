@@ -9,6 +9,7 @@ import com.nuono.next.competitoranalysis.noon.NoonSearchProviderException;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
 import com.nuono.next.competitoranalysis.noon.NoonSearchResult;
 import com.nuono.next.noon.ChromeNoonCookieSupport;
+import com.nuono.next.noon.NoonCurlResponse;
 import com.nuono.next.productpublicdetail.ProductPublicDetailSyncStatus;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -139,11 +140,17 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 return detail;
             }
         } catch (NoonSearchProviderException exception) {
-            if (!shouldFallbackFromFrontendCatalogDetail(exception)) {
-                return mapProviderException(code, exception);
-            }
-        } catch (Exception ignored) {
-            // Existing search fallbacks still cover transient public frontend transport failures.
+            return mapProviderException(code, exception);
+        } catch (Exception exception) {
+            return failed(
+                    code,
+                    "PROVIDER_UNAVAILABLE",
+                    "Noon 前台商品详情暂不可用：" + shrink(exception.getMessage(), 180),
+                    null,
+                    buildCustomerCatalogV3DetailUrl(searchRequest, code),
+                    null,
+                    null
+            );
         }
         String url = buildCustomerCatalogV3SearchUrl(searchRequest);
         try {
@@ -159,25 +166,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             }
             return partial(code, exact, page);
         } catch (NoonSearchProviderException exception) {
-            if (shouldFallbackToCatalogPartner(exception)) {
-                try {
-                    return fetchFrontendHtmlSearch(searchRequest, code);
-                } catch (NoonSearchProviderException ignored) {
-                    // Preserve the original frontend provider failure below.
-                } catch (Exception ignored) {
-                    // Preserve the original frontend provider failure below.
-                }
-                return mapProviderException(code, exception);
-            }
             return mapProviderException(code, exception);
         } catch (Exception exception) {
-            try {
-                return fetchFrontendHtmlSearch(searchRequest, code);
-            } catch (NoonSearchProviderException ignored) {
-                // Report the original frontend transport failure below.
-            } catch (Exception ignored) {
-                // Report the original frontend transport failure below.
-            }
             return failed(
                     code,
                     "PROVIDER_UNAVAILABLE",
@@ -191,65 +181,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     }
 
     private NoonPublicProductDetailResult mapProviderException(String code, NoonSearchProviderException exception) {
-        if (exception != null && exception.getProviderHttpStatus() != null && exception.getProviderHttpStatus() == 429) {
-            return failed(
-                    code,
-                    "RATE_LIMITED",
-                    exception.getMessage(),
-                    exception.getProviderHttpStatus(),
-                    exception.getSourceUrl(),
-                    exception.getResponseHash(),
-                    null
-            );
-        }
-        if (exception != null && exception.getProviderHttpStatus() != null && exception.getProviderHttpStatus() == 403) {
-            return failed(
-                    code,
-                    "BLOCKED_BY_RISK_CONTROL",
-                    exception.getMessage(),
-                    exception.getProviderHttpStatus(),
-                    exception.getSourceUrl(),
-                    exception.getResponseHash(),
-                    null
-            );
-        }
-        if ("PARSE_FAILED".equals(exception.getErrorCode())) {
-            return failedOrNotFound(
-                    ProductPublicDetailSyncStatus.NOT_FOUND,
-                    code,
-                    "PUBLIC_DETAIL_NOT_FOUND",
-                    exception.getMessage(),
-                    exception.getProviderHttpStatus(),
-                    exception.getSourceUrl(),
-                    exception.getResponseHash(),
-                    null
-            );
-        }
-        return failed(
-                code,
-                exception.getErrorCode(),
-                exception.getMessage(),
-                exception.getProviderHttpStatus(),
-                exception.getSourceUrl(),
-                exception.getResponseHash(),
-                null
-        );
-    }
-
-    private boolean shouldFallbackToCatalogPartner(NoonSearchProviderException exception) {
-        String code = exception == null ? null : exception.getErrorCode();
-        return "PROVIDER_UNAVAILABLE".equals(code)
-                || "PARSE_FAILED".equals(code);
-    }
-
-    private boolean shouldFallbackFromFrontendCatalogDetail(NoonSearchProviderException exception) {
-        Integer httpStatus = exception == null ? null : exception.getProviderHttpStatus();
-        if (httpStatus != null && httpStatus != 200) {
-            return httpStatus >= 500;
-        }
-        String code = exception == null ? null : exception.getErrorCode();
-        return "PROVIDER_UNAVAILABLE".equals(code)
-                || "PARSE_FAILED".equals(code);
+        return NoonPublicDetailFailureMapper.fromProviderException(code, exception);
     }
 
     NoonPublicProductDetailResult fetchFrontendCatalogDetail(NoonSearchRequest searchRequest, String code)
@@ -274,7 +206,16 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 buildCustomerCatalogV3SearchRequest(searchRequest, url, frontendCookieHeader),
                 HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
         );
-        return mapFrontendCatalogDetailResponse(searchRequest, code, url, response.statusCode(), response.body());
+        return mapFrontendCatalogDetailResponse(
+                searchRequest,
+                code,
+                url,
+                response.statusCode(),
+                response.body(),
+                NoonPublicDetailFailureMapper.retryAfter(
+                        response.headers().firstValue("Retry-After").orElse(null)
+                )
+        );
     }
 
     NoonPublicProductDetailResult fetchFrontendCatalogDetailWithCurl(
@@ -283,17 +224,24 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             String url,
             String frontendCookieHeader
     ) throws IOException {
-        CurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(searchRequest, url, frontendCookieHeader));
-        if (response.exitCode != 0) {
+        NoonCurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(searchRequest, url, frontendCookieHeader));
+        if (response.getExitCode() != 0) {
             throw new NoonSearchProviderException(
                     "PROVIDER_UNAVAILABLE",
-                    "Noon 前台 catalog detail curl 请求失败：" + shrink(response.stderr, 180),
+                    "Noon 前台 catalog detail curl 请求失败：" + shrink(response.getStderr(), 180),
                     null,
                     url,
                     null
             );
         }
-        return mapFrontendCatalogDetailResponse(searchRequest, code, url, response.statusCode, response.body);
+        return mapFrontendCatalogDetailResponse(
+                searchRequest,
+                code,
+                url,
+                response.getStatusCode(),
+                response.getBody(),
+                response.getRetryAfter()
+        );
     }
 
     private NoonPublicProductDetailResult mapFrontendCatalogDetailResponse(
@@ -301,7 +249,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             String code,
             String url,
             int statusCode,
-            String body
+            String body,
+            Duration retryAfter
     ) {
         if (statusCode == 404) {
             return failedOrNotFound(
@@ -316,7 +265,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             );
         }
         if (statusCode < 200 || statusCode >= 300) {
-            throw mapUnsuccessfulStatus(statusCode, url);
+            throw NoonPublicDetailFailureMapper.unsuccessfulStatus(statusCode, url, retryAfter);
         }
         return parseFrontendCatalogDetail(searchRequest, code, body, url, statusCode);
     }
@@ -359,10 +308,10 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         ));
         if (!code.equals(productCode)) {
             return failedOrNotFound(
-                    ProductPublicDetailSyncStatus.NOT_FOUND,
+                    ProductPublicDetailSyncStatus.FAILED,
                     code,
-                    "PUBLIC_DETAIL_NOT_FOUND",
-                    "Noon 前台 catalog detail 返回的商品码不匹配。",
+                    "CONTRACT_PRODUCT_CODE_MISMATCH",
+                    "Noon 前台 catalog detail 返回了不匹配的商品码。",
                     providerHttpStatus,
                     url,
                     hash,
@@ -430,7 +379,13 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         );
         int statusCode = response.statusCode();
         if (statusCode < 200 || statusCode >= 300) {
-            throw mapUnsuccessfulStatus(statusCode, url);
+            throw NoonPublicDetailFailureMapper.unsuccessfulStatus(
+                    statusCode,
+                    url,
+                    NoonPublicDetailFailureMapper.retryAfter(
+                            response.headers().firstValue("Retry-After").orElse(null)
+                    )
+            );
         }
         if (isFrontendHtmlSearchUrl(url)) {
             return parser.parse(response.body(), url, statusCode);
@@ -439,37 +394,45 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
     }
 
     NoonSearchPage fetchSearchPageWithCurl(NoonSearchRequest request, String url, String frontendCookieHeader) throws IOException {
-        CurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(request, url, frontendCookieHeader));
-        if (response.exitCode != 0) {
+        NoonCurlResponse response = executeCurl(buildCustomerCatalogV3CurlConfig(request, url, frontendCookieHeader));
+        if (response.getExitCode() != 0) {
             throw new NoonSearchProviderException(
                     "PROVIDER_UNAVAILABLE",
-                    "Noon 前台 catalog v3 curl 请求失败：" + shrink(response.stderr, 180),
+                    "Noon 前台 catalog v3 curl 请求失败：" + shrink(response.getStderr(), 180),
                     null,
                     url,
                     null
             );
         }
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-            throw mapUnsuccessfulStatus(response.statusCode, url);
+        if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+            throw NoonPublicDetailFailureMapper.unsuccessfulStatus(
+                    response.getStatusCode(),
+                    url,
+                    response.getRetryAfter()
+            );
         }
-        return parser.parseCatalogJson(response.body, url, response.statusCode);
+        return parser.parseCatalogJson(response.getBody(), url, response.getStatusCode());
     }
 
     NoonSearchPage fetchFrontendHtmlSearchPageWithCurl(NoonSearchRequest request, String url, String frontendCookieHeader) throws IOException {
-        CurlResponse response = executeCurl(buildFrontendHtmlSearchCurlConfig(request, url, frontendCookieHeader));
-        if (response.exitCode != 0) {
+        NoonCurlResponse response = executeCurl(buildFrontendHtmlSearchCurlConfig(request, url, frontendCookieHeader));
+        if (response.getExitCode() != 0) {
             throw new NoonSearchProviderException(
                     "PROVIDER_UNAVAILABLE",
-                    "Noon 前台 HTML curl 请求失败：" + shrink(response.stderr, 180),
+                    "Noon 前台 HTML curl 请求失败：" + shrink(response.getStderr(), 180),
                     null,
                     url,
                     null
             );
         }
-        if (response.statusCode < 200 || response.statusCode >= 300) {
-            throw mapUnsuccessfulStatus(response.statusCode, url);
+        if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+            throw NoonPublicDetailFailureMapper.unsuccessfulStatus(
+                    response.getStatusCode(),
+                    url,
+                    response.getRetryAfter()
+            );
         }
-        return parser.parse(response.body, url, response.statusCode);
+        return parser.parse(response.getBody(), url, response.getStatusCode());
     }
 
     HttpRequest buildCustomerCatalogV3SearchRequest(NoonSearchRequest request, String url, String frontendCookieHeader) {
@@ -593,7 +556,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return config.toString();
     }
 
-    private CurlResponse executeCurl(String config) throws IOException {
+    private NoonCurlResponse executeCurl(String config) throws IOException {
         Process process = new ProcessBuilder(buildCurlCommand()).start();
         byte[] stdout;
         byte[] stderr;
@@ -608,7 +571,7 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         }
         try {
             int exitCode = process.waitFor();
-            return parseCurlResponse(exitCode, stdout, stderr);
+            return NoonCurlResponse.parse(exitCode, stdout, stderr);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IOException("curl 请求被中断", exception);
@@ -625,21 +588,8 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
                 "-K",
                 "-",
                 "-w",
-                "\n__NUONO_HTTP_STATUS__:%{http_code}\n"
+                NoonCurlResponse.writeOutFormat()
         );
-    }
-
-    private CurlResponse parseCurlResponse(int exitCode, byte[] stdout, byte[] stderr) {
-        String output = new String(stdout, StandardCharsets.UTF_8);
-        String errorOutput = new String(stderr, StandardCharsets.UTF_8);
-        String marker = "\n__NUONO_HTTP_STATUS__:";
-        int markerIndex = output.lastIndexOf(marker);
-        if (markerIndex < 0) {
-            return new CurlResponse(exitCode, 0, output, errorOutput);
-        }
-        String body = output.substring(0, markerIndex);
-        String statusText = output.substring(markerIndex + marker.length()).trim();
-        return new CurlResponse(exitCode, parseStatus(statusText), body, errorOutput);
     }
 
     private byte[] readAllBytes(InputStream inputStream) throws IOException {
@@ -650,19 +600,6 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
             outputStream.write(buffer, 0, read);
         }
         return outputStream.toByteArray();
-    }
-
-    private NoonSearchProviderException mapUnsuccessfulStatus(int statusCode, String url) {
-        if (statusCode == 429) {
-            return new NoonSearchProviderException("RATE_LIMITED", "Noon 前台公开搜索返回 HTTP 429。", statusCode, url, null);
-        }
-        if (statusCode == 403) {
-            return new NoonSearchProviderException("BLOCKED_BY_RISK_CONTROL", "Noon 前台公开搜索返回 HTTP 403。", statusCode, url, null);
-        }
-        if (statusCode >= 500) {
-            return new NoonSearchProviderException("PROVIDER_UNAVAILABLE", "Noon 前台公开搜索返回 HTTP " + statusCode + "。", statusCode, url, null);
-        }
-        return new NoonSearchProviderException("PARSE_FAILED", "Noon 前台公开搜索返回 HTTP " + statusCode + "。", statusCode, url, null);
     }
 
     private NoonSearchResult findExact(NoonSearchPage page, String code) {
@@ -1096,14 +1033,6 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return value == null ? "" : value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
-    private int parseStatus(String value) {
-        try {
-            return Integer.parseInt(value.trim());
-        } catch (Exception exception) {
-            return 0;
-        }
-    }
-
     private String normalizeBaseUrl(String value) {
         String normalized = StringUtils.hasText(value) ? value.trim() : "https://www.noon.com";
         return normalized.endsWith("/") ? normalized.substring(0, normalized.length() - 1) : normalized;
@@ -1129,17 +1058,4 @@ public class HttpNoonPublicProductDetailAdapter implements NoonPublicProductDeta
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
     }
 
-    private static final class CurlResponse {
-        private final int exitCode;
-        private final int statusCode;
-        private final String body;
-        private final String stderr;
-
-        private CurlResponse(int exitCode, int statusCode, String body, String stderr) {
-            this.exitCode = exitCode;
-            this.statusCode = statusCode;
-            this.body = body == null ? "" : body;
-            this.stderr = stderr == null ? "" : stderr;
-        }
-    }
 }

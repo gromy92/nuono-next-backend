@@ -60,7 +60,7 @@ public class NoonAuthRecoveryCoordinator implements
     }
 
     @Override
-    @Transactional
+    @Transactional(noRollbackFor = NoonAuthRetrySuppressedException.class)
     public Optional<Long> enqueue(NoonAuthWaitRequest request) {
         if (request == null) {
             return Optional.empty();

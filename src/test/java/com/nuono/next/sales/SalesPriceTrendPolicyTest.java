@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.nuono.next.infrastructure.mapper.IdSequenceCommand;
 import com.nuono.next.infrastructure.mapper.NoonOrderFactMapper;
 import com.nuono.next.infrastructure.mapper.NoonOrderPriceTrendBucketRow;
-import com.nuono.next.nooncompleteness.NoonSalesOrderCompletenessAudit;
 import com.nuono.next.noonpull.NoonOrderLineFact;
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
@@ -126,16 +125,6 @@ class SalesPriceTrendPolicyTest {
         @Override
         public int upsertOrderLineFact(Long id, NoonOrderLineFact fact) {
             return 1;
-        }
-
-        @Override
-        public int markProductSiteOfferLogisticsHistoryByOrderLineFact(NoonOrderLineFact fact) {
-            return 0;
-        }
-
-        @Override
-        public NoonSalesOrderCompletenessAudit auditSalesOrderCompleteness(Long ownerUserId, String storeCode, String siteCode) {
-            return NoonSalesOrderCompletenessAudit.notIntegrated("not_integrated");
         }
 
         @Override

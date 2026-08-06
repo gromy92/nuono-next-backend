@@ -77,6 +77,24 @@ final class NoonAuthWaitingTaskRouter {
         ) ? NoonAuthWaitingTaskOutcome.MANUAL_REVIEW : NoonAuthWaitingTaskOutcome.STALE;
     }
 
+    NoonAuthWaitingTaskOutcome hold(
+            NoonAuthRecoveryItemRecord item,
+            NoonAuthRecoveryStatus recoveryStatus,
+            Long recoveryVersion,
+            String leaseToken,
+            String failureCode,
+            String diagnostic,
+            LocalDateTime now
+    ) {
+        NoonAuthWaitingTaskHandler handler = handler(item.getSourceDomain());
+        return handler == null
+                ? NoonAuthWaitingTaskOutcome.MANUAL_REVIEW
+                : handler.hold(
+                        item, recoveryStatus, recoveryVersion, leaseToken,
+                        failureCode, diagnostic, now
+                );
+    }
+
     private NoonAuthWaitingTaskHandler handler(String sourceDomain) {
         for (NoonAuthWaitingTaskHandler handler : handlers) {
             if (handler != null && handler.supports(sourceDomain)) {

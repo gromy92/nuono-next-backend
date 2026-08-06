@@ -68,10 +68,6 @@ public interface SalesDataMapper {
         return nextSalesDataId("sales_import_exception", 30000L);
     }
 
-    default Long nextSalesSyncTaskId() {
-        return nextSalesDataId("sales_sync_task", 20000L);
-    }
-
     default Long nextSalesActivityWindowId() {
         return nextSalesDataId("sales_activity_window", 40000L);
     }
@@ -400,7 +396,7 @@ public interface SalesDataMapper {
             "  partner_sku AS partnerSku,",
             "  DATE(COALESCE(inventory_snapshot_at, gmt_updated, gmt_create)) AS stockDate,",
             "  SUM(CASE WHEN stock_bucket = 'SELLABLE' THEN GREATEST(COALESCE(qty, 0), 0) ELSE 0 END) AS sellableStock",
-            "FROM official_warehouse_inventory_snapshot_line",
+            "FROM official_warehouse_effective_inventory_snapshot_line inventory",
             "WHERE owner_user_id = #{query.ownerUserId}",
             "  AND store_code = #{query.storeCode}",
             "  AND site_code = #{query.siteCode}",

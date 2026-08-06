@@ -1,171 +1,193 @@
 package com.nuono.next.officialwarehouse;
 
-import java.nio.charset.StandardCharsets;
+import com.nuono.next.noonpull.NoonReportCsvRecords;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 public class OfficialWarehouseFbnReceivedReportCsvParser {
-
+    private static final Set<String> REQUIRED_HEADERS = Set.of(
+            "partner_sku", "sku", "asn", "qty_expected", "received_qty",
+            "qc_failed_qty", "unidentified_qty", "asn_schedule_date"
+    );
     public ParsedFile parse(byte[] content) {
-        String csv = new String(content == null ? new byte[0] : content, StandardCharsets.UTF_8);
-        List<List<String>> records = parseRecords(csv);
+        List<String[]> records = NoonReportCsvRecords.parse(content);
         if (records.isEmpty()) {
-            return new ParsedFile(List.of(), List.of());
+            throw new IllegalArgumentException("FBN received report is missing its header.");
         }
-        List<String> headers = normalizedHeaders(records.get(0));
+        List<String> headers = OfficialWarehouseFbnReceivedReportValueParser.normalizedHeaders(
+                Arrays.asList(records.get(0))
+        );
+        if (!headers.containsAll(REQUIRED_HEADERS)) {
+            throw new IllegalArgumentException("FBN received report is missing required columns.");
+        }
         List<ReceivedRow> rows = new ArrayList<>();
+        int sourceDataRowCount = 0;
         for (int index = 1; index < records.size(); index++) {
-            List<String> record = records.get(index);
-            rows.add(toRow(index + 1, headers, record));
+            String[] record = records.get(index);
+            if (isBlank(record)) {
+                continue;
+            }
+            sourceDataRowCount++;
+            if (record.length != headers.size()) {
+                throw new IllegalArgumentException("FBN received report row width does not match header.");
+            }
+            ReceivedRow row = toRow(index + 1, headers, Arrays.asList(record));
+            if (row != null) {
+                rows.add(row);
+            }
         }
-        return new ParsedFile(headers, rows);
+        return new ParsedFile(headers, rows, sourceDataRowCount);
+    }
+
+    public void requireStageHeader(String[] header) {
+        List<String> headers = OfficialWarehouseFbnReceivedReportValueParser.normalizedHeaders(
+                Arrays.asList(header == null ? new String[0] : header)
+        );
+        if (!headers.containsAll(REQUIRED_HEADERS)) {
+            throw new IllegalArgumentException("FBN received report is missing required columns.");
+        }
+    }
+
+    boolean isBlank(String[] record) {
+        if (record == null) {
+            return true;
+        }
+        for (String value : record) {
+            if (value != null && !value.trim().isEmpty()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private ReceivedRow toRow(int rowNo, List<String> headers, List<String> record) {
+        return toRow(rowNo, rawFields(headers, record));
+    }
+
+    Map<String, String> rawFields(List<String> headers, List<String> record) {
         Map<String, String> rawFields = new LinkedHashMap<>();
         for (int index = 0; index < headers.size(); index++) {
             String header = headers.get(index);
-            rawFields.put(header, normalizeCell(index < record.size() ? record.get(index) : null));
+            rawFields.put(
+                    header,
+                    OfficialWarehouseFbnReceivedReportValueParser.normalizeCell(
+                            index < record.size() ? record.get(index) : null
+                    )
+            );
+        }
+        return rawFields;
+    }
+
+    ReceivedRow toRow(int rowNo, Map<String, String> rawFields) {
+        String partnerSku = text(rawFields, "partner_sku");
+        String noonSku = text(rawFields, "sku");
+        String pbarcodeCanonical = text(rawFields, "pbarcode_canonical");
+        String noonAsnNr = text(rawFields, "asn");
+        Integer qtyExpected = integer(rawFields, "qty_expected");
+        Integer receivedQty = integer(rawFields, "received_qty");
+        Integer qcFailedQty = integer(rawFields, "qc_failed_qty");
+        Integer unidentifiedQty = integer(rawFields, "unidentified_qty");
+        String asnCreatedAt = dateTime(rawFields, "asn_created_at");
+        String asnScheduleDate = date(rawFields, "asn_schedule_date");
+        String asnCompletedAt = dateTime(rawFields, "asn_completed_at");
+
+        if (isDeterministicBusinessDefect(
+                noonAsnNr,
+                partnerSku,
+                noonSku,
+                pbarcodeCanonical,
+                qtyExpected,
+                receivedQty,
+                qcFailedQty,
+                unidentifiedQty
+        )) {
+            return null;
         }
         return new ReceivedRow(
                 rowNo,
                 rawFields,
-                text(rawFields, "partner_sku"),
-                text(rawFields, "sku"),
+                partnerSku,
+                noonSku,
                 text(rawFields, "po_nr"),
-                text(rawFields, "pbarcode_canonical"),
+                pbarcodeCanonical,
                 text(rawFields, "storage_type_code"),
                 text(rawFields, "volume"),
                 text(rawFields, "brand"),
                 text(rawFields, "product_title"),
-                text(rawFields, "asn"),
+                noonAsnNr,
                 text(rawFields, "partner_warehouse"),
                 text(rawFields, "noon_warehouse"),
                 text(rawFields, "country_code"),
-                integer(rawFields, "qty_expected"),
-                integer(rawFields, "received_qty"),
-                integer(rawFields, "qc_failed_qty"),
-                integer(rawFields, "unidentified_qty"),
+                qtyExpected,
+                receivedQty,
+                qcFailedQty,
+                unidentifiedQty,
                 text(rawFields, "qc_failed_reason"),
-                text(rawFields, "asn_created_at"),
-                text(rawFields, "asn_schedule_date"),
-                text(rawFields, "asn_completed_at")
+                asnCreatedAt,
+                asnScheduleDate,
+                asnCompletedAt
         );
     }
 
-    private List<List<String>> parseRecords(String csv) {
-        List<List<String>> records = new ArrayList<>();
-        List<String> currentRecord = new ArrayList<>();
-        StringBuilder field = new StringBuilder();
-        boolean inQuotes = false;
-        for (int index = 0; index < csv.length(); index++) {
-            char value = csv.charAt(index);
-            if (inQuotes) {
-                if (value == '"') {
-                    if (index + 1 < csv.length() && csv.charAt(index + 1) == '"') {
-                        field.append('"');
-                        index++;
-                    } else {
-                        inQuotes = false;
-                    }
-                } else {
-                    field.append(value);
-                }
-                continue;
-            }
-            if (value == '"') {
-                inQuotes = true;
-            } else if (value == ',') {
-                currentRecord.add(field.toString());
-                field.setLength(0);
-            } else if (value == '\r' || value == '\n') {
-                currentRecord.add(field.toString());
-                addIfNotBlank(records, currentRecord);
-                currentRecord = new ArrayList<>();
-                field.setLength(0);
-                if (value == '\r' && index + 1 < csv.length() && csv.charAt(index + 1) == '\n') {
-                    index++;
-                }
-            } else {
-                field.append(value);
-            }
+    private static boolean isDeterministicBusinessDefect(
+            String noonAsnNr,
+            String partnerSku,
+            String noonSku,
+            String pbarcodeCanonical,
+            Integer qtyExpected,
+            Integer receivedQty,
+            Integer qcFailedQty,
+            Integer unidentifiedQty
+    ) {
+        if (qtyExpected == null || receivedQty == null || qcFailedQty == null || unidentifiedQty == null) {
+            return true;
         }
-        if (field.length() > 0 || !currentRecord.isEmpty()) {
-            currentRecord.add(field.toString());
-            addIfNotBlank(records, currentRecord);
+        if (qtyExpected < 0 || receivedQty < 0 || qcFailedQty < 0 || unidentifiedQty < 0) {
+            return true;
         }
-        return records;
+        if (!hasStableIdentity(noonAsnNr)) {
+            return true;
+        }
+        return !hasStableIdentity(partnerSku)
+                && !hasStableIdentity(noonSku)
+                && !hasStableIdentity(pbarcodeCanonical);
     }
 
-    private void addIfNotBlank(List<List<String>> records, List<String> record) {
-        for (String field : record) {
-            if (StringUtils.hasText(field)) {
-                records.add(record);
-                return;
-            }
-        }
-    }
-
-    private List<String> normalizedHeaders(List<String> rawHeaders) {
-        List<String> headers = new ArrayList<>();
-        for (int index = 0; index < rawHeaders.size(); index++) {
-            String header = normalizeCell(rawHeaders.get(index));
-            if (index == 0 && header != null && header.startsWith("\ufeff")) {
-                header = header.substring(1);
-            }
-            headers.add(header == null ? "" : header.toLowerCase(Locale.ROOT));
-        }
-        return headers;
+    private static boolean hasStableIdentity(String value) {
+        return !OfficialWarehouseFbnReceivedReportValueParser.normalizeIdentity(value).isEmpty();
     }
 
     private static String text(Map<String, String> fields, String key) {
-        return nullIfDash(fields.get(key));
+        return OfficialWarehouseFbnReceivedReportValueParser.text(fields, key);
     }
 
     private static Integer integer(Map<String, String> fields, String key) {
-        String value = nullIfDash(fields.get(key));
-        if (value == null) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException exception) {
-            return 0;
-        }
+        return OfficialWarehouseFbnReceivedReportValueParser.integer(fields, key);
     }
 
-    private static String normalizeCell(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
+    private static String date(Map<String, String> fields, String key) {
+        return OfficialWarehouseFbnReceivedReportValueParser.date(fields, key);
     }
 
-    private static String nullIfDash(String value) {
-        if (!StringUtils.hasText(value)) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if ("-".equals(trimmed)) {
-            return null;
-        }
-        return trimmed;
+    private static String dateTime(Map<String, String> fields, String key) {
+        return OfficialWarehouseFbnReceivedReportValueParser.dateTime(fields, key);
     }
 
     public static class ParsedFile {
         public final List<String> headers;
         public final List<ReceivedRow> rows;
+        public final int sourceDataRowCount;
 
-        public ParsedFile(List<String> headers, List<ReceivedRow> rows) {
+        public ParsedFile(List<String> headers, List<ReceivedRow> rows, int sourceDataRowCount) {
             this.headers = headers;
             this.rows = rows;
+            this.sourceDataRowCount = sourceDataRowCount;
         }
     }
 
@@ -242,11 +264,22 @@ public class OfficialWarehouseFbnReceivedReportCsvParser {
         }
 
         public String businessKey() {
-            return value(noonAsnNr) + "|" + value(noonSku) + "|" + value(partnerSku) + "|" + value(pbarcodeCanonical);
+            return "FBN_RECEIVED_V1"
+                    + keyPart("asn", noonAsnNr)
+                    + keyPart("noonSku", noonSku)
+                    + keyPart("partnerSku", partnerSku)
+                    + keyPart("pbarcode", pbarcodeCanonical);
         }
 
-        private String value(String value) {
-            return value == null ? "" : value;
+        public String getBusinessKey() {
+            return businessKey();
+        }
+
+        private String keyPart(String name, String value) {
+            String normalized = OfficialWarehouseFbnReceivedReportValueParser.normalizeIdentity(
+                    value
+            );
+            return "|" + name + "=" + normalized.length() + ":" + normalized;
         }
     }
 }

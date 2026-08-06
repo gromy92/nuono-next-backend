@@ -9,7 +9,7 @@ import org.junit.jupiter.api.Test;
 class NoonSalesCsvImportServiceTest {
 
     @Test
-    void emptyReportDoesNotMarkSiteOffersAsNotListedByDefault() {
+    void emptyReportPersistsOnlyItsSalesImportBatch() {
         RecordingSalesFactRepository repository = new RecordingSalesFactRepository();
         NoonSalesCsvImportService service = new NoonSalesCsvImportService(
                 new NoonProductViewsSalesReportParser(),
@@ -29,7 +29,6 @@ class NoonSalesCsvImportServiceTest {
         assertEquals("empty", result.getStatus());
         assertEquals(0, result.getTotalRows());
         assertEquals(1, repository.savedBatches.size());
-        assertEquals(0, repository.notListedMarks);
     }
 
     private static String headerOnlyCsv() {
@@ -60,11 +59,6 @@ class NoonSalesCsvImportServiceTest {
 
     private static final class RecordingSalesFactRepository implements SalesFactRepository {
         private final List<SalesImportBatch> savedBatches = new ArrayList<>();
-        private int notListedMarks;
-        private Long lastOwnerUserId;
-        private String lastStoreCode;
-        private String lastSiteCode;
-        private Long lastUpdatedBy;
 
         @Override
         public long saveBatch(SalesImportBatch batch) {
@@ -82,18 +76,5 @@ class NoonSalesCsvImportServiceTest {
             return List.of();
         }
 
-        @Override
-        public void markSiteOffersNotListedForEmptyReport(
-                Long ownerUserId,
-                String storeCode,
-                String siteCode,
-                Long updatedBy
-        ) {
-            notListedMarks++;
-            lastOwnerUserId = ownerUserId;
-            lastStoreCode = storeCode;
-            lastSiteCode = siteCode;
-            lastUpdatedBy = updatedBy;
-        }
     }
 }

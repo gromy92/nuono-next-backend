@@ -1,6 +1,7 @@
 package com.nuono.next.productpublicdetail;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -42,30 +43,13 @@ class ProductPublicDetailApiSmokeTest {
     private AuthApiProtectionProperties authApiProtectionProperties;
 
     @Test
-    void submitSyncTaskUsesProductMasterStoreAccessAndReturnsTask() throws Exception {
-        BusinessAccessContext context = context();
-        ProductPublicDetailTaskView task = ProductPublicDetailTaskView.from(taskRecord());
-        when(businessAccessResolver.requireStoreAccess(
-                org.mockito.ArgumentMatchers.any(HttpServletRequest.class),
-                eq(BusinessCapability.PRODUCT_MASTER),
-                eq("STR108065-NAE")
-        )).thenReturn(context);
-        when(syncService.submitManual(context, "STR108065-NAE", "AE")).thenReturn(task);
-
+    void retiredSyncTaskWriterHasNoHttpMapping() throws Exception {
         mockMvc.perform(post("/api/product-public-details/sync-tasks")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"storeCode\":\"STR108065-NAE\",\"siteCode\":\"AE\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(150452L))
-                .andExpect(jsonPath("$.taskType").value(ProductPublicDetailSyncService.TASK_TYPE))
-                .andExpect(jsonPath("$.storeCode").value("STR108065-NAE"))
-                .andExpect(jsonPath("$.siteCode").value("AE"));
+                .andExpect(status().is4xxClientError());
 
-        verify(businessAccessResolver).requireStoreAccess(
-                org.mockito.ArgumentMatchers.any(HttpServletRequest.class),
-                eq(BusinessCapability.PRODUCT_MASTER),
-                eq("STR108065-NAE")
-        );
+        verifyNoInteractions(syncService, businessAccessResolver);
     }
 
     @Test
@@ -150,17 +134,4 @@ class ProductPublicDetailApiSmokeTest {
                 .build();
     }
 
-    private static com.nuono.next.system.task.OperationalTask taskRecord() {
-        com.nuono.next.system.task.OperationalTask task = new com.nuono.next.system.task.OperationalTask();
-        task.setId(150452L);
-        task.setTaskType(ProductPublicDetailSyncService.TASK_TYPE);
-        task.setOwnerUserId(307L);
-        task.setStoreCode("STR108065-NAE");
-        task.setSiteCode("AE");
-        task.setNaturalKey("product-public-detail:307:STR108065-NAE:AE:manual:smoke");
-        task.setStatus(com.nuono.next.system.task.OperationalTaskStatus.SUCCEEDED);
-        task.setProgressPercent(100);
-        task.setMessage("商品前台详情同步完成：成功 0，部分 1，未找到 0，失败 0，跳过 0。");
-        return task;
-    }
 }

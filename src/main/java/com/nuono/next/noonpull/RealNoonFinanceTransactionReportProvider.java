@@ -5,13 +5,13 @@ import com.nuono.next.noon.NoonCatalogApiRoutes;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Conditional;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
 @ConditionalOnBean(NoonPullGatewaySessionFactory.class)
-@ConditionalOnProperty(prefix = "nuono.noon.pull.real-provider", name = "enabled", havingValue = "true")
+@Conditional(NoonPullRealProviderCondition.class)
 public class RealNoonFinanceTransactionReportProvider extends AbstractRealNoonReportSmokeProvider
         implements NoonFinanceTransactionReportProvider {
 

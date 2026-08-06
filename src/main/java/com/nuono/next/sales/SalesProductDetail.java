@@ -22,7 +22,6 @@ public class SalesProductDetail {
     private final BigDecimal stockCoverDays;
     private final List<SalesPriceTrendBucket> priceTrend;
     private final SalesPriceTrendState priceTrendState;
-    private final SalesHistoryCoverage historyCoverage;
 
     public SalesProductDetail(
             String partnerSku,
@@ -66,8 +65,7 @@ public class SalesProductDetail {
                 fbpStock,
                 stockCoverDays,
                 List.of(),
-                SalesPriceTrendState.noOrderPriceFacts(),
-                null
+                SalesPriceTrendState.noOrderPriceFacts()
         );
     }
 
@@ -88,44 +86,6 @@ public class SalesProductDetail {
             List<SalesPriceTrendBucket> priceTrend,
             SalesPriceTrendState priceTrendState
     ) {
-        this(
-                partnerSku,
-                sku,
-                productTitle,
-                latestFactDate,
-                sourceSystems,
-                summary,
-                facts,
-                imageUrl,
-                currentStock,
-                fbnStock,
-                supermallStock,
-                fbpStock,
-                stockCoverDays,
-                priceTrend,
-                priceTrendState,
-                null
-        );
-    }
-
-    public SalesProductDetail(
-            String partnerSku,
-            String sku,
-            String productTitle,
-            LocalDate latestFactDate,
-            List<String> sourceSystems,
-            SalesAnalyticsSummary summary,
-            List<DailySalesFact> facts,
-            String imageUrl,
-            Integer currentStock,
-            Integer fbnStock,
-            Integer supermallStock,
-            Integer fbpStock,
-            BigDecimal stockCoverDays,
-            List<SalesPriceTrendBucket> priceTrend,
-            SalesPriceTrendState priceTrendState,
-            SalesHistoryCoverage historyCoverage
-    ) {
         this.partnerSku = partnerSku;
         this.sku = sku;
         this.productTitle = productTitle;
@@ -141,7 +101,6 @@ public class SalesProductDetail {
         this.stockCoverDays = stockCoverDays;
         this.priceTrend = priceTrend == null ? List.of() : List.copyOf(priceTrend);
         this.priceTrendState = priceTrendState == null ? SalesPriceTrendState.noOrderPriceFacts() : priceTrendState;
-        this.historyCoverage = historyCoverage;
     }
 
     public String getPartnerSku() {
@@ -204,7 +163,4 @@ public class SalesProductDetail {
         return priceTrendState;
     }
 
-    public SalesHistoryCoverage getHistoryCoverage() {
-        return historyCoverage;
-    }
 }

@@ -8,9 +8,11 @@ import java.util.Map;
 public class NoonInterfacePullPage {
     private List<Map<String, Object>> items = new ArrayList<>();
     private int pageNumber;
+    private int pageSize;
     private int totalItems;
     private boolean hasNextPage;
     private int requestCount;
+    private String providerGenerationToken;
 
     public static Builder builder() {
         return new Builder();
@@ -28,12 +30,21 @@ public class NoonInterfacePullPage {
         return totalItems;
     }
 
+    public int getPageSize() {
+        return pageSize;
+    }
+
     public boolean isHasNextPage() {
         return hasNextPage;
     }
 
     public int getRequestCount() {
         return requestCount;
+    }
+
+    /** Opaque collection-generation token supplied by Noon, never synthesized locally. */
+    public String getProviderGenerationToken() {
+        return providerGenerationToken;
     }
 
     public static class Builder {
@@ -54,6 +65,11 @@ public class NoonInterfacePullPage {
             return this;
         }
 
+        public Builder pageSize(int pageSize) {
+            page.pageSize = pageSize;
+            return this;
+        }
+
         public Builder hasNextPage(boolean hasNextPage) {
             page.hasNextPage = hasNextPage;
             return this;
@@ -61,6 +77,11 @@ public class NoonInterfacePullPage {
 
         public Builder requestCount(int requestCount) {
             page.requestCount = requestCount;
+            return this;
+        }
+
+        public Builder providerGenerationToken(String providerGenerationToken) {
+            page.providerGenerationToken = providerGenerationToken;
             return this;
         }
 

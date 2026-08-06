@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -25,8 +24,6 @@ import java.util.stream.LongStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpStatus;
@@ -53,21 +50,14 @@ class CompetitorMonitoringBatchServiceTest {
         submitted = new ArrayList<>();
     }
 
-    @ParameterizedTest
-    @EnumSource(
-            value = CompetitorRefreshExecutionMode.class,
-            names = {"FULL_MANUAL_MONITOR", "SCHEDULED_RANK", "SCHEDULED_DETAIL"}
-    )
-    void storeBatchAttemptsProduct501AndAdvancesPastOnePoisonProduct(
-            CompetitorRefreshExecutionMode executionMode
-    ) {
+    @Test
+    void manualStoreBatchAttemptsProduct501AndAdvancesPastOnePoisonProduct() {
         List<CompetitorWatchProductRow> products = products(501L, 1L, 502L);
         stubProductPages(products);
         when(mapper.selectRefreshableWatchProductBoundary(501L, "STORE", "SA"))
                 .thenReturn(boundary(501L, 501L), boundary(502L, 502L));
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
-            assertEquals(executionMode, mode);
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
             if (product.getId() == 250L) {
                 throw new ResponseStatusException(
@@ -78,13 +68,7 @@ class CompetitorMonitoringBatchServiceTest {
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        CompetitorTaskView view = service.requestStore(
-                501L,
-                "STORE",
-                "SA",
-                601L,
-                executionMode
-        );
+        CompetitorTaskView view = service.requestStore(501L, "STORE", "SA", 601L);
 
         assertEquals(OperationalTaskStatus.QUEUED, repository.selectById(view.getTaskId()).getStatus());
         submitted.get(0).run();
@@ -101,47 +85,6 @@ class CompetitorMonitoringBatchServiceTest {
         assertTrue(result.isCompleted());
         assertEquals(OperationalTaskStatus.SUCCEEDED, completed.getStatus());
         verify(mapper).selectRefreshableWatchProductBoundary(501L, "STORE", "SA");
-    }
-
-    @Test
-    void scheduledRankCycleDrainsScope101InTheSameShanghaiSlot() {
-        List<CompetitorWatchProductScopeRow> scopes = scopes(101);
-        when(mapper.selectRefreshableScopeBoundary()).thenReturn(boundary(101L, 1001L));
-        when(mapper.selectRefreshableScopeUpperBound(1001L)).thenReturn(scopes.get(100));
-        when(mapper.listRefreshableWatchProductScopes(
-                eq(1001L), any(), any(), any(), eq(501L), eq("STORE-100"), eq("SA"), eq(100)
-        )).thenAnswer(invocation -> {
-            Long afterOwner = invocation.getArgument(1);
-            String afterStore = invocation.getArgument(2);
-            String afterSite = invocation.getArgument(3);
-            return scopes.stream()
-                    .filter(scope -> afterOwner == null
-                            || compareScope(scope, afterOwner, afterStore, afterSite) > 0)
-                    .limit(100)
-                    .collect(Collectors.toList());
-        });
-        when(mapper.listRefreshableWatchProducts(
-                eq(501L), any(), any(), anyLong(), eq(1001L), eq(500)
-        )).thenAnswer(invocation -> {
-            String store = invocation.getArgument(1);
-            String site = invocation.getArgument(2);
-            long afterId = invocation.getArgument(3);
-            long id = scopeProductId(store, site);
-            CompetitorWatchProductRow row = product(id, 501L);
-            row.setStoreCode(store);
-            row.setSiteCode(site);
-            return afterId < id ? List.of(row) : List.of();
-        });
-        List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
-            attempted.add(product.getId());
-            return CompetitorMonitoringEnqueueOutcome.CREATED;
-        });
-
-        assertEquals(101, service.runScheduledCycle(CompetitorRefreshExecutionMode.SCHEDULED_RANK));
-        assertEquals(101, attempted.size());
-        assertEquals(101, new HashSet<>(attempted).size());
-        assertTrue(attempted.contains(1001L));
     }
 
     @Test
@@ -163,18 +106,18 @@ class CompetitorMonitoringBatchServiceTest {
         repository.insert(stale);
         stubProductPages(List.of(product(501L, 501L)));
         List<Long> attempted = new ArrayList<>();
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) -> {
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) -> {
             attempted.add(product.getId());
             assertEquals("batch-501", batchKey);
             return CompetitorMonitoringEnqueueOutcome.CREATED;
         });
 
-        assertEquals(1, service.recoverStaleBatches());
+        assertEquals(1, service.recoverStaleManualBatches());
         submitted.get(0).run();
         assertEquals(List.of(501L), attempted);
         assertEquals(OperationalTaskStatus.FAILED, repository.selectById(150000L).getStatus());
         assertEquals(OperationalTaskStatus.SUCCEEDED, repository.selectById(150001L).getStatus());
-        assertEquals(0, service.recoverStaleBatches());
+        assertEquals(0, service.recoverStaleManualBatches());
         assertEquals(List.of(501L), attempted);
     }
 
@@ -188,11 +131,11 @@ class CompetitorMonitoringBatchServiceTest {
         queued.setStatus(OperationalTaskStatus.QUEUED);
         repository.insert(queued);
 
-        CompetitorMonitoringBatchService service = service((product, actor, mode, batchKey) ->
+        CompetitorMonitoringBatchService service = service((product, actor, batchKey) ->
                 CompetitorMonitoringEnqueueOutcome.CREATED
         );
 
-        assertEquals(0, service.recoverStaleBatches());
+        assertEquals(0, service.recoverStaleManualBatches());
         assertEquals(OperationalTaskStatus.QUEUED, repository.selectById(150000L).getStatus());
         assertTrue(submitted.isEmpty());
     }
@@ -240,27 +183,6 @@ class CompetitorMonitoringBatchServiceTest {
         row.setStoreCode("STORE" + (owner == 501L ? "" : "-" + (owner - 500L)));
         row.setSiteCode("SA");
         return row;
-    }
-
-    private static List<CompetitorWatchProductScopeRow> scopes(int count) {
-        return LongStream.rangeClosed(1, count).mapToObj(index -> {
-            CompetitorWatchProductScopeRow row = new CompetitorWatchProductScopeRow();
-            row.setOwnerUserId(501L);
-            row.setStoreCode(String.format("STORE-%03d", Math.min(index, 100L)));
-            row.setSiteCode(index == 100L ? "AE" : "SA");
-            return row;
-        }).collect(Collectors.toList());
-    }
-
-    private static int compareScope(CompetitorWatchProductScopeRow row, long owner, String store, String site) {
-        int ownerOrder = Long.compare(row.getOwnerUserId(), owner);
-        int storeOrder = row.getStoreCode().compareTo(store);
-        return ownerOrder != 0 ? ownerOrder : storeOrder != 0 ? storeOrder : row.getSiteCode().compareTo(site);
-    }
-
-    private static long scopeProductId(String store, String site) {
-        long storeNumber = Long.parseLong(store.substring("STORE-".length()));
-        return storeNumber == 100L && "AE".equals(site) ? 1000L : storeNumber == 100L ? 1001L : storeNumber;
     }
 
     private static CompetitorMonitoringBoundaryRow boundary(long total, long upperId) {
