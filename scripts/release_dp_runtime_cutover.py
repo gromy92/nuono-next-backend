@@ -6,6 +6,9 @@ from __future__ import annotations
 def build_dp_runtime_cutover_shell() -> str:
     return r'''
 DP_RUNTIME_MYSQL_CNF="$APP_DIR/.migration.cnf"
+DP_RUNTIME_DB_HOST=""
+DP_RUNTIME_DB_PORT=""
+DP_RUNTIME_DB_SCHEMA=""
 DP_RUNTIME_SCHEMA_BINDING_SHA256=""
 DP_RUNTIME_CUTOVER_BINDING_SHA256=""
 DP_RUNTIME_CUTOVER_OPERATION_COUNT=""
@@ -13,11 +16,19 @@ DP_RUNTIME_LEGACY_SAFE_SNAPSHOT_COUNT=""
 DP_RUNTIME_LEGACY_SUPERSEDED_COUNT=0
 DP_RUNTIME_LEGACY_REMAINING_AFTER_STOP=""
 
-dp_runtime_db_scalar() {
+dp_runtime_mysql() {
+  [ -n "$DP_RUNTIME_DB_HOST" ]
+  [[ "$DP_RUNTIME_DB_PORT" =~ ^[0-9]+$ ]]
+  [ -n "$DP_RUNTIME_DB_SCHEMA" ]
   mysql --defaults-extra-file="$DP_RUNTIME_MYSQL_CNF" \
-    --connect-timeout=10 --batch --skip-column-names --raw -e "$1"
+    --connect-timeout=10 --skip-reconnect --protocol=TCP \
+    --host="$DP_RUNTIME_DB_HOST" --port="$DP_RUNTIME_DB_PORT" \
+    --database="$DP_RUNTIME_DB_SCHEMA" "$@"
 }
-dp_runtime_expected_schema() {
+dp_runtime_db_scalar() {
+  dp_runtime_mysql --batch --skip-column-names --raw -e "$1"
+}
+dp_runtime_database_target() {
   python3 - "$APP_DIR/.env" <<'PY'
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -38,10 +49,35 @@ if len(values) != 1 or not values[0].startswith("jdbc:mysql://"):
     raise SystemExit("managed DP database URL is unavailable or ambiguous")
 parsed = urlsplit(values[0].removeprefix("jdbc:"))
 schema = parsed.path.lstrip("/")
+try:
+    port = parsed.port or 3306
+except ValueError as error:
+    raise SystemExit("managed DP database port is invalid") from error
+if parsed.username is not None or parsed.password is not None:
+    raise SystemExit("managed DP database URL must not contain credentials")
+if parsed.fragment:
+    raise SystemExit("managed DP database URL fragment is forbidden")
 if not parsed.hostname or not schema or "/" in schema:
     raise SystemExit("managed DP database target is invalid")
-print(schema)
+if not 1 <= port <= 65535:
+    raise SystemExit("managed DP database port is invalid")
+if any(character.isspace() or ord(character) < 32 for character in parsed.hostname):
+    raise SystemExit("managed DP database host is invalid")
+if (schema.startswith("-") or any(
+        character.isspace() or ord(character) < 32 for character in schema)):
+    raise SystemExit("managed DP database schema is invalid")
+print(parsed.hostname, port, schema, sep="\t")
 PY
+}
+prepare_dp_runtime_database_target() {
+  local row=""
+  row="$(dp_runtime_database_target)"
+  IFS=$'\t' read -r DP_RUNTIME_DB_HOST DP_RUNTIME_DB_PORT \
+    DP_RUNTIME_DB_SCHEMA <<<"$row"
+  [ -n "$DP_RUNTIME_DB_HOST" ]
+  [[ "$DP_RUNTIME_DB_PORT" =~ ^[0-9]+$ ]]
+  [ "$DP_RUNTIME_DB_PORT" -ge 1 ] && [ "$DP_RUNTIME_DB_PORT" -le 65535 ]
+  [ -n "$DP_RUNTIME_DB_SCHEMA" ]
 }
 dp_runtime_database_binding() {
   dp_runtime_db_scalar "
@@ -191,7 +227,8 @@ require_legacy_cutover_empty() {
 prepare_dp_runtime_cutover() {
   command -v mysql >/dev/null
   secure_file_operation verify "$DP_RUNTIME_MYSQL_CNF" 600 - >/dev/null
-  [ "$(dp_runtime_db_scalar 'SELECT DATABASE();')" = "$(dp_runtime_expected_schema)" ]
+  prepare_dp_runtime_database_target
+  [ "$(dp_runtime_db_scalar 'SELECT DATABASE();')" = "$DP_RUNTIME_DB_SCHEMA" ]
   capture_dp_runtime_schema_binding
   require_legacy_cutover_ready
 }

@@ -157,8 +157,7 @@ bootstrap_dp_runtime_cutover() {
   [[ "$DP_RUNTIME_EXPECTED_ADMISSION_COUNT$DP_RUNTIME_EXPECTED_BINDING_COUNT$DP_RUNTIME_EXPECTED_ANCHOR_COUNT" =~ ^[0-9]+$ ]]
   DP_RUNTIME_BOOTSTRAP_SQL_SHA256="$(secure_file_operation verify \
     "$DP_RUNTIME_BOOTSTRAP_SQL" 600 -)"
-  mysql --defaults-extra-file="$DP_RUNTIME_MYSQL_CNF" --connect-timeout=10 \
-    --batch --raw < "$DP_RUNTIME_BOOTSTRAP_SQL"
+  dp_runtime_mysql --batch --raw < "$DP_RUNTIME_BOOTSTRAP_SQL"
   capture_dp_runtime_database_binding
   actual="$(dp_runtime_bootstrap_counts)"
   IFS=$'\t' read -r admissions bindings anchors cutovers <<<"$actual"
