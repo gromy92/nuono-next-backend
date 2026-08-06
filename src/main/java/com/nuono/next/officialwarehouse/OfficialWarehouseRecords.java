@@ -101,10 +101,8 @@ public final class OfficialWarehouseRecords {
         public String brandCache;
         public String imageUrlCache;
         public Integer quantity;
-        /** Explicit persisted quantity that is not associated with a shipping batch. */
-        public Integer manualQuantity;
-        /** Request-only allocation used to build shipping-batch links. */
-        public Integer shippingBatchQuantity;
+        public Integer manualQuantity; // Explicit persisted quantity without a shipping-batch link.
+        public Integer shippingBatchQuantity; // Request-only quantity allocated to shipping-batch links.
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;
         public BigDecimal productHeightCm;
@@ -211,7 +209,6 @@ public final class OfficialWarehouseRecords {
         public String relationBasis;
         public Long operatorUserId;
     }
-
     public static class AsnShippingBatchLinkRecord {
         public Long id;
         public Long asnId;
@@ -334,7 +331,6 @@ public final class OfficialWarehouseRecords {
         public String lineStatus;
         public String errorMessage;
     }
-
     public static class AsnInboundReceiptRecord {
         public Long asnId;
         public Long asnLineId;
@@ -360,7 +356,6 @@ public final class OfficialWarehouseRecords {
         public String asnCompletedAt;
         public String importedAt;
     }
-
     public static class AppointmentInsertRecord {
         public Long id;
         public Long asnId;

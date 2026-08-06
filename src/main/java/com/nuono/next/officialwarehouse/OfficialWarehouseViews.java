@@ -213,7 +213,6 @@ public final class OfficialWarehouseViews {
         public String errorMessage;
         public List<AsnShippingBatchLinkView> shippingBatchLinks = new ArrayList<>();
     }
-
     public static class AsnShippingBatchLinkView {
         public String id;
         public String asnId;

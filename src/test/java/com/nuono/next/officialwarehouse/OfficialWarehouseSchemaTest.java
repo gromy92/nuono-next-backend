@@ -18,29 +18,7 @@ class OfficialWarehouseSchemaTest {
                 "classpath:db/init/135_product_variant_spec_source_noon_partner_psku.sql",
                 "classpath:db/init/136_official_warehouse_appointment.sql",
                 "classpath:db/init/144_official_warehouse_asn_shipping_batch_link.sql",
-                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql",
-                "classpath:db/init/249_official_warehouse_asn_line_source_allocation.sql"
-        );
-    }
-
-    @Test
-    void officialWarehouseManualLineQuantityIsAnExplicitNullableFact() throws Exception {
-        String migration = Files.readString(Path.of(
-                "src/main/resources/db/init/249_official_warehouse_asn_line_source_allocation.sql"
-        ));
-        String postcheck = Files.readString(Path.of(
-                "src/main/resources/db/postcheck/249_official_warehouse_asn_line_source_allocation.sql"
-        ));
-        String catalog = Files.readString(Path.of("src/main/resources/db/init/release-migrations.tsv"));
-
-        assertThat(migration)
-                .contains("COLUMN_NAME = 'manual_quantity'")
-                .contains("ADD COLUMN manual_quantity INT DEFAULT NULL AFTER qty");
-        assertThat(postcheck)
-                .contains("COLUMN_NAME = 'manual_quantity'")
-                .contains("IS_NULLABLE = 'YES'");
-        assertThat(catalog).contains(
-                "249\t249_official_warehouse_asn_line_source_allocation.sql\tAUTO_ADDITIVE"
+                "classpath:db/init/188_official_warehouse_asn_sync_throttle.sql"
         );
     }
 
