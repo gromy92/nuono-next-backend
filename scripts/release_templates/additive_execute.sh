@@ -1,4 +1,5 @@
 validate_additive_migrations
+repair_retired_migration_205
 run_forward_schema_migrations
 ensure_migration_182
 assert_migration_189_mappable
@@ -7,8 +8,7 @@ postcheck_migration_189
 require_migration_190
 apply_migration "$MIGRATION_204"
 postcheck_migration_204
-apply_migration "$MIGRATION_205"
-postcheck_migration_205
+apply_or_skip_migration_205
 emit ADDITIVE_SCHEMA_RESULT PASS
 emit EXPECTED_COMMIT "$EXPECTED_COMMIT"
 emit MIGRATION_182_SHA256 "$EXPECTED_182_SHA256"

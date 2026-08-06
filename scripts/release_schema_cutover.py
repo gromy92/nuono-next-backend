@@ -64,6 +64,7 @@ def build_additive_schema_migration_script(
             "RELEASE_NAME": release_name,
         },
         "additive_schema_migrations.sh",
+        "migration_205_successor_contract.sh",
         "additive_frozen_jar.sh",
         "migration_182_contract.sh",
         "migration_189_contract.sh",

@@ -93,18 +93,18 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
 
     def test_additive_migrations_are_ordered_and_postchecked(self):
         script = self.build_additive_script()
-        execution = script[script.index("validate_additive_migrations") :]
-
+        execution = script[script.index("validate_additive_migrations\n") :]
         prerequisite = execution.index("require_migration_190")
         migration_204 = execution.index('apply_migration "$MIGRATION_204"')
         postcheck_204 = execution.index("postcheck_migration_204")
-        migration_205 = execution.index('apply_migration "$MIGRATION_205"')
-        postcheck_205 = execution.index("postcheck_migration_205")
+        migration_205 = execution.index("apply_or_skip_migration_205")
+        repair_205 = execution.index("repair_retired_migration_205")
+        forward = execution.index("run_forward_schema_migrations")
 
+        self.assertLess(repair_205, forward)
         self.assertLess(prerequisite, migration_204)
         self.assertLess(migration_204, postcheck_204)
         self.assertLess(postcheck_204, migration_205)
-        self.assertLess(migration_205, postcheck_205)
         self.assertIn("ADDITIVE_SCHEMA_RESULT PASS", execution)
         self.assertNotIn("206_product_barcode_store_uniqueness.sql", script)
 

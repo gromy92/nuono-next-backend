@@ -63,8 +63,10 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         forward = execution.index("run_forward_schema_migrations")
         migration_182 = execution.index("ensure_migration_182")
         migration_204 = execution.index('apply_migration "$MIGRATION_204"')
-        migration_205 = execution.index('apply_migration "$MIGRATION_205"')
+        migration_205 = execution.index("apply_or_skip_migration_205")
 
+        repair = execution.index("repair_retired_migration_205")
+        self.assertLess(repair, forward)
         self.assertLess(forward, migration_182)
         self.assertLess(migration_182, migration_204)
         self.assertLess(migration_204, migration_205)
