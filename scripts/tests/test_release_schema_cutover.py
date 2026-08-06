@@ -1,4 +1,5 @@
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -162,9 +163,12 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertNotIn("NUONO_NEXT_DB_USERNAME", script)
         self.assertIn("os.O_EXCL", script)
         self.assertIn("0o600", script)
-        self.assertIn('--defaults-file="$MYSQL_CNF"', script)
+        self.assertIn(
+            'MYSQL_LOGIN_PATH_ARGS=(--defaults-file="$MYSQL_CNF")',
+            script,
+        )
         self.assertIn("--no-login-paths", script)
-        self.assertIn('MYSQL_LOGIN_PATH_ARGS=(--no-login-paths)', script)
+        self.assertIn('MYSQL_LOGIN_PATH_ARGS+=(--no-login-paths)', script)
         self.assertIn('"${MYSQL_LOGIN_PATH_ARGS[@]}"', script)
         self.assertIn('rm -f -- "$MYSQL_CNF"', script)
         self.assertIn('FROZEN_JAR="$WORK_DIR/staged-backend.jar"', script)
@@ -176,6 +180,34 @@ class ReleaseSchemaCutoverTest(unittest.TestCase):
         self.assertIn('--database="$EXPECTED_SCHEMA"', script)
         self.assertIn('--expected-host "$EXPECTED_DB_HOST"', script)
         self.assertIn('--expected-port "$EXPECTED_DB_PORT"', script)
+
+    def test_additive_default_mysql_args_are_safe_under_bash_nounset(self):
+        script = self.additive_script()
+        initialization = next(
+            line
+            for line in script.splitlines()
+            if line.startswith("MYSQL_LOGIN_PATH_ARGS=(")
+        )
+        result = subprocess.run(
+            [
+                "bash",
+                "-u",
+                "-c",
+                "MYSQL_CNF=/tmp/nuono-migration.cnf\n"
+                + initialization
+                + "\nprintf '<%s>\\n' \"${MYSQL_LOGIN_PATH_ARGS[@]}\"\n",
+            ],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            "<--defaults-file=/tmp/nuono-migration.cnf>\n",
+            result.stdout,
+        )
 
     def test_additive_extracts_every_runner_file_bound_to_the_jar(self):
         script = self.additive_script()

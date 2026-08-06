@@ -12,7 +12,7 @@ MIGRATION_189="$MIGRATION_DIR/189_product_barcode_store_identity_repair.sql"
 MIGRATION_190="$MIGRATION_DIR/190_noon_shared_email_auth_recovery.sql"
 MIGRATION_204="$MIGRATION_DIR/204_product_listing_workflow_attempt_claim.sql"
 MIGRATION_205="$MIGRATION_DIR/205_product_listing_reauthentication_attempt.sql"
-MYSQL_LOGIN_PATH_ARGS=()
+MYSQL_LOGIN_PATH_ARGS=(--defaults-file="$MYSQL_CNF")
 
 emit() { printf '%s=%s\n' "$1" "$2"; }
 sha256_file() { sha256sum "$1" | awk '{print $1}'; }
@@ -133,7 +133,6 @@ PY
 
 db_scalar() {
   mysql \
-    --defaults-file="$MYSQL_CNF" \
     "${MYSQL_LOGIN_PATH_ARGS[@]}" \
     --skip-reconnect \
     --protocol=TCP \
@@ -188,7 +187,6 @@ require_migration_190() {
 
 apply_migration() {
   mysql \
-    --defaults-file="$MYSQL_CNF" \
     "${MYSQL_LOGIN_PATH_ARGS[@]}" \
     --skip-reconnect \
     --protocol=TCP \
@@ -276,7 +274,7 @@ postcheck_migration_205() {
 
 validate_additive_migrations() {
   command -v mysql >/dev/null
-  if mysql --no-login-paths --version >/dev/null 2>&1; then MYSQL_LOGIN_PATH_ARGS=(--no-login-paths); fi
+  if mysql --no-login-paths --version >/dev/null 2>&1; then MYSQL_LOGIN_PATH_ARGS+=(--no-login-paths); fi
   command -v unzip >/dev/null
   command -v python3 >/dev/null
   [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]]
