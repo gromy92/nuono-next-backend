@@ -16,13 +16,18 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
             + "source_system AS sourceSystem, forwarder_name AS forwarderName, "
             + "login_account AS loginAccount, login_account_hash AS loginAccountHash, "
             + "password_cipher AS passwordCipher, enabled, schedule_enabled AS scheduleEnabled, "
-            + "commit_enabled AS commitEnabled, schedule_window_start AS scheduleWindowStart, "
+            + "commit_enabled AS commitEnabled, freight_bill_schedule_enabled AS freightBillScheduleEnabled, "
+            + "freight_bill_commit_enabled AS freightBillCommitEnabled, schedule_window_start AS scheduleWindowStart, "
             + "schedule_window_end AS scheduleWindowEnd, min_interval_hours AS minIntervalHours, "
             + "verification_status AS verificationStatus, last_login_status AS lastLoginStatus, "
             + "last_preview_status AS lastPreviewStatus, last_sync_status AS lastSyncStatus, "
             + "last_task_id AS lastTaskId, last_synced_at AS lastSyncedAt, "
             + "next_eligible_at AS nextEligibleAt, cooldown_until AS cooldownUntil, "
             + "last_failure_code AS lastFailureCode, last_failure_message AS lastFailureMessage, "
+            + "freight_bill_last_preview_status AS freightBillLastPreviewStatus, freight_bill_last_sync_status AS freightBillLastSyncStatus, "
+            + "freight_bill_last_task_id AS freightBillLastTaskId, freight_bill_last_synced_at AS freightBillLastSyncedAt, "
+            + "freight_bill_next_eligible_at AS freightBillNextEligibleAt, freight_bill_cooldown_until AS freightBillCooldownUntil, "
+            + "freight_bill_last_failure_code AS freightBillLastFailureCode, freight_bill_last_failure_message AS freightBillLastFailureMessage, "
             + "is_deleted AS deleted, created_by AS createdBy, updated_by AS updatedBy, "
             + "gmt_create AS createdAt, gmt_updated AS updatedAt";
 
@@ -48,12 +53,12 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
     @Insert({
             "INSERT INTO logistics_forwarder_account (",
             "id, owner_user_id, operator_user_id, source_system, forwarder_name, login_account, login_account_hash,",
-            "password_cipher, enabled, schedule_enabled, commit_enabled, schedule_window_start, schedule_window_end,",
+            "password_cipher, enabled, schedule_enabled, commit_enabled, freight_bill_schedule_enabled, freight_bill_commit_enabled, schedule_window_start, schedule_window_end,",
             "min_interval_hours, verification_status, next_eligible_at, created_by, updated_by, gmt_create, gmt_updated",
             ") VALUES (",
             "#{row.id}, #{row.ownerUserId}, #{row.operatorUserId}, #{row.sourceSystem}, #{row.forwarderName},",
             "#{row.loginAccount}, #{row.loginAccountHash}, #{row.passwordCipher}, #{row.enabled}, #{row.scheduleEnabled},",
-            "#{row.commitEnabled}, #{row.scheduleWindowStart}, #{row.scheduleWindowEnd}, #{row.minIntervalHours},",
+            "#{row.commitEnabled}, #{row.freightBillScheduleEnabled}, #{row.freightBillCommitEnabled}, #{row.scheduleWindowStart}, #{row.scheduleWindowEnd}, #{row.minIntervalHours},",
             "#{row.verificationStatus}, #{row.nextEligibleAt}, #{row.createdBy}, #{row.updatedBy}, NOW(), NOW())"
     })
     int insertAccount(@Param("row") LogisticsAutoSyncAccount row);
@@ -65,6 +70,7 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
             "forwarder_name = #{row.forwarderName}, login_account = #{row.loginAccount},",
             "login_account_hash = #{row.loginAccountHash}, password_cipher = #{row.passwordCipher},",
             "enabled = #{row.enabled}, schedule_enabled = #{row.scheduleEnabled}, commit_enabled = #{row.commitEnabled},",
+            "freight_bill_schedule_enabled = #{row.freightBillScheduleEnabled}, freight_bill_commit_enabled = #{row.freightBillCommitEnabled},",
             "schedule_window_start = #{row.scheduleWindowStart}, schedule_window_end = #{row.scheduleWindowEnd},",
             "min_interval_hours = #{row.minIntervalHours}, verification_status = #{row.verificationStatus},",
             "updated_by = #{row.updatedBy}, gmt_updated = NOW()",
@@ -83,6 +89,18 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
     })
     List<LogisticsAutoSyncAccount> listDueAccounts(@Param("limit") int limit);
 
+    @Select({
+            "SELECT", ACCOUNT_COLUMNS,
+            "FROM logistics_forwarder_account",
+            "WHERE enabled = b'1' AND freight_bill_schedule_enabled = b'1' AND is_deleted = b'0'",
+            "AND source_system IN ('CHIC', 'YITE')",
+            "AND (freight_bill_cooldown_until IS NULL OR freight_bill_cooldown_until <= NOW())",
+            "AND (freight_bill_next_eligible_at IS NULL OR freight_bill_next_eligible_at <= NOW())",
+            "ORDER BY COALESCE(freight_bill_next_eligible_at, gmt_updated), id",
+            "LIMIT #{limit}"
+    })
+    List<LogisticsAutoSyncAccount> listDueFreightBillAccounts(@Param("limit") int limit);
+
     @Update({
             "UPDATE logistics_forwarder_account",
             "SET last_task_id = #{taskId}, last_login_status = #{loginStatus},",
@@ -100,6 +118,30 @@ public interface LogisticsAutoSyncMapper extends InTransitGoodsSequenceMapper {
             @Param("previewStatus") String previewStatus,
             @Param("syncStatus") String syncStatus,
             @Param("verificationStatus") String verificationStatus,
+            @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
+            @Param("nextEligibleAt") LocalDateTime nextEligibleAt,
+            @Param("cooldownUntil") LocalDateTime cooldownUntil,
+            @Param("failureCode") String failureCode,
+            @Param("failureMessage") String failureMessage,
+            @Param("operatorUserId") Long operatorUserId
+    );
+
+    @Update({
+            "UPDATE logistics_forwarder_account",
+            "SET freight_bill_last_task_id = #{taskId}, freight_bill_last_preview_status = #{previewStatus},",
+            "freight_bill_last_sync_status = #{syncStatus},",
+            "freight_bill_last_synced_at = COALESCE(#{lastSyncedAt}, freight_bill_last_synced_at),",
+            "freight_bill_next_eligible_at = #{nextEligibleAt}, freight_bill_cooldown_until = #{cooldownUntil},",
+            "freight_bill_last_failure_code = #{failureCode}, freight_bill_last_failure_message = #{failureMessage},",
+            "updated_by = #{operatorUserId}, gmt_updated = NOW()",
+            "WHERE id = #{accountId} AND owner_user_id = #{ownerUserId} AND is_deleted = b'0'"
+    })
+    int updateFreightBillRunState(
+            @Param("accountId") Long accountId,
+            @Param("ownerUserId") Long ownerUserId,
+            @Param("taskId") Long taskId,
+            @Param("previewStatus") String previewStatus,
+            @Param("syncStatus") String syncStatus,
             @Param("lastSyncedAt") LocalDateTime lastSyncedAt,
             @Param("nextEligibleAt") LocalDateTime nextEligibleAt,
             @Param("cooldownUntil") LocalDateTime cooldownUntil,
