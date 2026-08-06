@@ -5,13 +5,14 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
 import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
 import com.nuono.next.datapull.advertising.AdvertisingAdvertiser;
+import com.nuono.next.datapull.advertising.AdvertisingCampaignPage;
 import com.nuono.next.datapull.advertising.AdvertisingCampaignRef;
-import com.nuono.next.datapull.advertising.AdvertisingDashboard;
 import com.nuono.next.datapull.advertising.AdvertisingProvider;
 import com.nuono.next.datapull.advertising.AdvertisingPullRequest;
 import com.nuono.next.datapull.advertising.AdvertisingQueryReport;
 import com.nuono.next.datapull.runtime.ProviderOutcome;
 import com.nuono.next.noonads.NoonAdvertisingReportDescriptor;
+import java.util.List;
 import java.util.Objects;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
@@ -24,15 +25,16 @@ import org.springframework.stereotype.Component;
 public class RealNoonAdvertisingRuntimeProvider implements AdvertisingProvider {
 
     private static final String DEFAULT_BASE_URL = "https://admanager.noon.partners";
+    private static final int CAMPAIGN_PAGE_SIZE = 200;
 
     private final ObjectMapper objectMapper;
     private final NoonPullStoreBindingResolver bindingResolver;
     private final NoonPullGatewaySessionFactory sessionFactory;
     private final NoonAdsAdvertiserContextResolver advertiserResolver;
-    private final NoonAdvertisingDashboardParser dashboardParser;
+    private final NoonAdvertisingCampaignPageParser campaignPageParser;
     private final NoonAdvertisingQueryWorkbookParser queryParser;
     private final NoonAdvertisingOutcomeClassifier outcomeClassifier;
-    private final String dashboardUrl;
+    private final String campaignMetricsUrl;
     private final String queryReportUrl;
 
     public RealNoonAdvertisingRuntimeProvider(
@@ -50,10 +52,10 @@ public class RealNoonAdvertisingRuntimeProvider implements AdvertisingProvider {
                 objectMapper,
                 root + "/_svc/productads/onboarding/advertiser/accounts"
         );
-        this.dashboardParser = new NoonAdvertisingDashboardParser(objectMapper);
+        this.campaignPageParser = new NoonAdvertisingCampaignPageParser(objectMapper);
         this.queryParser = new NoonAdvertisingQueryWorkbookParser();
         this.outcomeClassifier = new NoonAdvertisingOutcomeClassifier();
-        this.dashboardUrl = root + "/_svc/productads/v2/noon/metrics";
+        this.campaignMetricsUrl = root + "/_svc/productads/v2/noon/metrics/campaigns";
         this.queryReportUrl = root + "/_svc/productads/v2/noon/product/reports/queries";
     }
 
@@ -74,25 +76,26 @@ public class RealNoonAdvertisingRuntimeProvider implements AdvertisingProvider {
     }
 
     @Override
-    public ProviderOutcome<AdvertisingDashboard> fetchDashboard(
+    public ProviderOutcome<AdvertisingCampaignPage> fetchCampaignPage(
             AdvertisingPullRequest request,
-            AdvertisingAdvertiser advertiser
+            AdvertisingAdvertiser advertiser,
+            int pageNo
     ) {
         try {
             BoundSession bound = boundSession(request);
             NoonAdsAdvertiserContext context = advertiserContext(advertiser);
-            return ProviderOutcome.success(dashboardParser.parse(bound.session.postJsonOnce(
-                    dashboardUrl,
-                    dashboardBody(request),
+            return ProviderOutcome.success(campaignPageParser.parse(bound.session.postJsonOnce(
+                    campaignMetricsUrl,
+                    campaignMetricsBody(request, pageNo),
                     false,
                     advertiserResolver.headers(
                             bound.binding,
                             context,
                             "application/json, text/plain, */*"
                     )
-            )));
+            ), pageNo));
         } catch (RuntimeException failure) {
-            return outcomeClassifier.classify(failure, "ADS_DASHBOARD_READ_FAILED");
+            return outcomeClassifier.classify(failure, "ADS_CAMPAIGN_PAGE_READ_FAILED");
         }
     }
 
@@ -152,13 +155,40 @@ public class RealNoonAdvertisingRuntimeProvider implements AdvertisingProvider {
         return new NoonAdsAdvertiserContext(value.getAdvertiserCode());
     }
 
-    private ObjectNode dashboardBody(AdvertisingPullRequest request) {
+    private ObjectNode campaignMetricsBody(AdvertisingPullRequest request, int pageNo) {
+        if (pageNo < 1) {
+            throw new NoonAdvertisingContractException("ADS_CAMPAIGN_PAGE_NUMBER_INVALID");
+        }
         ObjectNode body = objectMapper.createObjectNode();
+        body.set("campaignCodes", objectMapper.createArrayNode());
+        body.set("campaignType", objectMapper.valueToTree(List.of("product")));
+        body.set("campaignStatus", objectMapper.valueToTree(List.of(
+                "archived", "completed", "budget_exhausted", "draft",
+                "paused", "live", "scheduled"
+        )));
+        body.putNull("isAudience");
+        body.set("pricingModel", objectMapper.valueToTree(List.of("cpc")));
+        body.putNull("isGuaranteed");
         body.put("startDate", request.getReportDate().toString());
         body.put("endDate", request.getReportDate().toString());
-        body.set("campaignFilters", objectMapper.createObjectNode());
-        body.put("isNamshi", false);
+        body.set("marketplace", objectMapper.valueToTree(List.of(
+                marketplaceId(request.getSiteCode())
+        )));
+        body.put("pageNo", pageNo);
+        body.put("pageSize", CAMPAIGN_PAGE_SIZE);
         return body;
+    }
+
+    private int marketplaceId(String siteCode) {
+        String site = Objects.requireNonNull(siteCode, "siteCode").trim().toUpperCase();
+        switch (site) {
+            case "SA": return 1;
+            case "AE": return 2;
+            case "EG": return 3;
+            default: throw new NoonAdvertisingContractException(
+                    "ADS_MARKETPLACE_MAPPING_UNSUPPORTED"
+            );
+        }
     }
 
     private ObjectNode queryReportBody(AdvertisingPullRequest request, String campaignCode) {

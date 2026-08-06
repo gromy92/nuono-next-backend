@@ -15,8 +15,8 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * DP-06 bounded runtime: advertiser (1), dashboard (1), then one call for every active campaign.
- * Facts remain fenced in staging until all 2+C calls have closed and one atomic apply succeeds.
+ * DP-06 bounded runtime: advertiser (1), two complete page passes (2P), then one call per active
+ * campaign (C). Facts remain fenced until the 1+2P+C acquisition closes and apply succeeds.
  */
 public final class Dp06AdvertisingJob implements DataPullJob {
     public static final String INITIAL_STEP = "ADS_ADVERTISER";
@@ -92,8 +92,8 @@ public final class Dp06AdvertisingJob implements DataPullJob {
         try {
             request = AdvertisingPullRequest.from(task);
             checkpoint = checkpointCodec.decode(task.getCheckpoint());
-        } catch (AdvertisingCheckpointCodec.AuthoritylessCheckpointException legacy) {
-            return stageCoordinator.resetAuthoritylessCheckpoint(task);
+        } catch (AdvertisingCheckpointCodec.LegacyCheckpointException legacy) {
+            return stageCoordinator.resetLegacyCheckpoint(task);
         } catch (RuntimeException invalidCheckpoint) {
             return AdvanceResult.failed(task.getCheckpoint(), "ADS_TASK_CHECKPOINT_INVALID");
         }
@@ -101,8 +101,14 @@ public final class Dp06AdvertisingJob implements DataPullJob {
         switch (checkpoint.getPhase()) {
             case ADVERTISER:
                 return providerSteps.resolveAdvertiser(task, request, checkpoint);
-            case DASHBOARD:
-                return providerSteps.fetchDashboard(task, request, checkpoint);
+            case CAMPAIGN_FETCH:
+                return providerSteps.fetchCampaignPage(task, request, checkpoint);
+            case CAMPAIGN_VERIFY:
+                return providerSteps.verifyCampaignPage(task, request, checkpoint);
+            case CAMPAIGN_COMPARE:
+                return stageCoordinator.compare(task, checkpoint);
+            case CAMPAIGN_PROMOTE:
+                return stageCoordinator.promote(task, checkpoint);
             case CAMPAIGN_QUERY:
                 return providerSteps.fetchCampaign(task, request, checkpoint);
             case APPLY:

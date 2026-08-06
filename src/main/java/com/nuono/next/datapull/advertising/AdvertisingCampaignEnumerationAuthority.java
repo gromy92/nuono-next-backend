@@ -4,7 +4,7 @@ import com.nuono.next.datapull.snapshot.SnapshotCollectionAuthority;
 import java.time.LocalDateTime;
 import java.util.Objects;
 
-/** Provider-native proof that one dashboard enumerated the whole campaign collection. */
+/** Durable authority produced only after two equal complete campaign enumerations. */
 public final class AdvertisingCampaignEnumerationAuthority {
     private final SnapshotCollectionAuthority collectionAuthority;
     private final boolean complete;
@@ -17,23 +17,22 @@ public final class AdvertisingCampaignEnumerationAuthority {
                 collectionAuthority,
                 "collectionAuthority"
         );
-        if (collectionAuthority.getProviderAsOfUtc() == null) {
-            throw new IllegalArgumentException("campaign authority requires provider as-of time");
+        if (collectionAuthority.getKind()
+                != SnapshotCollectionAuthority.Kind.TWO_PASS_OBSERVATION
+                || collectionAuthority.getProviderAsOfUtc() != null) {
+            throw new IllegalArgumentException("campaign authority requires a two-pass observation");
         }
         this.complete = complete;
     }
 
-    public static AdvertisingCampaignEnumerationAuthority fromProviderFields(
-            String providerGenerationToken,
-            LocalDateTime providerAsOfUtc,
+    public static AdvertisingCampaignEnumerationAuthority fromTwoPassObservation(
+            String observationDigestSha256,
             long declaredCampaignCount,
             boolean complete
     ) {
         return new AdvertisingCampaignEnumerationAuthority(
-                SnapshotCollectionAuthority.fromProviderToken(
-                        SnapshotCollectionAuthority.Kind.COMPLETE_EXPORT,
-                        providerGenerationToken,
-                        Objects.requireNonNull(providerAsOfUtc, "providerAsOfUtc"),
+                SnapshotCollectionAuthority.fromTwoPassObservation(
+                        observationDigestSha256,
                         declaredCampaignCount
                 ),
                 complete
@@ -42,15 +41,14 @@ public final class AdvertisingCampaignEnumerationAuthority {
 
     static AdvertisingCampaignEnumerationAuthority fromPersistedFields(
             String generationTokenSha256,
-            LocalDateTime providerAsOfUtc,
             long declaredCampaignCount,
             boolean complete
     ) {
         return new AdvertisingCampaignEnumerationAuthority(
                 SnapshotCollectionAuthority.fromPersistedDigest(
-                        SnapshotCollectionAuthority.Kind.COMPLETE_EXPORT,
+                        SnapshotCollectionAuthority.Kind.TWO_PASS_OBSERVATION,
                         generationTokenSha256,
-                        Objects.requireNonNull(providerAsOfUtc, "providerAsOfUtc"),
+                        null,
                         declaredCampaignCount
                 ),
                 complete

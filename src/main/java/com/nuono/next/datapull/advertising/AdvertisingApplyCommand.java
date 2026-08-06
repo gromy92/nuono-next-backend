@@ -21,6 +21,7 @@ public final class AdvertisingApplyCommand {
     private final String businessWindowKey;
     private final AdvertisingCampaignEnumerationAuthority authority;
     private final List<AdvertisingCampaignRef> activeCampaigns;
+    private final int campaignPageCount;
 
     public AdvertisingApplyCommand(
             long taskId,
@@ -30,7 +31,8 @@ public final class AdvertisingApplyCommand {
             AdvertisingPullRequest request,
             String businessWindowKey,
             AdvertisingCampaignEnumerationAuthority authority,
-            List<AdvertisingCampaignRef> activeCampaigns
+            List<AdvertisingCampaignRef> activeCampaigns,
+            int campaignPageCount
     ) {
         if (taskId <= 0L || fenceEpoch <= 0L) {
             throw new IllegalArgumentException("taskId and fenceEpoch must be positive");
@@ -54,6 +56,10 @@ public final class AdvertisingApplyCommand {
                 activeCampaigns,
                 "activeCampaigns"
         ));
+        if (campaignPageCount < 1) {
+            throw new IllegalArgumentException("campaignPageCount must be positive");
+        }
+        this.campaignPageCount = campaignPageCount;
         validateCampaigns();
     }
 
@@ -70,6 +76,10 @@ public final class AdvertisingApplyCommand {
     public AdvertisingCampaignEnumerationAuthority getAuthority() { return authority; }
     public List<AdvertisingCampaignRef> getActiveCampaigns() { return activeCampaigns; }
     public int getActiveCampaignCount() { return activeCampaigns.size(); }
+    public int getCampaignPageCount() { return campaignPageCount; }
+    public int getLastPage() {
+        return Math.addExact(campaignPageCount, activeCampaigns.size());
+    }
 
     private void validateCampaigns() {
         if (!authority.isComplete()

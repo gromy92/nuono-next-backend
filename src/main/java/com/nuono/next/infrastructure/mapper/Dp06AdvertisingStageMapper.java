@@ -32,11 +32,13 @@ public interface Dp06AdvertisingStageMapper {
             " s.declared_collection_count AS declaredCampaignCount,",
             " COUNT(p.page_no) AS pageCount, MIN(p.page_no) AS firstPage,",
             " MAX(p.page_no) AS lastPage,",
-            " MAX(CASE WHEN p.page_no=1 THEN p.item_count END) AS dashboardItemCount,",
-            " MAX(CASE WHEN p.page_no=1 THEN p.source_item_count END)",
-            "  AS dashboardSourceItemCount,",
-            " MAX(CASE WHEN p.page_no=1 THEN p.business_skipped_item_count END)",
-            "  AS dashboardBusinessSkippedItemCount,",
+            " COALESCE(SUM(CASE WHEN p.page_no<=#{campaignPageCount}",
+            "   THEN p.item_count ELSE 0 END),0) AS campaignItemCount,",
+            " COALESCE(SUM(CASE WHEN p.page_no<=#{campaignPageCount}",
+            "   THEN p.source_item_count ELSE 0 END),0) AS campaignSourceItemCount,",
+            " COALESCE(SUM(CASE WHEN p.page_no<=#{campaignPageCount}",
+            "   THEN p.business_skipped_item_count ELSE 0 END),0)",
+            "  AS campaignBusinessSkippedItemCount,",
             " COALESCE(SUM(p.item_count),0) AS stagedItemCount,",
             " COALESCE(SUM(p.source_item_count),0) AS sourceItemCount,",
             " COALESCE(SUM(p.business_skipped_item_count),0) AS businessSkippedItemCount",
@@ -48,7 +50,10 @@ public interface Dp06AdvertisingStageMapper {
             " s.authority_token_sha256, s.snapshot_as_of_utc, s.declared_collection_count"
     })
     @Options(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    AdvertisingStageManifestRow selectManifest(@Param("taskId") long taskId);
+    AdvertisingStageManifestRow selectManifest(
+            @Param("taskId") long taskId,
+            @Param("campaignPageCount") int campaignPageCount
+    );
 
     @Select({
             "SELECT COUNT(*) FROM dp_pull_snapshot_stage_page p",
@@ -100,6 +105,24 @@ public interface Dp06AdvertisingStageMapper {
             @Param("taskId") long taskId,
             @Param("fenceEpoch") long fenceEpoch,
             @Param("leaseOwner") String leaseOwner
+    );
+
+    @Delete({
+            "DELETE FROM dp_pull_snapshot_verify_page WHERE task_id=#{taskId}",
+            "ORDER BY page_no ASC LIMIT #{limit}"
+    })
+    int deleteVerificationPagesBatch(
+            @Param("taskId") long taskId,
+            @Param("limit") int limit
+    );
+
+    @Delete({
+            "DELETE FROM dp_pull_snapshot_fingerprint_count WHERE task_id=#{taskId}",
+            "ORDER BY content_fingerprint ASC LIMIT #{limit}"
+    })
+    int deleteFingerprintCountsBatch(
+            @Param("taskId") long taskId,
+            @Param("limit") int limit
     );
 
     @Delete({

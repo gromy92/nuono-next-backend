@@ -225,15 +225,6 @@ class DataPullManagedReleaseStartupGuardTest {
                 "NUONO_DP10_OPEN_API_EXECUTION_RUNTIME_ENV_SHA256_FILE",
                 "/slot/runtime-env.sha256"
         );
-        markers.put(
-                DataPullManagedContractEvidence.FILE,
-                "/slot/dp-runtime-contract-evidence.json"
-        );
-        markers.put(DataPullManagedContractEvidence.SHA, "b".repeat(64));
-        markers.put(
-                DataPullManagedContractEvidence.ENV_ATTESTATION,
-                "/slot/runtime-env.sha256"
-        );
         markers.put(DataPullManagedReleaseProvenanceEvidence.EXPECTED_COMMIT, "c".repeat(40));
         markers.put(DataPullManagedReleaseProvenanceEvidence.SCHEMA_BINDING, "d".repeat(64));
         markers.put(DataPullManagedReleaseProvenanceEvidence.CUTOVER_BINDING, "e".repeat(64));

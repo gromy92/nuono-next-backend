@@ -71,7 +71,15 @@ SELECT IF(
     WHERE t.table_schema=DATABASE() AND t.table_type='BASE TABLE' AND UPPER(t.engine)='INNODB' AND LOWER(t.table_collation)='utf8mb4_bin')=4
   AND (SELECT COUNT(*) FROM actual_view)=4
   AND NOT EXISTS (SELECT 1 FROM expected_column e LEFT JOIN actual_column a USING(table_name,column_name)
-    WHERE a.table_name IS NULL OR a.column_type<>e.column_type OR a.is_nullable<>e.is_nullable OR a.character_set_name<>e.character_set_name
+    WHERE a.table_name IS NULL OR a.column_type<>e.column_type
+      OR (a.is_nullable<>e.is_nullable AND NOT (
+        e.table_name='dp_pull_advertising_generation'
+        AND e.column_name='provider_as_of_utc' AND a.is_nullable='YES'
+        AND EXISTS (SELECT 1 FROM information_schema.columns successor
+          WHERE successor.table_schema=DATABASE()
+            AND successor.table_name='dp_pull_advertising_generation'
+            AND successor.column_name='campaign_page_count')))
+      OR a.character_set_name<>e.character_set_name
       OR a.collation_name<>e.collation_name OR a.default_signature<>e.default_signature OR a.extra<>e.extra OR a.generation_expression<>'')
   AND NOT EXISTS (SELECT 1 FROM expected_index e LEFT JOIN actual_index a USING(table_name,index_name)
     WHERE a.table_name IS NULL OR a.non_unique<>e.non_unique OR a.index_columns<>e.index_columns OR a.safe_shape<>1)
@@ -81,7 +89,14 @@ SELECT IF(
   AND NOT EXISTS (SELECT 1 FROM actual_index a LEFT JOIN expected_index e USING(table_name,index_name)
     WHERE e.table_name IS NULL AND NOT (a.non_unique=1 AND a.safe_shape=1))
   AND NOT EXISTS (SELECT 1 FROM expected_check e LEFT JOIN actual_check a USING(table_name,constraint_name)
-    WHERE a.table_name IS NULL OR a.enforced<>'YES' OR a.clause_sha256<>e.clause_sha256)
+    WHERE a.table_name IS NULL OR a.enforced<>'YES'
+      OR (a.clause_sha256<>e.clause_sha256 AND NOT (
+        e.constraint_name IN ('chk_dp_ad_generation_extent',
+          'chk_dp_ad_generation_sealed','chk_dp_ad_campaign_position')
+        AND EXISTS (SELECT 1 FROM information_schema.columns successor
+          WHERE successor.table_schema=DATABASE()
+            AND successor.table_name='dp_pull_advertising_generation'
+            AND successor.column_name='campaign_page_count'))))
   AND NOT EXISTS (SELECT 1 FROM expected_fk e LEFT JOIN actual_fk a USING(table_name,constraint_name)
     WHERE a.table_name IS NULL OR a.child_columns<>e.child_columns OR a.referenced_table_name<>e.referenced_table_name
       OR a.referenced_columns<>e.referenced_columns OR a.delete_rule<>e.delete_rule OR a.update_rule<>e.update_rule)

@@ -107,27 +107,47 @@ final class Dp06AdvertisingTestSupport {
         task.setVersion(task.getVersion() + 1L);
     }
 
-    static AdvertisingDashboard dashboard() {
-        return new AdvertisingDashboard(
+    static AdvertisingCampaignPage campaignPage() {
+        return campaignPage(
+                1,
+                1,
+                3L,
                 List.of(
                         campaign("C-LIVE-1", "live"),
                         campaign("C-LIVE-2", "active"),
                         campaign("C-PAUSED", "paused")
-                ),
-                List.of(
-                        new AdvertisingCampaignRef("C-LIVE-1", "First"),
-                        new AdvertisingCampaignRef("C-LIVE-2", "Second")
-                ),
-                authority(3L)
+                )
         );
     }
 
     static AdvertisingCampaignEnumerationAuthority authority(long campaignCount) {
-        return AdvertisingCampaignEnumerationAuthority.fromProviderFields(
-                "dashboard-generation-2026-08-01",
-                LocalDateTime.of(2026, 8, 2, 0, 0),
+        return AdvertisingCampaignEnumerationAuthority.fromTwoPassObservation(
+                "1".repeat(64),
                 campaignCount,
                 true
+        );
+    }
+
+    static AdvertisingCampaignPage campaignPage(
+            int pageNo,
+            int totalPages,
+            long declaredCount,
+            List<NoonAdvertisingCampaignFact> facts
+    ) {
+        List<AdvertisingStagedFact> staged = new ArrayList<>();
+        List<AdvertisingCampaignObservation> observations = new ArrayList<>();
+        for (NoonAdvertisingCampaignFact fact : facts) {
+            staged.add(AdvertisingStagedFact.campaign(fact));
+            observations.add(new AdvertisingCampaignObservation(
+                    new AdvertisingCampaignRef(
+                            fact.getCampaignCode(), fact.getCampaignName()
+                    ),
+                    "live".equals(fact.getCampaignStatus())
+                            || "active".equals(fact.getCampaignStatus())
+            ));
+        }
+        return new AdvertisingCampaignPage(
+                pageNo, totalPages, declaredCount, staged, observations, List.of()
         );
     }
 
@@ -174,7 +194,8 @@ final class Dp06AdvertisingTestSupport {
 
     static final class ScriptedProvider implements AdvertisingProvider {
         final Deque<ProviderOutcome<AdvertisingAdvertiser>> advertisers = new ArrayDeque<>();
-        final Deque<ProviderOutcome<AdvertisingDashboard>> dashboards = new ArrayDeque<>();
+        final Deque<ProviderOutcome<AdvertisingCampaignPage>> campaignPages =
+                new ArrayDeque<>();
         final Map<String, Deque<ProviderOutcome<AdvertisingQueryReport>>> queryResults =
                 new LinkedHashMap<>();
         final List<String> calls = new ArrayList<>();
@@ -190,13 +211,14 @@ final class Dp06AdvertisingTestSupport {
         }
 
         @Override
-        public ProviderOutcome<AdvertisingDashboard> fetchDashboard(
+        public ProviderOutcome<AdvertisingCampaignPage> fetchCampaignPage(
                 AdvertisingPullRequest request,
-                AdvertisingAdvertiser advertiser
+                AdvertisingAdvertiser advertiser,
+                int pageNo
         ) {
-            calls.add("DASHBOARD");
+            calls.add("CAMPAIGNS:" + pageNo);
             assertNotNull(advertiser);
-            return dashboards.removeFirst();
+            return campaignPages.removeFirst();
         }
 
         @Override

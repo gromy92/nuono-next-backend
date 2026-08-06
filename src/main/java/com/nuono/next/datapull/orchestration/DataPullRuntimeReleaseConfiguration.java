@@ -1,6 +1,5 @@
 package com.nuono.next.datapull.orchestration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.datapull.schedule.DataPullScopeAdmissionStore;
 import com.nuono.next.infrastructure.mapper.DataPullLegacyCutoverMapper;
 import com.nuono.next.infrastructure.mapper.DataPullReleaseDatabaseMapper;
@@ -65,65 +64,9 @@ class DataPullRuntimeReleaseConfiguration {
     }
 
     @Bean
-    DataPullRuntimeReleaseEvidence dp04StableSnapshotEvidence(
-            Environment environment,
-            ObjectMapper objectMapper
-    ) {
-        return managedContract(
-                DataPullRuntimeReleaseRequirement.DP04_STABLE_SNAPSHOT,
-                environment,
-                objectMapper
-        );
-    }
-
-    @Bean
-    DataPullRuntimeReleaseEvidence dp06CompleteCampaignEnumerationEvidence(
-            Environment environment,
-            ObjectMapper objectMapper
-    ) {
-        return managedContract(
-                DataPullRuntimeReleaseRequirement.DP06_COMPLETE_CAMPAIGN_ENUMERATION,
-                environment,
-                objectMapper
-        );
-    }
-
-    @Bean
-    DataPullRuntimeReleaseEvidence dp07aStableSnapshotEvidence(
-            Environment environment,
-            ObjectMapper objectMapper
-    ) {
-        return managedContract(
-                DataPullRuntimeReleaseRequirement.DP07A_STABLE_SNAPSHOT,
-                environment,
-                objectMapper
-        );
-    }
-
-    @Bean
-    DataPullRuntimeReleaseEvidence dp10ModifiedTimeVisibilityEvidence(
-            Environment environment,
-            ObjectMapper objectMapper
-    ) {
-        return managedContract(
-                DataPullRuntimeReleaseRequirement.DP10_MODIFIED_TIME_VISIBILITY_CONTRACT,
-                environment,
-                objectMapper
-        );
-    }
-
-    @Bean
     DataPullRuntimeReleaseGate dataPullRuntimeReleaseGate(
             DataPullRuntimeReleaseEvidenceRegistry evidenceRegistry
     ) {
         return new DataPullRuntimeReleaseGate(evidenceRegistry);
-    }
-
-    private DataPullRuntimeReleaseEvidence managedContract(
-            DataPullRuntimeReleaseRequirement requirement,
-            Environment environment,
-            ObjectMapper objectMapper
-    ) {
-        return new DataPullManagedContractEvidence(requirement, environment, objectMapper);
     }
 }

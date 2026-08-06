@@ -15,8 +15,6 @@ REQUIRED_ENTRIES = frozenset(
         "BOOT-INF/classes/META-INF/nuono/dp-runtime-cutover-manifest-v1",
         "BOOT-INF/classes/META-INF/nuono/dp-report-download-probe-v1",
         "BOOT-INF/classes/META-INF/nuono/dp10-openapi-probe-v1",
-        "BOOT-INF/classes/META-INF/nuono/dp06-campaign-enumeration-native-contract-v1.json",
-        "BOOT-INF/classes/META-INF/nuono/dp-runtime-provider-contract-policy-v1.json",
     }
 )
 FORBIDDEN_ENTRIES = frozenset(

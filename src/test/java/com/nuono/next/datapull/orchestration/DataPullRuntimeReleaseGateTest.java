@@ -32,14 +32,14 @@ class DataPullRuntimeReleaseGateTest {
         List<DataPullRuntimeReleaseEvidence> evidence = verifiedEvidence();
         evidence.set(
                 Arrays.asList(DataPullRuntimeReleaseRequirement.values()).indexOf(
-                        DataPullRuntimeReleaseRequirement.DP06_COMPLETE_CAMPAIGN_ENUMERATION
+                        DataPullRuntimeReleaseRequirement.REPORT_PROVIDER_CONTRACTS
                 ),
-                evidence(DataPullRuntimeReleaseRequirement.DP06_COMPLETE_CAMPAIGN_ENUMERATION, false)
+                evidence(DataPullRuntimeReleaseRequirement.REPORT_PROVIDER_CONTRACTS, false)
         );
 
         DataPullRuntimeReleaseGate gate = gate(evidence);
 
-        assertEquals(List.of("DP06_CAMPAIGN_ENUMERATION_UNPROVEN"), gate.getBlockers());
+        assertEquals(List.of("DP_REPORT_PROVIDER_CONTRACTS_UNVERIFIED"), gate.getBlockers());
         assertThrows(IllegalStateException.class, gate::requireReady);
     }
 

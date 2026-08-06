@@ -12,7 +12,8 @@ public interface DataPullReleaseDatabaseMapper {
             "  SELECT '245_dp_pull_snapshot_bounded_apply.sql' UNION ALL",
             "  SELECT '246_dp_pull_advertising_generation.sql' UNION ALL",
             "  SELECT '247_dp_pull_schedule_core.sql' UNION ALL",
-            "  SELECT '248_dp_pull_dp08_member_retention.sql'",
+            "  SELECT '248_dp_pull_dp08_member_retention.sql' UNION ALL",
+            "  SELECT '250_dp_pull_advertising_campaign_pagination.sql'",
             "), schema_binding AS (",
             "SELECT",
             "  COUNT(*) AS migration_count,",
@@ -38,7 +39,7 @@ public interface DataPullReleaseDatabaseMapper {
             "      ORDER BY BINARY operation_code SEPARATOR ''), 256) AS binding_sha256",
             "  FROM dp_pull_schedule_cutover WHERE state = 'ACTIVE'",
             ") cutover",
-            "WHERE schema_binding.migration_count = 6"
+            "WHERE schema_binding.migration_count = 7"
     })
     DataPullReleaseDatabaseBinding selectBinding();
 }

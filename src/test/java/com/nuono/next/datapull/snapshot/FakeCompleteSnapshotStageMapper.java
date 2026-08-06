@@ -141,6 +141,49 @@ final class FakeCompleteSnapshotStageMapper implements CompleteSnapshotStageMapp
     }
 
     @Override
+    public int extendVerifiedSourcePages(
+            long taskId,
+            int sourcePageCount,
+            int totalPageCount
+    ) {
+        int changed = 0;
+        for (SnapshotStagePageRow row : pages.values()) {
+            if (row.getTaskId() == taskId
+                    && row.getPageNo() <= sourcePageCount
+                    && row.getTotalPages() == sourcePageCount) {
+                row.setTotalPages(totalPageCount);
+                if (row.getPageNo() == sourcePageCount) {
+                    row.setNextPage(sourcePageCount + 1);
+                    row.setLastPage(false);
+                }
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    @Override
+    public int promoteVerifiedTwoPass(
+            long taskId,
+            long fenceEpoch,
+            int sourcePageCount,
+            int totalPageCount
+    ) {
+        if (aggregate == null || aggregate.getTaskId() != taskId
+                || aggregate.getActiveFenceEpoch() != fenceEpoch
+                || !Integer.valueOf(sourcePageCount).equals(aggregate.getDeclaredTotalPages())
+                || !Integer.valueOf(sourcePageCount).equals(aggregate.getKnownLastPage())
+                || !"TWO_PASS_REQUIRED".equals(aggregate.getCollectionMode())
+                || !"VERIFIED".equals(aggregate.getVerificationState())
+                || !"TWO_PASS_OBSERVATION".equals(aggregate.getAuthorityKind())) {
+            return 0;
+        }
+        aggregate.setDeclaredTotalPages(totalPageCount);
+        aggregate.setKnownLastPage(totalPageCount);
+        return 1;
+    }
+
+    @Override
     public List<SnapshotStageItemRow> selectPageItems(long taskId, int pageNo) {
         return items.stream()
                 .filter(row -> row.getTaskId() == taskId && row.getPageNo() == pageNo)

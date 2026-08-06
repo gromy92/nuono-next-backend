@@ -165,6 +165,43 @@ public interface CompleteSnapshotStageMapper extends SnapshotStageProofMapper {
     })
     int insertItems(@Param("rows") List<SnapshotStageItemRow> rows);
 
+    @Update({
+            "UPDATE dp_pull_snapshot_stage_page",
+            "SET total_pages=#{totalPageCount},",
+            " next_page=CASE WHEN page_no=#{sourcePageCount} THEN #{sourcePageCount}+1",
+            "   ELSE next_page END,",
+            " is_last_page=CASE WHEN page_no=#{sourcePageCount} THEN b'0'",
+            "   ELSE is_last_page END,",
+            " gmt_updated=UTC_TIMESTAMP(3)",
+            "WHERE task_id=#{taskId} AND total_pages=#{sourcePageCount}",
+            " AND page_no BETWEEN 1 AND #{sourcePageCount}"
+    })
+    int extendVerifiedSourcePages(
+            @Param("taskId") long taskId,
+            @Param("sourcePageCount") int sourcePageCount,
+            @Param("totalPageCount") int totalPageCount
+    );
+
+    @Update({
+            "UPDATE dp_pull_snapshot_stage",
+            "SET declared_total_pages=#{totalPageCount},known_last_page=#{totalPageCount},",
+            " version_no=version_no+1,gmt_updated=UTC_TIMESTAMP(3)",
+            "WHERE task_id=#{taskId} AND active_fence_epoch=#{fenceEpoch}",
+            " AND declared_total_pages=#{sourcePageCount}",
+            " AND known_last_page=#{sourcePageCount}",
+            " AND collection_mode='TWO_PASS_REQUIRED'",
+            " AND verification_state='VERIFIED'",
+            " AND authority_kind='TWO_PASS_OBSERVATION'",
+            " AND authority_token_sha256 REGEXP '^[0-9a-f]{64}$'",
+            " AND declared_collection_count>=0 AND poison_code IS NULL"
+    })
+    int promoteVerifiedTwoPass(
+            @Param("taskId") long taskId,
+            @Param("fenceEpoch") long fenceEpoch,
+            @Param("sourcePageCount") int sourcePageCount,
+            @Param("totalPageCount") int totalPageCount
+    );
+
     @Select({
             "SELECT task_id AS taskId, page_no AS pageNo, item_ordinal AS itemOrdinal,",
             "       stable_identity AS stableIdentity, content_fingerprint AS contentFingerprint,",

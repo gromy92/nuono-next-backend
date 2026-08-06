@@ -16,13 +16,15 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 final class RecordingNoonAdvertisingGatewaySession implements NoonPullGatewaySession {
     private final ObjectMapper objectMapper = new ObjectMapper();
     int advertiserCalls;
-    int dashboardCalls;
+    int campaignPageCalls;
     int queryCalls;
     boolean unknownStatus;
     boolean rateLimited;
-    boolean omitAuthority;
+    boolean omitPagination;
     boolean oversizedCampaignPayload;
     Map<String, String> lastHeaders;
+    String lastJsonUrl;
+    JsonNode lastJsonBody;
 
     @Override
     public JsonNode postJson(
@@ -31,20 +33,18 @@ final class RecordingNoonAdvertisingGatewaySession implements NoonPullGatewaySes
             boolean withProject,
             Map<String, String> extraHeaders
     ) {
-        dashboardCalls++;
+        campaignPageCalls++;
         lastHeaders = extraHeaders;
+        lastJsonUrl = url;
+        lastJsonBody = body;
         if (rateLimited) {
             throw new NoonHttpException(429, "too many requests", url);
         }
         ObjectNode root = objectMapper.createObjectNode();
-        ObjectNode authority = objectMapper.createObjectNode();
-        authority.put("generationToken", "generation-2026-08-01");
-        authority.put("asOfUtc", "2026-08-02T00:00:00Z");
-        authority.put("declaredCampaignCount", 3);
-        authority.put("complete", true);
-        if (!omitAuthority) {
-            root.set("campaignCollectionAuthority", authority);
-        }
+        ObjectNode pagination = objectMapper.createObjectNode();
+        pagination.put("nbHits", 3);
+        pagination.put("nbPages", 1);
+        if (!omitPagination) root.set("paginationMetadata", pagination);
         ObjectNode firstCampaign = campaign(
                 "C-LIVE-NO-ACTIVITY",
                 unknownStatus ? "mystery" : "live"
@@ -56,11 +56,6 @@ final class RecordingNoonAdvertisingGatewaySession implements NoonPullGatewaySes
                 .add(firstCampaign)
                 .add(campaign("C-PAUSED", "paused"))
                 .add(campaign("C-RUNNING", "running")));
-        ObjectNode metrics = objectMapper.createObjectNode();
-        metrics.set("C-RUNNING", metric("3.00"));
-        ObjectNode current = objectMapper.createObjectNode();
-        current.set("campaignMetrics", metrics);
-        root.set("current", current);
         return root;
     }
 
@@ -88,6 +83,7 @@ final class RecordingNoonAdvertisingGatewaySession implements NoonPullGatewaySes
         campaign.put("campaignCode", code);
         campaign.put("name", code + " name");
         campaign.put("effectiveStatus", status);
+        campaign.set("metrics", metric("3.00"));
         return campaign;
     }
 

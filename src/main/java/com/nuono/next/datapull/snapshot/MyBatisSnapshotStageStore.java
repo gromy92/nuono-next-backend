@@ -86,6 +86,79 @@ public final class MyBatisSnapshotStageStore<T> implements SnapshotStageStore<T>
 
     @Override
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
+    public SnapshotStagePromotionResult promoteVerifiedTwoPass(
+            long taskId,
+            long fenceEpoch,
+            int trailingPageCount
+    ) {
+        requirePositive(taskId, "taskId");
+        requirePositive(fenceEpoch, "fenceEpoch");
+        if (trailingPageCount < 0) {
+            throw new IllegalArgumentException("trailingPageCount must not be negative");
+        }
+        if (!fence.ownsRunningTask(taskId, fenceEpoch)) {
+            return SnapshotStagePromotionResult.rejected(STALE_FENCE);
+        }
+        SnapshotStageAggregateRow aggregate = fence.lockAggregate(taskId, fenceEpoch, false);
+        SnapshotCollectionAuthority authority;
+        if (aggregate == null || aggregate.getPoisonCode() != null) {
+            return SnapshotStagePromotionResult.rejected(
+                    aggregate == null ? "SNAPSHOT_NO_STAGED_PAGES" : aggregate.getPoisonCode()
+            );
+        }
+        try {
+            authority = SnapshotStageAuthority.restore(aggregate);
+        } catch (RuntimeException invalidAuthority) {
+            return SnapshotStagePromotionResult.rejected("SNAPSHOT_AUTHORITY_STATE_INVALID");
+        }
+        Integer sourcePages = aggregate.getPassOnePageCount();
+        if (sourcePages == null || sourcePages < 1 || authority == null
+                || authority.getKind() != SnapshotCollectionAuthority.Kind.TWO_PASS_OBSERVATION
+                || !"TWO_PASS_REQUIRED".equals(aggregate.getCollectionMode())
+                || !"VERIFIED".equals(aggregate.getVerificationState())) {
+            return SnapshotStagePromotionResult.rejected("SNAPSHOT_TWO_PASS_NOT_VERIFIED");
+        }
+        int totalPages;
+        try {
+            totalPages = Math.addExact(sourcePages, trailingPageCount);
+        } catch (ArithmeticException overflow) {
+            return SnapshotStagePromotionResult.rejected("SNAPSHOT_TOTAL_PAGES_OVERFLOW");
+        }
+        if (Objects.equals(aggregate.getKnownLastPage(), totalPages)
+                && Objects.equals(aggregate.getDeclaredTotalPages(), totalPages)) {
+            return SnapshotStagePromotionResult.promoted(authority, sourcePages, totalPages);
+        }
+        if (!Objects.equals(aggregate.getKnownLastPage(), sourcePages)
+                || !Objects.equals(aggregate.getDeclaredTotalPages(), sourcePages)) {
+            return SnapshotStagePromotionResult.rejected("SNAPSHOT_PROMOTION_EXTENT_DRIFT");
+        }
+        if (trailingPageCount > 0
+                && mapper.extendVerifiedSourcePages(taskId, sourcePages, totalPages)
+                        != sourcePages) {
+            throw new IllegalStateException("snapshot source page promotion count drift");
+        }
+        SnapshotStageFence.requireOne(mapper.promoteVerifiedTwoPass(
+                taskId, fenceEpoch, sourcePages, totalPages
+        ), "snapshot verified two-pass promotion");
+        return SnapshotStagePromotionResult.promoted(authority, sourcePages, totalPages);
+    }
+
+    @Override
+    @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
+    public SnapshotStageResult stageVerifiedTrailingPage(
+            long taskId,
+            long fenceEpoch,
+            SnapshotPage<T> page
+    ) {
+        requirePositive(taskId, "taskId");
+        requirePositive(fenceEpoch, "fenceEpoch");
+        return pageWriter.appendVerified(
+                taskId, fenceEpoch, Objects.requireNonNull(page, "page")
+        );
+    }
+
+    @Override
+    @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
     public SnapshotStageProof<T> proveComplete(long taskId, long fenceEpoch) {
         requirePositive(taskId, "taskId");
         requirePositive(fenceEpoch, "fenceEpoch");

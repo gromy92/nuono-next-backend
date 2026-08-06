@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 class DataPullRuntimeEvidenceWiringTest {
 
     @Test
-    void releaseConfigurationProvidesEveryPreviouslyUnresolvedRequirement() {
+    void releaseConfigurationDoesNotReintroduceExternalAlgorithmProofGates() {
         Set<String> providerMethods = Arrays.stream(
                         DataPullRuntimeReleaseConfiguration.class.getDeclaredMethods()
                 )
@@ -19,13 +19,7 @@ class DataPullRuntimeEvidenceWiringTest {
                 .collect(Collectors.toSet());
 
         assertEquals(
-                Set.of(
-                        "dataPullRuntimeSchemaEvidence",
-                        "dp04StableSnapshotEvidence",
-                        "dp06CompleteCampaignEnumerationEvidence",
-                        "dp07aStableSnapshotEvidence",
-                        "dp10ModifiedTimeVisibilityEvidence"
-                ),
+                Set.of("dataPullRuntimeSchemaEvidence"),
                 providerMethods.stream()
                         .filter((name) -> name.endsWith("Evidence"))
                         .filter((name) -> name.startsWith("dp04")

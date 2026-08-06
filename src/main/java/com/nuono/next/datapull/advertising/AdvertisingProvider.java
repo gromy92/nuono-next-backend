@@ -8,9 +8,10 @@ import com.nuono.next.datapull.runtime.ProviderOutcome;
 public interface AdvertisingProvider {
     ProviderOutcome<AdvertisingAdvertiser> resolveAdvertiser(AdvertisingPullRequest request);
 
-    ProviderOutcome<AdvertisingDashboard> fetchDashboard(
+    ProviderOutcome<AdvertisingCampaignPage> fetchCampaignPage(
             AdvertisingPullRequest request,
-            AdvertisingAdvertiser advertiser
+            AdvertisingAdvertiser advertiser,
+            int pageNo
     );
 
     ProviderOutcome<AdvertisingQueryReport> fetchCampaignQueries(

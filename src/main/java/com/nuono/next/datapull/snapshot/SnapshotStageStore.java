@@ -32,6 +32,24 @@ public interface SnapshotStageStore<T> {
         return SnapshotComparisonResult.rejected("SNAPSHOT_TWO_PASS_UNSUPPORTED");
     }
 
+    /** Promotes a verified pass into immutable authority and reserves trailing logical pages. */
+    default SnapshotStagePromotionResult promoteVerifiedTwoPass(
+            long taskId,
+            long fenceEpoch,
+            int trailingPageCount
+    ) {
+        return SnapshotStagePromotionResult.rejected("SNAPSHOT_TWO_PASS_PROMOTION_UNSUPPORTED");
+    }
+
+    /** Appends one trailing page without changing the already verified source observation. */
+    default SnapshotStageResult stageVerifiedTrailingPage(
+            long taskId,
+            long fenceEpoch,
+            SnapshotPage<T> page
+    ) {
+        return SnapshotStageResult.rejected("SNAPSHOT_TWO_PASS_PROMOTION_UNSUPPORTED");
+    }
+
     boolean clear(long taskId, long fenceEpoch);
 
     /**

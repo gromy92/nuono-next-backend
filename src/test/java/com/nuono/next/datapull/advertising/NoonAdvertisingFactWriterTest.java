@@ -2,7 +2,6 @@ package com.nuono.next.datapull.advertising;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -49,10 +48,10 @@ class NoonAdvertisingFactWriterTest {
     void initializesInvisibleGenerationWhenActiveCampaignFactIsBusinessSkipped() {
         AdvertisingApplyCommand command = command();
         AdvertisingStageManifestRow manifest = manifest(command);
-        manifest.setDashboardItemCount(0L); manifest.setDashboardBusinessSkippedItemCount(1L);
+        manifest.setCampaignItemCount(0L); manifest.setCampaignBusinessSkippedItemCount(1L);
         manifest.setStagedItemCount(2L); manifest.setSourceItemCount(3L);
         manifest.setBusinessSkippedItemCount(1L);
-        when(stage.selectManifest(6001L)).thenReturn(manifest);
+        when(stage.selectManifest(6001L, 1)).thenReturn(manifest);
         when(generations.selectForUpdate(6001L)).thenReturn(null);
         when(generations.insertIfAbsent(any())).thenReturn(1);
         doAnswer(invocation -> {
@@ -67,65 +66,16 @@ class NoonAdvertisingFactWriterTest {
         verify(heads, never()).upsert(any(), any());
     }
     @Test
-    void rejectsDashboardPageCountThatDiffersFromProviderDeclaration() {
+    void rejectsCampaignCountThatDiffersFromVerifiedEnumeration() {
         AdvertisingApplyCommand command = command();
         AdvertisingStageManifestRow manifest = manifest(command);
-        manifest.setDashboardItemCount(0L);
-        when(stage.selectManifest(6001L)).thenReturn(manifest);
+        manifest.setCampaignItemCount(0L);
+        when(stage.selectManifest(6001L, 1)).thenReturn(manifest);
         when(generations.selectForUpdate(6001L)).thenReturn(null);
         assertThrows(NoonAdvertisingFactWriter.AdvertisingApplyContractException.class,
                 () -> writer.applyComplete(command));
         verify(ids, never()).reserve(any());
         verify(generations, never()).insertIfAbsent(any());
-    }
-    @Test
-    void normalizedIdentityConflictsKeepFirstRowAndAccountLaterRows() {
-        AdvertisingApplyCommand command = command(2L, List.of(
-                new AdvertisingCampaignRef("C-LIVE-1", "Campaign")
-        ));
-        AdvertisingGenerationRow generation = generation(command, false);
-        generation.setDeclaredCampaignCount(2L);
-        generation.setStagedCampaignItemCount(2L);
-        generation.setStagedItemCount(5L);
-        generation.setSourceItemCount(5L);
-        NoonAdvertisingCampaignFact laterCampaign = campaign();
-        laterCampaign.setCampaignName("later campaign");
-        NoonAdvertisingQueryFact firstQuery = query();
-        firstQuery.setPartnerSku(" ZSKU-1 ");
-        firstQuery.setAdSkuCode("");
-        NoonAdvertisingQueryFact laterQuery = query();
-        laterQuery.setPartnerSku("");
-        laterQuery.setAdSkuCode("ZSKU-1");
-        laterQuery.setSpendAmount(new BigDecimal("99.00"));
-        AdvertisingFactChunk chunk = new AdvertisingFactChunkPreparer().prepare(
-                command,
-                generation,
-                List.of(
-                        raw(1, 0, 2, AdvertisingStagedFact.campaign(campaign())),
-                        raw(1, 1, 2, AdvertisingStagedFact.campaign(laterCampaign)),
-                        raw(2, 0, 3, AdvertisingStagedFact.queryPageProof(
-                                new AdvertisingCampaignRef("C-LIVE-1", "Campaign"))),
-                        raw(2, 1, 3, AdvertisingStagedFact.query(firstQuery)),
-                        raw(2, 2, 3, AdvertisingStagedFact.query(laterQuery))
-                ),
-                java.util.Set.of()
-        );
-        assertEquals(5, chunk.getProcessedCount());
-        assertEquals(1, chunk.getQueryPageProofCount());
-        assertEquals(2, chunk.getSkippedIdentityCount());
-        assertEquals(1, chunk.getCampaignSkippedIdentityCount());
-        assertEquals(1, chunk.getCampaigns().size());
-        assertEquals(1, chunk.getQueries().size());
-        assertEquals("Campaign", chunk.getCampaigns().get(0).getCampaign().getCampaignName());
-        assertEquals(new BigDecimal("2.00"),
-                chunk.getQueries().get(0).getQuery().getSpendAmount());
-        assertTrue(chunk.getQueries().get(0).getQuery().getPartnerSku().isEmpty());
-        generation.setProcessedItemCount(5L); generation.setCampaignFactCount(1L);
-        generation.setQueryFactCount(1L); generation.setIdentitySkippedItemCount(2L);
-        generation.setCampaignIdentitySkippedItemCount(1L);
-        generation.setQueryPageProofCount(1);
-        generation.setMatchedActiveCampaignCount(1);
-        new AdvertisingGenerationGuard().requireCompleteAccounting(generation);
     }
     @Test
     void preparesAtMostOneSourceFactChunkWithoutMovingHead() {
@@ -165,6 +115,23 @@ class NoonAdvertisingFactWriterTest {
         verify(facts, never()).insertCampaigns(anyList());
         verify(facts, never()).insertQueries(anyList());
     }
+
+    @Test
+    void removesTwoPassEvidenceBeforeRawStageCanBeDeleted() {
+        AdvertisingApplyCommand command = command();
+        AdvertisingGenerationRow generation = generation(command, true);
+        when(generations.selectForUpdate(6001L)).thenReturn(generation);
+        when(stage.selectRawChunk(6001L, 2, 1, 200)).thenReturn(List.of());
+        when(stage.deleteVerificationPagesBatch(6001L, 200)).thenReturn(1);
+
+        assertEquals(AdvertisingFactWriter.ApplyResult.MORE_WORK,
+                writer.applyComplete(command));
+
+        verify(stage).deleteVerificationPagesBatch(6001L, 200);
+        verify(stage, never()).deleteFingerprintCountsBatch(6001L, 200);
+        verify(stage, never()).deleteRawItemsBatch(6001L, 200);
+        verify(heads, never()).upsert(any(), any());
+    }
     @Test
     void staleOrExpiredFenceCannotCreateGenerationAndLateExpiryRollsBack() {
         AdvertisingApplyCommand command = command();
@@ -192,24 +159,25 @@ class NoonAdvertisingFactWriterTest {
             List<AdvertisingCampaignRef> activeCampaigns
     ) {
         AdvertisingCampaignEnumerationAuthority authority =
-                AdvertisingCampaignEnumerationAuthority.fromProviderFields(
-                        "generation-1", LocalDateTime.of(2026, 8, 2, 0, 0),
-                        declaredCampaignCount, true
+                AdvertisingCampaignEnumerationAuthority.fromTwoPassObservation(
+                        "1".repeat(64), declaredCampaignCount, true
                 );
         DataPullTask task = task();
         return new AdvertisingApplyCommand(
                 6001L, 7L, "worker-1", task.getScheduleSlot(),
                 AdvertisingPullRequest.from(task), task.getBusinessWindowKey(), authority,
-                activeCampaigns
+                activeCampaigns,
+                1
         );
     }
     private AdvertisingStageManifestRow manifest(AdvertisingApplyCommand command) {
         AdvertisingStageManifestRow row = new AdvertisingStageManifestRow();
         row.setTaskId(6001L); row.setActiveFenceEpoch(7L);
         row.setDeclaredTotalPages(2); row.setKnownLastPage(2); row.setPageCount(2L);
-        row.setFirstPage(1); row.setLastPage(2); row.setAuthorityKind("COMPLETE_EXPORT");
-        row.setDashboardItemCount(1L); row.setDashboardSourceItemCount(1L);
-        row.setDashboardBusinessSkippedItemCount(0L);
+        row.setFirstPage(1); row.setLastPage(2);
+        row.setAuthorityKind("TWO_PASS_OBSERVATION");
+        row.setCampaignItemCount(1L); row.setCampaignSourceItemCount(1L);
+        row.setCampaignBusinessSkippedItemCount(0L);
         row.setAuthorityTokenSha256(command.getAuthority().getGenerationTokenSha256());
         row.setSnapshotAsOfUtc(command.getAuthority().getProviderAsOfUtc());
         row.setDeclaredCampaignCount(1L); row.setStagedItemCount(3L);
@@ -227,8 +195,9 @@ class NoonAdvertisingFactWriterTest {
         row.setBusinessWindowKey(command.getBusinessWindowKey());
         row.setAuthorityTokenSha256(command.getAuthority().getGenerationTokenSha256());
         row.setActiveCampaignDigestSha256(AdvertisingDigestChain.activeCampaignDigest(command));
-        row.setProviderAsOfUtc(command.getAuthority().getProviderAsOfUtc());
-        row.setDeclaredCampaignCount(1L); row.setActiveCampaignCount(1); row.setLastPage(2);
+        row.setProviderAsOfUtc(null);
+        row.setDeclaredCampaignCount(1L); row.setActiveCampaignCount(1);
+        row.setCampaignPageCount(1); row.setLastPage(2);
         row.setStagedCampaignItemCount(1L); row.setCampaignBusinessSkippedItemCount(0L);
         row.setStagedItemCount(3L); row.setSourceItemCount(3L);
         row.setBusinessSkippedItemCount(0L); row.setBatchId(200001L);

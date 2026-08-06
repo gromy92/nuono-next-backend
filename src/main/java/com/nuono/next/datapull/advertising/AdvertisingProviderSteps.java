@@ -5,7 +5,6 @@ import com.nuono.next.datapull.runtime.AdvanceResult;
 import com.nuono.next.datapull.runtime.ProviderOutcome;
 import com.nuono.next.datapull.runtime.ProviderOutcomeType;
 import com.nuono.next.datapull.snapshot.SnapshotPage;
-import com.nuono.next.noonads.NoonAdvertisingCampaignFact;
 import com.nuono.next.noonads.NoonAdvertisingQueryFact;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,60 +45,80 @@ final class AdvertisingProviderSteps {
                     ProviderOutcome.contractError("ADS_ADVERTISER_MISSING")
             );
         }
-        return transitions.queued(checkpoint.dashboard(outcome.getValue()));
+        return transitions.queued(checkpoint.campaigns(outcome.getValue()));
     }
 
-    AdvanceResult fetchDashboard(
+    AdvanceResult fetchCampaignPage(
             DataPullTask task,
             AdvertisingPullRequest request,
             AdvertisingCheckpoint checkpoint
     ) {
-        ProviderOutcome<AdvertisingDashboard> outcome = safeOutcome(
-                () -> provider.fetchDashboard(request, checkpoint.getAdvertiser())
+        ProviderOutcome<AdvertisingCampaignPage> outcome = safeOutcome(
+                () -> provider.fetchCampaignPage(
+                        request,
+                        checkpoint.getAdvertiser(),
+                        checkpoint.getNextCampaignPage()
+                )
         );
         if (outcome.getType() != ProviderOutcomeType.SUCCESS) {
             return transitions.waitForProvider(task, checkpoint, outcome);
         }
-        AdvertisingDashboard dashboard = outcome.getValue();
-        if (dashboard == null) {
+        AdvertisingCampaignPage page = outcome.getValue();
+        if (page == null) {
             return transitions.waitForProvider(
                     task,
                     checkpoint,
-                    ProviderOutcome.contractError("ADS_DASHBOARD_MISSING")
+                    ProviderOutcome.contractError("ADS_CAMPAIGN_PAGE_MISSING")
             );
         }
-        int totalPages;
         try {
-            totalPages = Math.addExact(1, dashboard.getActiveCampaigns().size());
-        } catch (ArithmeticException impossibleContainerSize) {
+            checkpoint.requireCampaignPage(page);
+        } catch (RuntimeException extentDrift) {
             return transitions.waitForProvider(
                     task,
                     checkpoint,
-                    ProviderOutcome.contractError("ADS_CAMPAIGN_COUNT_INVALID")
+                    ProviderOutcome.contractError("ADS_CAMPAIGN_PAGE_EXTENT_DRIFT")
             );
         }
-        List<AdvertisingStagedFact> facts = new ArrayList<>();
-        for (NoonAdvertisingCampaignFact fact : dashboard.getCampaignFacts()) {
-            facts.add(AdvertisingStagedFact.campaign(fact));
-        }
-        boolean lastPage = dashboard.getActiveCampaigns().isEmpty();
-        SnapshotPage<AdvertisingStagedFact> page = new SnapshotPage<>(
-                1,
-                lastPage ? null : 2,
-                lastPage,
-                totalPages,
-                facts,
-                dashboard.getAuthority().asSnapshotAuthority(),
-                dashboard.getSourceCampaignCount(),
-                dashboard.getBusinessSkippedCampaignCount()
+        AdvanceResult stageFailure = stageCoordinator.stage(
+                task, checkpoint, page.asTwoPassSnapshotPage()
         );
-        AdvanceResult stageFailure = stageCoordinator.stage(task, checkpoint, page);
         return stageFailure == null
-                ? transitions.queued(checkpoint.afterDashboard(
-                        dashboard.getActiveCampaigns(),
-                        dashboard.getAuthority()
-                ))
+                ? transitions.queued(checkpoint.afterCampaignPage(page))
                 : stageFailure;
+    }
+
+    AdvanceResult verifyCampaignPage(
+            DataPullTask task,
+            AdvertisingPullRequest request,
+            AdvertisingCheckpoint checkpoint
+    ) {
+        ProviderOutcome<AdvertisingCampaignPage> outcome = safeOutcome(
+                () -> provider.fetchCampaignPage(
+                        request,
+                        checkpoint.getAdvertiser(),
+                        checkpoint.getNextCampaignPage()
+                )
+        );
+        if (outcome.getType() != ProviderOutcomeType.SUCCESS) {
+            return transitions.waitForProvider(task, checkpoint, outcome);
+        }
+        AdvertisingCampaignPage page = outcome.getValue();
+        if (page == null) {
+            return transitions.waitForProvider(
+                    task, checkpoint,
+                    ProviderOutcome.contractError("ADS_CAMPAIGN_VERIFY_PAGE_MISSING")
+            );
+        }
+        try {
+            checkpoint.requireCampaignPage(page);
+        } catch (RuntimeException extentDrift) {
+            return transitions.waitForProvider(
+                    task, checkpoint,
+                    ProviderOutcome.contractError("ADS_CAMPAIGN_VERIFY_EXTENT_DRIFT")
+            );
+        }
+        return stageCoordinator.verify(task, checkpoint, page.asTwoPassSnapshotPage());
     }
 
     AdvanceResult fetchCampaign(
@@ -133,10 +152,16 @@ final class AdvertisingProviderSteps {
                     report.getBusinessSkippedItemCount(),
                     report.getFacts().size() - (facts.size() - 1)
             );
-            int pageNo = Math.addExact(2, checkpoint.getNextCampaignIndex());
-            int totalPages = Math.addExact(1, checkpoint.getActiveCampaigns().size());
+            int pageNo = Math.addExact(
+                    Math.incrementExact(checkpoint.getCampaignPageCount()),
+                    checkpoint.getNextCampaignIndex()
+            );
+            int totalPages = Math.addExact(
+                    checkpoint.getCampaignPageCount(),
+                    checkpoint.activeCampaigns().size()
+            );
             boolean lastPage = checkpoint.getNextCampaignIndex()
-                    == checkpoint.getActiveCampaigns().size() - 1;
+                    == checkpoint.activeCampaigns().size() - 1;
             page = new SnapshotPage<>(
                     pageNo,
                     lastPage ? null : Math.incrementExact(pageNo),
@@ -154,7 +179,7 @@ final class AdvertisingProviderSteps {
                     ProviderOutcome.contractError("ADS_CAMPAIGN_CONTAINER_INVALID")
             );
         }
-        AdvanceResult stageFailure = stageCoordinator.stage(task, checkpoint, page);
+        AdvanceResult stageFailure = stageCoordinator.stageTrailing(task, checkpoint, page);
         return stageFailure == null
                 ? transitions.queued(checkpoint.nextCampaign())
                 : stageFailure;

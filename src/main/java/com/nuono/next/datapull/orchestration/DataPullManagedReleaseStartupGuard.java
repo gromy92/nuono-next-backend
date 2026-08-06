@@ -20,9 +20,6 @@ public final class DataPullManagedReleaseStartupGuard
             "NUONO_DP10_OPEN_API_EXECUTION_EVIDENCE_SHA256",
             "NUONO_DP10_OPEN_API_EXECUTION_EXPECTED_COMMIT",
             "NUONO_DP10_OPEN_API_EXECUTION_RUNTIME_ENV_SHA256_FILE",
-            DataPullManagedContractEvidence.FILE,
-            DataPullManagedContractEvidence.SHA,
-            DataPullManagedContractEvidence.ENV_ATTESTATION,
             DataPullManagedReleaseProvenanceEvidence.EXPECTED_COMMIT,
             DataPullManagedReleaseProvenanceEvidence.SCHEMA_BINDING,
             DataPullManagedReleaseProvenanceEvidence.CUTOVER_BINDING

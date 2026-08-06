@@ -27,7 +27,7 @@ final class AdvertisingGenerationGuard {
             AdvertisingApplyCommand command,
             AdvertisingStageManifestRow manifest
     ) {
-        int expectedLastPage = Math.addExact(1, command.getActiveCampaigns().size());
+        int expectedLastPage = command.getLastPage();
         long declaredCampaigns = command.getAuthority().getDeclaredCampaignCount();
         if (manifest == null
                 || !Objects.equals(manifest.getTaskId(), command.getTaskId())
@@ -35,45 +35,44 @@ final class AdvertisingGenerationGuard {
                 || manifest.getActiveFenceEpoch() < 1L
                 || manifest.getActiveFenceEpoch() > command.getFenceEpoch()
                 || manifest.getPoisonCode() != null
-                || !"COMPLETE_EXPORT".equals(manifest.getAuthorityKind())
+                || !"TWO_PASS_OBSERVATION".equals(manifest.getAuthorityKind())
                 || !Objects.equals(manifest.getAuthorityTokenSha256(),
                         command.getAuthority().getGenerationTokenSha256())
-                || !Objects.equals(manifest.getSnapshotAsOfUtc(),
-                        command.getAuthority().getProviderAsOfUtc())
+                || manifest.getSnapshotAsOfUtc() != null
                 || !Objects.equals(manifest.getDeclaredCampaignCount(), declaredCampaigns)
                 || !Objects.equals(manifest.getDeclaredTotalPages(), expectedLastPage)
                 || !Objects.equals(manifest.getKnownLastPage(), expectedLastPage)
                 || !Objects.equals(manifest.getPageCount(), (long) expectedLastPage)
                 || !Objects.equals(manifest.getFirstPage(), 1)
                 || !Objects.equals(manifest.getLastPage(), expectedLastPage)
-                || invalidCount(manifest.getDashboardItemCount())
-                || invalidCount(manifest.getDashboardSourceItemCount())
-                || invalidCount(manifest.getDashboardBusinessSkippedItemCount())
+                || invalidCount(manifest.getCampaignItemCount())
+                || invalidCount(manifest.getCampaignSourceItemCount())
+                || invalidCount(manifest.getCampaignBusinessSkippedItemCount())
                 || invalidCount(manifest.getStagedItemCount())
                 || invalidCount(manifest.getSourceItemCount())
                 || invalidCount(manifest.getBusinessSkippedItemCount())
-                || manifest.getStagedItemCount() < manifest.getDashboardItemCount()
-                || manifest.getStagedItemCount() - manifest.getDashboardItemCount()
+                || manifest.getStagedItemCount() < manifest.getCampaignItemCount()
+                || manifest.getStagedItemCount() - manifest.getCampaignItemCount()
                         < command.getActiveCampaigns().size()) {
             throw new IllegalStateException("advertising raw stage manifest is invalid");
         }
         long accounted;
-        long dashboardAccounted;
+        long campaignAccounted;
         try {
             accounted = Math.addExact(
                     manifest.getStagedItemCount(),
                     manifest.getBusinessSkippedItemCount()
             );
-            dashboardAccounted = Math.addExact(
-                    manifest.getDashboardItemCount(),
-                    manifest.getDashboardBusinessSkippedItemCount()
+            campaignAccounted = Math.addExact(
+                    manifest.getCampaignItemCount(),
+                    manifest.getCampaignBusinessSkippedItemCount()
             );
         } catch (ArithmeticException overflow) {
             throw new IllegalStateException("advertising raw stage accounting overflow", overflow);
         }
         if (accounted != manifest.getSourceItemCount()
-                || dashboardAccounted != manifest.getDashboardSourceItemCount()
-                || dashboardAccounted != declaredCampaigns) {
+                || campaignAccounted != manifest.getCampaignSourceItemCount()
+                || campaignAccounted != declaredCampaigns) {
             throw new IllegalStateException("advertising raw stage accounting is invalid");
         }
     }
@@ -82,7 +81,7 @@ final class AdvertisingGenerationGuard {
             AdvertisingGenerationRow row,
             AdvertisingApplyCommand command
     ) {
-        int expectedLastPage = Math.addExact(1, command.getActiveCampaigns().size());
+        int expectedLastPage = command.getLastPage();
         long declaredCampaigns = command.getAuthority().getDeclaredCampaignCount();
         if (row == null || !Objects.equals(row.getTaskId(), command.getTaskId())
                 || !Objects.equals(row.getOwnerUserId(), command.getOwnerUserId())
@@ -96,11 +95,12 @@ final class AdvertisingGenerationGuard {
                         command.getAuthority().getGenerationTokenSha256())
                 || !Objects.equals(row.getActiveCampaignDigestSha256(),
                         AdvertisingDigestChain.activeCampaignDigest(command))
-                || !Objects.equals(row.getProviderAsOfUtc(),
-                        command.getAuthority().getProviderAsOfUtc())
+                || row.getProviderAsOfUtc() != null
                 || !Objects.equals(row.getDeclaredCampaignCount(), declaredCampaigns)
                 || !Objects.equals(row.getActiveCampaignCount(),
                         command.getActiveCampaigns().size())
+                || !Objects.equals(row.getCampaignPageCount(),
+                        command.getCampaignPageCount())
                 || !Objects.equals(row.getLastPage(), expectedLastPage)
                 || invalidGenerationCounts(row)
                 || row.getBatchId() == null || row.getBatchId() < 1L
@@ -195,6 +195,10 @@ final class AdvertisingGenerationGuard {
                 || invalidCount(row.getCampaignBusinessSkippedItemCount())
                 || invalidCount(row.getStagedItemCount()) || invalidCount(row.getSourceItemCount())
                 || invalidCount(row.getBusinessSkippedItemCount())
+                || row.getCampaignPageCount() == null || row.getCampaignPageCount() < 1
+                || !Objects.equals(row.getLastPage(), Math.addExact(
+                        row.getCampaignPageCount(), row.getActiveCampaignCount()
+                ))
                 || row.getCursorPageNo() == null || row.getCursorPageNo() < 0
                 || row.getCursorItemOrdinal() == null || row.getCursorItemOrdinal() < -1
                 || invalidCount(row.getProcessedItemCount())

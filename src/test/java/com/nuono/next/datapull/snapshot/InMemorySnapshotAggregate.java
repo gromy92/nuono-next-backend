@@ -18,9 +18,11 @@ final class InMemorySnapshotAggregate<T> {
     private SnapshotPage.AuthorityMode authorityMode;
     private final InMemorySnapshotTwoPassState<T> twoPass =
             new InMemorySnapshotTwoPassState<>();
+    private final InMemorySnapshotPromotion<T> promotion;
 
     InMemorySnapshotAggregate(SnapshotItemDescriptor<T> itemDescriptor) {
         this.itemDescriptor = Objects.requireNonNull(itemDescriptor, "itemDescriptor");
+        this.promotion = new InMemorySnapshotPromotion<>(itemDescriptor, pages);
     }
 
     SnapshotStageResult stagePage(long fenceEpoch, SnapshotPage<T> page) {
@@ -46,7 +48,7 @@ final class InMemorySnapshotAggregate<T> {
             if (!existing.sameContent(candidate)) {
                 return poison("SNAPSHOT_PAGE_CONTENT_DRIFT");
             }
-            Routing routing = routingFor(existing);
+            InMemorySnapshotRouting routing = routingFor(existing);
             if (routing.rejectionCode != null) {
                 return poison(routing.rejectionCode);
             }
@@ -61,7 +63,7 @@ final class InMemorySnapshotAggregate<T> {
         if (authorityMode == SnapshotPage.AuthorityMode.TWO_PASS_REQUIRED) {
             twoPass.stagePassOne(candidate);
         }
-        Routing routing = routingFor(candidate);
+        InMemorySnapshotRouting routing = routingFor(candidate);
         if (routing.rejectionCode != null) {
             return poison(routing.rejectionCode);
         }
@@ -143,6 +145,34 @@ final class InMemorySnapshotAggregate<T> {
         SnapshotComparisonResult result = twoPass.compare(limit);
         if (!result.isAccepted()) poisonCode = result.getSanitizedCode();
         return result;
+    }
+
+    SnapshotStagePromotionResult promoteVerifiedTwoPass(
+            long fenceEpoch,
+            int trailingPageCount
+    ) {
+        if (!adoptFence(fenceEpoch)) {
+            return SnapshotStagePromotionResult.rejected("SNAPSHOT_STAGE_STALE_FENCE");
+        }
+        if (poisonCode != null) return SnapshotStagePromotionResult.rejected(poisonCode);
+        SnapshotStagePromotionResult result = promotion.promote(
+                trailingPageCount, authorityMode, knownLastPage, twoPass.authority()
+        );
+        if (result.isPromoted()) {
+            declaredTotalPages = result.getTotalPageCount().orElseThrow();
+            knownLastPage = declaredTotalPages;
+            authority = result.getAuthority().orElseThrow();
+        }
+        return result;
+    }
+
+    SnapshotStageResult stageVerifiedTrailingPage(long fenceEpoch, SnapshotPage<T> page) {
+        if (!adoptFence(fenceEpoch)) {
+            return SnapshotStageResult.rejected("SNAPSHOT_STAGE_STALE_FENCE");
+        }
+        if (poisonCode != null) return SnapshotStageResult.rejected(poisonCode);
+        SnapshotStageResult result = promotion.stage(page);
+        return result.isAccepted() ? result : poison(result.getSanitizedCode());
     }
 
     boolean canClear(long fenceEpoch) {
@@ -227,20 +257,20 @@ final class InMemorySnapshotAggregate<T> {
         return null;
     }
 
-    private Routing routingFor(InMemorySnapshotPageRecord<T> page) {
+    private InMemorySnapshotRouting routingFor(InMemorySnapshotPageRecord<T> page) {
         if (knownLastPage != null) {
             if (page.pageNo() == knownLastPage) {
-                return Routing.last();
+                return InMemorySnapshotRouting.last();
             }
-            return Routing.next(page.pageNo() + 1);
+            return InMemorySnapshotRouting.next(page.pageNo() + 1);
         }
         if (page.nextPage() != null) {
-            return Routing.next(page.nextPage());
+            return InMemorySnapshotRouting.next(page.nextPage());
         }
         if (Boolean.FALSE.equals(page.lastPage())) {
-            return Routing.next(page.pageNo() + 1);
+            return InMemorySnapshotRouting.next(page.pageNo() + 1);
         }
-        return Routing.reject("SNAPSHOT_LAST_PAGE_UNKNOWN");
+        return InMemorySnapshotRouting.reject("SNAPSHOT_LAST_PAGE_UNKNOWN");
     }
 
     private Integer mergeLastPage(Integer current, int candidate) {
@@ -263,25 +293,4 @@ final class InMemorySnapshotAggregate<T> {
         return true;
     }
 
-    private static final class Routing {
-        private final Integer nextPage;
-        private final String rejectionCode;
-
-        private Routing(Integer nextPage, String rejectionCode) {
-            this.nextPage = nextPage;
-            this.rejectionCode = rejectionCode;
-        }
-
-        private static Routing next(int pageNo) {
-            return new Routing(pageNo, null);
-        }
-
-        private static Routing last() {
-            return new Routing(null, null);
-        }
-
-        private static Routing reject(String code) {
-            return new Routing(null, code);
-        }
-    }
 }

@@ -29,8 +29,7 @@ public class NoonAdvertisingFactWriter implements AdvertisingFactWriter {
     private final Dp06AdvertisingGenerationFactMapper factMapper;
     private final Dp06AdvertisingHeadMapper headMapper;
     private final Dp06AdvertisingIdMapper idMapper;
-    private final AdvertisingFactChunkPreparer chunkPreparer =
-            new AdvertisingFactChunkPreparer();
+    private final AdvertisingFactChunkPreparer chunkPreparer = new AdvertisingFactChunkPreparer();
     private final AdvertisingGenerationGuard guard = new AdvertisingGenerationGuard();
 
     public NoonAdvertisingFactWriter(
@@ -122,13 +121,15 @@ public class NoonAdvertisingFactWriter implements AdvertisingFactWriter {
     }
 
     private ApplyResult initialize(AdvertisingApplyCommand command) {
-        AdvertisingStageManifestRow manifest = stageMapper.selectManifest(command.getTaskId());
+        AdvertisingStageManifestRow manifest = stageMapper.selectManifest(
+                command.getTaskId(), command.getCampaignPageCount()
+        );
         guard.validateManifest(command, manifest);
         if (stageMapper.countInvalidPageShapes(command.getTaskId()) != 0) {
             throw new IllegalStateException("advertising stage page proof failed");
         }
         long queryCapacity = Math.subtractExact(
-                Math.subtractExact(manifest.getStagedItemCount(), manifest.getDashboardItemCount()),
+                Math.subtractExact(manifest.getStagedItemCount(), manifest.getCampaignItemCount()),
                 command.getActiveCampaigns().size()
         );
         if (queryCapacity < 0L) {
@@ -138,7 +139,7 @@ public class NoonAdvertisingFactWriter implements AdvertisingFactWriter {
         Long campaignStart = reserveOptional(
                 "noon_ad_campaign_fact",
                 CAMPAIGN_INITIAL,
-                manifest.getDashboardItemCount()
+                manifest.getCampaignItemCount()
         );
         Long queryStart = reserveOptional(
                 "noon_ad_query_fact", QUERY_INITIAL, queryCapacity
@@ -220,6 +221,8 @@ public class NoonAdvertisingFactWriter implements AdvertisingFactWriter {
     }
 
     private boolean deleteRawBatch(long taskId) {
+        if (stageMapper.deleteVerificationPagesBatch(taskId, CHUNK_SIZE) > 0) return true;
+        if (stageMapper.deleteFingerprintCountsBatch(taskId, CHUNK_SIZE) > 0) return true;
         if (stageMapper.deleteRawItemsBatch(taskId, CHUNK_SIZE) > 0) return true;
         if (stageMapper.deleteRawPagesBatch(taskId, CHUNK_SIZE) > 0) return true;
         return stageMapper.deleteRawStageIfEmpty(taskId) > 0;
@@ -254,7 +257,6 @@ public class NoonAdvertisingFactWriter implements AdvertisingFactWriter {
     private Long reserveOptional(String name, long initial, long count) {
         return count == 0L ? null : reserve(name, initial, count);
     }
-
     private List<String> identities(AdvertisingFactChunk chunk) {
         java.util.ArrayList<String> values = new java.util.ArrayList<>();
         for (AdvertisingGenerationFactRow row : chunk.getCampaigns()) {
