@@ -16,9 +16,9 @@ public final class AdvertisingStageManifestRow {
     private Long pageCount;
     private Integer firstPage;
     private Integer lastPage;
-    private Long dashboardItemCount;
-    private Long dashboardSourceItemCount;
-    private Long dashboardBusinessSkippedItemCount;
+    private Long campaignItemCount;
+    private Long campaignSourceItemCount;
+    private Long campaignBusinessSkippedItemCount;
     private Long stagedItemCount;
     private Long sourceItemCount;
     private Long businessSkippedItemCount;
@@ -47,15 +47,15 @@ public final class AdvertisingStageManifestRow {
     public void setFirstPage(Integer value) { firstPage = value; }
     public Integer getLastPage() { return lastPage; }
     public void setLastPage(Integer value) { lastPage = value; }
-    public Long getDashboardItemCount() { return dashboardItemCount; }
-    public void setDashboardItemCount(Long value) { dashboardItemCount = value; }
-    public Long getDashboardSourceItemCount() { return dashboardSourceItemCount; }
-    public void setDashboardSourceItemCount(Long value) { dashboardSourceItemCount = value; }
-    public Long getDashboardBusinessSkippedItemCount() {
-        return dashboardBusinessSkippedItemCount;
+    public Long getCampaignItemCount() { return campaignItemCount; }
+    public void setCampaignItemCount(Long value) { campaignItemCount = value; }
+    public Long getCampaignSourceItemCount() { return campaignSourceItemCount; }
+    public void setCampaignSourceItemCount(Long value) { campaignSourceItemCount = value; }
+    public Long getCampaignBusinessSkippedItemCount() {
+        return campaignBusinessSkippedItemCount;
     }
-    public void setDashboardBusinessSkippedItemCount(Long value) {
-        dashboardBusinessSkippedItemCount = value;
+    public void setCampaignBusinessSkippedItemCount(Long value) {
+        campaignBusinessSkippedItemCount = value;
     }
     public Long getStagedItemCount() { return stagedItemCount; }
     public void setStagedItemCount(Long value) { stagedItemCount = value; }

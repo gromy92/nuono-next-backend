@@ -20,6 +20,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         246: "246_dp_pull_advertising_generation.sql",
         247: "247_dp_pull_schedule_core.sql",
         248: "248_dp_pull_dp08_member_retention.sql",
+        250: "250_dp_pull_advertising_campaign_pagination.sql",
     }
 
     @classmethod
@@ -48,7 +49,6 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             migration.postcheck_checksum,
             migration.livecheck_checksum,
         )
-
     def test_init_owns_exactly_the_twenty_one_runtime_tables(self):
         script = self.migration.script_sql
         tables = re.findall(
@@ -185,6 +185,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             246: "dp_pull_advertising_generation",
             247: "dp_pull_schedule_manifest_seal",
             248: "dp_pull_dp08_member_set",
+            250: "campaign_page_count",
         }
         for order, key in self.SUCCESSOR_KEYS.items():
             migration = self.migrations[order]
@@ -294,7 +295,5 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             with self.subTest(path=relative):
                 path = self.resources / relative
                 self.assertLessEqual(len(path.read_bytes().splitlines()), 300)
-
-
 if __name__ == "__main__":
     unittest.main()

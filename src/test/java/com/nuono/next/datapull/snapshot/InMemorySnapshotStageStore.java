@@ -74,6 +74,34 @@ public final class InMemorySnapshotStageStore<T> implements SnapshotStageStore<T
     }
 
     @Override
+    public synchronized SnapshotStagePromotionResult promoteVerifiedTwoPass(
+            long taskId,
+            long fenceEpoch,
+            int trailingPageCount
+    ) {
+        requirePositive(taskId, "taskId");
+        requirePositive(fenceEpoch, "fenceEpoch");
+        InMemorySnapshotAggregate<T> aggregate = aggregates.get(taskId);
+        return aggregate == null
+                ? SnapshotStagePromotionResult.rejected("SNAPSHOT_NO_STAGED_PAGES")
+                : aggregate.promoteVerifiedTwoPass(fenceEpoch, trailingPageCount);
+    }
+
+    @Override
+    public synchronized SnapshotStageResult stageVerifiedTrailingPage(
+            long taskId,
+            long fenceEpoch,
+            SnapshotPage<T> page
+    ) {
+        requirePositive(taskId, "taskId");
+        requirePositive(fenceEpoch, "fenceEpoch");
+        InMemorySnapshotAggregate<T> aggregate = aggregates.get(taskId);
+        return aggregate == null
+                ? SnapshotStageResult.rejected("SNAPSHOT_NO_STAGED_PAGES")
+                : aggregate.stageVerifiedTrailingPage(fenceEpoch, page);
+    }
+
+    @Override
     public synchronized boolean clear(long taskId, long fenceEpoch) {
         requirePositive(taskId, "taskId");
         requirePositive(fenceEpoch, "fenceEpoch");

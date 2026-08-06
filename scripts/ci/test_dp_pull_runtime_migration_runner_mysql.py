@@ -46,7 +46,7 @@ RUNTIME_TABLES = (
     "dp_pull_report_download_locator",
     "dp_pull_report_apply",
 )
-DP_ORDERS = frozenset({243, 244, 245, 246, 247, 248, 249})
+DP_ORDERS = frozenset({243, 244, 245, 246, 247, 248, 249, 250})
 FAILED_MIGRATION = "245_dp_pull_snapshot_bounded_apply.sql"
 VIEW_MARKER = (
     "CREATE OR REPLACE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW "

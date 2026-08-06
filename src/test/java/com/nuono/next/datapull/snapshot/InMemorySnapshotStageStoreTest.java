@@ -187,6 +187,35 @@ class InMemorySnapshotStageStoreTest {
         );
     }
 
+    @Test
+    void verifiedTwoPassCanReserveAndAppendTrailingLogicalPages() {
+        InMemorySnapshotStageStore<Item> store = store();
+        SnapshotPage<Item> source = SnapshotPage.twoPassRequired(
+                1, null, true, 1, List.of(item("A", "one")), 1, 0
+        );
+        assertTrue(store.stagePage(51L, 1L, source).isAccepted());
+        assertTrue(store.verifyPage(51L, 2L, source).isComplete());
+        assertTrue(store.compareNext(51L, 3L, 32).isAccepted());
+        assertTrue(store.compareNext(51L, 4L, 32).isVerified());
+
+        SnapshotStagePromotionResult promoted = store.promoteVerifiedTwoPass(
+                51L, 5L, 1
+        );
+        assertTrue(promoted.isPromoted());
+        SnapshotPage<Item> trailing = new SnapshotPage<>(
+                2, null, true, 2, List.of(item("B", "two")),
+                promoted.getAuthority().orElseThrow(), 1, 0
+        );
+
+        assertTrue(store.stageVerifiedTrailingPage(51L, 6L, trailing).isAccepted());
+        SnapshotStageProof<Item> proof = store.proveComplete(51L, 7L);
+        assertTrue(proof.isComplete());
+        assertEquals(2, proof.getLastPage().orElseThrow());
+        assertEquals(List.of("A:one", "B:two"), values(proof.getItems()));
+        assertEquals(SnapshotCollectionAuthority.Kind.TWO_PASS_OBSERVATION,
+                proof.getAuthority().orElseThrow().getKind());
+    }
+
     private InMemorySnapshotStageStore<Item> store() {
         return new InMemorySnapshotStageStore<>(new SnapshotItemDescriptor<Item>() {
             @Override

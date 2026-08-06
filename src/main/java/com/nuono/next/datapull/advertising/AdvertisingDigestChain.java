@@ -20,8 +20,8 @@ final class AdvertisingDigestChain {
         update(digest, String.valueOf(manifest.getStagedItemCount()));
         update(digest, String.valueOf(manifest.getSourceItemCount()));
         update(digest, String.valueOf(manifest.getBusinessSkippedItemCount()));
-        update(digest, String.valueOf(manifest.getDashboardItemCount()));
-        update(digest, String.valueOf(manifest.getDashboardBusinessSkippedItemCount()));
+        update(digest, String.valueOf(manifest.getCampaignItemCount()));
+        update(digest, String.valueOf(manifest.getCampaignBusinessSkippedItemCount()));
         for (AdvertisingCampaignRef campaign : command.getActiveCampaigns()) {
             update(digest, campaign.getCampaignCode());
         }

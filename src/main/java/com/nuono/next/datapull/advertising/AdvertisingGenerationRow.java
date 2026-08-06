@@ -20,6 +20,7 @@ public final class AdvertisingGenerationRow {
     private LocalDateTime providerAsOfUtc;
     private Long declaredCampaignCount;
     private Integer activeCampaignCount;
+    private Integer campaignPageCount;
     private Integer lastPage;
     private Long stagedCampaignItemCount;
     private Long campaignBusinessSkippedItemCount;
@@ -70,6 +71,8 @@ public final class AdvertisingGenerationRow {
     public void setDeclaredCampaignCount(Long value) { declaredCampaignCount = value; }
     public Integer getActiveCampaignCount() { return activeCampaignCount; }
     public void setActiveCampaignCount(Integer value) { activeCampaignCount = value; }
+    public Integer getCampaignPageCount() { return campaignPageCount; }
+    public void setCampaignPageCount(Integer value) { campaignPageCount = value; }
     public Integer getLastPage() { return lastPage; }
     public void setLastPage(Integer value) { lastPage = value; }
     public Long getStagedCampaignItemCount() { return stagedCampaignItemCount; }

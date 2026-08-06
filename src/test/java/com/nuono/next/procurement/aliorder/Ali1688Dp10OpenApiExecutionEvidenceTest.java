@@ -10,7 +10,6 @@ import com.nuono.next.datapull.orchestration.DataPullRuntimeReleaseRequirement;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.ZoneOffset;
-import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.env.MockEnvironment;
@@ -50,9 +49,6 @@ class Ali1688Dp10OpenApiExecutionEvidenceTest {
         assertTrue(fresh.verified());
         assertTrue(laterRestart.verified());
         assertFalse(fixture.verifyFresh(evidenceSha, COMMIT, NOW.plusSeconds(601)));
-        assertTrue(Set.of(DataPullRuntimeReleaseRequirement.values()).contains(
-                DataPullRuntimeReleaseRequirement.DP10_MODIFIED_TIME_VISIBILITY_CONTRACT
-        ));
     }
 
     @Test

@@ -54,7 +54,7 @@ final class AdvertisingFactChunkPreparer {
                 }
                 queryPageProofs++;
             } else if (staged.getKind() == AdvertisingStagedFact.Kind.CAMPAIGN) {
-                requireCampaignPage(row);
+                requireCampaignPage(command, row);
                 NoonAdvertisingCampaignFact fact = staged.getCampaignFact();
                 String identity = "campaign:" + lengthPrefixed(fact.getCampaignCode());
                 if (!identities.add(identity)) {
@@ -126,9 +126,12 @@ final class AdvertisingFactChunkPreparer {
         }
     }
 
-    private void requireCampaignPage(AdvertisingRawStageRow row) {
-        if (row.getPageNo() != 1) {
-            throw new IllegalArgumentException("campaign fact appeared outside dashboard page");
+    private void requireCampaignPage(
+            AdvertisingApplyCommand command,
+            AdvertisingRawStageRow row
+    ) {
+        if (row.getPageNo() > command.getCampaignPageCount()) {
+            throw new IllegalArgumentException("campaign fact appeared outside campaign pages");
         }
     }
 
@@ -137,7 +140,7 @@ final class AdvertisingFactChunkPreparer {
             AdvertisingRawStageRow row,
             NoonAdvertisingQueryFact fact
     ) {
-        int index = row.getPageNo() - 2;
+        int index = row.getPageNo() - command.getCampaignPageCount() - 1;
         if (index < 0 || index >= command.getActiveCampaigns().size()
                 || !command.getActiveCampaigns().get(index).getCampaignCode()
                         .equals(fact.getCampaignCode())) {

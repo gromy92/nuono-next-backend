@@ -4,7 +4,6 @@ import shlex
 from urllib.parse import urlsplit
 from release_dp10_openapi_probe import build_dp10_openapi_probe_shell
 from release_dp_report_download_probe import build_dp_report_download_probe_shell
-from release_dp_runtime_contract_evidence import build_dp_runtime_contract_evidence_shell
 from release_dp_runtime_cutover import build_dp_runtime_cutover_shell
 from release_dp_runtime_manifest import build_dp_runtime_manifest_shell
 from release_dp_runtime_bootstrap import build_dp_runtime_bootstrap_shell
@@ -65,7 +64,6 @@ ACTIVE_PID="" NEW_PID="" ACTIVE_RUN_DIR="" ACTIVE_ENV_SHA256="" ACTIVE_START_SCR
 ACTIVE_RUNTIME_KIND="" UPSTREAM_BACKUP="" TARGET_ENV_SHA256="" SOURCE_START_SCRIPT_SHA256=""
 NGINX_UPSTREAM_SHA256="" NGINX_UPSTREAM_ORIGINAL_SHA256="" NGINX_UPSTREAM_BACKUP_SHA256=""
 DP10_SLOT_EVIDENCE_FILE="" DP10_RUNTIME_ENV_ATTESTATION_FILE=""
-DP_RUNTIME_CONTRACT_SOURCE_FILE="" DP_RUNTIME_CONTRACT_SLOT_FILE="" DP_RUNTIME_CONTRACT_EVIDENCE_SHA256=""
 DP_REPORT_PROBE_SOURCE_FILE="" DP_REPORT_PROBE_SOURCE_SHA256="" DP_REPORT_PROBE_NONCE="" DP_REPORT_PROBE_NONCE_SHA256="" DP_REPORT_PROBE_EVIDENCE_SHA256=""
 LSOF_BIN=""
 MAINTENANCE_ROUTED=0 OLD_STOPPED=0 NEW_START_ATTEMPTED=0 ROLLBACK_RUNNING=0
@@ -74,7 +72,6 @@ emit() {{ printf '%s=%s\\n' "$1" "$2"; }}
 sha256_file() {{ sha256sum "$1" | awk '{{print $1}}'; }}
 {build_dp10_openapi_probe_shell()}
 {build_dp_report_download_probe_shell()}
-{build_dp_runtime_contract_evidence_shell()}
 {build_dp_runtime_cutover_shell()}
 {build_dp_runtime_manifest_shell()}
 {build_dp_runtime_bootstrap_shell()}
@@ -159,20 +156,17 @@ assert_only_backend_jvm "$ACTIVE_PID"
 prepare_dp_runtime_cutover
 run_dp10_openapi_probe
 run_dp_report_download_probe
-load_dp_runtime_contract_evidence
 run_dp_runtime_cutover_manifest
 assert_only_backend_jvm "$ACTIVE_PID"
 secure_file_operation directory "$APP_DIR/blue-green" "700,750,755" 700 accept
 secure_file_operation directory "$TARGET_SLOT_DIR" "700,750,755" 700 accept
 persist_dp10_probe_for_target
-persist_dp_runtime_contract_evidence_for_target
 prepare_target_runtime_payloads
 UPSTREAM_BACKUP="$BACKUP_DIR/$(basename "$NGINX_UPSTREAM_FILE").before"
 backup_nginx_upstream "$UPSTREAM_BACKUP"
 trap rollback_cutover ERR
 verify_dp10_probe_state
 verify_dp_report_probe_state
-verify_dp_runtime_contract_evidence_state
 start_maintenance_responder
 switch_nginx_to_maintenance
 reverify_active_runtime_payloads
@@ -191,7 +185,6 @@ prepare_dp10_probe_runtime_environment
 rm -f "$TARGET_SLOT_DIR/nuono-next.pid"
 NEW_START_ATTEMPTED=1
 verify_dp10_probe_state
-verify_dp_runtime_contract_evidence_state
 verify_dp_runtime_database_binding
 require_legacy_cutover_empty
 start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
@@ -200,7 +193,6 @@ wait_for_health "$TARGET_PORT"
 assert_target_release_ready
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 verify_dp10_probe_state
-verify_dp_runtime_contract_evidence_state
 verify_dp_runtime_database_binding
 require_legacy_cutover_empty
 assert_target_release_ready

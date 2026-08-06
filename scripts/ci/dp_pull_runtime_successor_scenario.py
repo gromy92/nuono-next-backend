@@ -22,6 +22,7 @@ SUCCESSOR_KEYS = {
     246: "246_dp_pull_advertising_generation.sql",
     247: "247_dp_pull_schedule_core.sql",
     248: "248_dp_pull_dp08_member_retention.sql",
+    250: "250_dp_pull_advertising_campaign_pagination.sql",
 }
 SUCCESSOR_TABLES = (
     "dp_pull_dp08_task_member_progress",
@@ -75,14 +76,16 @@ def run_successor_schema_scenario(
             _assert_244_preflight(test_case, database, migrations[order][0], "present")
         database.client.execute(migrations[order][0])
         _assert_contract(test_case, database, *migrations[order][1:])
-        verify_additive_successor_shape(
-            test_case, database, order, migrations[order]
-        )
+        if order <= 248:
+            verify_additive_successor_shape(
+                test_case, database, order, migrations[order]
+            )
     verify_half_migration_fails_closed(test_case, database, migrations)
     verify_missing_table_fails_closed(test_case, database, migrations)
     verify_constraint_drift_fails_closed(test_case, database, migrations)
     for order in (244, 245, 246, 248):
-        _assert_contract(test_case, database, *migrations[order][1:])
+        _assert_live(test_case, database, migrations[order][2])
+    _assert_contract(test_case, database, *migrations[250][1:])
     test_case.assertEqual(
         "0", database.client.execute_readonly(migrations[247][1])
     )
@@ -121,6 +124,10 @@ def _assert_contract(test_case, database, exact, live) -> None:
             failing_predicate_indexes(database, exact)
         ) + detail,
     )
+    test_case.assertEqual("1", database.client.execute_readonly(live))
+
+
+def _assert_live(test_case, database, live) -> None:
     test_case.assertEqual("1", database.client.execute_readonly(live))
 
 

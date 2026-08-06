@@ -92,6 +92,67 @@ final class SnapshotStagePageWriter<T> {
         );
     }
 
+    SnapshotStageResult appendVerified(
+            long taskId,
+            long fenceEpoch,
+            SnapshotPage<T> page
+    ) {
+        SnapshotStagePageCandidate<T> candidate;
+        try {
+            candidate = SnapshotStagePageCandidate.from(page, descriptor, codec);
+        } catch (RuntimeException invalidItem) {
+            candidate = null;
+        }
+        if (!fence.ownsRunningTask(taskId, fenceEpoch)) {
+            return SnapshotStageResult.rejected(STALE_FENCE);
+        }
+        SnapshotStageAggregateRow aggregate = fence.lockAggregate(taskId, fenceEpoch, false);
+        if (aggregate == null) return SnapshotStageResult.rejected(STALE_FENCE);
+        if (aggregate.getPoisonCode() != null) {
+            return SnapshotStageResult.rejected(aggregate.getPoisonCode());
+        }
+        if (candidate == null) {
+            return fence.poison(taskId, fenceEpoch, "SNAPSHOT_ITEM_ENCODING_INVALID");
+        }
+        Integer sourcePages = aggregate.getPassOnePageCount();
+        if (!"TWO_PASS_REQUIRED".equals(aggregate.getCollectionMode())
+                || !"VERIFIED".equals(aggregate.getVerificationState())
+                || sourcePages == null || sourcePages < 1
+                || candidate.getPageNo() <= sourcePages
+                || candidate.getAuthorityMode()
+                        != SnapshotPage.AuthorityMode.PROVIDER_AUTHORITY) {
+            return fence.poison(taskId, fenceEpoch, "SNAPSHOT_TRAILING_PAGE_STATE_INVALID");
+        }
+        Integer maxPage = mapper.selectMaxPageNo(taskId);
+        SnapshotStageAuthority.Decision authority = SnapshotStageAuthority.merge(
+                aggregate, candidate, maxPage
+        );
+        if (!authority.isAccepted()) {
+            return fence.poison(taskId, fenceEpoch, authority.getRejectionCode());
+        }
+        SnapshotStagePageRow existing = mapper.selectPage(taskId, candidate.getPageNo());
+        if (existing != null) {
+            return replay(taskId, fenceEpoch, aggregate, candidate, existing);
+        }
+        SnapshotStageMetadata.Decision metadata = SnapshotStageMetadata.merge(
+                aggregate, candidate, maxPage
+        );
+        if (!metadata.isAccepted() || maxPage == null
+                || candidate.getPageNo() != maxPage + 1) {
+            return fence.poison(taskId, fenceEpoch, metadata.isAccepted()
+                    ? "SNAPSHOT_NON_CONTIGUOUS_TRAILING_PAGE"
+                    : metadata.getRejectionCode());
+        }
+        SnapshotStageFence.requireOne(
+                mapper.insertPage(SnapshotStagePageRow.from(taskId, candidate)),
+                "snapshot trailing page insert"
+        );
+        insertItems(taskId, candidate);
+        return SnapshotStageResult.staged(
+                metadata.getNextPage(), metadata.getKnownLastPage()
+        );
+    }
+
     private void updateMetadata(
             long taskId,
             long fenceEpoch,
