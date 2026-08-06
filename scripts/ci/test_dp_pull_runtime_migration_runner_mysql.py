@@ -92,10 +92,10 @@ class RealMySqlScenarioDatabase:
         self.mysql.client.execute(migration.script_sql)
 
     def postcheck(self, migration):
-        return self._check(migration, migration.postcheck_sql)
+        return self.mysql.postcheck(migration)
 
     def livecheck(self, migration):
-        return self._check(migration, migration.livecheck_sql)
+        return self.mysql.livecheck(migration)
 
     def acknowledge_runtime_drain(self, migration_key):
         raise AssertionError(f"unexpected runtime drain: {migration_key}")
@@ -110,11 +110,6 @@ class RealMySqlScenarioDatabase:
         attempt = blocked_attempt_no + 1
         self.states[migration.key] = self._state(migration, "APPLIED", attempt)
         return attempt
-
-    def _check(self, migration, sql):
-        if migration.kind == "BOOTSTRAP":
-            return True
-        return self.mysql.client.execute_readonly(sql).splitlines() == ["1"]
 
     @staticmethod
     def _state(migration, state, attempt):
