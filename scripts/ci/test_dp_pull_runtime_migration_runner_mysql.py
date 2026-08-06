@@ -184,10 +184,7 @@ class DpPullRuntimeMigrationRunnerMySqlTest(unittest.TestCase):
         fixture = prepare_successor_fixture(mysql, db_resources)
         self.addCleanup(fixture.cleanup, mysql)
         self._ensure_asn_line(mysql)
-        mysql.client.execute(
-            "ALTER TABLE official_warehouse_asn_line "
-            "DROP COLUMN IF EXISTS manual_quantity;"
-        )
+        self._drop_manual_quantity(mysql)
 
     @staticmethod
     def _ensure_sequence(mysql):
@@ -207,6 +204,20 @@ class DpPullRuntimeMigrationRunnerMySqlTest(unittest.TestCase):
             "id BIGINT NOT NULL,qty INT DEFAULT NULL,PRIMARY KEY(id)) "
             "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;"
         )
+
+    @staticmethod
+    def _drop_manual_quantity(mysql):
+        exists = mysql.client.execute_readonly(
+            "SELECT COUNT(*) FROM information_schema.columns "
+            "WHERE table_schema=DATABASE() "
+            "AND table_name='official_warehouse_asn_line' "
+            "AND column_name='manual_quantity';"
+        )
+        if exists == "1":
+            mysql.client.execute(
+                "ALTER TABLE official_warehouse_asn_line "
+                "DROP COLUMN manual_quantity;"
+            )
 
     @staticmethod
     def _scenario_catalog(resources):
