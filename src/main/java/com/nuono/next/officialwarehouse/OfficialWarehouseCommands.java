@@ -22,6 +22,7 @@ public final class OfficialWarehouseCommands {
         public Long productSiteOfferId;
         public String partnerSku;
         public Integer quantity;
+        public Integer manualQuantity;
     }
 
     public static class SyncNoonAsnNumbersCommand {

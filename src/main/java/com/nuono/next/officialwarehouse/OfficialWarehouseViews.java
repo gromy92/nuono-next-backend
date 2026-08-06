@@ -193,6 +193,10 @@ public final class OfficialWarehouseViews {
         public String brand;
         public String imageUrl;
         public Integer quantity;
+        public Integer shippingBatchQuantity;
+        public Integer manualQuantity;
+        public Integer unknownQuantity;
+        public String sourceType;
         public BigDecimal productLengthCm;
         public BigDecimal productWidthCm;
         public BigDecimal productHeightCm;
@@ -209,7 +213,6 @@ public final class OfficialWarehouseViews {
         public String errorMessage;
         public List<AsnShippingBatchLinkView> shippingBatchLinks = new ArrayList<>();
     }
-
     public static class AsnShippingBatchLinkView {
         public String id;
         public String asnId;

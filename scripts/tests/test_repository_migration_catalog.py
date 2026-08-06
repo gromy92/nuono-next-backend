@@ -61,6 +61,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "246_dp_pull_advertising_generation.sql",
                 "247_dp_pull_schedule_core.sql",
                 "248_dp_pull_dp08_member_retention.sql",
+                "249_official_warehouse_asn_line_source_allocation.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -82,6 +83,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "MANAGED",
                 "MANAGED",
                 "MANAGED",
+                "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
