@@ -1,5 +1,7 @@
 import importlib.util
+import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -48,6 +50,68 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_rendered_legacy_env_helper_executes_default_quoted_and_rejection_paths(self):
+        script = build_script()
+        helper = script[
+            script.index("legacy_env_mode()"):
+            script.index("legacy_process_mode()")
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            env_file = Path(temporary) / ".env"
+            cases = (
+                ("NUONO_NEXT_PORT=18087\n", 0, "LEGACY_DEFAULT"),
+                ('NUONO_DATA_PULL_EXECUTION_MODE="LEGACY"\n', 0, "LEGACY"),
+                ("NUONO_DATA_PULL_EXECUTION_MODE=RUNTIME\n", 1, ""),
+                (
+                    "NUONO_DATA_PULL_EXECUTION_MODE=LEGACY\n"
+                    "NUONO_DATA_PULL_EXECUTION_MODE=LEGACY\n",
+                    1,
+                    "",
+                ),
+            )
+            for payload, returncode, stdout in cases:
+                with self.subTest(payload=payload):
+                    env_file.write_text(payload, encoding="utf-8")
+                    result = subprocess.run(
+                        ["bash", "-c", helper + '\nlegacy_env_mode "$1"', "bash", env_file],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(returncode, result.returncode, result.stderr)
+                    self.assertEqual(stdout, result.stdout)
+
+    @unittest.skipUnless(Path("/proc/self/environ").exists(), "requires Linux procfs")
+    def test_rendered_process_helper_executes_legacy_and_rejects_runtime(self):
+        script = build_script()
+        helper = script[
+            script.index("legacy_process_mode()"):
+            script.index("assert_legacy_env_contract()")
+        ]
+        base_environment = {
+            key: value for key, value in os.environ.items()
+            if key != "NUONO_DATA_PULL_EXECUTION_MODE"
+        }
+        cases = (
+            (None, 0, "LEGACY_DEFAULT"),
+            ("LEGACY", 0, "LEGACY"),
+            ("RUNTIME", 1, ""),
+        )
+        for mode, returncode, stdout in cases:
+            with self.subTest(mode=mode):
+                environment = dict(base_environment)
+                if mode is not None:
+                    environment["NUONO_DATA_PULL_EXECUTION_MODE"] = mode
+                result = subprocess.run(
+                    ["bash", "-c", helper + '\nlegacy_process_mode "$$"'],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    env=environment,
+                )
+                self.assertEqual(returncode, result.returncode, result.stderr)
+                self.assertEqual(stdout, result.stdout)
 
     def test_explicit_legacy_mode_omits_every_dp_activation_and_database_path(self):
         script = build_script()
