@@ -21,6 +21,8 @@ class InTransitProductMatchContractTest {
         );
         String officialWarehouse = read(
                 "src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java"
+        ) + read(
+                "src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseAsnSourceAllocationModule.java"
         );
         String productPreparation = read(
                 "src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseProductMatchController.java"
