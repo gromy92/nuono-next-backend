@@ -155,7 +155,8 @@ jobs:
             > "$NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"
           python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py \
             scripts/ci/test_file_parse_retirement_mysql.py \
-            scripts/ci/test_dp_pull_runtime_schema_mysql.py
+            scripts/ci/test_dp_pull_runtime_schema_mysql.py \
+            scripts/ci/test_dp_pull_runtime_migration_runner_mysql.py
 
       - name: Verify migrations and DP deadlines against RDS-compatible MySQL 8 policy
         env:
@@ -228,7 +229,8 @@ jobs:
             > "$NUONO_DP10_EXACT_MYSQL_DEFAULTS_FILE"
           python3 -m unittest scripts/ci/test_release_schema_migrations_mysql.py \
             scripts/ci/test_file_parse_retirement_mysql.py \
-            scripts/ci/test_dp_pull_runtime_schema_mysql.py
+            scripts/ci/test_dp_pull_runtime_schema_mysql.py \
+            scripts/ci/test_dp_pull_runtime_migration_runner_mysql.py
           python3 scripts/ci/prepare_dp10_exact_path_mysql.py
           dp_deadline_tests="DataPullDatabaseDeadlineMySqlTest,DataPullDatabaseDeadlineConcurrencyMySqlTest,DataPullConnectionHandshakeMySqlTest,DataPullTransactionBeginNetworkMySqlTest,DataPullRuntimeSchedulerPhaseMySqlTest,DataPullRuntimeIndependentPhaseBudgetTest,RuntimeExecutorDeadlineTest,DataPullRuntimeSchedulerTest,DataPullAdvanceDeadlineRaceTest,Ali1688Dp10ExactPathMySqlTest,Ali1688Dp10TombstoneMySqlTest"
           mvn -q -Dtest="$dp_deadline_tests" test
