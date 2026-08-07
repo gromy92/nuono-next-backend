@@ -116,6 +116,40 @@ class ExportReportContractFailureTest {
     }
 
     @Test
+    void readOnlyExportRetriesPersistedIntentOnlyAfterReconcileBackoff() {
+        ScriptedProvider provider = new ScriptedProvider();
+        provider.retryUnknownCreateAfterReadbackFailure = true;
+        provider.creates.add(ProviderOutcome.unknownOutcome("REPORT_CREATE_OUTCOME_UNKNOWN"));
+        provider.creates.add(ProviderOutcome.success(new RemoteExportHandle("export-reopened")));
+        provider.finds.add(ProviderOutcome.contractError("REPORT_CREATE_READBACK_UNAVAILABLE"));
+        DataPullTask task = task(306L, OperationCode.DP07B);
+        ExportReportJob job = job(
+                OperationCode.DP07B,
+                provider,
+                (intent, artifact) -> ReportImportResult.applied()
+        );
+        continueTask(task, job.advance(context(task)));
+        continueTask(task, job.advance(context(task)));
+
+        AdvanceResult reconciled = job.advance(context(task));
+
+        assertEquals(TaskState.WAITING_REMOTE, reconciled.getNextState());
+        assertEquals("READ_ONLY_EXPORT_RETRY_AFTER_RECONCILE", reconciled.getSanitizedCode());
+        assertEquals(
+                ExportReportCheckpoint.Phase.CREATE,
+                new ExportReportCheckpointCodec().decode(reconciled.getCheckpoint()).getPhase()
+        );
+        assertEquals(List.of("CREATE", "FIND"), provider.calls);
+
+        continueTask(task, reconciled);
+        AdvanceResult reopened = job.advance(context(task));
+
+        assertEquals(TaskState.WAITING_REMOTE, reopened.getNextState());
+        assertEquals("export-reopened", reopened.getRemoteHandle());
+        assertEquals(List.of("CREATE", "FIND", "CREATE"), provider.calls);
+    }
+
+    @Test
     void successfulDownloadWithoutArtifactBacksOffOnTheSameExport() {
         ScriptedProvider provider = new ScriptedProvider();
         provider.creates.add(ProviderOutcome.success(new RemoteExportHandle("export-no-body")));

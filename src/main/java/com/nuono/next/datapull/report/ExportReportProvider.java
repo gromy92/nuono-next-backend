@@ -14,6 +14,11 @@ import com.nuono.next.datapull.runtime.ProviderOutcome;
  */
 public interface ExportReportProvider {
 
+    /** True only when create generates a read-only artifact and replay cannot write business data. */
+    default boolean retryUnknownCreateAfterReadbackFailure() {
+        return false;
+    }
+
     ProviderOutcome<RemoteExportHandle> create(ExportReportIntent intent);
 
     ProviderOutcome<ExportCreateReadback> findByRequestKey(ExportReportIntent intent);

@@ -3,6 +3,7 @@ package com.nuono.next.datapull.report;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
@@ -53,7 +54,7 @@ class ReportStageAppenderTest {
                 .thenReturn(2);
         when(stages.advanceStage(
                 any(), any(), any(), anyLong(), anyLong(), anyLong(),
-                anyLong(), anyLong(), anyLong(), any(), eq(NOW)
+                anyLong(), anyLong(), anyLong(), any(), eq(NOW), anyBoolean()
         )).thenReturn(1);
 
         ReportImportResult result = appender.append(
@@ -81,7 +82,8 @@ class ReportStageAppenderTest {
                 0L,
                 1L,
                 "VALIDATING",
-                NOW
+                NOW,
+                false
         );
     }
 
@@ -114,7 +116,7 @@ class ReportStageAppenderTest {
         assertThat(result.getSanitizedCode()).isEqualTo("REPORT_ROW_OUTSIDE_CONTAINER");
         verify(stages, never()).advanceStage(
                 any(), any(), any(), anyLong(), anyLong(), anyLong(),
-                anyLong(), anyLong(), anyLong(), any(), any());
+                anyLong(), anyLong(), anyLong(), any(), any(), anyBoolean());
         verify(facts, never()).insertMarkerIfLive(any(), any());
     }
 
@@ -150,6 +152,62 @@ class ReportStageAppenderTest {
                 .hasMessage("report stage row bound exceeded");
     }
 
+    @Test
+    void locallyCountedCompleteArtifactSealsWithObservedPhysicalRows() {
+        when(stages.selectStageForUpdate(intent.getTaskId()))
+                .thenReturn(stage(Long.MAX_VALUE));
+        when(stages.selectExistingAcceptedIdentities(eq(intent.getTaskId()), anyList()))
+                .thenReturn(Collections.emptyList());
+        when(stages.insertStageRows(anyList(), eq(NOW))).thenReturn(2);
+        when(stages.advanceStage(
+                any(), any(), any(), anyLong(), anyLong(), anyLong(),
+                anyLong(), anyLong(), anyLong(), any(), eq(NOW), eq(true)
+        )).thenReturn(1);
+
+        ReportImportResult result = appender.append(
+                intent,
+                localChunk(true, List.of(
+                        ReportPlannedRow.accepted(1L, "one", "{}"),
+                        ReportPlannedRow.businessSkip(2L)
+                )),
+                NOW
+        );
+
+        assertThat(result.getStatus()).isEqualTo(ReportImportResult.Status.IN_PROGRESS);
+        verify(stages).advanceStage(
+                intent, "artifact", "sha", 0L, 10L, 2L,
+                1L, 1L, 0L, "SEALED", NOW, true
+        );
+        verify(stages, never()).poisonStage(
+                intent, "REPORT_PROVIDER_ROW_COUNT_CONFLICT", NOW
+        );
+    }
+
+    @Test
+    void locallyCountedEmptyArtifactWaitsWithoutApplyingFacts() {
+        when(stages.selectStageForUpdate(intent.getTaskId()))
+                .thenReturn(stage(Long.MAX_VALUE));
+        when(stages.advanceStage(
+                any(), any(), any(), anyLong(), anyLong(), anyLong(),
+                anyLong(), anyLong(), anyLong(), any(), eq(NOW), eq(true)
+        )).thenReturn(1);
+
+        ReportImportResult result = appender.append(
+                intent,
+                localChunk(true, List.of()),
+                NOW
+        );
+
+        assertThat(result.getStatus()).isEqualTo(
+                ReportImportResult.Status.AWAITING_AUTHORITATIVE_EMPTY_PROOF
+        );
+        verify(stages).advanceStage(
+                intent, "artifact", "sha", 0L, 10L, 0L,
+                0L, 0L, 0L, "EMPTY_UNPROVEN", NOW, true
+        );
+        verify(facts, never()).insertMarkerIfLive(any(), any());
+    }
+
     private ReportStageChunk chunk(
             long declaredRows,
             boolean endOfFile,
@@ -159,11 +217,22 @@ class ReportStageAppenderTest {
                 "artifact",
                 "sha",
                 declaredRows,
+                false,
                 "[\"id\"]",
                 0L,
                 10L,
                 endOfFile,
                 rows
+        );
+    }
+
+    private ReportStageChunk localChunk(
+            boolean endOfFile,
+            List<ReportPlannedRow> rows
+    ) {
+        return new ReportStageChunk(
+                "artifact", "sha", Long.MAX_VALUE, true, "[\"id\"]",
+                0L, 10L, endOfFile, rows
         );
     }
 

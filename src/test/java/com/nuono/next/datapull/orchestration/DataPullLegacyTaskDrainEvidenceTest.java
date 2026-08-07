@@ -44,7 +44,7 @@ class DataPullLegacyTaskDrainEvidenceTest {
     }
 
     @Test
-    void mapperClassifiesOnlyZeroFactScheduledNoonTasksAsSupersedable() {
+    void mapperClassifiesOnlyZeroPersistedFactProgressAsSupersedable() {
         String sql = mapperSql();
         assertContains(sql,
                 "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
@@ -58,9 +58,9 @@ class DataPullLegacyTaskDrainEvidenceTest {
                 "last_safe_response_summary IS NULL",
                 "COALESCE(processed_item_count, 0) = 0",
                 "COALESCE(request_count, 0) = 0",
-                "COALESCE(report_total_rows, 0) = 0",
                 "finished_at IS NULL"
         );
+        assertFalse(sql.contains("COALESCE(report_total_rows, 0) = 0"));
     }
 
     @Test

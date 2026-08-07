@@ -4,7 +4,7 @@ from scripts.tests.test_release_dp_runtime_cutover import cutover_fragment, run_
 
 
 class ReleaseDpRuntimeLegacyDrainTest(unittest.TestCase):
-    def test_only_zero_fact_noon_and_zero_progress_running_dp10_can_be_cancelled(self):
+    def test_only_zero_fact_noon_and_linked_auth_waits_can_be_superseded(self):
         function = cutover_fragment()[
             cutover_fragment().index("finalize_dp_runtime_legacy_cutover()"):
         ]
@@ -21,7 +21,6 @@ class ReleaseDpRuntimeLegacyDrainTest(unittest.TestCase):
             "last_safe_response_summary IS NULL",
             "COALESCE(processed_item_count,0)=0",
             "COALESCE(request_count,0)=0",
-            "COALESCE(report_total_rows,0)=0",
             "finished_at IS NULL",
             "status='CANCELLED'",
             "UPDATE procurement_ali1688_order_sync_task",
@@ -33,19 +32,24 @@ class ReleaseDpRuntimeLegacyDrainTest(unittest.TestCase):
             "failure_code IS NULL",
             "failure_message IS NULL",
             "status='cancelled'",
+            "UPDATE noon_auth_identity_recovery_item item",
+            "task.auth_recovery_id=item.recovery_id",
+            "item.status='STALE'",
+            "item.failure_code='DP_RUNTIME_SUPERSEDED'",
         )
         for marker in required:
             self.assertIn(marker, function)
         self.assertNotIn("UPDATE operational_task", function)
         self.assertNotIn("UPDATE sales_sync_task", function)
-        self.assertNotIn("UPDATE noon_auth_identity_recovery_item", function)
+        self.assertNotIn("COALESCE(report_total_rows,0)=0", function)
 
     def test_ready_gate_allows_only_fully_supersedable_cohorts(self):
         accepted = run_fragment("""
-dp_runtime_legacy_counts() { printf '14\\t14\\t0\\t2\\t2\\t0\\t0\\n'; }
+dp_runtime_legacy_counts() { printf '14\\t14\\t0\\t2\\t2\\t0\\t6\\n'; }
 require_legacy_cutover_ready
 [ "$DP_RUNTIME_LEGACY_SAFE_SNAPSHOT_COUNT" = 14 ]
 [ "$DP_RUNTIME_LEGACY_SAFE_DP10_COUNT" = 2 ]
+[ "$DP_RUNTIME_LEGACY_SAFE_AUTH_COUNT" = 6 ]
 """)
         started = run_fragment("""
 dp_runtime_legacy_counts() { printf '14\\t13\\t0\\t2\\t2\\t0\\t0\\n'; }
@@ -64,6 +68,43 @@ require_legacy_cutover_ready
         self.assertNotEqual(0, started.returncode)
         self.assertNotEqual(0, dp10.returncode)
         self.assertNotEqual(0, sales.returncode)
+
+    def test_cohort_capture_requires_every_auth_wait_to_bind_to_a_frozen_noon_task(self):
+        accepted = run_fragment("""
+DP_RUNTIME_LEGACY_SAFE_SNAPSHOT_COUNT=2
+DP_RUNTIME_LEGACY_SAFE_DP10_COUNT=0
+DP_RUNTIME_LEGACY_SAFE_AUTH_COUNT=2
+dp_runtime_safe_noon_ids() { printf '10,11'; }
+dp_runtime_safe_dp10_ids() { printf ''; }
+dp_runtime_safe_auth_ids() {
+  if [ "$1" = PENDING ]; then printf '90'; else printf '91'; fi
+}
+capture_dp_runtime_legacy_cohort
+""")
+        orphan = run_fragment("""
+DP_RUNTIME_LEGACY_SAFE_SNAPSHOT_COUNT=2
+DP_RUNTIME_LEGACY_SAFE_DP10_COUNT=0
+DP_RUNTIME_LEGACY_SAFE_AUTH_COUNT=3
+dp_runtime_safe_noon_ids() { printf '10,11'; }
+dp_runtime_safe_dp10_ids() { printf ''; }
+dp_runtime_safe_auth_ids() {
+  if [ "$1" = PENDING ]; then printf '90'; else printf '91'; fi
+}
+capture_dp_runtime_legacy_cohort
+""")
+
+        self.assertEqual(0, accepted.returncode, accepted.stderr)
+        self.assertNotEqual(0, orphan.returncode)
+
+    def test_rollback_restores_original_pending_and_validating_auth_states(self):
+        function = cutover_fragment()[
+            cutover_fragment().index("rollback_dp_runtime_legacy_cohort()"):
+        ]
+
+        self.assertIn("status='PENDING'", function)
+        self.assertIn("status='VALIDATING'", function)
+        self.assertIn("failure_code='DP_RUNTIME_SUPERSEDED'", function)
+        self.assertIn("failure_code=NULL", function)
 
     def test_terminal_retryable_dp10_history_is_not_an_active_writer(self):
         fragment = cutover_fragment()

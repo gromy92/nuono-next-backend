@@ -70,12 +70,10 @@ public class ExportReportRuntimeConfiguration {
     ) {
         return new MyBatisReportStageStore(stageMapper, applyMapper, legacyMapper, fbnMapper);
     }
-
     @Bean
     ReportCreateAttemptFence reportCreateAttemptFence(ReportCreateAttemptMapper mapper) {
         return new MyBatisReportCreateAttemptFence(mapper);
     }
-
     @Bean("dp01ReportProvider")
     LegacyNoonReportProviderBridge dp01ReportProvider(
             RealNoonSalesReportSmokeProvider delegate,
@@ -85,14 +83,16 @@ public class ExportReportRuntimeConfiguration {
         return legacy(
                 definitions.dp01(),
                 delegate,
-                LegacyNoonReportProviderBridge.ReadbackMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.EmptyProofMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.ArtifactCompletenessMode.UNAVAILABLE,
+                LegacyNoonReportProviderBridge.ReadbackMode
+                        .RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF,
+                LegacyNoonReportProviderBridge.EmptyProofMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+                LegacyNoonReportProviderBridge.ArtifactCompletenessMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
                 vault,
                 artifacts
         );
     }
-
     @Bean("dp02ReportProvider")
     LegacyNoonReportProviderBridge dp02ReportProvider(
             RealNoonOrderReportSmokeProvider delegate,
@@ -102,16 +102,18 @@ public class ExportReportRuntimeConfiguration {
         return legacy(
                 definitions.dp02(),
                 delegate,
-                // Noon sales-dashboard /latest has returned an older rolling export for
-                // a requested single-day window in production. It cannot prove the create.
-                LegacyNoonReportProviderBridge.ReadbackMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.EmptyProofMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.ArtifactCompletenessMode.UNAVAILABLE,
+                // /latest may be stale. Every non-empty row must still prove the requested
+                // date/site container; an empty file remains waiting and is never applied.
+                LegacyNoonReportProviderBridge.ReadbackMode
+                        .SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION,
+                LegacyNoonReportProviderBridge.EmptyProofMode
+                        .UNPROVEN_EMPTY_REMAINS_WAITING,
+                LegacyNoonReportProviderBridge.ArtifactCompletenessMode
+                        .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION,
                 vault,
                 artifacts
         );
     }
-
     @Bean("dp03ReportProvider")
     LegacyNoonReportProviderBridge dp03ReportProvider(
             RealNoonFinanceTransactionReportProvider delegate,
@@ -121,14 +123,16 @@ public class ExportReportRuntimeConfiguration {
         return legacy(
                 definitions.dp03(),
                 delegate,
-                LegacyNoonReportProviderBridge.ReadbackMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.EmptyProofMode.UNAVAILABLE,
-                LegacyNoonReportProviderBridge.ArtifactCompletenessMode.UNAVAILABLE,
+                LegacyNoonReportProviderBridge.ReadbackMode
+                        .RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF,
+                LegacyNoonReportProviderBridge.EmptyProofMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+                LegacyNoonReportProviderBridge.ArtifactCompletenessMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
                 vault,
                 artifacts
         );
     }
-
     @Bean("dp07bReportProvider")
     FbnReceivedExportReportProvider dp07bReportProvider(
             OfficialWarehouseFbnExportProvider delegate,
@@ -142,11 +146,12 @@ public class ExportReportRuntimeConfiguration {
                 downloadTransport,
                 vault,
                 artifacts,
-                ReportProviderCapabilities.EmptyProofEvidence.UNAVAILABLE,
-                ReportProviderCapabilities.ArtifactCompletenessEvidence.UNAVAILABLE
+                ReportProviderCapabilities.EmptyProofEvidence
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+                ReportProviderCapabilities.ArtifactCompletenessEvidence
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
         );
     }
-
     @Bean
     ReportRuntimeReleaseEvidence reportRuntimeReleaseEvidence(
             @Qualifier("dp01ReportProvider") LegacyNoonReportProviderBridge dp01,
@@ -156,7 +161,6 @@ public class ExportReportRuntimeConfiguration {
     ) {
         return new ReportRuntimeReleaseEvidence(dp01, dp02, dp03, dp07b);
     }
-
     @Bean("dp01ReportJob")
     DataPullJob dp01ReportJob(
             NoonDataPullScopeMapper scopes,
@@ -174,7 +178,6 @@ public class ExportReportRuntimeConfiguration {
                         adapter::requireStageHeader, adapter::classifyStageRows,
                         adapter::stageIdentity), createAttemptFence, providerWaitTransition);
     }
-
     @Bean("dp02ReportJob")
     DataPullJob dp02ReportJob(
             NoonDataPullScopeMapper scopes,
@@ -192,7 +195,6 @@ public class ExportReportRuntimeConfiguration {
                         adapter::requireStageHeader, adapter::classifyStageRows,
                         adapter::stageIdentity), createAttemptFence, providerWaitTransition);
     }
-
     @Bean("dp03ReportJob")
     DataPullJob dp03ReportJob(
             NoonDataPullScopeMapper scopes,
@@ -238,7 +240,6 @@ public class ExportReportRuntimeConfiguration {
                 ),
                 createAttemptFence, providerWaitTransition);
     }
-
     private ExportReportJob job(
             NoonReportDefinition definition,
             NoonDataPullScopeMapper scopeMapper,

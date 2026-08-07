@@ -22,7 +22,6 @@ public interface DataPullLegacyCutoverMapper {
             + " AND last_safe_response_summary IS NULL"
             + " AND COALESCE(processed_item_count, 0) = 0"
             + " AND COALESCE(request_count, 0) = 0"
-            + " AND COALESCE(report_total_rows, 0) = 0"
             + " AND finished_at IS NULL";
     String SUPERSEDABLE_DP10 =
             "status = 'running'"

@@ -59,10 +59,15 @@ public final class FbnReceivedExportReportProvider
         return new ReportProviderCapabilities(
                 definition.getOperationCode(),
                 ReportProviderCapabilities.CreateReadbackEvidence
-                        .STABLE_REQUEST_KEY_UNAVAILABLE,
+                        .READ_ONLY_EXPORT_RETRY_AFTER_PERSISTED_BACKOFF,
                 emptyProofEvidence,
                 artifactCompletenessEvidence
         );
+    }
+
+    @Override
+    public boolean retryUnknownCreateAfterReadbackFailure() {
+        return true;
     }
 
     @Override

@@ -49,7 +49,7 @@ if root["schema"] != "nuono.dp-runtime-cutover-manifest/v1" or \
 if root["manifestCommit"] != commit or root["candidateJarSha256"] != jar_sha or \
         root["cutoverKey"] != "dp-runtime-" + commit:
     raise SystemExit("DP cutover manifest candidate binding mismatch")
-if root["boundaryPolicy"] != "SAFE_FALLBACK_PREVIOUS_BUSINESS_DAY":
+if root["boundaryPolicy"] != "SAFE_PREDECESSOR_OR_FALLBACK_BOUNDARY":
     raise SystemExit("DP cutover boundary policy mismatch")
 hex64 = re.compile(r"[0-9a-f]{64}")
 cohort_raw = json.dumps(
@@ -121,9 +121,11 @@ for operation in operations:
         for field in ("sourceBindingSha256", "boundaryEvidenceSha256", "anchorEvidenceSha256"):
             if not hex64.fullmatch(str(scope[field])):
                 raise SystemExit("DP cutover scope digest invalid")
+        boundary = instant(scope["reconcileAfterUtc"])
         if scope["boundaryKind"] != root["boundaryPolicy"] or \
-                instant(scope["reconcileAfterUtc"]) != expected_boundary:
-            raise SystemExit("DP cutover safe fallback boundary invalid")
+                boundary > expected_boundary or \
+                boundary.astimezone(shanghai).time() != dt.time.min:
+            raise SystemExit("DP cutover safe predecessor boundary invalid")
         identity = tuple(scope[name] for name in (
             "scopeNamespace", "ownerUserId", "logicalStoreId", "accountKey", "egressKey",
             "projectCode", "storeCode", "siteCode", "sourceBindingSha256",

@@ -10,7 +10,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
-
 /** Bounded validation/staging implementation; caller supplies the 10-second transaction. */
 final class ReportStageAppender {
     private static final int MAX_STAGE_ROWS = 200;
@@ -51,15 +50,18 @@ final class ReportStageAppender {
                     "report stage"
             );
         }
+        state = ReportStageEmptyRebinder.rebindIfRequired(
+                stageMapper, safeIntent, safeChunk, nowUtc, state
+        );
         requireSameStage(state, safeIntent, safeChunk);
+        ReportImportResult terminal = existingStageResult(state);
+        if (terminal != null) {
+            return terminal;
+        }
         if (!safeChunk.getRows().isEmpty()
                 && safeChunk.getRows().get(0).getRowNumber()
                 != Math.addExact(value(state.getSourceRowCount()), 1L)) {
             throw new IllegalArgumentException("report stage row sequence does not resume");
-        }
-        ReportImportResult terminal = existingStageResult(state);
-        if (terminal != null) {
-            return terminal;
         }
         if (!Objects.equals(state.getNextByteOffset(), safeChunk.getExpectedByteOffset())) {
             throw new IllegalStateException("report stage byte cursor drift");
@@ -74,8 +76,7 @@ final class ReportStageAppender {
         insertRowsExactly(safeIntent.getTaskId(), records, nowUtc);
         long[] decisions = nextDecisionCounts(state, records);
         long sourceRows = Math.addExact(value(state.getSourceRowCount()), records.size());
-        if (sourceRows > safeChunk.getDeclaredRowCount()
-                || (safeChunk.isEndOfFile() && sourceRows != safeChunk.getDeclaredRowCount())) {
+        if (ReportStageRowCountAuthority.conflicts(safeChunk, sourceRows)) {
             poisonExactly(safeIntent, "REPORT_PROVIDER_ROW_COUNT_CONFLICT", nowUtc);
             return ReportImportResult.contractError("REPORT_PROVIDER_ROW_COUNT_CONFLICT");
         }
@@ -85,7 +86,8 @@ final class ReportStageAppender {
         if (stageMapper.advanceStage(
                 safeIntent, safeChunk.getArtifactKey(), safeChunk.getArtifactSha256(),
                 safeChunk.getExpectedByteOffset(), safeChunk.getNextByteOffset(), sourceRows,
-                decisions[0], decisions[1], decisions[2], nextState, nowUtc
+                decisions[0], decisions[1], decisions[2], nextState, nowUtc,
+                safeChunk.isEndOfFile() && safeChunk.usesLocalRowCount()
         ) != 1) {
             throw new IllegalStateException("report stage progress CAS was rejected");
         }
@@ -262,7 +264,7 @@ final class ReportStageAppender {
                 || !Objects.equals(stage.getArtifactKey(), chunk.getArtifactKey())
                 || !Objects.equals(stage.getArtifactSha256(), chunk.getArtifactSha256())
                 || !Objects.equals(stage.getHeaderJson(), chunk.getHeaderJson())
-                || value(stage.getDeclaredRowCount()) != chunk.getDeclaredRowCount()) {
+                || !ReportStageRowCountAuthority.matches(stage, chunk)) {
             throw new IllegalStateException("report stage artifact binding drift");
         }
     }

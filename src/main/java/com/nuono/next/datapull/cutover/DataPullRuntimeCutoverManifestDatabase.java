@@ -65,7 +65,7 @@ final class DataPullRuntimeCutoverManifestDatabase {
             try (SqlSession session = sessions.openSession(connection)) {
                 LocalDateTime observedAtUtc = databaseTime(connection);
                 DataPullRuntimeCutoverSourceCohort result = readCohort(
-                        session, cutoverKey, observedAtUtc
+                        session, connection, cutoverKey, observedAtUtc
                 );
                 connection.rollback();
                 return result;
@@ -75,9 +75,10 @@ final class DataPullRuntimeCutoverManifestDatabase {
 
     private DataPullRuntimeCutoverSourceCohort readCohort(
             SqlSession session,
+            Connection connection,
             String cutoverKey,
             LocalDateTime observedAtUtc
-    ) {
+    ) throws Exception {
         List<DataPullScope> noon = new NoonDataPullScopeSource(
                 session.getMapper(NoonDataPullScopeMapper.class)
         ).listScopes();
@@ -108,7 +109,10 @@ final class DataPullRuntimeCutoverManifestDatabase {
         DataPullJobRegistry registry = new DataPullJobRegistry(jobs);
         registry.requireComplete();
         return new DataPullRuntimeCutoverSourceCohort(
-                observedAtUtc, registry, captured.snapshot()
+                observedAtUtc,
+                registry,
+                captured.snapshot(),
+                new DataPullLegacyScheduleBoundaryReader().read(connection, noon)
         );
     }
 

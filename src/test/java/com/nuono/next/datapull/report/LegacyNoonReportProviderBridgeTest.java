@@ -71,6 +71,7 @@ class LegacyNoonReportProviderBridgeTest {
                 bridge.download(intent, handle, poll.getDownloadLocatorReference()).getType());
         assertEquals(delegate.downloadUrl, delegate.seenDownloadUrl.get());
     }
+
     @Test
     void ambiguousCreateNeverBecomesAnAutomaticSecondCreate() {
         RecordingProvider delegate = new RecordingProvider();
@@ -190,7 +191,6 @@ class LegacyNoonReportProviderBridgeTest {
         ), evidence.getBlockers());
         assertFalse(evidence.verified());
     }
-
     private LegacyNoonReportProviderBridge bridge(
             NoonReportProvider delegate,
             LegacyNoonReportProviderBridge.ReadbackMode mode

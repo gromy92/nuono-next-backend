@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from scripts.tests.test_release_dp_runtime_cutover import cutover_fragment
 
@@ -41,11 +42,51 @@ def manifest():
         "sourceObservedAtUtc": stamp(observed),
         "generatedAtUtc": stamp(observed),
         "expiresAtUtc": stamp(observed + dt.timedelta(minutes=30)),
-        "boundaryPolicy": "SAFE_FALLBACK_PREVIOUS_BUSINESS_DAY",
+        "boundaryPolicy": "SAFE_PREDECESSOR_OR_FALLBACK_BOUNDARY",
         "operationCount": 11,
         "cohortSha256": cohort,
         "operations": operations,
     }
+
+
+def manifest_with_scope(boundary_days_before):
+    result = manifest()
+    observed = dt.datetime.fromisoformat(
+        result["sourceObservedAtUtc"].replace("Z", "+00:00")
+    )
+    shanghai = ZoneInfo("Asia/Shanghai")
+    boundary_date = observed.astimezone(shanghai).date() - dt.timedelta(
+        days=boundary_days_before
+    )
+    boundary = dt.datetime.combine(
+        boundary_date, dt.time.min, tzinfo=shanghai
+    ).astimezone(dt.timezone.utc)
+    scope = {
+        "scopeKey": "NOON-test-scope",
+        "scopeNamespace": "NOON",
+        "ownerUserId": 307,
+        "logicalStoreId": 108065,
+        "accountKey": "account-307",
+        "egressKey": "egress-cn-1",
+        "projectCode": "PRJ108065",
+        "storeCode": "STR108065-NSA",
+        "siteCode": "SA",
+        "sourceBindingSha256": "1" * 64,
+        "reconcileAfterUtc": boundary.isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        ),
+        "boundaryKind": result["boundaryPolicy"],
+        "boundaryEvidenceSha256": "2" * 64,
+        "anchorEvidenceSha256": "3" * 64,
+        "binding": None,
+    }
+    result["operations"][0]["expectedScopeCount"] = 1
+    result["operations"][0]["scopes"] = [scope]
+    result["cohortSha256"] = hashlib.sha256(json.dumps(
+        result["operations"], ensure_ascii=False,
+        separators=(",", ":"), sort_keys=True,
+    ).encode()).hexdigest()
+    return result
 
 
 def run_fragment(body):
@@ -69,6 +110,24 @@ secure_file_operation() {{ sha256sum "$2" | awk '{{print $1}}'; }}
 verify_dp_runtime_manifest_json "{path}" "{digest}"
 ''')
             self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_shell_verifier_accepts_retained_predecessor_boundary_but_not_future(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for days_before, expected in ((10, 0), (0, 1)):
+                path = Path(directory) / f"manifest-{days_before}.json"
+                path.write_text(
+                    json.dumps(manifest_with_scope(days_before)), encoding="utf-8"
+                )
+                os.chmod(path, 0o600)
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                result = run_fragment(f'''
+secure_file_operation() {{ sha256sum "$2" | awk '{{print $1}}'; }}
+verify_dp_runtime_manifest_json "{path}" "{digest}"
+''')
+                if expected == 0:
+                    self.assertEqual(0, result.returncode, result.stderr)
+                else:
+                    self.assertNotEqual(0, result.returncode)
 
     def test_bootstrap_writer_emits_one_fk_ordered_transaction_for_all_operations(self):
         with tempfile.TemporaryDirectory() as directory:
