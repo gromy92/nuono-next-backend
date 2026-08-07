@@ -18,7 +18,7 @@ src/main/java/com/nuono/next/infrastructure/mapper/InTransitSuperSearchMapper.ja
 src/main/java/com/nuono/next/infrastructure/mapper/LogisticsQuoteMapper.java	799
 src/main/java/com/nuono/next/infrastructure/mapper/MasterDataMapper.java	1061
 src/main/java/com/nuono/next/infrastructure/mapper/NoonAdvertisingMapper.java	628
-src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1346
+src/main/java/com/nuono/next/infrastructure/mapper/NoonAuthRecoveryMapper.java	1331
 src/main/java/com/nuono/next/infrastructure/mapper/NoonFinanceTransactionMapper.java	449
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseMapper.java	1217
 src/main/java/com/nuono/next/infrastructure/mapper/OfficialWarehouseStatisticsMapper.java	1363
@@ -70,7 +70,7 @@ src/main/java/com/nuono/next/noon/NoonSessionGateway.java	2270
 src/main/java/com/nuono/next/noon/NoonSessionGatewayAuthRecoveryGateway.java	629
 src/main/java/com/nuono/next/noonads/NoonAdvertisingReportAdapter.java	352
 src/main/java/com/nuono/next/noonads/NoonAdvertisingStructureDiagnosticService.java	393
-src/main/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepository.java	748
+src/main/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepository.java	747
 src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinator.java	363
 src/main/java/com/nuono/next/noonauth/NoonAuthRecoveryWorker.java	980
 src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	896

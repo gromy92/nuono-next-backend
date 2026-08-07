@@ -106,8 +106,7 @@ public class NoonAuthRecoveryWorker {
         NoonAuthTransientBackoffGuard resolvedTransientBackoffGuard = transientBackoffGuard == null
                 ? NoonAuthTransientBackoffGuard.disabled(clock)
                 : transientBackoffGuard;
-        this.transientOrchestrator =
-                new NoonAuthTransientOrchestrator(resolvedTransientBackoffGuard);
+        this.transientOrchestrator = new NoonAuthTransientOrchestrator(resolvedTransientBackoffGuard);
         this.waitingTaskCoordinator = new NoonAuthWaitingTaskCoordinator(repository);
         this.projectOutcomeHandler =
                 new NoonAuthRecoveryProjectOutcomeHandler(
@@ -192,6 +191,7 @@ public class NoonAuthRecoveryWorker {
                 repository.drainIdentityRecoveries(candidate.getIdentityKey(), now);
                 continue;
             }
+            NoonAuthOwnerScopeGuard.requireValid(repository, candidate);
             String leaseToken = UUID.randomUUID().toString().replace("-", "");
             long expectedVersion = safeLong(candidate.getVersionNo());
             if (!repository.tryClaimRecovery(

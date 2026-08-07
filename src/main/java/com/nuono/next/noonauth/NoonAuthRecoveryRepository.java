@@ -25,6 +25,8 @@ public interface NoonAuthRecoveryRepository {
 
     int promoteReadySuccessors(LocalDateTime coalesceUntil, LocalDateTime now);
 
+    boolean isOwnerScopeManifestValid(Long recoveryId);
+
     int drainDisabledRecoveries(LocalDateTime now);
 
     int drainIdentityRecoveries(String identityKey, LocalDateTime now);

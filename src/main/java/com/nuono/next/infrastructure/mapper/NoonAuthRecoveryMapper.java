@@ -13,10 +13,11 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
-public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper {
+public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper, NoonAuthOwnerScopeMapper {
     String RECOVERY_COLUMNS = ""
             + "id, predecessor_recovery_id AS predecessorRecoveryId, identity_key AS identityKey, "
             + "status, generation_no AS generationNo, "
+            + "scope_owner_user_id AS scopeOwnerUserId, "
             + "send_attempt_count AS sendAttemptCount, first_send_at AS firstSendAt, "
             + "second_send_at AS secondSendAt, coalesce_until AS coalesceUntil, "
             + "next_attempt_at AS nextAttemptAt, lease_owner AS leaseOwner, lease_token AS leaseToken, "
@@ -161,26 +162,9 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper 
             "LEFT JOIN noon_auth_identity_recovery active",
             "  ON active.identity_key = successor.identity_key",
             " AND active.active_identity_slot IS NOT NULL",
-            "SET successor.status = 'COALESCING',",
-            "    successor.coalesce_until = #{coalesceUntil},",
-            "    successor.next_attempt_at = #{coalesceUntil},",
-            "    successor.version_no = successor.version_no + 1,",
-            "    successor.gmt_updated = #{now}",
-            "WHERE successor.status = 'WAITING_PREDECESSOR'",
-            "  AND predecessor.status IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')",
-            "  AND active.id IS NULL"
-    })
-    int promoteReadySuccessors(
-            @Param("coalesceUntil") LocalDateTime coalesceUntil,
-            @Param("now") LocalDateTime now
-    );
-
-    @Update({
-            "UPDATE noon_auth_identity_recovery successor",
-            "JOIN noon_auth_identity_recovery predecessor ON predecessor.id = successor.predecessor_recovery_id",
-            "LEFT JOIN noon_auth_identity_recovery active",
-            "  ON active.identity_key = successor.identity_key",
-            " AND active.active_identity_slot IS NOT NULL",
+            "LEFT JOIN noon_auth_owner_scope_manifest owner_scope",
+            "  ON owner_scope.predecessor_recovery_id = predecessor.id",
+            " AND owner_scope.status = 'ACTIVE'",
             "SET successor.status = 'COALESCING',",
             "    successor.coalesce_until = #{coalesceUntil},",
             "    successor.next_attempt_at = #{coalesceUntil},",
@@ -189,6 +173,7 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper 
             "WHERE successor.status = 'WAITING_PREDECESSOR'",
             "  AND predecessor.id = #{predecessorRecoveryId}",
             "  AND predecessor.status IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')",
+            "  AND (owner_scope.id IS NULL OR owner_scope.scoped_recovery_id = successor.id)",
             "  AND active.id IS NULL"
     })
     int promoteSuccessorForPredecessor(

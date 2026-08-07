@@ -18,7 +18,7 @@ from tests.schema_migration_fakes import FakeDatabase  # noqa: E402
 
 
 class MigrationLivecheckContractTest(unittest.TestCase):
-    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244, 245, 246, 247, 248, 250})
+    SEPARATE_LIVECHECK_ORDERS = frozenset({237, 243, 244, 245, 246, 247, 248, 250, 251})
 
     @classmethod
     def setUpClass(cls):

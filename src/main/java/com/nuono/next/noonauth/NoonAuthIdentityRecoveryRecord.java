@@ -7,6 +7,7 @@ public class NoonAuthIdentityRecoveryRecord {
     private Long predecessorRecoveryId;
     private String identityKey;
     private NoonAuthRecoveryStatus status;
+    private Long scopeOwnerUserId;
     private Integer generationNo;
     private Integer sendAttemptCount;
     private LocalDateTime firstSendAt;
@@ -58,6 +59,14 @@ public class NoonAuthIdentityRecoveryRecord {
 
     public void setStatus(NoonAuthRecoveryStatus status) {
         this.status = status;
+    }
+
+    public Long getScopeOwnerUserId() {
+        return scopeOwnerUserId;
+    }
+
+    public void setScopeOwnerUserId(Long scopeOwnerUserId) {
+        this.scopeOwnerUserId = scopeOwnerUserId;
     }
 
     public Integer getGenerationNo() {
