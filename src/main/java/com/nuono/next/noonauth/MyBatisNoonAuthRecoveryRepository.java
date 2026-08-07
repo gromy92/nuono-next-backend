@@ -19,8 +19,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
 
     @Override
     public Long coalesceActiveRecovery(NoonAuthIdentityRecoveryRecord recovery) {
-        mapper.coalesceActiveRecovery(recovery);
-        return recovery.getId();
+        return NoonAuthOwnerScopeCoalescer.coalesce(mapper, recovery);
     }
 
     @Override
@@ -57,10 +56,10 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     }
 
     @Override
-    public int promoteReadySuccessors(LocalDateTime coalesceUntil, LocalDateTime now) {
-        return mapper.promoteReadySuccessors(coalesceUntil, now);
-    }
+    public int promoteReadySuccessors(LocalDateTime coalesceUntil, LocalDateTime now) { return mapper.promoteReadySuccessors(coalesceUntil, now); }
 
+    @Override
+    public boolean isOwnerScopeManifestValid(Long recoveryId) { return mapper.isOwnerScopeManifestValid(recoveryId) == 1; }
     @Override
     @Transactional
     public int drainDisabledRecoveries(LocalDateTime now) {
