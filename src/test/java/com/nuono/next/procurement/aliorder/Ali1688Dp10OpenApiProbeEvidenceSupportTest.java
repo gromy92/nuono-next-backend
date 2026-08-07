@@ -35,8 +35,12 @@ class Ali1688Dp10OpenApiProbeEvidenceSupportTest {
         );
         JsonNode json = new ObjectMapper().readTree(fixture.evidence.toFile());
         assertEquals(Ali1688Dp10OpenApiProbeEvidenceSupport.SCHEMA, json.get("schema").asText());
+        assertEquals(
+                Ali1688Dp10OpenApiProbeEvidenceSupport.EXECUTION_PROVEN,
+                json.get("release_disposition").asText()
+        );
         assertEquals(COMMIT, json.get("manifest_commit").asText());
-        assertEquals(12, json.size());
+        assertEquals(13, json.size());
         String serialized = json.toString().toLowerCase();
         for (String forbidden : Set.of(
                 "token", "secret", "authorization_id", "order_no", "payload",
