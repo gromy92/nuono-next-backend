@@ -10,7 +10,8 @@ import stat
 from pathlib import Path
 
 from noon_auth_manual_hold_retry_artifact import load_release_provenance
-from noon_auth_manual_hold_retry_sql import build_apply_sql
+from noon_auth_manual_hold_retry_sql import build_apply_sql, build_finalize_sql
+from noon_auth_retry_task_scope import freeze_task_scope
 from schema_migrations.mysql_client import MySqlClient
 
 LOCK_NAME = "nuono:noon-auth-manual-hold-retry"
@@ -40,9 +41,9 @@ def build_manifest(snapshot: dict, recovery: int, owner: int, project: str,
             or not target["leaseFree"]):
         raise ValueError("recovery is not the exact exhausted unknown-send manual hold")
     if (item["recoveryId"] != recovery or item["ownerUserId"] != owner
-            or item["projectCode"] != project or item["sourceTaskId"] is not None
+            or item["projectCode"] != project or not isinstance(item["sourceTaskId"], int)
             or item["status"] != "PENDING"):
-        raise ValueError("manual-hold source-less item scope drifted")
+        raise ValueError("manual-hold task-owned item scope drifted")
     if (state["ownerUserId"] != owner or state["projectCode"] != project
             or state["activeRecoveryId"] != recovery or state["status"] != "MANUAL_HOLD"
             or state["authVersion"] != item["expectedAuthVersion"]):
@@ -54,12 +55,17 @@ def build_manifest(snapshot: dict, recovery: int, owner: int, project: str,
         raise ValueError("owner-scoped successor fence is not active and send-free")
     if snapshot["ledgerCount"] != 2 or snapshot["incidentGenerateCount"] != 0:
         raise ValueError("old two intents are not proven provider-generate-free")
+    task_items, cancelled_task_ids, paused_plan_ids = freeze_task_scope(
+        snapshot, recovery, owner, item, scope
+    )
     expected_after = {
         "recoveryId": recovery, "status": "WAITING_COOLDOWN",
         "sendBudgetEpoch": target["sendBudgetEpoch"] + 1, "generationNo": 0,
         "sendAttemptCount": 0, "versionNo": target["versionNo"] + 1,
         "projectStatus": "REAUTH_REQUIRED", "authVersion": state["authVersion"] + 1,
         "itemStatus": "PENDING", "itemExpectedAuthVersion": state["authVersion"] + 1,
+        "cancelledTaskIds": cancelled_task_ids,
+        "pausedPlanIds": paused_plan_ids,
     }
     core = {
         "releaseProvenance": provenance,
@@ -67,6 +73,10 @@ def build_manifest(snapshot: dict, recovery: int, owner: int, project: str,
         "item": item,
         "projectState": state,
         "ownerScope": scope,
+        "sourceTaskItemCount": snapshot["sourceTaskItemCount"],
+        "taskItems": task_items,
+        "cancelledTaskIds": cancelled_task_ids,
+        "pausedPlanIds": paused_plan_ids,
         "ledgerCount": snapshot["ledgerCount"],
         "ledgerFirstAt": snapshot["ledgerFirstAt"],
         "ledgerLastAt": snapshot["ledgerLastAt"],
@@ -99,8 +109,10 @@ SELECT JSON_OBJECT(
   'configFingerprint',r.config_fingerprint,
   'leaseFree',r.lease_token IS NULL AND (r.lease_until IS NULL OR r.lease_until<=UTC_TIMESTAMP(3))),
  'item',JSON_OBJECT('id',i.id,'recoveryId',i.recovery_id,'ownerUserId',i.owner_user_id,
-  'projectCode',i.project_code,'sourceTaskId',i.source_task_id,'status',i.status,
-  'expectedAuthVersion',i.expected_auth_version),
+  'projectCode',i.project_code,'storeCode',i.store_code,'siteCode',i.site_code,
+  'sourceTaskId',i.source_task_id,'sourceDomain',i.source_domain,
+  'sourceCheckpoint',i.source_checkpoint,'resumePolicy',i.resume_policy,
+  'status',i.status,'expectedAuthVersion',i.expected_auth_version),
  'projectState',JSON_OBJECT('ownerUserId',s.owner_user_id,'projectCode',s.project_code,
   'status',s.status,'activeRecoveryId',s.active_recovery_id,'authVersion',s.auth_version,
   'identityKey',s.identity_key,'bindingFingerprint',s.binding_fingerprint,
@@ -111,6 +123,32 @@ SELECT JSON_OBJECT(
   'scopedSendAttemptCount',sr.send_attempt_count) FROM noon_auth_owner_scope_manifest m
   JOIN noon_auth_identity_recovery sr ON sr.id=m.scoped_recovery_id
   WHERE m.predecessor_recovery_id=r.id AND m.status='ACTIVE'),
+ 'sourceTaskItemCount',(SELECT COUNT(*) FROM noon_auth_identity_recovery_item ti
+  WHERE ti.owner_user_id={owner} AND ti.source_task_id IS NOT NULL
+  AND ti.recovery_id IN (r.id,(SELECT scoped_recovery_id FROM noon_auth_owner_scope_manifest
+    WHERE predecessor_recovery_id=r.id AND status='ACTIVE'))),
+ 'taskItems',(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+  'itemId',ti.id,'recoveryId',ti.recovery_id,'ownerUserId',ti.owner_user_id,
+  'projectCode',ti.project_code,'storeCode',ti.store_code,'siteCode',ti.site_code,
+  'sourceTaskId',ti.source_task_id,'sourceDomain',ti.source_domain,
+  'sourceCheckpoint',ti.source_checkpoint,'resumePolicy',ti.resume_policy,
+  'itemStatus',ti.status,'taskId',task.id,'taskOwnerUserId',task.owner_user_id,
+  'taskStoreCode',task.store_code,'taskSiteCode',task.site_code,'dataDomain',task.data_domain,
+  'status',task.status,'authRecoveryId',task.auth_recovery_id,
+  'triggerMode',task.trigger_mode,'pullType',task.pull_type,
+  'targetIdentity',task.target_identity,'retryAction',task.retry_action,
+  'checkpointCursor',task.checkpoint_cursor,'nextResumePosition',task.next_resume_position,
+  'lastSafeResponseSummary',task.last_safe_response_summary,
+  'processedItemCount',COALESCE(task.processed_item_count,0),
+  'requestCount',COALESCE(task.request_count,0),'finishedAt',task.finished_at,
+  'isDeleted',task.is_deleted=b'1','planId',plan.id,'planEnabled',plan.enabled=b'1',
+  'planPaused',plan.paused=b'1')),JSON_ARRAY())
+  FROM noon_auth_identity_recovery_item ti
+  JOIN noon_pull_task task ON task.id=ti.source_task_id
+  JOIN noon_pull_plan plan ON plan.id=task.plan_id
+  WHERE ti.owner_user_id={owner} AND ti.source_task_id IS NOT NULL
+  AND ti.recovery_id IN (r.id,(SELECT scoped_recovery_id FROM noon_auth_owner_scope_manifest
+    WHERE predecessor_recovery_id=r.id AND status='ACTIVE'))),
  'ledgerCount',(SELECT COUNT(*) FROM noon_auth_identity_send_ledger l WHERE l.recovery_id=r.id),
  'ledgerFirstAt',(SELECT MIN(send_intent_at) FROM noon_auth_identity_send_ledger l WHERE l.recovery_id=r.id),
  'ledgerLastAt',(SELECT MAX(send_intent_at) FROM noon_auth_identity_send_ledger l WHERE l.recovery_id=r.id),
@@ -121,7 +159,7 @@ SELECT JSON_OBJECT(
  'providerGenerateLastAt',(SELECT MAX(occurred_at) FROM noon_http_call_log h WHERE h.path='{path}')
 ) FROM noon_auth_identity_recovery r
 JOIN noon_auth_identity_recovery_item i ON i.recovery_id=r.id AND i.owner_user_id={owner}
- AND BINARY i.project_code=BINARY '{project_sql}' AND i.source_task_id IS NULL
+ AND BINARY i.project_code=BINARY '{project_sql}' AND i.source_task_id IS NOT NULL
 JOIN noon_project_auth_state s ON s.owner_user_id=i.owner_user_id
  AND BINARY s.project_code=BINARY i.project_code
 WHERE r.id={recovery};
@@ -150,6 +188,7 @@ def _load(path: Path) -> dict:
     value = json.loads(path.read_text(encoding="utf-8"))
     core = {key: value[key] for key in (
         "releaseProvenance", "recovery", "item", "projectState", "ownerScope",
+        "sourceTaskItemCount", "taskItems", "cancelledTaskIds", "pausedPlanIds",
         "ledgerCount", "ledgerFirstAt",
         "ledgerLastAt", "incidentGenerateCount", "providerGenerateCount",
         "providerGenerateMaxId", "providerGenerateLastAt", "cooldownSeconds", "expectedAfter")}
@@ -160,7 +199,7 @@ def _load(path: Path) -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=("plan", "apply"))
+    parser.add_argument("action", choices=("plan", "apply", "finalize"))
     for name in ("defaults-file", "schema", "host", "actor"):
         parser.add_argument(f"--{name}", required=True)
     parser.add_argument("--port", type=int, required=True)
@@ -189,7 +228,7 @@ def main() -> int:
             _write_new(args.output, value)
             result = {"result": "PLANNED", "manifest": str(args.output),
                       "manifestSha256": value["manifestSha256"]}
-        else:
+        elif args.action == "apply":
             if not args.manifest:
                 raise ValueError("apply requires --manifest")
             value = _load(args.manifest)
@@ -203,6 +242,14 @@ def main() -> int:
                 raise ValueError("production state changed after retry manifest freeze")
             client.execute(build_apply_sql(value, args.actor))
             result = {"result": "APPLIED", "recoveryId": value["recovery"]["id"]}
+        else:
+            if not args.manifest:
+                raise ValueError("finalize requires --manifest")
+            value = _load(args.manifest)
+            if value["releaseProvenance"] != provenance:
+                raise ValueError("finalize release provenance differs from frozen manifest")
+            client.execute(build_finalize_sql(value, args.actor))
+            result = {"result": "FINALIZED", "planIds": value["pausedPlanIds"]}
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     finally:

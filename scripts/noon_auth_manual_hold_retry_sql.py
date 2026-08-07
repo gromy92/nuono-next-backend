@@ -27,6 +27,31 @@ def _state_sha(value: dict) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _task_predicate(task: dict) -> str:
+    return "(" + " AND ".join((
+        f"item.id={int(task['itemId'])}",
+        f"item.recovery_id={int(task['recoveryId'])}",
+        f"item.owner_user_id={int(task['ownerUserId'])}",
+        f"BINARY item.project_code=BINARY {_text(task['projectCode'])}",
+        f"item.source_task_id={int(task['sourceTaskId'])}",
+        f"item.source_domain={_text(task['sourceDomain'])}",
+        "item.source_checkpoint='PERSISTED_TASK_STATE'",
+        "item.resume_policy='AUTO_RESUME'", "item.status='PENDING'",
+        f"task.id={int(task['taskId'])}", f"task.owner_user_id={int(task['taskOwnerUserId'])}",
+        f"task.store_code={_text(task['taskStoreCode'])}",
+        f"task.site_code={_text(task['taskSiteCode'])}",
+        f"task.data_domain={_text(task['dataDomain'])}", "task.status='BLOCKED_AUTH'",
+        f"task.auth_recovery_id={int(task['authRecoveryId'])}",
+        "task.trigger_mode='SCHEDULED_DAILY'", "task.pull_type='REPORT'",
+        f"task.target_identity={_text(task['targetIdentity'])}",
+        "task.retry_action='WAIT_FOR_AUTH'", "task.checkpoint_cursor IS NULL",
+        "task.next_resume_position IS NULL", "task.last_safe_response_summary IS NULL",
+        "COALESCE(task.processed_item_count,0)=0", "COALESCE(task.request_count,0)=0",
+        "task.finished_at IS NULL", "task.is_deleted=b'0'",
+        f"plan.id={int(task['planId'])}", "plan.enabled=b'1'", "plan.paused=b'0'",
+    )) + ")"
+
+
 def build_apply_sql(manifest: dict, actor: str) -> str:
     recovery = manifest["recovery"]
     item = manifest["item"]
@@ -37,8 +62,14 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
     cooldown = int(manifest["cooldownSeconds"])
     next_version = int(state["authVersion"]) + 1
     path = "/_svc/mp-partner-identity/public/user/credential/generate"
+    task_ids = ",".join(str(task_id) for task_id in manifest["cancelledTaskIds"])
+    plan_ids = ",".join(str(plan_id) for plan_id in manifest["pausedPlanIds"])
+    pause_reason = "managed auth recovery " + manifest["manifestKey"]
+    task_predicates = " OR ".join(_task_predicate(task) for task in manifest["taskItems"])
     details = json.dumps({"manifestKey": manifest["manifestKey"], "recoveryId": recovery_id,
                           "operation": "MANUAL_HOLD_RETRY_REBASE",
+                          "cancelledTaskIds": manifest["cancelledTaskIds"],
+                          "pausedPlanIds": manifest["pausedPlanIds"],
                           "releaseProvenance": manifest["releaseProvenance"]},
                          separators=(",", ":"))
     guards = " AND ".join((
@@ -58,9 +89,21 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         f"AND m.owner_user_id={owner} AND m.predecessor_recovery_id={recovery_id} "
         f"AND sr.id={int(scope['scopedRecoveryId'])} AND sr.status='WAITING_PREDECESSOR' "
         "AND sr.send_attempt_count=0 AND sr.lease_token IS NULL)=1",
+        f"(SELECT COUNT(*) FROM noon_auth_identity_recovery_item item "
+        "JOIN noon_pull_task task ON task.id=item.source_task_id "
+        "JOIN noon_pull_plan plan ON plan.id=task.plan_id "
+        f"WHERE {task_predicates})={len(manifest['taskItems'])}",
+        f"(SELECT COUNT(*) FROM noon_auth_identity_recovery_item item "
+        f"WHERE item.owner_user_id={owner} AND item.source_task_id IS NOT NULL "
+        f"AND item.recovery_id IN ({recovery_id},{int(scope['scopedRecoveryId'])}))="
+        f"{int(manifest['sourceTaskItemCount'])}",
         f"(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE id={int(item['id'])} "
         f"AND recovery_id={recovery_id} AND owner_user_id={owner} "
-        f"AND BINARY project_code=BINARY {_text(item['projectCode'])} AND source_task_id IS NULL "
+        f"AND BINARY project_code=BINARY {_text(item['projectCode'])} "
+        f"AND source_task_id={int(item['sourceTaskId'])} "
+        f"AND source_domain={_text(item['sourceDomain'])} "
+        f"AND source_checkpoint={_text(item['sourceCheckpoint'])} "
+        f"AND resume_policy={_text(item['resumePolicy'])} "
         f"AND status='PENDING' AND expected_auth_version={int(item['expectedAuthVersion'])})=1",
         f"(SELECT COUNT(*) FROM noon_project_auth_state WHERE owner_user_id={owner} "
         f"AND BINARY project_code=BINARY {_text(item['projectCode'])} AND status='MANUAL_HOLD' "
@@ -76,7 +119,18 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         f"SELECT owner_user_id FROM noon_project_auth_state WHERE owner_user_id={owner} "
         f"AND BINARY project_code=BINARY {_text(item['projectCode'])} FOR UPDATE;",
         f"SELECT id FROM noon_auth_owner_scope_manifest WHERE id={int(scope['id'])} FOR UPDATE;",
+        f"SELECT id FROM noon_pull_task WHERE id IN ({task_ids}) ORDER BY id FOR UPDATE;",
+        f"SELECT id FROM noon_pull_plan WHERE id IN ({plan_ids}) ORDER BY id FOR UPDATE;",
         _signal("NOON_AUTH_RETRY_SCOPE_DRIFT", guards),
+        "UPDATE noon_pull_plan SET paused=b'1',"
+        f"pause_reason={_text(pause_reason)},gmt_updated=UTC_TIMESTAMP(3) "
+        f"WHERE id IN ({plan_ids}) AND enabled=b'1' AND paused=b'0';",
+        _signal("NOON_AUTH_RETRY_PLAN_PAUSE_CAS_FAILED",
+                f"ROW_COUNT()={len(manifest['pausedPlanIds'])}"),
+        "UPDATE noon_pull_task SET status='CANCELLED',finished_at=UTC_TIMESTAMP(3),"
+        f"gmt_updated=UTC_TIMESTAMP(3) WHERE id IN ({task_ids}) AND status='BLOCKED_AUTH';",
+        _signal("NOON_AUTH_RETRY_TASK_CANCEL_CAS_FAILED",
+                f"ROW_COUNT()={len(manifest['taskItems'])}"),
         "UPDATE noon_auth_identity_recovery SET status='WAITING_COOLDOWN',"
         f"config_fingerprint={_text(recovery['configFingerprint'])},"
         f"next_attempt_at=UTC_TIMESTAMP(3)+INTERVAL {cooldown} SECOND,"
@@ -105,4 +159,42 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
     )) + "\n"
 
 
-__all__ = ["build_apply_sql"]
+def build_finalize_sql(manifest: dict, actor: str) -> str:
+    scope = manifest["ownerScope"]
+    owner = int(manifest["item"]["ownerUserId"])
+    recovery_id = int(manifest["recovery"]["id"])
+    scoped_id = int(scope["scopedRecoveryId"])
+    task_ids = ",".join(str(task_id) for task_id in manifest["cancelledTaskIds"])
+    plan_ids = ",".join(str(plan_id) for plan_id in manifest["pausedPlanIds"])
+    projects = sorted({task["projectCode"] for task in manifest["taskItems"]})
+    project_values = ",".join(_text(project) for project in projects)
+    pause_reason = "managed auth recovery " + manifest["manifestKey"]
+    details = json.dumps({"manifestKey": manifest["manifestKey"],
+                          "operation": "SOURCE_PLANS_UNPAUSED",
+                          "planIds": manifest["pausedPlanIds"]}, separators=(",", ":"))
+    guards = " AND ".join((
+        f"(SELECT COUNT(*) FROM noon_auth_identity_recovery WHERE id IN ({recovery_id},{scoped_id}) AND status='COMPLETED' AND lease_token IS NULL)=2",
+        f"(SELECT COUNT(*) FROM noon_project_auth_state WHERE owner_user_id={owner} AND project_code IN ({project_values}) AND status='HEALTHY' AND active_recovery_id IS NULL)={len(projects)}",
+        f"(SELECT COUNT(*) FROM noon_pull_task WHERE id IN ({task_ids}) AND status='CANCELLED' AND finished_at IS NOT NULL)={len(manifest['cancelledTaskIds'])}",
+        f"(SELECT COUNT(*) FROM noon_pull_plan WHERE id IN ({plan_ids}) AND enabled=b'1' AND paused=b'1' AND pause_reason={_text(pause_reason)})={len(manifest['pausedPlanIds'])}",
+        f"(SELECT COUNT(*) FROM noon_auth_identity_recovery WHERE id={int(scope['sourceRecoveryId'])} AND status='WAITING_PREDECESSOR' AND send_attempt_count=0)=1",
+    ))
+    return "\n".join((
+        "SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE;START TRANSACTION;",
+        f"SELECT id FROM noon_pull_plan WHERE id IN ({plan_ids}) ORDER BY id FOR UPDATE;",
+        _signal("NOON_AUTH_RETRY_FINALIZE_DRIFT", guards),
+        "UPDATE noon_pull_plan SET paused=b'0',pause_reason=NULL,gmt_updated=UTC_TIMESTAMP(3) "
+        f"WHERE id IN ({plan_ids}) AND enabled=b'1' AND paused=b'1' "
+        f"AND pause_reason={_text(pause_reason)};",
+        _signal("NOON_AUTH_RETRY_PLAN_UNPAUSE_CAS_FAILED",
+                f"ROW_COUNT()={len(manifest['pausedPlanIds'])}"),
+        "INSERT INTO noon_auth_owner_scope_audit "
+        "(manifest_id,action,actor,before_state_sha256,after_state_sha256,details_json,gmt_create) VALUES ("
+        f"{int(scope['id'])},'SOURCE_PLANS_UNPAUSED',{_text(actor)},"
+        f"{_text(_state_sha(manifest['expectedAfter']))},{_text(manifest['manifestSha256'])},"
+        f"CAST({_text(details)} AS JSON),UTC_TIMESTAMP(3));",
+        "COMMIT;",
+    )) + "\n"
+
+
+__all__ = ["build_apply_sql", "build_finalize_sql"]

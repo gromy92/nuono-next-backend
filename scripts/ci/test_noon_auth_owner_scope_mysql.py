@@ -16,7 +16,10 @@ from noon_auth_manual_hold_retry import (  # noqa: E402
     build_manifest as build_retry_manifest,
     load_snapshot as load_retry_snapshot,
 )
-from noon_auth_manual_hold_retry_sql import build_apply_sql as build_retry_sql  # noqa: E402
+from noon_auth_manual_hold_retry_sql import (  # noqa: E402
+    build_apply_sql as build_retry_sql,
+    build_finalize_sql as build_retry_finalize_sql,
+)
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E402
 
@@ -72,13 +75,17 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
         )
         database.client.execute(build_retry_sql(retry, "ci-retry"))
         self.assertEqual(
-            "WAITING_COOLDOWN:1:0:0:11:REAUTH_REQUIRED:8:PENDING:8:2",
+            "WAITING_COOLDOWN:1:0:0:11:REAUTH_REQUIRED:8:PENDING:8:2:3:3",
             database.client.execute_readonly(
                 "SELECT CONCAT(recovery.status,':',recovery.send_budget_epoch,':',"
                 "recovery.generation_no,':',recovery.send_attempt_count,':',recovery.version_no,':',"
                 "state.status,':',state.auth_version,':',item.status,':',item.expected_auth_version,':',"
                 "(SELECT COUNT(*) FROM noon_auth_identity_send_ledger WHERE recovery_id="
-                f"{self.PREDECESSOR})) FROM noon_auth_identity_recovery recovery "
+                f"{self.PREDECESSOR}),':',(SELECT COUNT(*) FROM noon_pull_task "
+                "WHERE id IN (93001,93002,93003) AND status='CANCELLED'),':',"
+                "(SELECT COUNT(*) FROM noon_pull_plan WHERE id IN (94001,94002,94003) "
+                "AND paused=b'1')) "
+                "FROM noon_auth_identity_recovery recovery "
                 "JOIN noon_project_auth_state state ON state.active_recovery_id=recovery.id "
                 "AND state.project_code='PRJ0' JOIN noon_auth_identity_recovery_item item "
                 "ON item.recovery_id=recovery.id AND item.project_code=state.project_code "
@@ -112,6 +119,24 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
                 "JOIN noon_auth_owner_scope_manifest manifest ON manifest.source_recovery_id=source.id "
                 "AND manifest.status='ACTIVE' JOIN noon_auth_identity_recovery scoped "
                 "ON scoped.id=manifest.scoped_recovery_id;"
+            ),
+        )
+        database.client.execute(
+            "UPDATE noon_auth_identity_recovery SET status='COMPLETED',"
+            "completed_at=UTC_TIMESTAMP(3),lease_owner=NULL,lease_token=NULL,lease_until=NULL "
+            f"WHERE id={second_scoped};"
+            "UPDATE noon_project_auth_state SET status='HEALTHY',active_recovery_id=NULL,"
+            "auth_version=auth_version+1 WHERE owner_user_id=307 AND project_code IN "
+            "('PRJ0','PRJ1','PRJ2');"
+        )
+        database.client.execute(build_retry_finalize_sql(retry, "ci-finalize"))
+        self.assertEqual(
+            "3:3:WAITING_PREDECESSOR",
+            database.client.execute_readonly(
+                "SELECT CONCAT((SELECT COUNT(*) FROM noon_pull_plan WHERE id IN "
+                "(94001,94002,94003) AND enabled=b'1' AND paused=b'0'),':',"
+                "(SELECT COUNT(*) FROM noon_pull_task WHERE id IN (93001,93002,93003) "
+                f"AND status='CANCELLED'),':',(SELECT status FROM noon_auth_identity_recovery WHERE id={self.SOURCE}));"
             ),
         )
         self.assertTrue(database.livecheck(migration))
@@ -152,6 +177,21 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
             "DELETE FROM noon_auth_owner_scope_manifest;DELETE FROM noon_auth_identity_send_ledger;"
             "DELETE FROM noon_auth_identity_recovery_item;DELETE FROM noon_project_auth_state;"
             "DELETE FROM noon_auth_identity_recovery;SET FOREIGN_KEY_CHECKS=1;"
+            "DELETE FROM noon_pull_task WHERE id IN (93001,93002,93003);"
+            "DELETE FROM noon_pull_plan WHERE id IN (94001,94002,94003);"
+            "INSERT INTO noon_pull_plan "
+            "(id,owner_user_id,store_code,site_code,pull_type,data_domain,trigger_mode,"
+            "schedule_expression,enabled,paused,is_deleted) VALUES "
+            "(94001,307,'STR0','SA','REPORT','SALES','SCHEDULED_DAILY','daily',b'1',b'0',b'0'),"
+            "(94002,307,'STR1','SA','REPORT','FINANCE_TRANSACTION','SCHEDULED_DAILY','daily',b'1',b'0',b'0'),"
+            "(94003,307,'STR2','SA','REPORT','FINANCE_TRANSACTION','SCHEDULED_DAILY','daily',b'1',b'0',b'0');"
+            "INSERT INTO noon_pull_task "
+            "(id,plan_id,owner_user_id,store_code,site_code,pull_type,data_domain,trigger_mode,"
+            "target_identity,active_lock_key,auth_recovery_id,status,retry_action,retryable,"
+            "requires_manual_action,readiness_state,queued_at,started_at,is_deleted) VALUES "
+            f"(93001,94001,307,'STR0','SA','REPORT','SALES','SCHEDULED_DAILY','sales-target','lock-93001',{self.PREDECESSOR},'BLOCKED_AUTH','WAIT_FOR_AUTH',b'1',b'0','auth_recovery_queued',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),b'0'),"
+            f"(93002,94002,307,'STR1','SA','REPORT','FINANCE_TRANSACTION','SCHEDULED_DAILY','finance-1','lock-93002',{self.SOURCE},'BLOCKED_AUTH','WAIT_FOR_AUTH',b'1',b'0','auth_recovery_queued',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),b'0'),"
+            f"(93003,94003,307,'STR2','SA','REPORT','FINANCE_TRANSACTION','SCHEDULED_DAILY','finance-2','lock-93003',{self.SOURCE},'BLOCKED_AUTH','WAIT_FOR_AUTH',b'1',b'0','auth_recovery_queued',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),b'0');"
             "INSERT INTO noon_auth_identity_recovery "
             "(id,identity_key,status,generation_no,send_budget_epoch,send_attempt_count,coalesce_until,"
             "next_attempt_at,version_no,config_fingerprint,requested_at,gmt_create,gmt_updated) VALUES "
@@ -174,9 +214,9 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
             "INSERT INTO noon_auth_identity_recovery_item "
             "(id,recovery_id,owner_user_id,project_code,store_code,site_code,source_task_id,source_domain,"
             "source_checkpoint,resume_policy,expected_auth_version,status,gmt_create,gmt_updated) VALUES "
-            f"(91999,{self.PREDECESSOR},307,'PRJ0','STR0','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',7,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
-            f"(92001,{self.SOURCE},307,'PRJ1','STR1','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',3,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
-            f"(92002,{self.SOURCE},307,'PRJ2','STR2','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',8,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
+            f"(91999,{self.PREDECESSOR},307,'PRJ0','STR0','SA',93001,'SALES','PERSISTED_TASK_STATE','AUTO_RESUME',7,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
+            f"(92001,{self.SOURCE},307,'PRJ1','STR1','SA',93002,'FINANCE_TRANSACTION','PERSISTED_TASK_STATE','AUTO_RESUME',3,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
+            f"(92002,{self.SOURCE},307,'PRJ2','STR2','SA',93003,'FINANCE_TRANSACTION','PERSISTED_TASK_STATE','AUTO_RESUME',8,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(92003,{self.SOURCE},308,'PRJ3','STR3','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',5,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
             "INSERT INTO noon_auth_identity_send_ledger "
             "(identity_key,recovery_id,config_fingerprint,send_budget_epoch,generation_no,send_intent_at,gmt_create) "
