@@ -873,7 +873,7 @@ public class NoonSessionGateway {
         body.put("userCode", userCode);
         body.put("code_verifier", pkce.getCodeVerifier());
         body.put("pkce_key", pkce.getPkceKey());
-        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null, false);
+        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
         if (root == null || !"ok".equalsIgnoreCase(root.path("emailotp").asText(null))) {
             throw new IllegalStateException("Noon emailotp 发送失败：" + partnerIdentityError(root));
         }
@@ -896,7 +896,7 @@ public class NoonSessionGateway {
         body.put("pkce_key", pkce.getPkceKey());
         final JsonNode root;
         try {
-            root = state.postJson(null, null, identityValidateUrl, body, false, null, false);
+            root = state.postJson(null, null, identityValidateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
         } catch (SessionExpiredException exception) {
             // A 401/403 from identity validate rejects this OTP exchange; it does not describe an
             // already-created merchant session. Preserve structured HTTP facts for classification
@@ -939,7 +939,7 @@ public class NoonSessionGateway {
         body.put("projectCode", projectCode);
         body.put("clientCode", NOON_WEB_CLIENT_CODE);
         body.put("code_verifier", pkce.getCodeVerifier());
-        state.postJson(projectCode, null, identitySessionCreateUrl, body, false, null, false);
+        state.postJson(projectCode, null, identitySessionCreateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
         if (!StringUtils.hasText(state.exportAuthCookieHeader())) {
             throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
         }
@@ -1256,7 +1256,7 @@ public class NoonSessionGateway {
                             body,
                             withProject,
                             extraHeaders,
-                            false
+                            NoonJsonRequestPolicy.ONE_SHOT_FAIL_FAST
                     )
             );
         }
@@ -1767,7 +1767,7 @@ public class NoonSessionGateway {
                 boolean withProject,
                 Map<String, String> extraHeaders
         ) {
-            return postJson(projectCode, storeCode, url, body, withProject, extraHeaders, true);
+            return postJson(projectCode, storeCode, url, body, withProject, extraHeaders, NoonJsonRequestPolicy.READ_WITH_RETRY);
         }
 
         private JsonNode postJson(
@@ -1777,12 +1777,12 @@ public class NoonSessionGateway {
                 JsonNode body,
                 boolean withProject,
                 Map<String, String> extraHeaders,
-                boolean retryTransientReadFailures
+                NoonJsonRequestPolicy requestPolicy
         ) {
             synchronized (requestMutex) {
                 try {
                     applyContextCookies(projectCode, storeCode);
-                    requestThrottle.beforeRequest(retryTransientReadFailures);
+                    requestThrottle.beforeRequest(requestPolicy.waitForPacing());
                     URI uri = buildUri(url, withProject, projectCode);
                     HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                             .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
@@ -1794,7 +1794,7 @@ public class NoonSessionGateway {
                     }
                     requestHeaders.applyDefaults(builder, uri);
                     requestHeaders.applyExtra(builder, extraHeaders);
-                    return send(builder.build(), retryTransientReadFailures);
+                    return send(builder.build(), requestPolicy.retryTransientFailures());
                 } catch (IOException exception) {
                     throw new IllegalStateException("序列化 Noon 请求失败：" + exception.getMessage(), exception);
                 }
