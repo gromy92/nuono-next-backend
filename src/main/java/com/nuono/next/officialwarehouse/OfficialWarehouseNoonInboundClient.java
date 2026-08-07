@@ -374,7 +374,7 @@ public class OfficialWarehouseNoonInboundClient {
                     logContext,
                     () -> isReadOperation(context.operation)
                             ? session.postJson(url, body, true, noonHeaders(binding))
-                            : session.postWriteJson(url, body, true, noonHeaders(binding))
+                            : session.postWriteJsonAfterPacing(url, body, true, noonHeaders(binding))
             );
         } catch (NoonHttpException exception) {
             throw new NoonOperationException(responseClassifier.classify(context.operation, exception), exception);

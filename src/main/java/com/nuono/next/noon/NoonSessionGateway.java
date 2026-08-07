@@ -1184,27 +1184,19 @@ public class NoonSessionGateway {
                     refreshMode
             );
         }
-
         public String getProjectCode(){ return projectCode; }
-
         public Long getOwnerUserId() {
             return ownerUserId;
         }
-
         public String getStoreCode() {
             return storeCode;
         }
-
         public String getEgressFingerprint(){ return state.egressFingerprint; }
-
         public JsonNode getJson(String url, boolean withProject) {
             return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, null));
         }
-
         public JsonNode getJson(String url, boolean withProject, Map<String, String> extraHeaders){ return executeWithRefresh(() -> state.getJson(projectCode, storeCode, url, withProject, extraHeaders)); }
-
         public String getText(String url, boolean withProject, Map<String, String> extraHeaders){ return executeTextWithRefresh(() -> state.getText(projectCode, storeCode, url, withProject, extraHeaders)); }
-
         public byte[] getBytes(String url, boolean withProject, Map<String, String> extraHeaders) {
             return executeBytesWithRefresh(
                     () -> state.getBytes(projectCode, storeCode, url, withProject, extraHeaders)
@@ -1260,7 +1252,15 @@ public class NoonSessionGateway {
                     )
             );
         }
-
+        public JsonNode postWriteJsonAfterPacing(
+                String url, JsonNode body, boolean withProject,
+                Map<String, String> extraHeaders
+        ) {
+            return executeWriteWithoutReplay(() -> state.postJson(
+                    projectCode, storeCode, url, body, withProject, extraHeaders,
+                    NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING
+            ));
+        }
         public JsonNode postMultipartFile(
                 String url,
                 String fieldName,
