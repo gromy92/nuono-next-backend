@@ -16,7 +16,9 @@ final class Ali1688Dp10OpenApiProbeAuthorizationSource {
     private static final String SQL = String.join(" ",
             "SELECT auth.id, auth.owner_user_id, auth.provider_code,",
             "auth.provider_account_id, auth.status, auth.access_token_cipher,",
-            "auth.expires_at, auth.revoked_at,",
+            "auth.refresh_token_cipher, auth.account_label, auth.scope_summary,",
+            "auth.expires_at, auth.revoked_at, auth.created_by, auth.updated_by,",
+            "auth.gmt_updated AS authorization_revision,",
             "(SELECT header.provider_order_no",
             " FROM procurement_ali1688_order_header header",
             " WHERE header.authorization_id = auth.id",
@@ -62,9 +64,11 @@ final class Ali1688Dp10OpenApiProbeAuthorizationSource {
         if (!result.next()) {
             throw new IllegalStateException("PROBE_AUTHORIZATION_UNAVAILABLE");
         }
-        Selection selection = new Selection(mapAuthorization(result), trim(
-                result.getString("probe_order_no")
-        ));
+        Selection selection = new Selection(
+                mapAuthorization(result),
+                trim(result.getString("probe_order_no")),
+                result.getTimestamp("authorization_revision")
+        );
         if (result.next()) {
             throw new IllegalStateException("PROBE_AUTHORIZATION_DUPLICATE");
         }
@@ -98,9 +102,19 @@ final class Ali1688Dp10OpenApiProbeAuthorizationSource {
         row.setProviderAccountId(result.getString("provider_account_id"));
         row.setStatus(result.getString("status"));
         row.setAccessTokenCipher(result.getString("access_token_cipher"));
+        row.setRefreshTokenCipher(result.getString("refresh_token_cipher"));
+        row.setAccountLabel(result.getString("account_label"));
+        row.setScopeSummary(result.getString("scope_summary"));
         row.setExpiresAt(localDateTime(result.getTimestamp("expires_at")));
         row.setRevokedAt(localDateTime(result.getTimestamp("revoked_at")));
+        row.setCreatedBy(nullableLong(result, "created_by"));
+        row.setUpdatedBy(nullableLong(result, "updated_by"));
         return row;
+    }
+
+    private Long nullableLong(ResultSet result, String column) throws SQLException {
+        long value = result.getLong(column);
+        return result.wasNull() ? null : value;
     }
 
     private java.time.LocalDateTime localDateTime(Timestamp value) {
@@ -114,16 +128,20 @@ final class Ali1688Dp10OpenApiProbeAuthorizationSource {
     static final class Selection {
         private final Ali1688HistoricalOrderAuthorizationRow authorization;
         private final String providerOrderNo;
+        private final Timestamp revision;
 
         private Selection(
                 Ali1688HistoricalOrderAuthorizationRow authorization,
-                String providerOrderNo
+                String providerOrderNo,
+                Timestamp revision
         ) {
             this.authorization = authorization;
             this.providerOrderNo = providerOrderNo;
+            this.revision = revision;
         }
 
         Ali1688HistoricalOrderAuthorizationRow authorization() { return authorization; }
         String providerOrderNo() { return providerOrderNo; }
+        Timestamp revision() { return revision; }
     }
 }

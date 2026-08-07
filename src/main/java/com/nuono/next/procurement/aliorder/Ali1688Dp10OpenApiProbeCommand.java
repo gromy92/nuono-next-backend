@@ -57,6 +57,11 @@ public final class Ali1688Dp10OpenApiProbeCommand {
             requireProductionConfiguration(properties);
             Ali1688Dp10OpenApiProbeAuthorizationSource.Selection selection =
                     new Ali1688Dp10OpenApiProbeAuthorizationSource().select(environment);
+            Ali1688Dp10OpenApiProbeAuthorizationUpdater authorizationUpdater =
+                    Ali1688Dp10OpenApiProbeAuthorizationUpdater.create(
+                            environment,
+                            selection
+                    );
             ObjectMapper mapper = new ObjectMapper();
             HttpAli1688HistoricalOrderProvider provider =
                     new HttpAli1688HistoricalOrderProvider(
@@ -65,14 +70,15 @@ public final class Ali1688Dp10OpenApiProbeCommand {
                             new Ali1688TokenCipher(properties),
                             mapper,
                             new RestTemplateBuilder(),
-                            null
+                            authorizationUpdater
                     );
             Clock clock = Clock.systemUTC();
-            new Ali1688Dp10OpenApiProbeRunner(provider, clock).run(
-                    selection.authorization(),
-                    selection.providerOrderNo(),
-                    properties.getPageSize()
-            );
+            Ali1688Dp10OpenApiProbeRunner.Proof proof =
+                    new Ali1688Dp10OpenApiProbeRunner(provider, clock).run(
+                            selection.authorization(),
+                            selection.providerOrderNo(),
+                            properties.getPageSize()
+                    );
             Ali1688Dp10OpenApiProbeEvidenceSupport.write(
                     evidenceFile,
                     nonce,
@@ -83,6 +89,8 @@ public final class Ali1688Dp10OpenApiProbeCommand {
                     clock,
                     mapper
             );
+            System.out.println("DP10_OPEN_API_AUTH_REFRESH="
+                    + (proof.authorizationRefreshed() ? "REFRESHED" : "CURRENT"));
             System.out.println("DP10_OPEN_API_EXECUTION_CONTRACT=CONTRACT_PROVEN");
             return 0;
         } catch (Ali1688Dp10OpenApiProbeRunner.ProbeFailure failure) {

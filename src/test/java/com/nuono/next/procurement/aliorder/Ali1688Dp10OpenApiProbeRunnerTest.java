@@ -2,6 +2,7 @@ package com.nuono.next.procurement.aliorder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -82,11 +83,32 @@ class Ali1688Dp10OpenApiProbeRunnerTest {
     }
 
     @Test
-    void refreshRequiredFailsBeforeAnyExternalCall() {
+    void refreshesExpiredAuthorizationBeforeProvingTheReadContracts() {
         ScriptedProvider provider = new ScriptedProvider();
         provider.refreshRequired = true;
+        provider.pages.add(page(List.of(order("ORDER-1")), 1L));
+        provider.pages.add(page(List.of(), 0L));
+        provider.detail = Ali1688HistoricalOrderProvider.DetailResult.success(order("ORDER-1"));
 
-        assertThrows(
+        Ali1688Dp10OpenApiProbeRunner.Proof proof = runner(provider).run(
+                new Ali1688HistoricalOrderAuthorizationRow(),
+                "LOCAL-ORDER",
+                20
+        );
+
+        assertEquals(1, provider.refreshCalls);
+        assertEquals(2, provider.requests.size());
+        assertEquals(1, provider.detailCalls);
+        assertTrue(proof.authorizationRefreshed());
+    }
+
+    @Test
+    void failedRefreshStopsBeforeAnyReadCall() {
+        ScriptedProvider provider = new ScriptedProvider();
+        provider.refreshRequired = true;
+        provider.refreshFailure = Ali1688HistoricalOrderFailureCode.RATE_LIMITED;
+
+        Ali1688Dp10OpenApiProbeRunner.ProbeFailure failure = assertThrows(
                 Ali1688Dp10OpenApiProbeRunner.ProbeFailure.class,
                 () -> runner(provider).run(
                         new Ali1688HistoricalOrderAuthorizationRow(),
@@ -94,9 +116,11 @@ class Ali1688Dp10OpenApiProbeRunnerTest {
                         20
                 )
         );
+
+        assertEquals("PROBE_AUTH_REFRESH_RATE_LIMITED", failure.code());
+        assertEquals(1, provider.refreshCalls);
         assertEquals(0, provider.requests.size());
         assertEquals(0, provider.detailCalls);
-        assertEquals(0, provider.refreshCalls);
     }
 
     private Ali1688Dp10OpenApiProbeRunner runner(ScriptedProvider provider) {
@@ -134,6 +158,7 @@ class Ali1688Dp10OpenApiProbeRunnerTest {
         private final List<Ali1688HistoricalOrderRequest> requests = new ArrayList<>();
         private DetailResult detail;
         private boolean refreshRequired;
+        private Ali1688HistoricalOrderFailureCode refreshFailure;
         private int detailCalls;
         private int refreshCalls;
 
@@ -164,6 +189,13 @@ class Ali1688Dp10OpenApiProbeRunnerTest {
                 Ali1688HistoricalOrderAuthorizationRow authorization
         ) {
             refreshCalls++;
+            if (refreshFailure != null) {
+                return Ali1688HistoricalOrderAuthorizationRefreshResult.failure(
+                        refreshFailure,
+                        null
+                );
+            }
+            refreshRequired = false;
             return Ali1688HistoricalOrderAuthorizationRefreshResult.success();
         }
     }
