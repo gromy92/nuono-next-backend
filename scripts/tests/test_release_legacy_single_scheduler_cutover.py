@@ -1,4 +1,5 @@
 import importlib.util
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -87,7 +88,7 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
         script = build_script()
         helper = script[
             script.index("legacy_process_mode()"):
-            script.index("assert_legacy_env_contract()")
+            script.index("legacy_env_contract()")
         ]
         base_environment = {
             key: value for key, value in os.environ.items()
@@ -159,8 +160,8 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
             script.count('legacy_process_mode "$ACTIVE_PID"'), 2
         )
         self.assertIn('legacy_process_mode "$NEW_PID"', script)
-        self.assertIn('assert_legacy_env_contract "$APP_DIR/.env"', script)
-        self.assertIn('assert_legacy_env_contract "$TARGET_SLOT_DIR/.env"', script)
+        self.assertIn('assert_legacy_source_env_contract "$APP_DIR/.env"', script)
+        self.assertIn('assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"', script)
         self.assertLess(
             execution.index('legacy_process_mode "$ACTIVE_PID"'),
             execution.index('stop_pid "$ACTIVE_PID"'),
@@ -173,11 +174,83 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
             script.index("assert_source_payloads()")
         ]
 
-        self.assertIn('secure_file_operation install "$APP_DIR/.env"', prepare)
+        self.assertIn('secure_file_operation install "$LEGACY_BASE_ENV_FILE"', prepare)
+        self.assertIn('"$LEGACY_BASE_ENV_SHA256" replace', prepare)
         self.assertIn("NUONO_NEXT_APP_DIR=%s", prepare)
         self.assertIn("NUONO_NEXT_PORT=%s", prepare)
         self.assertNotIn("NUONO_DATA_PULL_EXECUTION_MODE", prepare)
         self.assertNotIn("NUONO_DP_RUNTIME", prepare)
+
+    def test_source_canary_pair_is_stripped_before_target_copy(self):
+        script = build_script()
+        helper = script[
+            script.index("legacy_env_mode()"):
+            script.index("prepare_target_runtime_payloads()")
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            root.chmod(0o700)
+            source = root / "source.env"
+            target = root / "filtered.env"
+            source.write_text(
+                "NUONO_NEXT_DB_URL=jdbc:mysql://example/db\n"
+                "NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID=307\n"
+                "NUONO_DP10_OPEN_API_PROBE_CANARY_PROVIDER_ACCOUNT_ID=42\n",
+                encoding="utf-8",
+            )
+            source.chmod(0o600)
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            command = (
+                helper
+                + '\nEXPECTED_DP_EXECUTION_MODE=LEGACY_DEFAULT\n'
+                + 'assert_legacy_source_env_contract "$1"\n'
+                + 'prepare_legacy_base_env "$1" "$2" "$3"\n'
+                + 'assert_legacy_target_env_contract "$3"\n'
+                + 'printf "%s\\n%s\\n" "$LEGACY_CANARY_DISPOSITION" "$LEGACY_BASE_ENV_SHA256"'
+            )
+            result = subprocess.run(
+                ["bash", "-c", command, "bash", str(source), digest, str(target)],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("NUONO_NEXT_DB_URL=jdbc:mysql://example/db\n", target.read_text())
+            self.assertEqual("STRIPPED_EXACT_DP10_CANARY_PAIR", result.stdout.splitlines()[0])
+            self.assertEqual(hashlib.sha256(target.read_bytes()).hexdigest(), result.stdout.splitlines()[1])
+
+    def test_source_rejects_partial_duplicate_and_unrelated_runtime_keys(self):
+        script = build_script()
+        helper = script[
+            script.index("legacy_env_mode()"):
+            script.index("prepare_target_runtime_payloads()")
+        ]
+        cases = (
+            "NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID=307\n",
+            "NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID=307\n"
+            "NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID=308\n"
+            "NUONO_DP10_OPEN_API_PROBE_CANARY_PROVIDER_ACCOUNT_ID=42\n",
+            "NUONO_DP10_UNRELATED=forbidden\n",
+            "NUONO_DP_RUNTIME_ENABLED=true\n",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary) / ".env"
+            for payload in cases:
+                with self.subTest(payload=payload):
+                    source.write_text(payload, encoding="utf-8")
+                    result = subprocess.run(
+                        [
+                            "bash", "-c",
+                            helper
+                            + '\nEXPECTED_DP_EXECUTION_MODE=LEGACY_DEFAULT\n'
+                            + 'assert_legacy_source_env_contract "$1"',
+                            "bash", str(source),
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertNotEqual(0, result.returncode)
 
     def test_non_legacy_observation_is_rejected_before_rendering(self):
         with self.assertRaisesRegex(ValueError, "observed LEGACY mode"):

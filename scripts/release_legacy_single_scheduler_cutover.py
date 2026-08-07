@@ -5,6 +5,7 @@ import shlex
 from urllib.parse import urlsplit
 from release_maintenance_probe import trap_safe_health_function
 from release_maintenance_responder import build_maintenance_responder_shell
+from release_legacy_env_contract import build_legacy_env_contract_shell
 from release_nginx_upstream import build_nginx_upstream_shell
 from release_predecessor_rollback import build_predecessor_rollback_shell
 from release_secure_slot_files import build_secure_file_shell
@@ -86,6 +87,7 @@ ACTIVE_PID="" NEW_PID="" ACTIVE_RUN_DIR="" ACTIVE_ENV_SHA256="" ACTIVE_START_SCR
 ACTIVE_RUNTIME_KIND="" UPSTREAM_BACKUP="" TARGET_ENV_SHA256="" SOURCE_ENV_SHA256=""
 SOURCE_START_SCRIPT_SHA256="" NGINX_UPSTREAM_SHA256="" NGINX_UPSTREAM_ORIGINAL_SHA256=""
 NGINX_UPSTREAM_BACKUP_SHA256="" LSOF_BIN="" READY_ATTEMPT=""
+LEGACY_BASE_ENV_FILE="" LEGACY_BASE_ENV_SHA256="" LEGACY_CANARY_DISPOSITION=""
 MAINTENANCE_ROUTED=0 OLD_STOPPED=0 NEW_START_ATTEMPTED=0 ROLLBACK_RUNNING=0
 emit() {{ printf '%s=%s\\n' "$1" "$2"; }}
 {build_secure_file_shell()}
@@ -126,53 +128,7 @@ start_runtime() {{
     /bin/bash --noprofile --norc "$1/start-nuono-next-test.sh"
 }}
 {build_predecessor_rollback_shell()}
-legacy_env_mode() {{
-  python3 - "$1" <<'PY'
-import re, sys
-values = []
-for raw in open(sys.argv[1], encoding="utf-8"):
-    line = raw.strip()
-    if not line or line.startswith("#") or "=" not in line:
-        continue
-    line = re.sub(r"^export\\s+", "", line)
-    key, value = line.split("=", 1)
-    if key.strip() != "NUONO_DATA_PULL_EXECUTION_MODE":
-        continue
-    value = value.strip()
-    if len(value) >= 2 and value[0] == value[-1] and ord(value[0]) in (34, 39):
-        value = value[1:-1]
-    values.append(value)
-if not values:
-    print("LEGACY_DEFAULT", end="")
-elif values == ["LEGACY"]:
-    print("LEGACY", end="")
-else:
-    raise SystemExit("runtime env is not unambiguously LEGACY")
-PY
-}}
-legacy_process_mode() {{
-  python3 - "$1" <<'PY'
-import pathlib, sys
-pid = sys.argv[1]
-if not pid.isdecimal() or int(pid) <= 1:
-    raise SystemExit("invalid runtime pid")
-values = [item.split(b"=", 1)[1].decode() for item in
-          pathlib.Path(f"/proc/{{pid}}/environ").read_bytes().split(b"\\0")
-          if item.startswith(b"NUONO_DATA_PULL_EXECUTION_MODE=")]
-if not values:
-    print("LEGACY_DEFAULT", end="")
-elif values == ["LEGACY"]:
-    print("LEGACY", end="")
-else:
-    raise SystemExit("runtime process is not unambiguously LEGACY")
-PY
-}}
-assert_legacy_env_contract() {{
-  [ "$(legacy_env_mode "$1")" = "$EXPECTED_DP_EXECUTION_MODE" ]
-  ! grep -Eq '^NUONO_MANAGED_DP_RELEASE=' "$1"
-  ! grep -Eq '^NUONO_DATA_PULL_RUNTIME_ENABLED=' "$1"
-  ! grep -Eq '^NUONO_DP(10|_RUNTIME)_' "$1"
-}}
+{build_legacy_env_contract_shell()}
 prepare_target_runtime_payloads() {{
   local runtime_format="" runtime_suffix=""
   runtime_format='\\nNUONO_NEXT_APP_DIR=%s\\nNUONO_NEXT_PORT=%s\\n'
@@ -182,8 +138,8 @@ prepare_target_runtime_payloads() {{
   printf -v runtime_suffix "$runtime_format" \
     "$TARGET_SLOT_DIR" "$TARGET_PORT" "$TARGET_SLOT_DIR" "$JAR_NAME" \
     "$TARGET_SLOT_DIR" "$TARGET_SLOT_DIR" "$TARGET_SLOT_DIR"
-  TARGET_ENV_SHA256="$(secure_file_operation install "$APP_DIR/.env" \
-    "$TARGET_SLOT_DIR/.env" 600 600 600 "$SOURCE_ENV_SHA256" replace "$runtime_suffix")"
+  TARGET_ENV_SHA256="$(secure_file_operation install "$LEGACY_BASE_ENV_FILE" \
+    "$TARGET_SLOT_DIR/.env" 600 600 600 "$LEGACY_BASE_ENV_SHA256" replace "$runtime_suffix")"
   [ "$(secure_file_operation install "$APP_DIR/start-nuono-next-test.sh" \
     "$TARGET_SLOT_DIR/start-nuono-next-test.sh" "700,750,755" 700 \
     "700,750,755" "$SOURCE_START_SCRIPT_SHA256" replace "")" = \
@@ -192,7 +148,7 @@ prepare_target_runtime_payloads() {{
     "600,640,644" 600 "600,640,644" "$EXPECTED_JAR_SHA256" replace "")" = \
     "$EXPECTED_JAR_SHA256" ]
   runtime_env_has_forbidden_injection "$TARGET_SLOT_DIR/.env"
-  assert_legacy_env_contract "$TARGET_SLOT_DIR/.env"
+  assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
 }}
 assert_source_payloads() {{
   [ "$(secure_file_operation verify "$APP_DIR/.env" 600 "$SOURCE_ENV_SHA256")" = \
@@ -200,7 +156,7 @@ assert_source_payloads() {{
   [ "$(secure_file_operation verify "$APP_DIR/start-nuono-next-test.sh" \
     "700,750,755" "$SOURCE_START_SCRIPT_SHA256")" = "$SOURCE_START_SCRIPT_SHA256" ]
   runtime_env_has_forbidden_injection "$APP_DIR/.env"
-  assert_legacy_env_contract "$APP_DIR/.env"
+  assert_legacy_source_env_contract "$APP_DIR/.env"
 }}
 assert_target_release_ready() {{
   [ "$(health_status "$TARGET_PORT")" = UP ] &&
@@ -210,7 +166,7 @@ assert_target_release_ready() {{
       "$TARGET_ENV_SHA256")" = "$TARGET_ENV_SHA256" ] &&
     [ "$(secure_file_operation verify "$TARGET_SLOT_DIR/start-nuono-next-test.sh" \
       700 "$SOURCE_START_SCRIPT_SHA256")" = "$SOURCE_START_SCRIPT_SHA256" ] &&
-    assert_legacy_env_contract "$TARGET_SLOT_DIR/.env"
+    assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
 }}
 validate_cutover() {{
   [ "$ACTIVE_SLOT" != "$TARGET_SLOT" ]
@@ -253,10 +209,12 @@ esac
   "$EXPECTED_TOPOLOGY_CAS_SHA256" ]
 [ "$(legacy_process_mode "$ACTIVE_PID")" = "$EXPECTED_DP_EXECUTION_MODE" ]
 freeze_active_runtime_payloads
-assert_legacy_env_contract "$ACTIVE_RUN_DIR/.env"
+assert_legacy_target_env_contract "$ACTIVE_RUN_DIR/.env"
 assert_only_backend_jvm "$ACTIVE_PID"
 secure_file_operation directory "$APP_DIR/backups" "700,750,755" 700 accept
 secure_file_operation directory "$BACKUP_DIR" 700 700 create-new
+LEGACY_BASE_ENV_FILE="$BACKUP_DIR/legacy-base.env"
+prepare_legacy_base_env "$APP_DIR/.env" "$SOURCE_ENV_SHA256" "$LEGACY_BASE_ENV_FILE"
 secure_file_operation directory "$APP_DIR/blue-green" "700,750,755" 700 accept
 secure_file_operation directory "$TARGET_SLOT_DIR" "700,750,755" 700 accept
 prepare_target_runtime_payloads
@@ -291,6 +249,7 @@ stop_maintenance_responder
 trap - ERR
 emit CUTOVER_RESULT PASS; emit SINGLE_SCHEDULER_GUARD PASS
 emit DP_RELEASE_MODE PRESERVE_LEGACY; emit DP_EXECUTION_MODE "$EXPECTED_DP_EXECUTION_MODE"
+emit DP_LEGACY_CANARY_DISPOSITION "$LEGACY_CANARY_DISPOSITION"
 emit DP_DATA_WRITE_COUNT 0; emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"; emit TARGET_PID "$NEW_PID"
 emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH NOT_ACTIVATED
 emit ACTIVE_PORT "$TARGET_PORT"; emit NGINX_CURRENT_PORT "$TARGET_PORT"
