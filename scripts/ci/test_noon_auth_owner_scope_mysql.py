@@ -12,6 +12,11 @@ if str(SCRIPT_ROOT) not in sys.path:
 
 from noon_auth_owner_scope_split import build_manifest, load_snapshot  # noqa: E402
 from noon_auth_owner_scope_split_sql import build_apply_sql, build_rollback_sql  # noqa: E402
+from noon_auth_manual_hold_retry import (  # noqa: E402
+    build_manifest as build_retry_manifest,
+    load_snapshot as load_retry_snapshot,
+)
+from noon_auth_manual_hold_retry_sql import build_apply_sql as build_retry_sql  # noqa: E402
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E402
 
@@ -59,10 +64,32 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
         second_scoped = self._scoped_id(database, second["manifestKey"])
         self._assert_split(database, second_scoped)
 
+        retry = build_retry_manifest(
+            load_retry_snapshot(database.client, self.PREDECESSOR, 307, "PRJ0"),
+            self.PREDECESSOR, 307, "PRJ0", 60, "ci-retry",
+            {"manifestSha256": "a" * 64, "commit": "b" * 40, "runId": 1,
+             "artifactName": "ci", "operationBundleSha256": "e" * 64},
+        )
+        database.client.execute(build_retry_sql(retry, "ci-retry"))
+        self.assertEqual(
+            "WAITING_COOLDOWN:1:0:0:11:REAUTH_REQUIRED:8:PENDING:8:2",
+            database.client.execute_readonly(
+                "SELECT CONCAT(recovery.status,':',recovery.send_budget_epoch,':',"
+                "recovery.generation_no,':',recovery.send_attempt_count,':',recovery.version_no,':',"
+                "state.status,':',state.auth_version,':',item.status,':',item.expected_auth_version,':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_send_ledger WHERE recovery_id="
+                f"{self.PREDECESSOR})) FROM noon_auth_identity_recovery recovery "
+                "JOIN noon_project_auth_state state ON state.active_recovery_id=recovery.id "
+                "AND state.project_code='PRJ0' JOIN noon_auth_identity_recovery_item item "
+                "ON item.recovery_id=recovery.id AND item.project_code=state.project_code "
+                f"WHERE recovery.id={self.PREDECESSOR};"
+            ),
+        )
+
         database.client.execute(
             "UPDATE noon_auth_identity_recovery SET status='COMPLETED',"
             "completed_at=UTC_TIMESTAMP(3),version_no=version_no+1 "
-            f"WHERE id={self.PREDECESSOR} AND status='MANUAL_HOLD';"
+            f"WHERE id={self.PREDECESSOR} AND status='WAITING_COOLDOWN';"
             "UPDATE noon_auth_identity_recovery successor "
             "JOIN noon_auth_identity_recovery predecessor "
             "ON predecessor.id=successor.predecessor_recovery_id "
@@ -103,7 +130,7 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
             "DROP TABLE IF EXISTS noon_auth_owner_scope_audit,noon_auth_owner_scope_manifest_item,"
             "noon_auth_owner_scope_manifest,noon_auth_identity_send_ledger,"
             "noon_auth_identity_recovery_item,noon_project_auth_state,noon_auth_identity_recovery,"
-            "noon_pull_task,noon_pull_plan,noon_pull_id_sequence,sales_sync_task;"
+            "noon_http_call_log,noon_pull_task,noon_pull_plan,noon_pull_id_sequence,sales_sync_task;"
             "SET FOREIGN_KEY_CHECKS=1;"
         )
         # Reuse the exact production foundations that 190/238 evolve.  Hand-made
@@ -111,6 +138,12 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
         for order in (53, 58, 190, 238):
             path = next((resources / "db/init").glob(f"{order:03d}_*.sql"))
             database.client.execute(path.read_text(encoding="utf-8"))
+        warehouse_sql = (resources / "db/init/134_official_warehouse_asn.sql").read_text(
+            encoding="utf-8"
+        )
+        start = warehouse_sql.index("CREATE TABLE IF NOT EXISTS `noon_http_call_log`")
+        end = warehouse_sql.index(";\n\n", start) + 1
+        database.client.execute(warehouse_sql[start:end])
 
     def _prepare_rows(self, database):
         database.client.execute(
@@ -122,7 +155,10 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
             "INSERT INTO noon_auth_identity_recovery "
             "(id,identity_key,status,generation_no,send_budget_epoch,send_attempt_count,coalesce_until,"
             "next_attempt_at,version_no,config_fingerprint,requested_at,gmt_create,gmt_updated) VALUES "
-            f"({self.PREDECESSOR},'{self.IDENTITY}','MANUAL_HOLD',0,0,2,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),10,'{'d'*64}',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
+            f"({self.PREDECESSOR},'{self.IDENTITY}','MANUAL_HOLD',2,0,2,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),10,'{'d'*64}',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
+            "UPDATE noon_auth_identity_recovery SET failure_code='SEND_RESULT_UNKNOWN',"
+            "first_send_at=UTC_TIMESTAMP(3)-INTERVAL 10 MINUTE,"
+            f"second_send_at=UTC_TIMESTAMP(3)-INTERVAL 5 MINUTE WHERE id={self.PREDECESSOR};"
             "INSERT INTO noon_auth_identity_recovery "
             "(id,predecessor_recovery_id,identity_key,status,generation_no,send_budget_epoch,"
             "send_attempt_count,coalesce_until,next_attempt_at,version_no,config_fingerprint,"
@@ -131,15 +167,23 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
             f"UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),4,'{'d'*64}',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
             "INSERT INTO noon_project_auth_state "
             "(owner_user_id,project_code,identity_key,status,active_recovery_id,auth_version,gmt_create,gmt_updated) VALUES "
+            f"(307,'PRJ0','{self.IDENTITY}','MANUAL_HOLD',{self.PREDECESSOR},7,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(307,'PRJ1','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},3,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(307,'PRJ2','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},8,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(308,'PRJ3','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},5,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
             "INSERT INTO noon_auth_identity_recovery_item "
             "(id,recovery_id,owner_user_id,project_code,store_code,site_code,source_task_id,source_domain,"
             "source_checkpoint,resume_policy,expected_auth_version,status,gmt_create,gmt_updated) VALUES "
+            f"(91999,{self.PREDECESSOR},307,'PRJ0','STR0','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',7,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(92001,{self.SOURCE},307,'PRJ1','STR1','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',3,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(92002,{self.SOURCE},307,'PRJ2','STR2','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',8,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)),"
             f"(92003,{self.SOURCE},308,'PRJ3','STR3','SA',NULL,'STORE_BINDING',NULL,'AUTO_RESUME',5,'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3));"
+            "INSERT INTO noon_auth_identity_send_ledger "
+            "(identity_key,recovery_id,config_fingerprint,send_budget_epoch,generation_no,send_intent_at,gmt_create) "
+            f"SELECT identity_key,id,config_fingerprint,0,1,first_send_at,first_send_at FROM noon_auth_identity_recovery WHERE id={self.PREDECESSOR};"
+            "INSERT INTO noon_auth_identity_send_ledger "
+            "(identity_key,recovery_id,config_fingerprint,send_budget_epoch,generation_no,send_intent_at,gmt_create) "
+            f"SELECT identity_key,id,config_fingerprint,0,2,second_send_at,second_send_at FROM noon_auth_identity_recovery WHERE id={self.PREDECESSOR};"
         )
 
     def _manifest(self, database, actor):

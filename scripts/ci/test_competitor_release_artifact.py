@@ -80,8 +80,8 @@ class CompetitorReleaseArtifactTest(unittest.TestCase):
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             bundles = manifest["operation_bundles"]
 
-            self.assertEqual(1, len(bundles))
-            bundle = bundles[0]
+            self.assertEqual(2, len(bundles))
+            bundle = next(item for item in bundles if item["name"] == "competitor_business_date_correction")
             self.assertEqual(
                 "competitor_business_date_correction",
                 bundle["name"],
