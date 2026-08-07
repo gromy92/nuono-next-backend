@@ -81,6 +81,31 @@ class DataPullRuntimeCutoverManifestTest {
     }
 
     @Test
+    void initialManifestKeepsTheEarliestSupersededLegacyWindow() throws Exception {
+        DataPullScope scope = scope("a");
+        LocalDateTime retainedBoundary = LocalDateTime.parse("2026-07-16T16:00:00");
+
+        ObjectNode manifest = new DataPullRuntimeCutoverManifest().build(
+                COMMIT,
+                JAR_SHA,
+                cohort(
+                        LocalDateTime.parse("2026-08-07T02:00:00.000"),
+                        Map.of(OperationCode.DP01, List.of(scope)),
+                        Map.of(OperationCode.DP01, Map.of(
+                                scope.getStableScopeKey(), retainedBoundary
+                        ))
+                ),
+                null
+        );
+
+        assertEquals(
+                "2026-07-16T16:00:00.000Z",
+                manifest.withArray("operations").get(0).withArray("scopes")
+                        .get(0).get("reconcileAfterUtc").textValue()
+        );
+    }
+
+    @Test
     void commandParserRequiresAllBindingsAndAllowsOnlyOneBaseline() {
         String[] required = arguments();
         assertEquals(5, DataPullRuntimeCutoverManifestCommand.parse(required).size());
@@ -100,13 +125,21 @@ class DataPullRuntimeCutoverManifestTest {
             LocalDateTime observed,
             Map<OperationCode, List<DataPullScope>> overrides
     ) {
+        return cohort(observed, overrides, Map.of());
+    }
+
+    private static DataPullRuntimeCutoverSourceCohort cohort(
+            LocalDateTime observed,
+            Map<OperationCode, List<DataPullScope>> overrides,
+            Map<OperationCode, Map<String, LocalDateTime>> boundaries
+    ) {
         List<DataPullJob> jobs = new ArrayList<>();
         for (OperationCode operation : OperationCode.values()) {
             jobs.add(job(operation, overrides.getOrDefault(operation, List.of())));
         }
         return new DataPullRuntimeCutoverSourceCohort(
                 observed, new DataPullJobRegistry(jobs),
-                new EnumMap<>(OperationCode.class)
+                new EnumMap<>(OperationCode.class), boundaries
         );
     }
 

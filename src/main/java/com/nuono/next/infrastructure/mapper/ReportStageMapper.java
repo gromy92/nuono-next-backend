@@ -51,6 +51,30 @@ public interface ReportStageMapper {
             @Param("nowUtc") LocalDateTime nowUtc
     );
 
+    @Update({
+            "UPDATE dp_pull_report_stage SET artifact_key=#{artifactKey},",
+            "artifact_sha256=#{artifactSha256},active_fence_epoch=#{intent.fenceEpoch},",
+            "state='VALIDATING',header_json=#{headerJson},next_byte_offset=#{initialByteOffset},",
+            "declared_row_count=#{declaredRowCount},version_no=version_no+1,gmt_updated=#{nowUtc}",
+            "WHERE task_id=#{intent.taskId} AND operation_code=#{intent.operationCode}",
+            "AND BINARY artifact_key=BINARY #{oldArtifactKey}",
+            "AND artifact_sha256=#{oldArtifactSha256} AND state='EMPTY_UNPROVEN'",
+            "AND source_row_count=0 AND accepted_row_count=0",
+            "AND business_skipped_row_count=0 AND identity_skipped_row_count=0",
+            "AND apply_row_cursor=0 AND applied_row_count=0 AND applied_warning_count=0"
+    })
+    int rebindUnprovenEmpty(
+            @Param("intent") ExportReportIntent intent,
+            @Param("oldArtifactKey") String oldArtifactKey,
+            @Param("oldArtifactSha256") String oldArtifactSha256,
+            @Param("artifactKey") String artifactKey,
+            @Param("artifactSha256") String artifactSha256,
+            @Param("headerJson") String headerJson,
+            @Param("initialByteOffset") long initialByteOffset,
+            @Param("declaredRowCount") long declaredRowCount,
+            @Param("nowUtc") LocalDateTime nowUtc
+    );
+
     @Select({
             "<script>SELECT accepted_identity_sha256 FROM dp_pull_report_stage_row",
             "WHERE task_id=#{taskId} AND accepted_identity_sha256 IN",
@@ -77,6 +101,7 @@ public interface ReportStageMapper {
     @Update({
             "UPDATE dp_pull_report_stage SET active_fence_epoch=#{intent.fenceEpoch},state=#{state},",
             "next_byte_offset=#{nextByteOffset},source_row_count=#{sourceRows},",
+            "declared_row_count=IF(#{finalizeLocalRowCount},#{sourceRows},declared_row_count),",
             "accepted_row_count=#{acceptedRows},business_skipped_row_count=#{businessSkippedRows},",
             "identity_skipped_row_count=#{identitySkippedRows},version_no=version_no+1,gmt_updated=#{nowUtc}",
             "WHERE task_id=#{intent.taskId} AND operation_code=#{intent.operationCode}",
@@ -94,7 +119,8 @@ public interface ReportStageMapper {
             @Param("businessSkippedRows") long businessSkippedRows,
             @Param("identitySkippedRows") long identitySkippedRows,
             @Param("state") String state,
-            @Param("nowUtc") LocalDateTime nowUtc
+            @Param("nowUtc") LocalDateTime nowUtc,
+            @Param("finalizeLocalRowCount") boolean finalizeLocalRowCount
     );
 
     @Update({

@@ -14,16 +14,22 @@ public final class LegacyNoonReportProviderBridge
     public enum ReadbackMode {
         /** The delegate itself proves that its immutable handle belongs to this exact window. */
         DELEGATE_PROVES_EXACT_WINDOW,
+        /** Persist, reconcile once, then retry the same read-only export intent after backoff. */
+        RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF,
+        /** Re-read the same requested window; complete rows later prove container identity. */
+        SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION,
         UNAVAILABLE
     }
 
     public enum EmptyProofMode {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+        UNPROVEN_EMPTY_REMAINS_WAITING,
         UNAVAILABLE
     }
 
     public enum ArtifactCompletenessMode {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+        COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION,
         UNAVAILABLE
     }
 
@@ -54,29 +60,47 @@ public final class LegacyNoonReportProviderBridge
         );
         this.locatorVault = Objects.requireNonNull(locatorVault, "locatorVault");
         this.artifactStore = Objects.requireNonNull(artifactStore, "artifactStore");
-        if (readbackMode == ReadbackMode.DELEGATE_PROVES_EXACT_WINDOW
+        if ((readbackMode == ReadbackMode.DELEGATE_PROVES_EXACT_WINDOW
+                || readbackMode == ReadbackMode.SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION)
                 && !definition.hasSyntheticHandle()) {
-            throw new IllegalArgumentException("exact readback requires a synthetic handle");
+            throw new IllegalArgumentException("same-intent readback requires a synthetic handle");
         }
     }
 
     @Override
     public ReportProviderCapabilities reportProviderCapabilities() {
-        ReportProviderCapabilities.CreateReadbackEvidence createEvidence =
-                readbackMode == ReadbackMode.DELEGATE_PROVES_EXACT_WINDOW
-                        ? ReportProviderCapabilities.CreateReadbackEvidence.EXACT_IMMUTABLE_HANDLE_AND_INTENT
-                        : ReportProviderCapabilities.CreateReadbackEvidence.UNAVAILABLE;
+        ReportProviderCapabilities.CreateReadbackEvidence createEvidence;
+        if (readbackMode == ReadbackMode.DELEGATE_PROVES_EXACT_WINDOW) {
+            createEvidence = ReportProviderCapabilities.CreateReadbackEvidence
+                    .EXACT_IMMUTABLE_HANDLE_AND_INTENT;
+        } else if (readbackMode == ReadbackMode.RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF) {
+            createEvidence = ReportProviderCapabilities.CreateReadbackEvidence
+                    .READ_ONLY_EXPORT_RETRY_AFTER_PERSISTED_BACKOFF;
+        } else if (readbackMode
+                == ReadbackMode.SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION) {
+            createEvidence = ReportProviderCapabilities.CreateReadbackEvidence
+                    .SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION;
+        } else {
+            createEvidence = ReportProviderCapabilities.CreateReadbackEvidence.UNAVAILABLE;
+        }
         ReportProviderCapabilities.EmptyProofEvidence emptyEvidence =
-                emptyProofMode == EmptyProofMode.AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                emptyProofMode == EmptyProofMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                ? ReportProviderCapabilities.EmptyProofEvidence
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                : emptyProofMode == EmptyProofMode.UNPROVEN_EMPTY_REMAINS_WAITING
                         ? ReportProviderCapabilities.EmptyProofEvidence
-                                .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                                .UNPROVEN_EMPTY_REMAINS_WAITING
                         : ReportProviderCapabilities.EmptyProofEvidence.UNAVAILABLE;
         ReportProviderCapabilities.ArtifactCompletenessEvidence artifactEvidence =
-                artifactCompletenessMode
-                        == ArtifactCompletenessMode
-                                .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                artifactCompletenessMode == ArtifactCompletenessMode
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                ? ReportProviderCapabilities.ArtifactCompletenessEvidence
+                        .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                : artifactCompletenessMode == ArtifactCompletenessMode
+                        .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION
                         ? ReportProviderCapabilities.ArtifactCompletenessEvidence
-                                .AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT
+                                .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION
                         : ReportProviderCapabilities.ArtifactCompletenessEvidence.UNAVAILABLE;
         return new ReportProviderCapabilities(
                 definition.getOperationCode(),
@@ -84,6 +108,11 @@ public final class LegacyNoonReportProviderBridge
                 emptyEvidence,
                 artifactEvidence
         );
+    }
+
+    @Override
+    public boolean retryUnknownCreateAfterReadbackFailure() {
+        return readbackMode == ReadbackMode.RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF;
     }
 
     @Override
@@ -114,7 +143,8 @@ public final class LegacyNoonReportProviderBridge
 
     @Override
     public ProviderOutcome<ExportCreateReadback> findByRequestKey(ExportReportIntent intent) {
-        if (readbackMode == ReadbackMode.UNAVAILABLE) {
+        if (readbackMode == ReadbackMode.UNAVAILABLE
+                || readbackMode == ReadbackMode.RETRY_READ_ONLY_EXPORT_AFTER_BACKOFF) {
             return ProviderOutcome.contractError("REPORT_CREATE_READBACK_UNAVAILABLE");
         }
         try {
@@ -151,6 +181,9 @@ public final class LegacyNoonReportProviderBridge
                     if (emptyProofMode == EmptyProofMode.UNAVAILABLE) {
                         return ProviderOutcome.contractError("REPORT_EMPTY_PROOF_UNAVAILABLE");
                     }
+                    if (emptyProofMode == EmptyProofMode.UNPROVEN_EMPTY_REMAINS_WAITING) {
+                        return ProviderOutcome.success(ExportPollResult.pending());
+                    }
                     if (!handle.getValue().equals(status.getProviderExportId())) {
                         return ProviderOutcome.contractError("REPORT_EMPTY_HANDLE_UNPROVEN");
                     }
@@ -168,6 +201,17 @@ public final class LegacyNoonReportProviderBridge
                                 "REPORT_ARTIFACT_COMPLETENESS_UNAVAILABLE"
                         );
                     }
+                    String reference = locatorVault.store(
+                            intent, handle, status.getDownloadUrl()
+                    );
+                    if (artifactCompletenessMode == ArtifactCompletenessMode
+                            .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION) {
+                        return ProviderOutcome.success(
+                                ExportPollResult.readyWithLocalRowCount(
+                                        intent, handle, reference
+                                )
+                        );
+                    }
                     if (status.getTotalRows() == null || status.getTotalRows() <= 0) {
                         return ProviderOutcome.contractError(
                                 "REPORT_ARTIFACT_ROW_COUNT_UNPROVEN"
@@ -178,7 +222,6 @@ public final class LegacyNoonReportProviderBridge
                                 "REPORT_ARTIFACT_HANDLE_UNPROVEN"
                         );
                     }
-                    String reference = locatorVault.store(intent, handle, status.getDownloadUrl());
                     return ProviderOutcome.success(ExportPollResult.ready(
                             intent,
                             handle,

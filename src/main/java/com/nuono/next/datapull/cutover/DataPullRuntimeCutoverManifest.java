@@ -35,8 +35,8 @@ final class DataPullRuntimeCutoverManifest {
 
     static final String SCHEMA = "nuono.dp-runtime-cutover-manifest/v1";
     static final String TYPE = "DP_RUNTIME_CUTOVER_MANIFEST";
-    static final String BOUNDARY_KIND = "SAFE_FALLBACK_PREVIOUS_BUSINESS_DAY";
-    private static final String BOUNDARY_PROOF_VERSION = "DP_CUTOVER_SAFE_FALLBACK_V1";
+    static final String BOUNDARY_KIND = "SAFE_PREDECESSOR_OR_FALLBACK_BOUNDARY";
+    private static final String BOUNDARY_PROOF_VERSION = "DP_CUTOVER_SAFE_BOUNDARY_V2";
     private static final int VALID_MINUTES = 30;
     private static final DateTimeFormatter UTC_MILLIS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
@@ -69,6 +69,7 @@ final class DataPullRuntimeCutoverManifest {
                     jarSha256,
                     observed,
                     fallback,
+                    cohort,
                     baseline
             ));
         }
@@ -99,6 +100,7 @@ final class DataPullRuntimeCutoverManifest {
             String jarSha,
             LocalDateTime observed,
             LocalDateTime fallback,
+            DataPullRuntimeCutoverSourceCohort cohort,
             DataPullRuntimeCutoverManifestBaseline baseline
     ) {
         OperationCode operation = job.operationCode();
@@ -118,7 +120,8 @@ final class DataPullRuntimeCutoverManifest {
                 throw new IllegalStateException("DP_CUTOVER_DUPLICATE_SCOPE:" + operation);
             }
             LocalDateTime boundary = baseline == null
-                    ? fallback : baseline.boundary(operation, scope.getStableScopeKey());
+                    ? cohort.reconcileAfter(operation, scope.getStableScopeKey(), fallback)
+                    : baseline.boundary(operation, scope.getStableScopeKey());
             DataPullScopeAdmission admission = DataPullScopeAdmission.cutoverExisting(
                     scope, cutoverKey, observed
             );

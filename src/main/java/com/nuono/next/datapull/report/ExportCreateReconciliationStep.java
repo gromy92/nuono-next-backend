@@ -44,6 +44,12 @@ final class ExportCreateReconciliationStep {
         }
         if (checkpoint.isCreateOutcomeUnknown()
                 && outcome.getType() == ProviderOutcomeType.CONTRACT_ERROR) {
+            if (provider.retryUnknownCreateAfterReadbackFailure()) {
+                return transitions.waitingRecreate(
+                        checkpoint,
+                        "READ_ONLY_EXPORT_RETRY_AFTER_RECONCILE"
+                );
+            }
             // This contract error describes the readback capability, not the outcome of
             // the already attempted create. It cannot prove that replay is safe or that
             // the unknown create failed, so keep the exact intent in reconciliation.

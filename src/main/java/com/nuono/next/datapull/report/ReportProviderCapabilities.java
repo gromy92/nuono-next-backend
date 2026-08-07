@@ -10,6 +10,10 @@ public final class ReportProviderCapabilities {
 
     public enum CreateReadbackEvidence {
         EXACT_IMMUTABLE_HANDLE_AND_INTENT,
+        /** Read-only export creation may retry the persisted intent after a reconcile backoff. */
+        READ_ONLY_EXPORT_RETRY_AFTER_PERSISTED_BACKOFF,
+        /** The same requested window is read and the downloaded container validates every row. */
+        SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION,
         UNAVAILABLE,
         PAGINATION_UNSAFE,
         STABLE_REQUEST_KEY_UNAVAILABLE
@@ -17,11 +21,15 @@ public final class ReportProviderCapabilities {
 
     public enum EmptyProofEvidence {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+        /** An unproven empty file remains non-terminal and therefore cannot erase facts. */
+        UNPROVEN_EMPTY_REMAINS_WAITING,
         UNAVAILABLE
     }
 
     public enum ArtifactCompletenessEvidence {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
+        /** Immutable full download plus bounded local row counting and container validation. */
+        COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION,
         UNAVAILABLE
     }
 

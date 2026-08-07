@@ -79,6 +79,21 @@ public final class ExportPollResult {
         );
     }
 
+    public static ExportPollResult readyWithLocalRowCount(
+            ExportReportIntent intent,
+            RemoteExportHandle handle,
+            String downloadLocatorReference
+    ) {
+        return new ExportPollResult(
+                Status.READY,
+                "EXPORT_READY_LOCAL_ROW_COUNT",
+                downloadLocatorReference,
+                ReportArtifactAuthority.locallyCounted(intent, handle),
+                null,
+                null
+        );
+    }
+
     public static ExportPollResult authoritativeEmpty(
             ExportReportIntent intent,
             RemoteExportHandle handle,

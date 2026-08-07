@@ -145,6 +145,12 @@ final class ReportJobTestSupport {
         final Deque<ProviderOutcome<DownloadedReportArtifact>> downloads = new ArrayDeque<>();
         final List<String> calls = new ArrayList<>();
         final Set<String> stableRequestKeys = new LinkedHashSet<>();
+        boolean retryUnknownCreateAfterReadbackFailure;
+
+        @Override
+        public boolean retryUnknownCreateAfterReadbackFailure() {
+            return retryUnknownCreateAfterReadbackFailure;
+        }
 
         @Override
         public ProviderOutcome<RemoteExportHandle> create(ExportReportIntent intent) {

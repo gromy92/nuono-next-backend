@@ -13,11 +13,13 @@ final class DataPullRuntimeCutoverSourceCohort {
     private final LocalDateTime observedAtUtc;
     private final DataPullJobRegistry jobs;
     private final Map<OperationCode, List<DataPullScopeBindingCandidate>> bindings;
+    private final Map<OperationCode, Map<String, LocalDateTime>> legacyBoundaries;
 
     DataPullRuntimeCutoverSourceCohort(
             LocalDateTime observedAtUtc,
             DataPullJobRegistry jobs,
-            Map<OperationCode, List<DataPullScopeBindingCandidate>> bindings
+            Map<OperationCode, List<DataPullScopeBindingCandidate>> bindings,
+            Map<OperationCode, Map<String, LocalDateTime>> legacyBoundaries
     ) {
         this.observedAtUtc = observedAtUtc;
         this.jobs = jobs;
@@ -25,11 +27,32 @@ final class DataPullRuntimeCutoverSourceCohort {
                 new EnumMap<>(OperationCode.class);
         bindings.forEach((operation, values) -> copied.put(operation, List.copyOf(values)));
         this.bindings = Map.copyOf(copied);
+        EnumMap<OperationCode, Map<String, LocalDateTime>> boundaries =
+                new EnumMap<>(OperationCode.class);
+        legacyBoundaries.forEach((operation, values) ->
+                boundaries.put(operation, Map.copyOf(values)));
+        this.legacyBoundaries = Map.copyOf(boundaries);
+    }
+
+    DataPullRuntimeCutoverSourceCohort(
+            LocalDateTime observedAtUtc,
+            DataPullJobRegistry jobs,
+            Map<OperationCode, List<DataPullScopeBindingCandidate>> bindings
+    ) {
+        this(observedAtUtc, jobs, bindings, Map.of());
     }
 
     LocalDateTime getObservedAtUtc() { return observedAtUtc; }
     DataPullJobRegistry getJobs() { return jobs; }
     List<DataPullScopeBindingCandidate> bindings(OperationCode operation) {
         return bindings.getOrDefault(operation, List.of());
+    }
+    LocalDateTime reconcileAfter(
+            OperationCode operation,
+            String scopeKey,
+            LocalDateTime fallback
+    ) {
+        return legacyBoundaries.getOrDefault(operation, Map.of())
+                .getOrDefault(scopeKey, fallback);
     }
 }

@@ -49,9 +49,10 @@ class FbnReceivedExportReportProviderBridgeTest {
         assertEquals(0, delegate.listCalls);
         assertEquals(
                 ReportProviderCapabilities.CreateReadbackEvidence
-                        .STABLE_REQUEST_KEY_UNAVAILABLE,
+                        .READ_ONLY_EXPORT_RETRY_AFTER_PERSISTED_BACKOFF,
                 bridge.reportProviderCapabilities().getCreateReadbackEvidence()
         );
+        assertEquals(true, bridge.retryUnknownCreateAfterReadbackFailure());
         assertEquals(0, delegate.createCalls);
     }
 

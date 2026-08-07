@@ -7,6 +7,7 @@ public final class ReportStageChunk {
     private final String artifactKey;
     private final String artifactSha256;
     private final long declaredRowCount;
+    private final boolean localRowCount;
     private final String headerJson;
     private final long expectedByteOffset;
     private final long nextByteOffset;
@@ -17,6 +18,7 @@ public final class ReportStageChunk {
             String artifactKey,
             String artifactSha256,
             long declaredRowCount,
+            boolean localRowCount,
             String headerJson,
             long expectedByteOffset,
             long nextByteOffset,
@@ -26,6 +28,7 @@ public final class ReportStageChunk {
         this.artifactKey = artifactKey;
         this.artifactSha256 = artifactSha256;
         this.declaredRowCount = declaredRowCount;
+        this.localRowCount = localRowCount;
         this.headerJson = headerJson;
         this.expectedByteOffset = expectedByteOffset;
         this.nextByteOffset = nextByteOffset;
@@ -36,6 +39,7 @@ public final class ReportStageChunk {
     public String getArtifactKey() { return artifactKey; }
     public String getArtifactSha256() { return artifactSha256; }
     public long getDeclaredRowCount() { return declaredRowCount; }
+    public boolean usesLocalRowCount() { return localRowCount; }
     public String getHeaderJson() { return headerJson; }
     public long getExpectedByteOffset() { return expectedByteOffset; }
     public long getNextByteOffset() { return nextByteOffset; }

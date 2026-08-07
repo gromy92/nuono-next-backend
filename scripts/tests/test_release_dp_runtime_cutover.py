@@ -155,7 +155,7 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         self.assertIn("dp-runtime-cutover-manifest --env-file", script)
         self.assertIn('--candidate-jar "$STAGED_JAR"', script)
         self.assertIn('--baseline-manifest "$DP_RUNTIME_BASELINE_MANIFEST"', script)
-        self.assertIn("SAFE_FALLBACK_PREVIOUS_BUSINESS_DAY", script)
+        self.assertIn("SAFE_PREDECESSOR_OR_FALLBACK_BOUNDARY", script)
         self.assertIn("candidate Jar DP runtime cutover marker mismatch", script)
         self.assertIn("DP cutover stopped-JVM cohort drift", script)
 
@@ -222,6 +222,7 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
     def test_release_summary_contains_stopped_service_drain_evidence(self):
         script = build_script()
         self.assertIn('emit DP_LEGACY_SUPERSEDED_COUNT', script)
+        self.assertIn('emit DP_LEGACY_AUTH_SUPERSEDED_COUNT', script)
         self.assertIn('emit DP_LEGACY_REMAINING_AFTER_STOP', script)
         self.assertIn('DP_RUNTIME_LEGACY_REMAINING_AFTER_STOP=0', script)
 

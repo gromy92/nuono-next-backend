@@ -51,7 +51,10 @@ public final class LegacyNoonReportImporter implements ExportReportImporter {
         }
 
         ReportStageState existing = stageStore.load(intent.getTaskId());
-        if (existing != null && !"VALIDATING".equals(existing.getState())) {
+        boolean replaceUnprovenEmpty = existing != null
+                && "EMPTY_UNPROVEN".equals(existing.getState());
+        if (existing != null && !"VALIDATING".equals(existing.getState())
+                && !replaceUnprovenEmpty) {
             return stageStore.applySealed(intent);
         }
         final String[] header;
@@ -59,7 +62,8 @@ public final class LegacyNoonReportImporter implements ExportReportImporter {
         final long expectedByteOffset;
         final ReportStageChunk staged;
         try {
-            long rangeStart = existing == null ? 0L : existing.getNextByteOffset();
+            long rangeStart = existing == null || replaceUnprovenEmpty
+                    ? 0L : existing.getNextByteOffset();
             StoredReportArtifactSlice slice = artifactStore.readVerifiedRange(
                     intent,
                     artifact,
@@ -72,7 +76,7 @@ public final class LegacyNoonReportImporter implements ExportReportImporter {
             }
             byte[] content = slice.getContent();
             long rowOffset;
-            if (existing == null) {
+            if (existing == null || replaceUnprovenEmpty) {
                 ReportCsvCursor.Header parsedHeader = ReportCsvCursor.readHeader(
                         content,
                         slice.isEndOfArtifact()
@@ -102,7 +106,7 @@ public final class LegacyNoonReportImporter implements ExportReportImporter {
                 // rehashed the chunks it consumed, while download completion owns full-stream SHA.
                 artifactStore.verifyComplete(intent, artifact);
             }
-            long firstRowNumber = existing == null
+            long firstRowNumber = existing == null || replaceUnprovenEmpty
                     ? 1L
                     : Math.addExact(existing.getSourceRowCount(), 1L);
             NoonReportDownloadedFile file = new NoonReportDownloadedFile(
@@ -122,6 +126,7 @@ public final class LegacyNoonReportImporter implements ExportReportImporter {
                     artifact.getArtifactKey(),
                     artifact.getSha256(),
                     authority.getDeclaredRowCount(),
+                    authority.usesLocalRowCount(),
                     headerJson,
                     expectedByteOffset,
                     Math.addExact(slice.getStartByteOffset(), chunk.nextByteOffset()),
