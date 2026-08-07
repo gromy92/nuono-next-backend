@@ -8,7 +8,7 @@ import os
 import re
 import shutil
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPT_DIR) not in sys.path:
@@ -20,6 +20,13 @@ from schema_migrations.catalog import (  # noqa: E402
 )
 from schema_migrations.artifact import runner_descriptors  # noqa: E402
 from schema_migrations.core import MigrationError  # noqa: E402
+from ci.release_operation_bundles import (  # noqa: E402
+    COMPETITOR_OPERATION_ENTRYPOINT,
+    COMPETITOR_OPERATION_MIGRATIONS,
+    COMPETITOR_OPERATION_NAME,
+    OperationBundleError,
+    freeze_operation_bundles,
+)
 
 
 class ArtifactError(RuntimeError):
@@ -37,14 +44,6 @@ MANAGED_MIGRATIONS = (
     "241_operations_competitor_correction_writer_fence.sql", "242_file_management_parse_retirement.sql",
 )
 
-COMPETITOR_OPERATION_NAME = "competitor_business_date_correction"
-COMPETITOR_OPERATION_ENTRYPOINT = "scripts/competitor_business_date_correction.py"
-COMPETITOR_OPERATION_MIGRATIONS = (
-    "240_operations_competitor_snapshot_active_uniqueness.sql",
-    "241_operations_competitor_correction_writer_fence.sql",
-)
-
-
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as handle:
@@ -58,86 +57,6 @@ def required_env(name: str, env: dict[str, str]) -> str:
     if not value:
         raise ArtifactError(f"missing required environment variable: {name}")
     return value
-
-
-def canonical_json(value: object) -> str:
-    return json.dumps(
-        value,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
-
-
-def build_competitor_operation_identity(
-    source_root: Path,
-) -> dict[str, object]:
-    root = source_root.resolve()
-    package_dir = root / "scripts/competitor_business_date"
-    paths = sorted(package_dir.glob("*.py"))
-    paths.append(root / COMPETITOR_OPERATION_ENTRYPOINT)
-    paths.extend(
-        root / "src/main/resources/db/init" / name
-        for name in COMPETITOR_OPERATION_MIGRATIONS
-    )
-    if not paths or any(
-        not path.is_file() or path.is_symlink()
-        for path in paths
-    ):
-        raise ArtifactError("competitor correction operation bundle is incomplete")
-    descriptors = sorted(
-        (
-            {
-                "path": path.relative_to(root).as_posix(),
-                "sha256": sha256_file(path),
-                "size": path.stat().st_size,
-            }
-            for path in paths
-        ),
-        key=lambda item: item["path"],
-    )
-    digest = hashlib.sha256(
-        canonical_json(descriptors).encode("utf-8")
-    ).hexdigest()
-    return {
-        "schema_version": 1,
-        "sha256": digest,
-        "files": descriptors,
-    }
-
-
-def freeze_competitor_operation_bundle(
-    source_root: Path,
-    output_root: Path,
-) -> dict[str, object]:
-    identity = build_competitor_operation_identity(source_root)
-    for item in identity["files"]:
-        relative = PurePosixPath(str(item["path"]))
-        if relative.is_absolute() or any(
-            part in {"", ".", ".."}
-            for part in relative.parts
-        ):
-            raise ArtifactError(
-                f"unsafe competitor operation bundle path: {relative}"
-            )
-        source = source_root.resolve().joinpath(*relative.parts)
-        destination = output_root.resolve().joinpath(*relative.parts)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        if (
-            destination.is_symlink()
-            or not destination.is_file()
-            or destination.stat().st_size != item["size"]
-            or sha256_file(destination) != item["sha256"]
-        ):
-            raise ArtifactError(
-                f"frozen competitor operation file differs: {relative}"
-            )
-    return {
-        "name": COMPETITOR_OPERATION_NAME,
-        "entrypoint": COMPETITOR_OPERATION_ENTRYPOINT,
-        **identity,
-    }
 
 
 def select_runnable_jar(target_dir: Path) -> Path:
@@ -252,16 +171,18 @@ def package_release_artifact(
     output_dir.mkdir(parents=True, exist_ok=False)
     artifact_path = output_dir / "nuono-next-backend.jar"
     shutil.copyfile(jar, artifact_path)
-    operation_bundle = freeze_competitor_operation_bundle(
-        source_root or Path(__file__).resolve().parents[2],
-        output_dir,
-    )
+    try:
+        operation_bundles = freeze_operation_bundles(
+            source_root or Path(__file__).resolve().parents[2], output_dir
+        )
+    except OperationBundleError as error:
+        raise ArtifactError(str(error)) from error
     manifest = build_manifest(
         artifact_path,
         artifact_name,
         env,
         migration_dir,
-        [operation_bundle],
+        operation_bundles,
     )
     manifest_path = output_dir / "release-manifest.json"
     manifest_path.write_text(
