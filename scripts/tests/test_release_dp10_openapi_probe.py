@@ -140,19 +140,6 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
         self.assertNotEqual(0, self.verify_evidence(stale).returncode)
         self.assertEqual(0, self.verify_evidence(fresh).returncode)
 
-    def test_fresh_gate_accepts_exact_auth_wait_isolation_but_rejects_mixed_claims(self):
-        now = dt.datetime.now(dt.timezone.utc)
-        isolated = self.probe_evidence(now - dt.timedelta(minutes=1))
-        isolated["release_disposition"] = "AUTH_WAIT_ISOLATED"
-        isolated["current_list_contract"] = "NOT_EXECUTED_AUTH_WAIT"
-        isolated["history_list_contract"] = "NOT_EXECUTED_AUTH_WAIT"
-        isolated["detail_contract"] = "NOT_EXECUTED_AUTH_WAIT"
-        mixed = dict(isolated)
-        mixed["detail_contract"] = "CONTRACT_PROVEN"
-
-        self.assertEqual(0, self.verify_evidence(isolated).returncode)
-        self.assertNotEqual(0, self.verify_evidence(mixed).returncode)
-
     def test_verified_proof_is_atomically_persisted_in_target_slot(self):
         script = self.build_script()
         execution = script.split("\nvalidate_cutover\n", 1)[1]

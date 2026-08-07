@@ -2,14 +2,12 @@ package com.nuono.next.procurement.aliorder;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
@@ -45,100 +43,6 @@ final class Ali1688Dp10OpenApiProbeEvidenceSupport {
             PosixFilePermissions.fromString("rwx------");
 
     private Ali1688Dp10OpenApiProbeEvidenceSupport() {
-    }
-
-    static void write(
-            Path evidenceFile,
-            String nonce,
-            String manifestCommit,
-            Path candidateJar,
-            String expectedJarSha256,
-            Ali1688HistoricalOrderOpenApiProperties properties,
-            Clock clock,
-            ObjectMapper mapper
-    ) throws IOException {
-        write(
-                evidenceFile,
-                nonce,
-                manifestCommit,
-                candidateJar,
-                expectedJarSha256,
-                properties,
-                clock,
-                mapper,
-                EXECUTION_PROVEN,
-                PROVEN
-        );
-    }
-
-    static void writeAuthWaitIsolation(
-            Path evidenceFile,
-            String nonce,
-            String manifestCommit,
-            Path candidateJar,
-            String expectedJarSha256,
-            Ali1688HistoricalOrderOpenApiProperties properties,
-            Clock clock,
-            ObjectMapper mapper
-    ) throws IOException {
-        write(
-                evidenceFile,
-                nonce,
-                manifestCommit,
-                candidateJar,
-                expectedJarSha256,
-                properties,
-                clock,
-                mapper,
-                AUTH_WAIT_ISOLATED,
-                NOT_EXECUTED_AUTH_WAIT
-        );
-    }
-
-    private static void write(
-            Path evidenceFile,
-            String nonce,
-            String manifestCommit,
-            Path candidateJar,
-            String expectedJarSha256,
-            Ali1688HistoricalOrderOpenApiProperties properties,
-            Clock clock,
-            ObjectMapper mapper,
-            String releaseDisposition,
-            String contractState
-    ) throws IOException {
-        requirePattern(nonce, SHA256, "PROBE_NONCE_INVALID");
-        requirePattern(manifestCommit, COMMIT, "PROBE_COMMIT_INVALID");
-        requirePattern(expectedJarSha256, SHA256, "PROBE_JAR_SHA_INVALID");
-        if (!expectedJarSha256.equals(sha256File(candidateJar))) {
-            throw new IllegalStateException("PROBE_JAR_SHA_MISMATCH");
-        }
-        requireDirectory(evidenceFile.getParent());
-        Instant verifiedAt = clock.instant();
-        ObjectNode evidence = mapper.createObjectNode();
-        evidence.put("schema", SCHEMA);
-        evidence.put("type", TYPE);
-        evidence.put("release_disposition", releaseDisposition);
-        evidence.put("nonce_sha256", sha256Text(nonce));
-        evidence.put("manifest_commit", manifestCommit);
-        evidence.put("candidate_jar_sha256", expectedJarSha256);
-        evidence.put("endpoint_fingerprint_sha256", endpointFingerprint(properties));
-        evidence.put("app_key_fingerprint_sha256", appKeyFingerprint(properties));
-        evidence.put("current_list_contract", contractState);
-        evidence.put("history_list_contract", contractState);
-        evidence.put("detail_contract", contractState);
-        evidence.put("verified_at", verifiedAt.toString());
-        evidence.put("expires_at", verifiedAt.plus(VALIDITY).toString());
-        byte[] payload = (mapper.writeValueAsString(evidence) + "\n")
-                .getBytes(StandardCharsets.UTF_8);
-        Files.createFile(
-                evidenceFile,
-                PosixFilePermissions.asFileAttribute(FILE_MODE)
-        );
-        Files.write(evidenceFile, payload, StandardOpenOption.WRITE);
-        if (!Files.getPosixFilePermissions(evidenceFile).equals(FILE_MODE)) {
-            throw new IllegalStateException("PROBE_EVIDENCE_MODE_INVALID");
-        }
     }
 
     static boolean verifyFresh(
@@ -291,11 +195,7 @@ final class Ali1688Dp10OpenApiProbeEvidenceSupport {
                 && secureDirectory(path.getParent());
     }
 
-    private static void requireDirectory(Path path) throws IOException {
-        if (!secureDirectory(path)) throw new IllegalStateException("PROBE_DIRECTORY_MODE_INVALID");
-    }
-
-    private static boolean secureDirectory(Path path) throws IOException {
+    static boolean secureDirectory(Path path) throws IOException {
         return path != null
                 && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
                 && !Files.isSymbolicLink(path)
@@ -346,7 +246,7 @@ final class Ali1688Dp10OpenApiProbeEvidenceSupport {
     }
 
     private static String trim(String value) { return value == null ? "" : value.trim(); }
-    private static String sha256Text(String value) {
+    static String sha256Text(String value) {
         return hex(sha256().digest(value.getBytes(StandardCharsets.UTF_8)));
     }
     private static String hex(byte[] bytes) {

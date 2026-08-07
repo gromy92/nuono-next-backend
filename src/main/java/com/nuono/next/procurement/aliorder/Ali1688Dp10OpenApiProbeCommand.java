@@ -89,7 +89,7 @@ public final class Ali1688Dp10OpenApiProbeCommand {
                 );
             } catch (Ali1688Dp10OpenApiProbeRunner.ProbeFailure failure) {
                 if (!isIsolatedAuthWait(failure.code())) throw failure;
-                Ali1688Dp10OpenApiProbeEvidenceSupport.writeAuthWaitIsolation(
+                Ali1688Dp10OpenApiProbeEvidenceWriter.writeAuthWaitIsolation(
                         evidenceFile,
                         nonce,
                         manifestCommit,
@@ -105,7 +105,7 @@ public final class Ali1688Dp10OpenApiProbeCommand {
                 );
                 return 0;
             }
-            Ali1688Dp10OpenApiProbeEvidenceSupport.write(
+            Ali1688Dp10OpenApiProbeEvidenceWriter.writeExecutionProof(
                     evidenceFile,
                     nonce,
                     manifestCommit,

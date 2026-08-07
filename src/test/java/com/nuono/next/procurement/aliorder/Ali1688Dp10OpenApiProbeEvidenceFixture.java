@@ -62,7 +62,7 @@ final class Ali1688Dp10OpenApiProbeEvidenceFixture {
     }
 
     void write() throws Exception {
-        Ali1688Dp10OpenApiProbeEvidenceSupport.write(
+        Ali1688Dp10OpenApiProbeEvidenceWriter.writeExecutionProof(
                 evidence,
                 NONCE,
                 COMMIT,
@@ -75,7 +75,7 @@ final class Ali1688Dp10OpenApiProbeEvidenceFixture {
     }
 
     void writeAuthWaitIsolation() throws Exception {
-        Ali1688Dp10OpenApiProbeEvidenceSupport.writeAuthWaitIsolation(
+        Ali1688Dp10OpenApiProbeEvidenceWriter.writeAuthWaitIsolation(
                 evidence,
                 NONCE,
                 COMMIT,
