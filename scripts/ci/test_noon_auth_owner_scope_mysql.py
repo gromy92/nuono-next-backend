@@ -98,7 +98,9 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
         )
 
     def _prepare_schema(self, database, resources):
-        for order in (190, 238):
+        # Reuse the exact production foundations that 190/238 evolve.  Hand-made
+        # placeholder tables hide column/index drift in the owner-scope scenario.
+        for order in (53, 58, 190, 238):
             path = next((resources / "db/init").glob(f"{order}_*.sql"))
             database.client.execute(path.read_text(encoding="utf-8"))
 
