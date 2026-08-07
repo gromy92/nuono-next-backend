@@ -26,8 +26,17 @@ final class Ali1688Dp10OpenApiProbeRunner {
             int pageSize
     ) {
         if (authorization == null || pageSize < 1) throw failure("PROBE_INPUT_INVALID");
+        boolean authorizationRefreshed = false;
         if (provider.requiresAuthorizationRefresh(authorization)) {
-            throw failure("PROBE_AUTH_REFRESH_REQUIRED");
+            Ali1688HistoricalOrderAuthorizationRefreshResult refresh =
+                    provider.refreshAuthorization(authorization);
+            if (refresh == null || !refresh.isSuccess()) {
+                throw failure(refreshFailureCode(refresh));
+            }
+            if (provider.requiresAuthorizationRefresh(authorization)) {
+                throw failure("PROBE_AUTH_REFRESH_UNPROVEN");
+            }
+            authorizationRefreshed = true;
         }
         Instant modifiedTo = clock.instant().truncatedTo(ChronoUnit.SECONDS);
         Instant modifiedFrom = modifiedTo.minus(WINDOW_HOURS, ChronoUnit.HOURS);
@@ -60,7 +69,22 @@ final class Ali1688Dp10OpenApiProbeRunner {
                 || !detailIdentity.equals(trim(detail.getOrder().getProviderOrderNo()))) {
             throw failure("PROBE_DETAIL_CONTRACT_UNPROVEN");
         }
-        return new Proof(modifiedFrom, modifiedTo);
+        return new Proof(modifiedFrom, modifiedTo, authorizationRefreshed);
+    }
+
+    private String refreshFailureCode(
+            Ali1688HistoricalOrderAuthorizationRefreshResult refresh
+    ) {
+        String code = refresh == null ? null : refresh.getFailureCode();
+        if (Ali1688HistoricalOrderFailureCode.BLOCKED_BY_RISK_CONTROL.getCode()
+                .equals(code)) return "PROBE_AUTH_REFRESH_RISK_CONTROL";
+        if (Ali1688HistoricalOrderFailureCode.RATE_LIMITED.getCode()
+                .equals(code)) return "PROBE_AUTH_REFRESH_RATE_LIMITED";
+        if (Ali1688HistoricalOrderFailureCode.PROVIDER_UNAVAILABLE.getCode()
+                .equals(code)
+                || Ali1688HistoricalOrderFailureCode.AUTH_REFRESH_OUTCOME_UNKNOWN.getCode()
+                .equals(code)) return "PROBE_AUTH_REFRESH_RETRYABLE";
+        return "PROBE_AUTH_REFRESH_REQUIRED";
     }
 
     private Ali1688HistoricalOrderProvider.Page list(
@@ -134,14 +158,21 @@ final class Ali1688Dp10OpenApiProbeRunner {
     static final class Proof {
         private final Instant modifiedFrom;
         private final Instant modifiedTo;
+        private final boolean authorizationRefreshed;
 
-        private Proof(Instant modifiedFrom, Instant modifiedTo) {
+        private Proof(
+                Instant modifiedFrom,
+                Instant modifiedTo,
+                boolean authorizationRefreshed
+        ) {
             this.modifiedFrom = modifiedFrom;
             this.modifiedTo = modifiedTo;
+            this.authorizationRefreshed = authorizationRefreshed;
         }
 
         Instant modifiedFrom() { return modifiedFrom; }
         Instant modifiedTo() { return modifiedTo; }
+        boolean authorizationRefreshed() { return authorizationRefreshed; }
     }
 
     static final class ProbeFailure extends RuntimeException {
