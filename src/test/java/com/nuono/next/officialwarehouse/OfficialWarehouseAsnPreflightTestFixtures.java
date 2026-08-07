@@ -2,6 +2,8 @@ package com.nuono.next.officialwarehouse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
@@ -113,6 +115,19 @@ final class OfficialWarehouseAsnPreflightTestFixtures {
     static NoonSalesReportBinding binding() {
         return new NoonSalesReportBinding(307L, 108065L, "PRJ108065", "STR108065-NSA", "SA",
                 "108065", "merchant@example.com", "persisted-cookie");
+    }
+
+    static NoonSession testNoonSession(String cookie) {
+        NoonSessionGateway gateway = new NoonSessionGateway(
+                OBJECT_MAPPER, null, 0L, true, "", "", "en-sa", "en", false,
+                "", "", "", "", "", "", "", false, "HTTP", "", 0, "");
+        return gateway.openWithPersistedCookieWithoutProbe(
+                307L,
+                "merchant@example.com",
+                cookie,
+                "PRJ108065",
+                "STR108065-NSA"
+        );
     }
 
     static AsnRecord asnRecord() {

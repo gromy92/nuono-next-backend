@@ -64,7 +64,7 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         gateway = mock(NoonSessionGateway.class);
         bindingResolver = mock(NoonSalesReportBindingResolver.class);
         inboundClient = mock(OfficialWarehouseNoonInboundClient.class);
-        session = null;
+        session = testNoonSession("_npsid=read-session");
         service = new LocalDbOfficialWarehouseService(
                 mapper, gateway, bindingResolver, mock(NoonHttpCallLogService.class), inboundClient,
                 objectMapper, NoonRiskBackoffGuard.disabled(), new NoonPullFailurePolicy(),
@@ -73,6 +73,9 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         when(bindingResolver.resolve(any())).thenReturn(binding());
         when(gateway.loginWithPersistedCookiePinnedEgress(
                 307L, "merchant@example.com", "persisted-cookie", "PRJ108065",
+                "STR108065-NSA", "fbn.noon.partners", 443)).thenReturn(session);
+        when(gateway.loginWithPersistedCookiePinnedEgress(
+                307L, "merchant@example.com", session.exportAuthCookieHeader(), "PRJ108065",
                 "STR108065-NSA", "fbn.noon.partners", 443)).thenReturn(session);
     }
 
