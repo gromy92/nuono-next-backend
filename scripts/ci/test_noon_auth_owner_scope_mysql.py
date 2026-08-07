@@ -98,6 +98,14 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
         )
 
     def _prepare_schema(self, database, resources):
+        database.client.execute(
+            "SET FOREIGN_KEY_CHECKS=0;"
+            "DROP TABLE IF EXISTS noon_auth_owner_scope_audit,noon_auth_owner_scope_manifest_item,"
+            "noon_auth_owner_scope_manifest,noon_auth_identity_send_ledger,"
+            "noon_auth_identity_recovery_item,noon_project_auth_state,noon_auth_identity_recovery,"
+            "noon_pull_task,noon_pull_plan,noon_pull_id_sequence,sales_sync_task;"
+            "SET FOREIGN_KEY_CHECKS=1;"
+        )
         # Reuse the exact production foundations that 190/238 evolve.  Hand-made
         # placeholder tables hide column/index drift in the owner-scope scenario.
         for order in (53, 58, 190, 238):
