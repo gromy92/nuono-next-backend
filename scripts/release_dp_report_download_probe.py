@@ -94,8 +94,9 @@ PY
   timeout --signal=TERM --kill-after=5s 75s python3 - \
     "$DP_REPORT_PROBE_SOURCE_FILE" "$DP_REPORT_PROBE_EVIDENCE_FILE" \
     "$DP_REPORT_PROBE_NONCE" "$EXPECTED_COMMIT" "$EXPECTED_JAR_SHA256" <<'PY'
-import datetime as dt, email.utils, hashlib, json, os, pathlib, re, sys
+import datetime as dt, email.utils, hashlib, json, os, pathlib, re, ssl, sys
 import urllib.error, urllib.parse, urllib.request
+import certifi
 source_file, evidence_file = map(pathlib.Path, sys.argv[1:3])
 nonce, commit, jar_sha = sys.argv[3:]
 lines = source_file.read_text(encoding="utf-8").splitlines()
@@ -107,12 +108,14 @@ if (parsed.scheme != "https" or parsed.hostname != "storage.googleapis.com"
         or not parsed.path.startswith("/noonprd-mp-gcs--partner-impex/")
         or parsed.username or parsed.password or parsed.fragment):
     raise SystemExit("report transport source is not a governed Noon report URL")
+tls_context = ssl.create_default_context(cafile=certifi.where())
 def request(byte_range, if_range=None, exact_body=False):
     headers = {"Accept": "application/octet-stream,*/*", "Accept-Encoding": "identity",
                "Range": byte_range, "User-Agent": "Nuono-DP-Report-Probe/1"}
     if if_range is not None:
         headers["If-Range"] = if_range
-    response = urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20)
+    response = urllib.request.urlopen(
+        urllib.request.Request(url, headers=headers), timeout=20, context=tls_context)
     try:
         final = response.geturl()
         final_url = urllib.parse.urlsplit(final)

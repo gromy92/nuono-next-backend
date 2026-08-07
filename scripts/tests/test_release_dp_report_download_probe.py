@@ -84,6 +84,18 @@ class ReleaseDpReportDownloadProbeTest(unittest.TestCase):
         )
         self.assertIn("report transport resumable validator absent", script)
 
+    def test_probe_uses_managed_ca_bundle_without_disabling_tls_verification(self):
+        script = build_script()
+
+        self.assertIn("import certifi", script)
+        self.assertIn(
+            "tls_context = ssl.create_default_context(cafile=certifi.where())",
+            script,
+        )
+        self.assertIn("timeout=20, context=tls_context", script)
+        self.assertNotIn("_create_unverified_context", script)
+        self.assertNotIn("CERT_NONE", script)
+
     def test_probe_and_fresh_evidence_gate_precede_service_mutation(self):
         execution = build_script().split("\nvalidate_cutover\n", 1)[1]
         probe = execution.index("run_dp_report_download_probe")
