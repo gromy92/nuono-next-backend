@@ -253,6 +253,7 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
         return {
             "schema": "nuono.dp10-openapi-execution-contract/v1",
             "type": "DP10_OPEN_API_EXECUTION_CONTRACT",
+            "release_disposition": "EXECUTION_PROVEN",
             "nonce_sha256": "d" * 64,
             "manifest_commit": "c" * 40,
             "candidate_jar_sha256": "a" * 64,

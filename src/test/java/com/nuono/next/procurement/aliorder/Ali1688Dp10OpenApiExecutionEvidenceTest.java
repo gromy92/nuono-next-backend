@@ -52,6 +52,17 @@ class Ali1688Dp10OpenApiExecutionEvidenceTest {
     }
 
     @Test
+    void exactAuthWaitIsolationCanReleaseOtherDpOperationsWithoutFakingDp10Execution()
+            throws Exception {
+        Ali1688Dp10OpenApiProbeEvidenceFixture fixture = fixture();
+        fixture.writeAuthWaitIsolation();
+        String evidenceSha = fixture.evidenceSha();
+
+        assertTrue(fixture.verifyFresh(evidenceSha, COMMIT, NOW));
+        assertTrue(fixture.runtimeEvidence(fixture.runtimeEnvironment(evidenceSha)).verified());
+    }
+
+    @Test
     void runtimeEvidenceRejectsEffectiveDatabaseSecretAndEvidenceBindingDrift()
             throws Exception {
         Ali1688Dp10OpenApiProbeEvidenceFixture fixture = fixture();

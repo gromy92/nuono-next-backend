@@ -1,7 +1,9 @@
 package com.nuono.next.procurement.aliorder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -48,6 +50,34 @@ class Ali1688Dp10OpenApiProbeCommandTest {
                         "--env-file", "/app/.env"
                 })
         );
+    }
+
+    @Test
+    void onlyPreExecutionAuthorizationFailuresCanBecomeIsolatedAuthWaitEvidence() {
+        assertTrue(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_AUTH_REFRESH_REQUIRED"
+        ));
+        assertTrue(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_AUTH_REFRESH_UNPROVEN"
+        ));
+        assertTrue(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_AUTH_REFRESH_RISK_CONTROL"
+        ));
+        assertTrue(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_AUTH_REFRESH_RATE_LIMITED"
+        ));
+        assertTrue(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_AUTH_REFRESH_RETRYABLE"
+        ));
+        assertFalse(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_CURRENT_LIST_CONTRACT_UNPROVEN"
+        ));
+        assertFalse(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_DETAIL_CONTRACT_UNPROVEN"
+        ));
+        assertFalse(Ali1688Dp10OpenApiProbeCommand.isIsolatedAuthWait(
+                "PROBE_EXECUTION_FAILED"
+        ));
     }
 
     private String[] validArgs() {

@@ -62,7 +62,20 @@ final class Ali1688Dp10OpenApiProbeEvidenceFixture {
     }
 
     void write() throws Exception {
-        Ali1688Dp10OpenApiProbeEvidenceSupport.write(
+        Ali1688Dp10OpenApiProbeEvidenceWriter.writeExecutionProof(
+                evidence,
+                NONCE,
+                COMMIT,
+                jar,
+                Ali1688Dp10OpenApiProbeEvidenceSupport.sha256File(jar),
+                properties,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new ObjectMapper()
+        );
+    }
+
+    void writeAuthWaitIsolation() throws Exception {
+        Ali1688Dp10OpenApiProbeEvidenceWriter.writeAuthWaitIsolation(
                 evidence,
                 NONCE,
                 COMMIT,
