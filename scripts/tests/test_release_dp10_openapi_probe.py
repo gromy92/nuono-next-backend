@@ -62,7 +62,7 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
         self.assertLess(probe, maintenance)
         self.assertLess(probe, old_stop)
 
-    def test_probe_is_exact_candidate_one_shot_and_never_requests_refresh(self):
+    def test_probe_is_exact_candidate_one_shot_without_a_refresh_bypass_flag(self):
         script = self.build_script()
 
         self.assertIn(
@@ -77,10 +77,14 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
         self.assertNotIn("provider-result", script)
         self.assertNotIn("evidence-input", script)
 
-    def test_probe_requires_an_exact_managed_canary_without_refresh_token_access(self):
+    def test_probe_refresh_is_bound_to_the_exact_managed_canary_revision(self):
         source = (SOURCE_ROOT / (
             "src/main/java/com/nuono/next/procurement/aliorder/"
             "Ali1688Dp10OpenApiProbeAuthorizationSource.java"
+        )).read_text()
+        updater = (SOURCE_ROOT / (
+            "src/main/java/com/nuono/next/procurement/aliorder/"
+            "Ali1688Dp10OpenApiProbeAuthorizationUpdater.java"
         )).read_text()
 
         self.assertIn("NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID", source)
@@ -89,7 +93,15 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
         self.assertIn("BINARY auth.provider_account_id = BINARY ?", source)
         self.assertIn("statement.setLong(1, canaryOwner)", source)
         self.assertIn("statement.setString(2, canaryAccount)", source)
-        self.assertNotIn("refresh_token", source.lower())
+        self.assertIn("auth.refresh_token_cipher", source)
+        self.assertIn("auth.gmt_updated AS authorization_revision", source)
+        self.assertIn("BINARY provider_account_id = BINARY ?", updater)
+        self.assertIn("access_token_cipher <=> ?", updater)
+        self.assertIn("refresh_token_cipher <=> ?", updater)
+        self.assertIn("expires_at <=> ? AND gmt_updated <=> ?", updater)
+        self.assertIn("connection.setAutoCommit(false)", updater)
+        self.assertIn("if (affected == 1)", updater)
+        self.assertIn("connection.rollback()", updater)
 
     def test_nonce_and_candidate_bindings_are_validated_before_external_calls(self):
         source = (SOURCE_ROOT / (
