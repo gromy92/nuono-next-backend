@@ -693,9 +693,11 @@ public class LocalDbOfficialWarehouseService implements
         asnRow.operatorUserId = access.getSessionUserId();
         NoonSalesReportBinding binding = bindingResolver.resolve(new NoonSalesReportRequest(
                 ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode, LocalDate.now(), LocalDate.now()));
-        NoonSession session = openNoonSession(ownerUserId, binding);
         NoonCallContext asnCallContext = NoonCallContext.asn(asnId, localAsnNo);
-        OfficialWarehouseAsnProductPreflightProof preflightProof = asnProductPreflight.freeze(session, binding, asnCallContext, lineRows);
+        OfficialWarehouseAsnWritePreparation.Prepared prepared = OfficialWarehouseAsnWritePreparation.prepare(
+                noonSessionGateway, asnProductPreflight, ownerUserId, binding, asnCallContext, lineRows);
+        OfficialWarehouseAsnProductPreflightProof preflightProof = prepared.preflightProof();
+        NoonSession writeSession = prepared.writeSession();
         asnRow.projectCode = binding.getProjectCode();
         asnRow.partnerId = binding.getPartnerId();
         mapper.insertAsn(asnRow);
@@ -708,7 +710,7 @@ public class LocalDbOfficialWarehouseService implements
         boolean remoteAsnCreated = false;
         String noonAsnNo = null;
         try {
-            JsonNode createResponse = noonInboundClient.createAsn(session, binding, asnCallContext, preflightProof);
+            JsonNode createResponse = noonInboundClient.createAsn(writeSession, binding, asnCallContext, preflightProof);
             JsonNode createData = createResponse.path("data");
             String asnNr = requireText(text(createData, "asn_nr"), "Noon 创建 ASN 响应缺少 asn_nr。");
             noonAsnNo = asnNr;
@@ -724,7 +726,7 @@ public class LocalDbOfficialWarehouseService implements
                     access.getSessionUserId()
             );
 
-            JsonNode routingResponse = noonInboundClient.routeWarehouse(session, binding, asnCallContext, asnNr, preflightProof);
+            JsonNode routingResponse = noonInboundClient.routeWarehouse(writeSession, binding, asnCallContext, asnNr, preflightProof);
             JsonNode firstWarehouse = firstWarehouse(routingResponse);
             String selectedWarehousePartnerCode = text(firstWarehouse, "partner_code");
             String selectedWarehouseCode = text(firstWarehouse, "code");
@@ -738,11 +740,11 @@ public class LocalDbOfficialWarehouseService implements
                     access.getSessionUserId()
             );
 
-            JsonNode linesResponse = noonInboundClient.createLines(session, binding, asnCallContext, asnNr, preflightProof);
+            JsonNode linesResponse = noonInboundClient.createLines(writeSession, binding, asnCallContext, asnNr, preflightProof);
             mapper.markAllLinesCreated(asnId, access.getSessionUserId());
             applyNoonLineResponse(asnId, linesResponse, access.getSessionUserId());
             sealRemoteAsnAfterLineCreation(
-                    session,
+                    writeSession,
                     binding,
                     asnId,
                     localAsnNo,
@@ -2006,7 +2008,6 @@ public class LocalDbOfficialWarehouseService implements
                 LocalDate.now()
         ));
     }
-
     private NoonSession openNoonSession(Long ownerUserId, NoonSalesReportBinding binding) {
         return noonSessionGateway.loginWithPersistedCookiePinnedEgress(
                 ownerUserId,
@@ -2016,7 +2017,6 @@ public class LocalDbOfficialWarehouseService implements
                 binding.getStoreCode(), "fbn.noon.partners", 443
         );
     }
-
     private String resolveNoonUser(AsnRecord row) {
         if (row == null) {
             return null;
