@@ -14,6 +14,7 @@ EXPECTED_FILES = frozenset({
     ENTRYPOINT,
     "scripts/noon_auth_manual_hold_retry_artifact.py",
     "scripts/noon_auth_manual_hold_retry_sql.py",
+    "scripts/noon_auth_retry_task_scope.py",
     "scripts/schema_migrations/__init__.py",
     "scripts/schema_migrations/model.py",
     "scripts/schema_migrations/mysql_client.py",

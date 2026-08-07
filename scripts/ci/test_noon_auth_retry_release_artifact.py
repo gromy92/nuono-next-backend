@@ -48,7 +48,7 @@ class NoonAuthRetryReleaseArtifactTest(unittest.TestCase):
             bundle = next(item for item in value["operation_bundles"]
                           if item["name"] == "noon_auth_manual_hold_retry")
             self.assertEqual(ENTRYPOINT, bundle["entrypoint"])
-            self.assertEqual(7, len(bundle["files"]))
+            self.assertEqual(8, len(bundle["files"]))
             manifest_sha = hashlib.sha256(manifest.read_bytes()).hexdigest()
             command = (
                 "import json;from noon_auth_manual_hold_retry_artifact import "
