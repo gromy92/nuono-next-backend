@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Test;
 class NoonSessionGatewayOneShotTransportTest {
 
     @Test
-    void capturesRetryAfterAndDoesNotReplayOneShotResponse() throws Exception {
+    void pacedOneShotCapturesRetryAfterAndDoesNotReplayResponse() throws Exception {
         AtomicInteger requests = new AtomicInteger();
         HttpServer server = server(503, "17", requests);
         try {
@@ -34,10 +34,11 @@ class NoonSessionGatewayOneShotTransportTest {
 
             NoonHttpException failure = assertThrows(
                     NoonHttpException.class,
-                    () -> session.postWriteJson(
+                    () -> session.postWriteJsonAfterPacing(
                             url(server),
                             new ObjectMapper().createObjectNode(),
-                            false
+                            false,
+                            null
                     )
             );
 
@@ -82,6 +83,74 @@ class NoonSessionGatewayOneShotTransportTest {
             assertTrue(elapsedMillis < 1_000L);
             assertTrue(pacing.getRetryAfter().compareTo(Duration.ZERO) > 0);
             assertTrue(pacing.getRetryAfter().compareTo(Duration.ofSeconds(5)) <= 0);
+            assertEquals(1, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void officialWarehouseCreateWaitsAfterSixtyProductPreflightCallsAndSendsOnce() throws Exception {
+        AtomicInteger preflightRequests = new AtomicInteger();
+        AtomicInteger createRequests = new AtomicInteger();
+        HttpServer server = workflowServer(preflightRequests, createRequests);
+        try {
+            NoonSessionGateway.NoonSession session = gateway(30L)
+                    .openWithPersistedCookieWithoutProbe(
+                            307L, "project-user", "sid=persisted",
+                            "PRJ69486", "STR69486-NSA"
+                    );
+            ObjectMapper objectMapper = new ObjectMapper();
+            for (int sku = 0; sku < 20; sku++) {
+                for (int page = 1; page <= 3; page++) {
+                    session.postJson(
+                            url(server, "/preflight"),
+                            objectMapper.createObjectNode()
+                                    .put("search", "SKU-" + sku).put("page", page),
+                            true
+                    );
+                }
+            }
+
+            long startedNanos = System.nanoTime();
+            session.postWriteJsonAfterPacing(
+                    url(server, "/create"),
+                    objectMapper.createObjectNode().put("totalQty", 453),
+                    true,
+                    null
+            );
+            long elapsedMillis = (System.nanoTime() - startedNanos) / 1_000_000L;
+
+            assertTrue(elapsedMillis >= 10L);
+            assertEquals(60, preflightRequests.get());
+            assertEquals(1, createRequests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void pacedOneShotDoesNotReplayAnUnknownTransportResult() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0
+        );
+        server.createContext("/request", exchange -> {
+            requests.incrementAndGet();
+            exchange.close();
+        });
+        server.start();
+        try {
+            NoonSessionGateway.NoonSession session = gateway(0L)
+                    .openWithPersistedCookieWithoutProbe(
+                            307L, "project-user", "sid=persisted",
+                            "PRJ69486", "STR69486-NSA"
+                    );
+
+            assertThrows(IllegalStateException.class, () -> session.postWriteJsonAfterPacing(
+                    url(server), new ObjectMapper().createObjectNode(), false, null
+            ));
+
             assertEquals(1, requests.get());
         } finally {
             server.stop(0);
@@ -157,6 +226,34 @@ class NoonSessionGatewayOneShotTransportTest {
         return server;
     }
 
+    private HttpServer workflowServer(
+            AtomicInteger preflightRequests,
+            AtomicInteger createRequests
+    ) throws Exception {
+        HttpServer server = HttpServer.create(
+                new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0
+        );
+        server.createContext("/preflight", exchange -> {
+            preflightRequests.incrementAndGet();
+            send(exchange, 200, "{\"data\":{\"total\":0,\"hits\":[]}}");
+        });
+        server.createContext("/create", exchange -> {
+            createRequests.incrementAndGet();
+            send(exchange, 200, "{\"data\":{\"asn_nr\":\"A058831PN\"}}");
+        });
+        server.start();
+        return server;
+    }
+
+    private void send(com.sun.net.httpserver.HttpExchange exchange, int status, String body)
+            throws java.io.IOException {
+        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(status, bytes.length);
+        try (OutputStream response = exchange.getResponseBody()) {
+            response.write(bytes);
+        }
+    }
+
     private NoonSessionGateway gateway(long minimumIntervalMillis) {
         return new NoonSessionGateway(
                 new ObjectMapper(),
@@ -184,6 +281,10 @@ class NoonSessionGatewayOneShotTransportTest {
     }
 
     private String url(HttpServer server) {
-        return "http://127.0.0.1:" + server.getAddress().getPort() + "/request";
+        return url(server, "/request");
+    }
+
+    private String url(HttpServer server, String path) {
+        return "http://127.0.0.1:" + server.getAddress().getPort() + path;
     }
 }
