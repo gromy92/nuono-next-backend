@@ -19,6 +19,13 @@ public final class Ali1688Dp10OpenApiProbeCommand {
             "--expected-jar-sha256",
             "--evidence-file"
     );
+    private static final Set<String> ISOLATED_AUTH_WAIT_FAILURES = Set.of(
+            "PROBE_AUTH_REFRESH_REQUIRED",
+            "PROBE_AUTH_REFRESH_UNPROVEN",
+            "PROBE_AUTH_REFRESH_RISK_CONTROL",
+            "PROBE_AUTH_REFRESH_RATE_LIMITED",
+            "PROBE_AUTH_REFRESH_RETRYABLE"
+    );
 
     private Ali1688Dp10OpenApiProbeCommand() {
     }
@@ -73,12 +80,31 @@ public final class Ali1688Dp10OpenApiProbeCommand {
                             authorizationUpdater
                     );
             Clock clock = Clock.systemUTC();
-            Ali1688Dp10OpenApiProbeRunner.Proof proof =
-                    new Ali1688Dp10OpenApiProbeRunner(provider, clock).run(
-                            selection.authorization(),
-                            selection.providerOrderNo(),
-                            properties.getPageSize()
-                    );
+            Ali1688Dp10OpenApiProbeRunner.Proof proof;
+            try {
+                proof = new Ali1688Dp10OpenApiProbeRunner(provider, clock).run(
+                        selection.authorization(),
+                        selection.providerOrderNo(),
+                        properties.getPageSize()
+                );
+            } catch (Ali1688Dp10OpenApiProbeRunner.ProbeFailure failure) {
+                if (!isIsolatedAuthWait(failure.code())) throw failure;
+                Ali1688Dp10OpenApiProbeEvidenceSupport.writeAuthWaitIsolation(
+                        evidenceFile,
+                        nonce,
+                        manifestCommit,
+                        candidateJar,
+                        expectedJarSha,
+                        properties,
+                        clock,
+                        mapper
+                );
+                System.out.println("DP10_OPEN_API_AUTH_REFRESH=AUTH_WAIT");
+                System.out.println(
+                        "DP10_OPEN_API_EXECUTION_CONTRACT=AUTH_WAIT_ISOLATED"
+                );
+                return 0;
+            }
             Ali1688Dp10OpenApiProbeEvidenceSupport.write(
                     evidenceFile,
                     nonce,
@@ -118,6 +144,10 @@ public final class Ali1688Dp10OpenApiProbeCommand {
             throw new IllegalArgumentException("PROBE_ARGUMENTS_INVALID");
         }
         return Map.copyOf(parsed);
+    }
+
+    static boolean isIsolatedAuthWait(String failureCode) {
+        return ISOLATED_AUTH_WAIT_FAILURES.contains(failureCode);
     }
 
     private static void requireProductionConfiguration(

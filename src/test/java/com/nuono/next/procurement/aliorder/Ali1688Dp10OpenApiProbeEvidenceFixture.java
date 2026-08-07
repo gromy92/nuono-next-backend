@@ -74,6 +74,19 @@ final class Ali1688Dp10OpenApiProbeEvidenceFixture {
         );
     }
 
+    void writeAuthWaitIsolation() throws Exception {
+        Ali1688Dp10OpenApiProbeEvidenceSupport.writeAuthWaitIsolation(
+                evidence,
+                NONCE,
+                COMMIT,
+                jar,
+                Ali1688Dp10OpenApiProbeEvidenceSupport.sha256File(jar),
+                properties,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new ObjectMapper()
+        );
+    }
+
     String evidenceSha() throws Exception {
         return Ali1688Dp10OpenApiProbeEvidenceSupport.sha256File(evidence);
     }

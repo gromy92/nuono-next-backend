@@ -27,7 +27,7 @@ import datetime as dt, hashlib, json, pathlib, re, sys
 path = pathlib.Path(sys.argv[1])
 expected_sha, commit, jar_sha, nonce_sha = sys.argv[2:]
 fields = {
-    "schema", "type", "nonce_sha256", "manifest_commit",
+    "schema", "type", "release_disposition", "nonce_sha256", "manifest_commit",
     "candidate_jar_sha256", "endpoint_fingerprint_sha256",
     "app_key_fingerprint_sha256", "current_list_contract",
     "history_list_contract", "detail_contract", "verified_at", "expires_at",
@@ -51,9 +51,19 @@ if not all(re.fullmatch(r"[0-9a-f]{64}", data[name]) for name in (
     "app_key_fingerprint_sha256",
 )):
     raise SystemExit("DP10 probe fingerprint invalid")
-for name in ("current_list_contract", "history_list_contract", "detail_contract"):
-    if data[name] != "CONTRACT_PROVEN":
-        raise SystemExit("DP10 probe contract not proven")
+contracts = tuple(data[name] for name in (
+    "current_list_contract", "history_list_contract", "detail_contract"
+))
+execution_proven = (
+    data["release_disposition"] == "EXECUTION_PROVEN"
+    and contracts == ("CONTRACT_PROVEN",) * 3
+)
+auth_wait_isolated = (
+    data["release_disposition"] == "AUTH_WAIT_ISOLATED"
+    and contracts == ("NOT_EXECUTED_AUTH_WAIT",) * 3
+)
+if not execution_proven and not auth_wait_isolated:
+    raise SystemExit("DP10 probe release disposition invalid")
 verified = dt.datetime.fromisoformat(data["verified_at"].replace("Z", "+00:00"))
 expires = dt.datetime.fromisoformat(data["expires_at"].replace("Z", "+00:00"))
 now = dt.datetime.now(dt.timezone.utc)
@@ -128,6 +138,7 @@ data = json.load(open(sys.argv[1], encoding="utf-8"))
 mapping = (
     ("DP10_PROBE_SCHEMA", "schema"),
     ("DP10_PROBE_TYPE", "type"),
+    ("DP10_PROBE_RELEASE_DISPOSITION", "release_disposition"),
     ("DP10_PROBE_NONCE_SHA256", "nonce_sha256"),
     ("DP10_PROBE_MANIFEST_COMMIT", "manifest_commit"),
     ("DP10_PROBE_CANDIDATE_JAR_SHA256", "candidate_jar_sha256"),
