@@ -48,7 +48,8 @@ class DataPullLegacyTaskDrainEvidenceTest {
         String sql = mapperSql();
         assertContains(sql,
                 "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')",
-                "trigger_mode = 'SCHEDULED_DAILY'",
+                "(trigger_mode = 'SCHEDULED_DAILY'",
+                "OR (status = 'BLOCKED_AUTH' AND retry_action = 'WAIT_FOR_AUTH'))",
                 "data_domain IN ('PRODUCT', 'SALES', 'ORDER', 'FINANCE_TRANSACTION'",
                 "status = 'BLOCKED_AUTH' AND retry_action = 'WAIT_FOR_AUTH'",
                 "status = 'QUEUED' AND started_at IS NULL",
@@ -61,6 +62,7 @@ class DataPullLegacyTaskDrainEvidenceTest {
                 "finished_at IS NULL"
         );
         assertFalse(sql.contains("COALESCE(report_total_rows, 0) = 0"));
+        assertFalse(sql.contains("trigger_mode IN ('SCHEDULED_DAILY', 'MANUAL_REFRESH')"));
     }
 
     @Test

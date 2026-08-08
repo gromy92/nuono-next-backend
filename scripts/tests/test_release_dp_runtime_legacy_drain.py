@@ -11,7 +11,8 @@ class ReleaseDpRuntimeLegacyDrainTest(unittest.TestCase):
         required = (
             "UPDATE noon_pull_task",
             "status IN ('QUEUED','RUNNING','BLOCKED_AUTH')",
-            "trigger_mode='SCHEDULED_DAILY'",
+            "(trigger_mode='SCHEDULED_DAILY'",
+            "OR (status='BLOCKED_AUTH' AND retry_action='WAIT_FOR_AUTH'))",
             "data_domain IN ('PRODUCT','SALES','ORDER','FINANCE_TRANSACTION'",
             "status='BLOCKED_AUTH' AND retry_action='WAIT_FOR_AUTH'",
             "status='QUEUED' AND started_at IS NULL",
@@ -42,6 +43,7 @@ class ReleaseDpRuntimeLegacyDrainTest(unittest.TestCase):
         self.assertNotIn("UPDATE operational_task", function)
         self.assertNotIn("UPDATE sales_sync_task", function)
         self.assertNotIn("COALESCE(report_total_rows,0)=0", function)
+        self.assertNotIn("trigger_mode IN ('SCHEDULED_DAILY','MANUAL_REFRESH')", function)
 
     def test_ready_gate_allows_only_fully_supersedable_cohorts(self):
         accepted = run_fragment("""

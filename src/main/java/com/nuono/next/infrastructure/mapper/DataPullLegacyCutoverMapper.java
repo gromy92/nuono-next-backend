@@ -9,7 +9,8 @@ public interface DataPullLegacyCutoverMapper {
     String ACTIVE_NOON = "status IN ('QUEUED', 'RUNNING', 'BLOCKED_AUTH')";
     String SUPERSEDABLE_NOON =
             ACTIVE_NOON
-            + " AND trigger_mode = 'SCHEDULED_DAILY'"
+            + " AND (trigger_mode = 'SCHEDULED_DAILY'"
+            + " OR (status = 'BLOCKED_AUTH' AND retry_action = 'WAIT_FOR_AUTH'))"
             + " AND pull_type IN ('INTERFACE', 'REPORT')"
             + " AND data_domain IN ('PRODUCT', 'SALES', 'ORDER', 'FINANCE_TRANSACTION',"
             + " 'NOON_ADVERTISING', 'OFFICIAL_WAREHOUSE_ASN',"
