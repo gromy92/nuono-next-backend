@@ -20,6 +20,9 @@ from noon_auth_manual_hold_retry_sql import (  # noqa: E402
     build_apply_sql as build_retry_sql,
     build_finalize_sql as build_retry_finalize_sql,
 )
+from ci.noon_auth_owner_scope_release_mysql_scenario import (  # noqa: E402
+    verify_completed_scope_release,
+)
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E402
 
@@ -139,6 +142,7 @@ class NoonAuthOwnerScopeMySqlTest(unittest.TestCase):
                 f"AND status='CANCELLED'),':',(SELECT status FROM noon_auth_identity_recovery WHERE id={self.SOURCE}));"
             ),
         )
+        verify_completed_scope_release(self, database, second_scoped)
         self.assertTrue(database.livecheck(migration))
 
     def _database(self):
