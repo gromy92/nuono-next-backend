@@ -10,10 +10,20 @@ assert_dp_report_probe_marker() {
     "$EXPECTED_JAR_SHA256")" = "$EXPECTED_JAR_SHA256" ]
   python3 - "$STAGED_JAR" <<'PY'
 import sys, zipfile
-marker = "BOOT-INF/classes/META-INF/nuono/dp-report-download-probe-v1"
+markers = {
+    "BOOT-INF/classes/META-INF/nuono/dp-report-download-probe-v1": (
+        b"NUONO_DP_REPORT_DOWNLOAD_PROBE_V1\n",
+        "candidate Jar report download probe marker mismatch",
+    ),
+    "BOOT-INF/classes/META-INF/nuono/dp-report-validator-rejection-v1": (
+        b"NUONO_DP_REPORT_VALIDATOR_REJECTION_V1\n",
+        "candidate Jar validator rejection marker mismatch",
+    ),
+}
 with zipfile.ZipFile(sys.argv[1]) as archive:
-    if archive.read(marker) != b"NUONO_DP_REPORT_DOWNLOAD_PROBE_V1\n":
-        raise SystemExit("candidate Jar report download probe marker mismatch")
+    for marker, (expected, error) in markers.items():
+        if archive.read(marker) != expected:
+            raise SystemExit(error)
 PY
 }
 verify_dp_report_probe_json() {
@@ -35,7 +45,7 @@ fields = {
 data = json.loads(evidence_path.read_bytes())
 if set(data) != fields or any(not isinstance(value, str) for value in data.values()):
     raise SystemExit("report transport evidence schema mismatch")
-if data["schema"] != "nuono.dp-report-download-transport/v1":
+if data["schema"] != "nuono.dp-report-download-transport/v2":
     raise SystemExit("report transport evidence version mismatch")
 if data["type"] != "DP_REPORT_DOWNLOAD_TRANSPORT_CONTRACT":
     raise SystemExit("report transport evidence type mismatch")
@@ -55,11 +65,17 @@ if hashlib.sha256(lines[0].encode()).hexdigest() != data["source_url_sha256"]:
     raise SystemExit("report transport source URL binding mismatch")
 if data["validator_kind"] not in {"STRONG_ETAG", "LAST_MODIFIED"}:
     raise SystemExit("report transport validator is not resumable")
-for name in ("range_contract", "matching_if_range_contract", "stale_if_range_contract"):
+for name in ("range_contract", "matching_if_range_contract"):
     if data[name] != "CONTRACT_PROVEN":
         raise SystemExit("report transport contract not proven")
-if (data["initial_status"], data["matching_status"], data["stale_status"]) != ("206", "206", "200"):
+if (data["initial_status"], data["matching_status"]) != ("206", "206"):
     raise SystemExit("report transport status contract mismatch")
+stale_contracts = {
+    "200": "SERVER_FULL_BODY_PROVEN",
+    "206": "CLIENT_VALIDATOR_REJECTION_PROVEN",
+}
+if stale_contracts.get(data["stale_status"]) != data["stale_if_range_contract"]:
+    raise SystemExit("report transport stale If-Range contract mismatch")
 if not data["total_length"].isdigit() or int(data["total_length"]) < 2:
     raise SystemExit("report transport total length invalid")
 verified = dt.datetime.fromisoformat(data["verified_at"].replace("Z", "+00:00"))
@@ -109,7 +125,7 @@ if (parsed.scheme != "https" or parsed.hostname != "storage.googleapis.com"
         or parsed.username or parsed.password or parsed.fragment):
     raise SystemExit("report transport source is not a governed Noon report URL")
 tls_context = ssl.create_default_context(cafile=certifi.where())
-def request(byte_range, if_range=None, exact_body=False):
+def request(byte_range, if_range=None, exact_body=False, exact_partial_body=False):
     headers = {"Accept": "application/octet-stream,*/*", "Accept-Encoding": "identity",
                "Range": byte_range, "User-Agent": "Nuono-DP-Report-Probe/1"}
     if if_range is not None:
@@ -122,9 +138,11 @@ def request(byte_range, if_range=None, exact_body=False):
         if (final_url.scheme != "https" or final_url.hostname != "storage.googleapis.com"
                 or not final_url.path.startswith("/noonprd-mp-gcs--partner-impex/")):
             raise SystemExit("report transport final endpoint left the Noon report bucket")
-        body = response.read(2 if exact_body else 1)
+        body = response.read(2 if exact_body or exact_partial_body else 1)
         if exact_body and (len(body) != 1 or response.read(1)):
             raise SystemExit("report transport range body length mismatch")
+        if exact_partial_body and response.status == 206 and (len(body) != 1 or response.read(1)):
+            raise SystemExit("report transport stale partial body length mismatch")
         return response.status, response.headers, final
     finally:
         response.close()
@@ -157,13 +175,26 @@ if (matching_status != 206 or matching_headers.get("Content-Range") != f"bytes 1
         or matching_headers.get(selected_header, "").strip() != validator
         or matching_final != first_final):
     raise SystemExit("report transport matching If-Range contract failed")
-stale_status, _, stale_final = request("bytes=1-1", stale)
-if stale_status != 200 or stale_final != first_final:
+stale_status, stale_headers, stale_final = request(
+    "bytes=1-1", stale, exact_partial_body=True)
+if stale_status == 200:
+    if stale_final != first_final or stale_headers.get("Content-Range"):
+        raise SystemExit("report transport stale If-Range full-body contract failed")
+    stale_contract = "SERVER_FULL_BODY_PROVEN"
+elif stale_status == 206:
+    if (stale == validator or stale_headers.get("Content-Range") != f"bytes 1-1/{total}"
+            or stale_headers.get("Content-Length") != "1"
+            or stale_headers.get("Content-Encoding", "identity").lower() != "identity"
+            or stale_headers.get(selected_header, "").strip() != validator
+            or stale_final != first_final):
+        raise SystemExit("report transport ignored stale If-Range contract failed")
+    stale_contract = "CLIENT_VALIDATOR_REJECTION_PROVEN"
+else:
     raise SystemExit("report transport stale If-Range contract failed")
 now = dt.datetime.now(dt.timezone.utc)
 fingerprint = lambda value: hashlib.sha256(value.encode()).hexdigest()
 evidence = {
-    "schema": "nuono.dp-report-download-transport/v1",
+    "schema": "nuono.dp-report-download-transport/v2",
     "type": "DP_REPORT_DOWNLOAD_TRANSPORT_CONTRACT",
     "nonce_sha256": fingerprint(nonce), "manifest_commit": commit,
     "candidate_jar_sha256": jar_sha, "source_url_sha256": fingerprint(url),
@@ -171,7 +202,7 @@ evidence = {
     "validator_kind": validator_kind, "validator_sha256": fingerprint(validator),
     "range_contract": "CONTRACT_PROVEN",
     "matching_if_range_contract": "CONTRACT_PROVEN",
-    "stale_if_range_contract": "CONTRACT_PROVEN",
+    "stale_if_range_contract": stale_contract,
     "initial_status": str(first_status), "matching_status": str(matching_status),
     "stale_status": str(stale_status), "total_length": str(total),
     "verified_at": now.isoformat().replace("+00:00", "Z"),

@@ -1,8 +1,11 @@
 import importlib.util
+import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).parents[1]
@@ -34,11 +37,41 @@ def build_script():
     )
 
 
+def embedded_probe():
+    script = build_script()
+    start = script.index("import datetime as dt, email.utils")
+    end = script.index("\nPY\n  unset DP_REPORT_PROBE_NONCE", start)
+    return script[start:end]
+
+
+class FakeResponse:
+    def __init__(self, status, headers, url, body=b"x"):
+        self.status = status
+        self.headers = headers
+        self.url = url
+        self.body = body
+        self.offset = 0
+
+    def read(self, size=-1):
+        if size < 0:
+            size = len(self.body) - self.offset
+        result = self.body[self.offset:self.offset + size]
+        self.offset += len(result)
+        return result
+
+    def geturl(self):
+        return self.url
+
+    def close(self):
+        return None
+
+
 class ReleaseDpReportDownloadProbeTest(unittest.TestCase):
     def test_probe_is_candidate_bound_and_requires_secure_ephemeral_source(self):
         script = build_script()
 
         self.assertIn("candidate Jar report download probe marker mismatch", script)
+        self.assertIn("candidate Jar validator rejection marker mismatch", script)
         self.assertIn('"$APP_DIR/.dp-report-download-probe-url"', script)
         self.assertIn(
             'secure_file_operation verify "$DP_REPORT_PROBE_SOURCE_FILE" 600',
@@ -60,16 +93,19 @@ class ReleaseDpReportDownloadProbeTest(unittest.TestCase):
         required = (
             'request("bytes=0-0", exact_body=True)',
             'request(\n    "bytes=1-1", validator, exact_body=True)',
-            'request("bytes=1-1", stale)',
+            '"bytes=1-1", stale, exact_partial_body=True)',
             'matching_status != 206',
-            'stale_status != 200',
+            'stale_status == 206',
             '"range_contract": "CONTRACT_PROVEN"',
             '"matching_if_range_contract": "CONTRACT_PROVEN"',
-            '"stale_if_range_contract": "CONTRACT_PROVEN"',
+            '"stale_if_range_contract": stale_contract',
         )
         for marker in required:
             self.assertIn(marker, script)
-        self.assertIn('response.read(2 if exact_body else 1)', script)
+        self.assertIn(
+            'response.read(2 if exact_body or exact_partial_body else 1)',
+            script,
+        )
         self.assertIn('if exact_body and (len(body) != 1 or response.read(1))', script)
 
     def test_only_strong_etag_or_valid_last_modified_can_pass(self):
@@ -110,16 +146,64 @@ class ReleaseDpReportDownloadProbeTest(unittest.TestCase):
     def test_missing_stale_contract_or_expired_evidence_is_fail_closed(self):
         script = build_script()
 
-        self.assertIn(
-            'if data[name] != "CONTRACT_PROVEN":\n'
-            '        raise SystemExit("report transport contract not proven")',
-            script,
-        )
+        self.assertIn('"CLIENT_VALIDATOR_REJECTION_PROVEN"', script)
+        self.assertIn('"SERVER_FULL_BODY_PROVEN"', script)
+        self.assertIn('"nuono.dp-report-download-transport/v2"', script)
         self.assertIn('expires <= now', script)
         self.assertIn(
-            '(data["initial_status"], data["matching_status"], data["stale_status"]) != ("206", "206", "200")',
+            '(data["initial_status"], data["matching_status"]) != ("206", "206")',
             script,
         )
+
+    def test_ignored_stale_if_range_is_accepted_only_with_the_live_validator(self):
+        url = "https://storage.googleapis.com/noonprd-mp-gcs--partner-impex/report.csv?Expires=9999999999"
+        headers = {
+            "Content-Range": "bytes 0-0/10", "Content-Length": "1",
+            "Content-Encoding": "identity", "ETag": '"live"',
+        }
+        responses = [
+            FakeResponse(206, headers, url),
+            FakeResponse(206, {**headers, "Content-Range": "bytes 1-1/10"}, url),
+            FakeResponse(206, {**headers, "Content-Range": "bytes 1-1/10"}, url),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            evidence = Path(directory) / "evidence"
+            source.write_text(url, encoding="utf-8")
+            argv = ["probe", str(source), str(evidence), "nonce", "c" * 40, "a" * 64]
+            with mock.patch.object(sys, "argv", argv), mock.patch(
+                    "urllib.request.urlopen", side_effect=responses):
+                exec(compile(embedded_probe(), "<embedded-probe>", "exec"), {})
+            payload = json.loads(evidence.read_text(encoding="utf-8"))
+        self.assertEqual("206", payload["stale_status"])
+        self.assertEqual(
+            "CLIENT_VALIDATOR_REJECTION_PROVEN",
+            payload["stale_if_range_contract"],
+        )
+
+    def test_ignored_stale_if_range_with_a_changed_validator_fails_closed(self):
+        url = "https://storage.googleapis.com/noonprd-mp-gcs--partner-impex/report.csv?Expires=9999999999"
+        headers = {
+            "Content-Range": "bytes 0-0/10", "Content-Length": "1",
+            "Content-Encoding": "identity", "ETag": '"live"',
+        }
+        responses = [
+            FakeResponse(206, headers, url),
+            FakeResponse(206, {**headers, "Content-Range": "bytes 1-1/10"}, url),
+            FakeResponse(206, {
+                **headers, "Content-Range": "bytes 1-1/10", "ETag": '"changed"',
+            }, url),
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            evidence = Path(directory) / "evidence"
+            source.write_text(url, encoding="utf-8")
+            argv = ["probe", str(source), str(evidence), "nonce", "c" * 40, "a" * 64]
+            with mock.patch.object(sys, "argv", argv), mock.patch(
+                    "urllib.request.urlopen", side_effect=responses):
+                with self.assertRaisesRegex(SystemExit, "ignored stale If-Range"):
+                    exec(compile(embedded_probe(), "<embedded-probe>", "exec"), {})
+            self.assertFalse(evidence.exists())
 
     def test_generated_release_script_is_valid_bash(self):
         result = subprocess.run(
