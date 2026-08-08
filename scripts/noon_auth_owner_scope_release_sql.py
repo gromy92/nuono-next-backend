@@ -192,7 +192,7 @@ def build_release_sql(manifest: dict, actor: str) -> str:
         f"SELECT id FROM noon_auth_owner_scope_manifest WHERE id={scope['id']} FOR UPDATE;",
         f"SELECT id FROM noon_auth_identity_recovery WHERE id IN ({predecessor['id']},{source['id']},{scoped['id']}) ORDER BY id FOR UPDATE;",
         f"SELECT id FROM noon_auth_identity_recovery_item WHERE id IN ({all_item_ids}) ORDER BY id FOR UPDATE;",
-        f"SELECT owner_user_id,project_code FROM noon_project_auth_state WHERE ({project_predicate}) ORDER BY owner_user_id,project_code FOR UPDATE;",
+        f"SELECT state.owner_user_id,state.project_code FROM noon_project_auth_state state WHERE ({project_predicate}) ORDER BY state.owner_user_id,state.project_code FOR UPDATE;",
         _signal("NOON_AUTH_SCOPE_RELEASE_RECOVERY_DRIFT", recovery_guard),
         _signal("NOON_AUTH_SCOPE_RELEASE_MANIFEST_DRIFT", scope_guard),
         _signal("NOON_AUTH_SCOPE_RELEASE_ITEM_DRIFT", item_guard),

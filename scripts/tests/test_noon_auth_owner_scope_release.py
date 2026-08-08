@@ -88,6 +88,11 @@ class NoonAuthOwnerScopeReleaseTest(unittest.TestCase):
         self.assertIn("status='RELEASED'", sql)
         self.assertIn("'SCOPE_RELEASED'", sql)
         self.assertIn("NOON_AUTH_SCOPE_RELEASE_CAS_FAILED", sql)
+        self.assertIn(
+            "SELECT state.owner_user_id,state.project_code FROM "
+            "noon_project_auth_state state WHERE",
+            sql,
+        )
         self.assertNotIn("UPDATE noon_auth_identity_recovery SET status", sql)
 
     def test_rejects_identity_slot_or_send_drift(self):
