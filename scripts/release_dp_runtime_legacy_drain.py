@@ -19,7 +19,8 @@ dp_runtime_legacy_counts() {
        WHERE status IN ('QUEUED','RUNNING','BLOCKED_AUTH') AND is_deleted=b'0'),
       (SELECT COUNT(*) FROM noon_pull_task
        WHERE status IN ('QUEUED','RUNNING','BLOCKED_AUTH')
-         AND trigger_mode='SCHEDULED_DAILY'
+         AND (trigger_mode='SCHEDULED_DAILY'
+           OR (status='BLOCKED_AUTH' AND retry_action='WAIT_FOR_AUTH'))
          AND pull_type IN ('INTERFACE','REPORT')
          AND data_domain IN ('PRODUCT','SALES','ORDER','FINANCE_TRANSACTION',
            'NOON_ADVERTISING','OFFICIAL_WAREHOUSE_ASN',
@@ -60,7 +61,8 @@ dp_runtime_safe_noon_ids() {
   dp_runtime_db_scalar "SELECT COALESCE(GROUP_CONCAT(id ORDER BY id SEPARATOR ','),'')
     FROM noon_pull_task
     WHERE status IN ('QUEUED','RUNNING','BLOCKED_AUTH')
-      AND trigger_mode='SCHEDULED_DAILY'
+      AND (trigger_mode='SCHEDULED_DAILY'
+        OR (status='BLOCKED_AUTH' AND retry_action='WAIT_FOR_AUTH'))
       AND pull_type IN ('INTERFACE','REPORT')
       AND data_domain IN ('PRODUCT','SALES','ORDER','FINANCE_TRANSACTION',
         'NOON_ADVERTISING','OFFICIAL_WAREHOUSE_ASN',
@@ -166,7 +168,8 @@ finalize_dp_runtime_legacy_cutover() {
       status='CANCELLED', finished_at=NOW(), gmt_updated=NOW()
     WHERE id IN ($DP_RUNTIME_NOON_SUPERSEDED_IDS)
       AND status IN ('QUEUED','RUNNING','BLOCKED_AUTH')
-      AND trigger_mode='SCHEDULED_DAILY'
+      AND (trigger_mode='SCHEDULED_DAILY'
+        OR (status='BLOCKED_AUTH' AND retry_action='WAIT_FOR_AUTH'))
       AND pull_type IN ('INTERFACE','REPORT')
       AND data_domain IN ('PRODUCT','SALES','ORDER','FINANCE_TRANSACTION',
         'NOON_ADVERTISING','OFFICIAL_WAREHOUSE_ASN',
