@@ -14,7 +14,6 @@ from noon_auth_identity_failed_retry_sql import build_apply_sql
 from schema_migrations.mysql_client import MySqlClient
 
 LOCK_NAME = "nuono:noon-auth-identity-failed-retry"
-ALLOWED_DOMAINS = frozenset({"SALES", "FINANCE_TRANSACTION", "ORDER", "NOON_ADVERTISING"})
 
 
 def _canonical(value: object) -> bytes:
@@ -45,7 +44,9 @@ SELECT JSON_OBJECT(
  'tasks',(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('itemId',i.id,'recoveryId',i.recovery_id,
   'ownerUserId',i.owner_user_id,'projectCode',i.project_code,'taskId',t.id,
   'authRecoveryId',t.auth_recovery_id,'storeCode',t.store_code,'siteCode',t.site_code,
-  'domain',t.data_domain,'planId',p.id)),JSON_ARRAY())
+  'domain',t.data_domain,'triggerMode',t.trigger_mode,'pullType',t.pull_type,
+  'retryAction',t.retry_action,'itemStatus',i.status,'sourceCheckpoint',i.source_checkpoint,
+  'resumePolicy',i.resume_policy,'planId',p.id)),JSON_ARRAY())
   FROM noon_auth_identity_recovery_item i JOIN noon_pull_task t ON t.id=i.source_task_id
   JOIN noon_pull_plan p ON p.id=t.plan_id WHERE i.recovery_id IN (r.id,s.id)),
  'ledgerCount',(SELECT COUNT(*) FROM noon_auth_identity_send_ledger l WHERE l.recovery_id=r.id),
@@ -101,7 +102,10 @@ def build_manifest(snapshot: dict, recovery: int, successor: int, cooldown: int,
         raise ValueError("recovery scope has duplicate tasks")
     for task in tasks:
         if (task["recoveryId"] not in {recovery, successor} or task["authRecoveryId"] != task["recoveryId"]
-                or task["domain"] not in ALLOWED_DOMAINS or not task["storeCode"]
+                or not all(isinstance(task[key], str) and task[key]
+                           for key in ("domain", "triggerMode", "pullType", "retryAction",
+                                       "itemStatus", "sourceCheckpoint", "resumePolicy"))
+                or task["itemStatus"] != "PENDING" or not task["storeCode"]
                 or not task["siteCode"] or task["taskId"] <= 0 or task["planId"] <= 0):
             raise ValueError("recovery scope contains an unsafe task")
     project_keys = {(item["ownerUserId"], item["projectCode"]) for item in projects}
