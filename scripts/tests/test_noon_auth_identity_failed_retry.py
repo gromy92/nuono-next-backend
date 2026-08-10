@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import Mock
 from pathlib import Path
 
-from noon_auth_identity_failed_retry import _load, _load_snapshot, build_manifest
+from noon_auth_identity_failed_retry import _load, _load_snapshot, _sql, build_manifest
 from noon_auth_identity_failed_retry_sql import build_apply_sql
 
 
@@ -93,6 +93,12 @@ class NoonAuthIdentityFailedRetryTest(unittest.TestCase):
             path.chmod(0o600)
             with self.assertRaises(ValueError):
                 _load(path)
+
+    def test_snapshot_sql_avoids_rds_incompatible_aggregate_order_syntax(self):
+        self.assertNotIn("JSON_ARRAYAGG(JSON_OBJECT('ownerUserId',state.owner_user_id,\n"
+                         "  'projectCode',state.project_code,'authVersion',state.auth_version,'identityKey',state.identity_key)\n"
+                         "  ORDER BY", _sql(772, 777))
+        self.assertNotIn("'domain',t.data_domain,'planId',p.id) ORDER BY", _sql(772, 777))
 
 
 if __name__ == "__main__":
