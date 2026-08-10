@@ -24,6 +24,17 @@ NOON_RETRY_OPERATION_FILES = (
     "scripts/schema_migrations/mysql_client.py",
     "scripts/schema_migrations/mysql_support.py",
 )
+NOON_IDENTITY_FAILED_RETRY_OPERATION_NAME = "noon_auth_identity_failed_retry"
+NOON_IDENTITY_FAILED_RETRY_OPERATION_ENTRYPOINT = "scripts/noon_auth_identity_failed_retry.py"
+NOON_IDENTITY_FAILED_RETRY_OPERATION_FILES = (
+    NOON_IDENTITY_FAILED_RETRY_OPERATION_ENTRYPOINT,
+    "scripts/noon_auth_identity_failed_retry_artifact.py",
+    "scripts/noon_auth_identity_failed_retry_sql.py",
+    "scripts/schema_migrations/__init__.py",
+    "scripts/schema_migrations/model.py",
+    "scripts/schema_migrations/mysql_client.py",
+    "scripts/schema_migrations/mysql_support.py",
+)
 NOON_SCOPE_RELEASE_OPERATION_NAME = "noon_auth_owner_scope_release"
 NOON_SCOPE_RELEASE_OPERATION_ENTRYPOINT = "scripts/noon_auth_owner_scope_release.py"
 NOON_SCOPE_RELEASE_OPERATION_FILES = (
@@ -89,12 +100,15 @@ def freeze_operation_bundles(source_root: Path, output_root: Path) -> list[dict]
     competitor_paths.extend(root / "src/main/resources/db/init" / name
                             for name in COMPETITOR_OPERATION_MIGRATIONS)
     retry_paths = [root / name for name in NOON_RETRY_OPERATION_FILES]
+    identity_failed_retry_paths = [root / name for name in NOON_IDENTITY_FAILED_RETRY_OPERATION_FILES]
     scope_release_paths = [root / name for name in NOON_SCOPE_RELEASE_OPERATION_FILES]
     return [
         _freeze(root, output, COMPETITOR_OPERATION_NAME,
                 COMPETITOR_OPERATION_ENTRYPOINT, competitor_paths),
         _freeze(root, output, NOON_RETRY_OPERATION_NAME,
                 NOON_RETRY_OPERATION_ENTRYPOINT, retry_paths),
+        _freeze(root, output, NOON_IDENTITY_FAILED_RETRY_OPERATION_NAME,
+                NOON_IDENTITY_FAILED_RETRY_OPERATION_ENTRYPOINT, identity_failed_retry_paths),
         _freeze(root, output, NOON_SCOPE_RELEASE_OPERATION_NAME,
                 NOON_SCOPE_RELEASE_OPERATION_ENTRYPOINT, scope_release_paths),
     ]
@@ -104,6 +118,8 @@ __all__ = [
     "COMPETITOR_OPERATION_MIGRATIONS", "COMPETITOR_OPERATION_NAME",
     "COMPETITOR_OPERATION_ENTRYPOINT", "NOON_RETRY_OPERATION_FILES",
     "NOON_RETRY_OPERATION_NAME", "NOON_RETRY_OPERATION_ENTRYPOINT",
+    "NOON_IDENTITY_FAILED_RETRY_OPERATION_FILES", "NOON_IDENTITY_FAILED_RETRY_OPERATION_NAME",
+    "NOON_IDENTITY_FAILED_RETRY_OPERATION_ENTRYPOINT",
     "NOON_SCOPE_RELEASE_OPERATION_FILES", "NOON_SCOPE_RELEASE_OPERATION_NAME",
     "NOON_SCOPE_RELEASE_OPERATION_ENTRYPOINT",
     "OperationBundleError", "freeze_operation_bundles",
