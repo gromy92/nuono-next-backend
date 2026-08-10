@@ -40,13 +40,12 @@ SELECT JSON_OBJECT(
   'generationNo',s.generation_no,'sendAttemptCount',s.send_attempt_count,
   'firstSendAt',s.first_send_at,'secondSendAt',s.second_send_at,'leaseFree',s.lease_token IS NULL),
  'projects',(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('ownerUserId',state.owner_user_id,
-  'projectCode',state.project_code,'authVersion',state.auth_version,'identityKey',state.identity_key)
-  ORDER BY state.owner_user_id,state.project_code),JSON_ARRAY()) FROM noon_project_auth_state state
+  'projectCode',state.project_code,'authVersion',state.auth_version,'identityKey',state.identity_key)),JSON_ARRAY()) FROM noon_project_auth_state state
   WHERE state.active_recovery_id=r.id),
  'tasks',(SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT('itemId',i.id,'recoveryId',i.recovery_id,
   'ownerUserId',i.owner_user_id,'projectCode',i.project_code,'taskId',t.id,
   'authRecoveryId',t.auth_recovery_id,'storeCode',t.store_code,'siteCode',t.site_code,
-  'domain',t.data_domain,'planId',p.id) ORDER BY t.id),JSON_ARRAY())
+  'domain',t.data_domain,'planId',p.id)),JSON_ARRAY())
   FROM noon_auth_identity_recovery_item i JOIN noon_pull_task t ON t.id=i.source_task_id
   JOIN noon_pull_plan p ON p.id=t.plan_id WHERE i.recovery_id IN (r.id,s.id)),
  'ledgerCount',(SELECT COUNT(*) FROM noon_auth_identity_send_ledger l WHERE l.recovery_id=r.id),
@@ -77,8 +76,8 @@ def build_manifest(snapshot: dict, recovery: int, successor: int, cooldown: int,
                    actor: str, provenance: dict) -> dict:
     target = snapshot["recovery"]
     follow = snapshot["successor"]
-    projects = snapshot["projects"]
-    tasks = snapshot["tasks"]
+    projects = sorted(snapshot["projects"], key=lambda item: (item["ownerUserId"], item["projectCode"]))
+    tasks = sorted(snapshot["tasks"], key=lambda item: item["taskId"])
     if not 60 <= cooldown <= 3600 or not actor.strip():
         raise ValueError("cooldown or actor is invalid")
     if (target["id"] != recovery or target["status"] != "MANUAL_HOLD"
