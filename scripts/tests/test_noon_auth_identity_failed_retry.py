@@ -1,7 +1,10 @@
+import json
+import tempfile
 import unittest
 from unittest.mock import Mock
+from pathlib import Path
 
-from noon_auth_identity_failed_retry import _load_snapshot, build_manifest
+from noon_auth_identity_failed_retry import _load, _load_snapshot, build_manifest
 from noon_auth_identity_failed_retry_sql import build_apply_sql
 
 
@@ -78,6 +81,18 @@ class NoonAuthIdentityFailedRetryTest(unittest.TestCase):
         client.execute_readonly.return_value = '{"recovery": 772}\n{"recovery": 777}'
         with self.assertRaises(ValueError):
             _load_snapshot(client, 772, 777)
+
+    def test_manifest_loader_rejects_a_key_not_derived_from_its_frozen_payload(self):
+        manifest = build_manifest(self.snapshot, 772, 777, 60, "ci", self.provenance)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "manifest.json"
+            path.write_text(json.dumps(manifest), encoding="utf-8")
+            path.chmod(0o600)
+            self.assertEqual(manifest["manifestSha256"], _load(path)["manifestSha256"])
+            path.write_text(json.dumps({**manifest, "manifestKey": "other"}), encoding="utf-8")
+            path.chmod(0o600)
+            with self.assertRaises(ValueError):
+                _load(path)
 
 
 if __name__ == "__main__":
