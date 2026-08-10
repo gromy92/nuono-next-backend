@@ -40,7 +40,10 @@ class NoonAuthIdentityFailedRetryTest(unittest.TestCase):
         return {"itemId": item, "recoveryId": recovery, "ownerUserId": owner,
                 "projectCode": project, "taskId": task, "authRecoveryId": recovery,
                 "storeCode": "STR" + project[3:] + "-NAE", "siteCode": "AE",
-                "domain": domain, "planId": plan}
+                "domain": domain, "triggerMode": "SCHEDULED_DAILY", "pullType": "REPORT",
+                "retryAction": "WAIT_FOR_AUTH", "itemStatus": "PENDING",
+                "sourceCheckpoint": "PERSISTED_TASK_STATE", "resumePolicy": "AUTO_RESUME",
+                "planId": plan}
 
     def test_preserves_the_one_remaining_send_and_cancels_only_frozen_zero_fact_tasks(self):
         manifest = build_manifest(self.snapshot, 772, 777, 60, "ci", self.provenance)
@@ -57,6 +60,17 @@ class NoonAuthIdentityFailedRetryTest(unittest.TestCase):
         self.assertIn("status='CANCELLED'", sql)
         self.assertIn("paused=b'1'", sql)
         self.assertIn("incidentGenerateCount", str(manifest))
+
+    def test_freezes_zero_progress_non_report_tasks_without_executing_them(self):
+        snapshot = dict(self.snapshot)
+        asn = self.task(802, 777, 307, "PRJ108065", 918161, 910072, "OFFICIAL_WAREHOUSE_ASN")
+        asn.update({"triggerMode": "MANUAL_REFRESH", "pullType": "INTERFACE"})
+        snapshot["tasks"] = [*self.snapshot["tasks"], asn]
+        manifest = build_manifest(snapshot, 772, 777, 60, "ci", self.provenance)
+        sql = build_apply_sql(manifest, "ci")
+        self.assertIn("OFFICIAL_WAREHOUSE_ASN", sql)
+        self.assertIn("MANUAL_REFRESH", sql)
+        self.assertIn("status='CANCELLED'", sql)
 
     def test_rejects_any_shape_that_could_create_an_extra_or_unfenced_send(self):
         for key, value in (("sendAttemptCount", 2), ("generationNo", 2), ("secondSendAt", "x")):

@@ -17,14 +17,14 @@ def _signal(name: str, predicate: str) -> str:
 def _task_predicate(task: dict) -> str:
     return "(" + " AND ".join((
         f"item.id={int(task['itemId'])}", f"item.recovery_id={int(task['recoveryId'])}",
-        f"item.source_task_id={int(task['taskId'])}", "item.status='PENDING'",
-        "item.source_checkpoint='PERSISTED_TASK_STATE'", "item.resume_policy='AUTO_RESUME'",
+        f"item.source_task_id={int(task['taskId'])}", f"item.status={_text(task['itemStatus'])}",
+        f"item.source_checkpoint={_text(task['sourceCheckpoint'])}", f"item.resume_policy={_text(task['resumePolicy'])}",
         f"task.id={int(task['taskId'])}", "task.status='BLOCKED_AUTH'",
         f"task.auth_recovery_id={int(task['authRecoveryId'])}",
         f"task.owner_user_id={int(task['ownerUserId'])}",
         f"task.store_code={_text(task['storeCode'])}", f"task.site_code={_text(task['siteCode'])}",
-        f"task.data_domain={_text(task['domain'])}", "task.trigger_mode='SCHEDULED_DAILY'",
-        "task.pull_type='REPORT'", "task.retry_action='WAIT_FOR_AUTH'",
+        f"task.data_domain={_text(task['domain'])}", f"task.trigger_mode={_text(task['triggerMode'])}",
+        f"task.pull_type={_text(task['pullType'])}", f"task.retry_action={_text(task['retryAction'])}",
         "task.checkpoint_cursor IS NULL", "task.next_resume_position IS NULL",
         "task.last_safe_response_summary IS NULL", "COALESCE(task.processed_item_count,0)=0",
         "COALESCE(task.request_count,0)=0", "task.finished_at IS NULL", "task.is_deleted=b'0'",
