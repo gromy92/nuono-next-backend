@@ -13,6 +13,8 @@ public class LogisticsAutoSyncAccountCommand {
     private Boolean enabled;
     private Boolean scheduleEnabled;
     private Boolean commitEnabled;
+    private Boolean freightBillScheduleEnabled;
+    private Boolean freightBillCommitEnabled;
     private LocalTime scheduleWindowStart;
     private LocalTime scheduleWindowEnd;
     private Integer minIntervalHours;
@@ -37,6 +39,10 @@ public class LogisticsAutoSyncAccountCommand {
     public void setScheduleEnabled(Boolean scheduleEnabled) { this.scheduleEnabled = scheduleEnabled; }
     public Boolean getCommitEnabled() { return commitEnabled; }
     public void setCommitEnabled(Boolean commitEnabled) { this.commitEnabled = commitEnabled; }
+    public Boolean getFreightBillScheduleEnabled() { return freightBillScheduleEnabled; }
+    public void setFreightBillScheduleEnabled(Boolean value) { this.freightBillScheduleEnabled = value; }
+    public Boolean getFreightBillCommitEnabled() { return freightBillCommitEnabled; }
+    public void setFreightBillCommitEnabled(Boolean value) { this.freightBillCommitEnabled = value; }
     public LocalTime getScheduleWindowStart() { return scheduleWindowStart; }
     public void setScheduleWindowStart(LocalTime scheduleWindowStart) { this.scheduleWindowStart = scheduleWindowStart; }
     public LocalTime getScheduleWindowEnd() { return scheduleWindowEnd; }

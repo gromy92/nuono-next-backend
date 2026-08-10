@@ -45,7 +45,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 @Component
-public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
+public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter, FreightBillProviderAdapter {
     static final int DEFAULT_SHIPMENT_LIMIT = 10;
 
     private static final DateTimeFormatter NODE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -129,6 +129,42 @@ public class YiteLogisticsProviderAdapter implements LogisticsProviderAdapter {
             return LogisticsProviderFetchResult.failure(exception.failureCode, exception.getMessage());
         } catch (RuntimeException exception) {
             return LogisticsProviderFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "义特自动同步返回数据解析失败。");
+        }
+    }
+
+    @Override
+    public FreightBillFetchResult fetchFreightBills(LogisticsProviderFetchRequest request) {
+        LogisticsAutoSyncProperties.Yite yite = yiteProperties();
+        if (!yite.isEnabled()) {
+            return FreightBillFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "义特费用账单 HTTP 拉取未启用。"
+            );
+        }
+        if (!StringUtils.hasText(yite.getFreightBillPath())) {
+            return FreightBillFetchResult.failure(
+                    LogisticsProviderFailureCode.CONFIGURATION_ERROR,
+                    "义特费用账单接口尚未配置；需用测试环境抓包确认后设置 freightBillPath。"
+            );
+        }
+        if (request == null || !StringUtils.hasText(request.getLoginAccount()) || !StringUtils.hasText(request.getPassword())) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.INVALID_CREDENTIAL, "义特费用账单账号或密码为空。");
+        }
+        try {
+            FetchSession session = login(yite, request);
+            String body = "POST".equalsIgnoreCase(yite.getFreightBillMethod())
+                    ? postJson(session, yite.getFreightBillPath(), Collections.emptyMap())
+                    : get(session, yite.getFreightBillPath());
+            return FreightBillPayloadNormalizer.normalize("YITE", body);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "义特费用账单请求被中断。");
+        } catch (IOException exception) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.NETWORK_ERROR, "义特费用账单网络请求失败。");
+        } catch (ProviderAuthException exception) {
+            return FreightBillFetchResult.failure(exception.failureCode, exception.getMessage());
+        } catch (RuntimeException exception) {
+            return FreightBillFetchResult.failure(LogisticsProviderFailureCode.PROVIDER_ERROR, "义特费用账单返回数据解析失败。");
         }
     }
 

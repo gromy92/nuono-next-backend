@@ -13,6 +13,8 @@ public class LogisticsAutoSyncAccountView {
     private Boolean enabled;
     private Boolean scheduleEnabled;
     private Boolean commitEnabled;
+    private Boolean freightBillScheduleEnabled;
+    private Boolean freightBillCommitEnabled;
     private LocalTime scheduleWindowStart;
     private LocalTime scheduleWindowEnd;
     private Integer minIntervalHours;
@@ -26,6 +28,14 @@ public class LogisticsAutoSyncAccountView {
     private LocalDateTime cooldownUntil;
     private String lastFailureCode;
     private String lastFailureMessage;
+    private String freightBillLastPreviewStatus;
+    private String freightBillLastSyncStatus;
+    private Long freightBillLastTaskId;
+    private LocalDateTime freightBillLastSyncedAt;
+    private LocalDateTime freightBillNextEligibleAt;
+    private LocalDateTime freightBillCooldownUntil;
+    private String freightBillLastFailureCode;
+    private String freightBillLastFailureMessage;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -43,6 +53,8 @@ public class LogisticsAutoSyncAccountView {
         view.setEnabled(row.getEnabled());
         view.setScheduleEnabled(row.getScheduleEnabled());
         view.setCommitEnabled(row.getCommitEnabled());
+        view.setFreightBillScheduleEnabled(row.getFreightBillScheduleEnabled());
+        view.setFreightBillCommitEnabled(row.getFreightBillCommitEnabled());
         view.setScheduleWindowStart(row.getScheduleWindowStart());
         view.setScheduleWindowEnd(row.getScheduleWindowEnd());
         view.setMinIntervalHours(row.getMinIntervalHours());
@@ -56,6 +68,14 @@ public class LogisticsAutoSyncAccountView {
         view.setCooldownUntil(row.getCooldownUntil());
         view.setLastFailureCode(row.getLastFailureCode());
         view.setLastFailureMessage(row.getLastFailureMessage());
+        view.setFreightBillLastPreviewStatus(row.getFreightBillLastPreviewStatus());
+        view.setFreightBillLastSyncStatus(row.getFreightBillLastSyncStatus());
+        view.setFreightBillLastTaskId(row.getFreightBillLastTaskId());
+        view.setFreightBillLastSyncedAt(row.getFreightBillLastSyncedAt());
+        view.setFreightBillNextEligibleAt(row.getFreightBillNextEligibleAt());
+        view.setFreightBillCooldownUntil(row.getFreightBillCooldownUntil());
+        view.setFreightBillLastFailureCode(row.getFreightBillLastFailureCode());
+        view.setFreightBillLastFailureMessage(row.getFreightBillLastFailureMessage());
         view.setCreatedAt(row.getCreatedAt());
         view.setUpdatedAt(row.getUpdatedAt());
         return view;
@@ -143,6 +163,11 @@ public class LogisticsAutoSyncAccountView {
     public void setCommitEnabled(Boolean commitEnabled) {
         this.commitEnabled = commitEnabled;
     }
+
+    public Boolean getFreightBillScheduleEnabled() { return freightBillScheduleEnabled; }
+    public void setFreightBillScheduleEnabled(Boolean value) { this.freightBillScheduleEnabled = value; }
+    public Boolean getFreightBillCommitEnabled() { return freightBillCommitEnabled; }
+    public void setFreightBillCommitEnabled(Boolean value) { this.freightBillCommitEnabled = value; }
 
     public LocalTime getScheduleWindowStart() {
         return scheduleWindowStart;
@@ -247,6 +272,23 @@ public class LogisticsAutoSyncAccountView {
     public void setLastFailureMessage(String lastFailureMessage) {
         this.lastFailureMessage = lastFailureMessage;
     }
+
+    public String getFreightBillLastPreviewStatus() { return freightBillLastPreviewStatus; }
+    public void setFreightBillLastPreviewStatus(String value) { this.freightBillLastPreviewStatus = value; }
+    public String getFreightBillLastSyncStatus() { return freightBillLastSyncStatus; }
+    public void setFreightBillLastSyncStatus(String value) { this.freightBillLastSyncStatus = value; }
+    public Long getFreightBillLastTaskId() { return freightBillLastTaskId; }
+    public void setFreightBillLastTaskId(Long value) { this.freightBillLastTaskId = value; }
+    public LocalDateTime getFreightBillLastSyncedAt() { return freightBillLastSyncedAt; }
+    public void setFreightBillLastSyncedAt(LocalDateTime value) { this.freightBillLastSyncedAt = value; }
+    public LocalDateTime getFreightBillNextEligibleAt() { return freightBillNextEligibleAt; }
+    public void setFreightBillNextEligibleAt(LocalDateTime value) { this.freightBillNextEligibleAt = value; }
+    public LocalDateTime getFreightBillCooldownUntil() { return freightBillCooldownUntil; }
+    public void setFreightBillCooldownUntil(LocalDateTime value) { this.freightBillCooldownUntil = value; }
+    public String getFreightBillLastFailureCode() { return freightBillLastFailureCode; }
+    public void setFreightBillLastFailureCode(String value) { this.freightBillLastFailureCode = value; }
+    public String getFreightBillLastFailureMessage() { return freightBillLastFailureMessage; }
+    public void setFreightBillLastFailureMessage(String value) { this.freightBillLastFailureMessage = value; }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
