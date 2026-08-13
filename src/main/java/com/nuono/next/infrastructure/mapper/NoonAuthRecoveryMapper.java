@@ -103,15 +103,6 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper 
     })
     NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(@Param("identityKey") String identityKey);
 
-    @Select({
-            "SELECT", RECOVERY_COLUMNS,
-            "FROM noon_auth_identity_recovery",
-            "WHERE successor_identity_slot = #{identityKey}",
-            "  AND status = 'WAITING_PREDECESSOR'",
-            "LIMIT 1 FOR UPDATE"
-    })
-    NoonAuthIdentityRecoveryRecord selectLegacyWaitingRecoveryForUpdate(@Param("identityKey") String identityKey);
-
     @Update({
             "UPDATE noon_auth_identity_recovery",
             "SET status = 'FAILED_FINAL',",
@@ -131,31 +122,6 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper 
     int retireLegacyManualHold(
             @Param("recoveryId") Long recoveryId,
             @Param("expectedVersion") Long expectedVersion,
-            @Param("now") LocalDateTime now
-    );
-
-    @Update({
-            "UPDATE noon_auth_identity_recovery",
-            "SET predecessor_recovery_id = NULL,",
-            "    status = 'COALESCING',",
-            "    coalesce_until = #{coalesceUntil},",
-            "    next_attempt_at = #{coalesceUntil},",
-            "    failure_code = NULL,",
-            "    diagnostic_summary = NULL,",
-            "    lease_owner = NULL,",
-            "    lease_token = NULL,",
-            "    lease_until = NULL,",
-            "    version_no = version_no + 1,",
-            "    gmt_updated = #{now}",
-            "WHERE id = #{recoveryId}",
-            "  AND status = 'WAITING_PREDECESSOR'",
-            "  AND predecessor_recovery_id = #{predecessorRecoveryId}",
-            "  AND active_identity_slot IS NULL"
-    })
-    int promoteLegacyWaitingRecovery(
-            @Param("recoveryId") Long recoveryId,
-            @Param("predecessorRecoveryId") Long predecessorRecoveryId,
-            @Param("coalesceUntil") LocalDateTime coalesceUntil,
             @Param("now") LocalDateTime now
     );
 

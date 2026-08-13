@@ -164,9 +164,9 @@ public class NoonAuthRecoveryCoordinator implements
                 && Objects.equals(stateBeforeEnqueue.getConfigFingerprint(), configFingerprint)) {
             return Optional.empty();
         }
-        Long reopenedRenewalId = startsFreshRenewal
-                ? recoveryRepository.reopenLegacyManualHoldForRenewal(identityKey, now)
-                : null;
+        if (startsFreshRenewal) {
+            recoveryRepository.retireLegacyManualHoldForFreshRenewal(identityKey, now);
+        }
 
         NoonAuthIdentityRecoveryRecord recovery = new NoonAuthIdentityRecoveryRecord();
         recovery.setIdentityKey(identityKey);
@@ -174,9 +174,7 @@ public class NoonAuthRecoveryCoordinator implements
         recovery.setRequestedAt(now);
         recovery.setCoalesceUntil(now.plus(properties.coalesceDuration()));
         recovery.setNextAttemptAt(recovery.getCoalesceUntil());
-        Long activeRecoveryId = reopenedRenewalId == null
-                ? recoveryRepository.coalesceActiveRecovery(recovery)
-                : reopenedRenewalId;
+        Long activeRecoveryId = recoveryRepository.coalesceActiveRecovery(recovery);
         if (activeRecoveryId == null) {
             throw new IllegalStateException("Noon auth recovery queue did not allocate a recovery id.");
         }

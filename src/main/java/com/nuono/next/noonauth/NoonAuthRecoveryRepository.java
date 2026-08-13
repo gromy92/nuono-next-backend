@@ -4,6 +4,9 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public interface NoonAuthRecoveryRepository {
+    /** Retires only the active historical hold; it never promotes a legacy successor batch. */
+    void retireLegacyManualHoldForFreshRenewal(String identityKey, LocalDateTime now);
+
 
     Long coalesceActiveRecovery(NoonAuthIdentityRecoveryRecord recovery);
 
@@ -18,13 +21,6 @@ public interface NoonAuthRecoveryRepository {
     List<NoonAuthIdentityRecoveryRecord> listDueRecoveries(LocalDateTime now, int limit);
 
     List<String> listUndrainedIdentityKeysExcept(String identityKey);
-
-    /**
-     * Retires a held historical recovery and, when one exists, reopens its legacy waiting batch.
-     * A return value is the already-persisted renewal id; {@code null} means a fresh active batch
-     * must be coalesced normally.
-     */
-    Long reopenLegacyManualHoldForRenewal(String identityKey, LocalDateTime now);
 
     int drainDisabledRecoveries(LocalDateTime now);
 

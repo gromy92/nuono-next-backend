@@ -50,8 +50,6 @@ class NoonAuthRecoveryCoordinatorTest {
         );
         when(recoveryRepository.selectProjectBindingFingerprint(anyLong(), anyString()))
                 .thenReturn("binding-fingerprint-v1");
-        when(recoveryRepository.reopenLegacyManualHoldForRenewal(anyString(), any()))
-                .thenReturn(null);
         when(storeSyncMapper.selectOwnerStore(anyLong(), anyString())).thenAnswer(invocation ->
                 store("PRJ1", invocation.getArgument(1))
         );
