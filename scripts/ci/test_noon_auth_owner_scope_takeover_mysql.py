@@ -14,6 +14,7 @@ from noon_auth_owner_scope_takeover import build_manifest, load_snapshot  # noqa
 from noon_auth_owner_scope_takeover_sql import build_apply_sql  # noqa: E402
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.mysql_database import MySqlMigrationDatabase  # noqa: E402
+from schema_migrations.mysql_support import MySqlExecutionError  # noqa: E402
 
 
 @unittest.skipUnless(os.environ.get("NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"),
@@ -37,7 +38,7 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
         database.client.execute(build_apply_sql(manifest, "ci"))
 
         self.assertEqual(
-            "FAILED_FINAL:WAITING_PREDECESSOR:0:0:1:COALESCING:5:4:4:REAUTH_REQUIRED:882",
+            "FAILED_FINAL:WAITING_PREDECESSOR:0:0:1:COALESCING:5:4:4:REAUTH_REQUIRED:9100882",
             database.client.execute_readonly(
                 "SELECT CONCAT((SELECT status FROM noon_auth_identity_recovery WHERE id=9100877),':',"
                 "source.status,':',source.send_budget_epoch,':',source.send_attempt_count,':',"
@@ -53,6 +54,30 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
         )
         self.assertTrue(database.livecheck(migration))
 
+    def test_scope_drift_fails_before_any_pause_or_move(self):
+        database = self._database()
+        self.addCleanup(database.close)
+        resources = REPOSITORY_ROOT / "src/main/resources"
+        self._prepare_schema(database, resources)
+        migration = next(item for item in load_catalog(resources) if item.order == 251)
+        database.client.execute(migration.script_sql)
+        self._prepare_rows(database)
+
+        snapshot = load_snapshot(database.client, self.PREDECESSOR, self.SOURCE, 307)
+        manifest = build_manifest(snapshot, 307, ("PRJ0", "PRJ1", "PRJ2", "PRJ3"), "ci", self._provenance())
+        manifest["predecessor"]["versionNo"] += 1
+        with self.assertRaises(MySqlExecutionError):
+            database.client.execute(build_apply_sql(manifest, "ci"))
+        self.assertEqual(
+            "MANUAL_HOLD:WAITING_PREDECESSOR:4:5",
+            database.client.execute_readonly(
+                "SELECT CONCAT((SELECT status FROM noon_auth_identity_recovery WHERE id=9100877),':',"
+                "(SELECT status FROM noon_auth_identity_recovery WHERE id=9100882),':',"
+                "(SELECT COUNT(*) FROM noon_pull_plan WHERE id IN (94001,94002,94003,94004) AND paused=b'0'),':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882 AND owner_user_id=307));"
+            ),
+        )
+
     def _database(self):
         return MySqlMigrationDatabase(Path(os.environ["NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"]),
             expected_schema=os.environ.get("NUONO_MIGRATION_EXPECTED_SCHEMA", "nuono_schema_migration_ci"),
@@ -62,9 +87,13 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
         database.client.execute("SET FOREIGN_KEY_CHECKS=0;DROP TABLE IF EXISTS noon_auth_owner_scope_audit,"
             "noon_auth_owner_scope_manifest_item,noon_auth_owner_scope_manifest,noon_auth_identity_send_ledger,"
             "noon_auth_identity_recovery_item,noon_project_auth_state,noon_auth_identity_recovery,noon_pull_task,"
-            "noon_pull_plan,noon_pull_id_sequence;SET FOREIGN_KEY_CHECKS=1;")
+            "noon_pull_plan,noon_pull_id_sequence,noon_http_call_log;SET FOREIGN_KEY_CHECKS=1;")
         for order in (53, 58, 190, 238):
             database.client.execute(next((resources / "db/init").glob(f"{order:03d}_*.sql")).read_text())
+        warehouse_sql = (resources / "db/init/134_official_warehouse_asn.sql").read_text()
+        start = warehouse_sql.index("CREATE TABLE IF NOT EXISTS `noon_http_call_log`")
+        end = warehouse_sql.index(";\n\n", start) + 1
+        database.client.execute(warehouse_sql[start:end])
 
     def _prepare_rows(self, database):
         database.client.execute(

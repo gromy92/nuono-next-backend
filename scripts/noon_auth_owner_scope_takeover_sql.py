@@ -11,8 +11,13 @@ def _text(value: object) -> str:
 
 
 def _signal(name: str, predicate: str) -> str:
-    return (f"SET @owner_takeover_guard=IF(({predicate}),'DO 0','SIGNAL SQLSTATE ''45000'' "
-            f"SET MESSAGE_TEXT=''{name}'');PREPARE owner_takeover_stmt FROM @owner_takeover_guard;"
+    # MySQL accepts SIGNAL only inside a stored program, not in a statement prepared
+    # from this session variable.  The false branch therefore executes a deliberately
+    # absent, operation-private relation; a true branch is a no-op.  This remains
+    # fail-closed without relying on a version-specific prepared SIGNAL grammar.
+    failure_relation = "__nuono_owner_takeover_guard_" + name.lower()
+    return (f"SET @owner_takeover_guard=IF(({predicate}),'DO 0','SELECT 1 FROM `{failure_relation}`');"
+            "PREPARE owner_takeover_stmt FROM @owner_takeover_guard;"
             "EXECUTE owner_takeover_stmt;DEALLOCATE PREPARE owner_takeover_stmt;")
 
 

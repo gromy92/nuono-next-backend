@@ -78,6 +78,8 @@ class NoonAuthOwnerScopeTakeoverTest(unittest.TestCase):
         self.assertIn("status='CANCELLED'", sql)
         self.assertIn("paused=1", sql)
         self.assertIn("recovery_id=@owner_takeover_recovery_id", sql)
+        self.assertIn("SELECT 1 FROM `__nuono_owner_takeover_guard_noon_auth_owner_takeover_scope_drift`", sql)
+        self.assertNotIn("SIGNAL SQLSTATE", sql)
         self.assertNotIn("UPDATE noon_auth_identity_recovery SET send_attempt_count", sql)
         self.assertNotIn("UPDATE noon_auth_identity_recovery SET send_budget_epoch", sql)
         self.assertNotIn("noon_auth_owner_scope_manifest", sql)
