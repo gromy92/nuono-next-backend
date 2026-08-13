@@ -765,7 +765,6 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                 )),
                 any()
         );
-        verify(repository).promoteReadySuccessors(any(), any());
     }
 
     @Test

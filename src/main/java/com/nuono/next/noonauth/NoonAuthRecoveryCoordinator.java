@@ -5,6 +5,7 @@ import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.store.StoreSyncStoreRecord;
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.Objects;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -149,16 +150,23 @@ public class NoonAuthRecoveryCoordinator implements
                             + "再次发送 OTP 无法修复该通道，系统已停止重复认证。"
             );
         }
-        if (!explicitBinding && NoonAuthRecoveryQueuePolicy.keepsManualHold(
-                recoveryRepository,
+        reopenManualHoldAfterCredentialChange(identityKey, configFingerprint, now);
+        boolean startsFreshRenewal = NoonAuthRecoveryQueuePolicy.startsFreshIdentityRenewal(
                 stateBeforeEnqueue,
-                bindingFingerprint,
+                sourceTaskId,
+                explicitBinding,
                 configFingerprint
-        )) {
+        );
+        if (!explicitBinding
+                && stateBeforeEnqueue != null
+                && stateBeforeEnqueue.getStatus() == NoonProjectAuthStatus.MANUAL_HOLD
+                && !startsFreshRenewal
+                && Objects.equals(stateBeforeEnqueue.getConfigFingerprint(), configFingerprint)) {
             return Optional.empty();
         }
-        recoveryRepository.promoteReadySuccessors(now.plus(properties.coalesceDuration()), now);
-        reopenManualHoldAfterCredentialChange(identityKey, configFingerprint, now);
+        Long reopenedRenewalId = startsFreshRenewal
+                ? recoveryRepository.reopenLegacyManualHoldForRenewal(identityKey, now)
+                : null;
 
         NoonAuthIdentityRecoveryRecord recovery = new NoonAuthIdentityRecoveryRecord();
         recovery.setIdentityKey(identityKey);
@@ -166,7 +174,9 @@ public class NoonAuthRecoveryCoordinator implements
         recovery.setRequestedAt(now);
         recovery.setCoalesceUntil(now.plus(properties.coalesceDuration()));
         recovery.setNextAttemptAt(recovery.getCoalesceUntil());
-        Long activeRecoveryId = recoveryRepository.coalesceActiveRecovery(recovery);
+        Long activeRecoveryId = reopenedRenewalId == null
+                ? recoveryRepository.coalesceActiveRecovery(recovery)
+                : reopenedRenewalId;
         if (activeRecoveryId == null) {
             throw new IllegalStateException("Noon auth recovery queue did not allocate a recovery id.");
         }
@@ -174,23 +184,10 @@ public class NoonAuthRecoveryCoordinator implements
         if (activeRecovery == null || !activeRecoveryId.equals(activeRecovery.getId())) {
             throw new IllegalStateException("Noon auth recovery queue lost its active identity fence.");
         }
-        NoonAuthIdentityRecoveryRecord waitingSuccessor = recoveryRepository.selectWaitingSuccessorForUpdate(
-                identityKey
-        );
         NoonProjectAuthStateRecord existingProjectState = recoveryRepository.selectProjectAuthStateForUpdate(
                 ownerUserId,
                 projectCode
         );
-        if (!explicitBinding && NoonAuthRecoveryQueuePolicy.keepsManualHoldWithLockedRecoveries(
-                existingProjectState,
-                bindingFingerprint,
-                configFingerprint,
-                activeRecovery,
-                waitingSuccessor
-        )) {
-            recoveryRepository.cancelEmptyRecoveryAfterRejectedEnqueue(activeRecoveryId, now);
-            return Optional.empty();
-        }
         boolean staleSourceTaskAuthFailure = NoonAuthRecoveryQueuePolicy.sourceTaskPredatesCurrentAuth(
                 sourceStartedAt,
                 existingProjectState
@@ -211,17 +208,9 @@ public class NoonAuthRecoveryCoordinator implements
                         projectCode
                 )
                 : null;
-        NoonAuthRecoveryItemRecord successorProjectItem = explicitBinding && waitingSuccessor != null
-                ? recoveryRepository.selectProjectRecoveryItem(
-                        waitingSuccessor.getId(),
-                        ownerUserId,
-                        projectCode
-                )
-                : null;
         Long projectBoundRecoveryId = NoonAuthRecoveryQueuePolicy.resolveProjectBoundRecovery(
                 existingProjectState,
                 activeRecovery,
-                waitingSuccessor,
                 identityKey
         );
         Long recoveryId;
@@ -231,25 +220,8 @@ public class NoonAuthRecoveryCoordinator implements
             recoveryId = projectBoundRecoveryId;
         } else if (activeProjectItem != null) {
             recoveryId = activeRecoveryId;
-        } else if (successorProjectItem != null) {
-            recoveryId = waitingSuccessor.getId();
-        } else if (activeRecovery.getStatus() == NoonAuthRecoveryStatus.COALESCING) {
-            recoveryId = activeRecoveryId;
-        } else if (waitingSuccessor != null) {
-            recoveryId = waitingSuccessor.getId();
         } else {
-            recovery.setId(null);
-            recovery.setPredecessorRecoveryId(activeRecoveryId);
-            recoveryId = recoveryRepository.coalesceSuccessorRecovery(recovery);
-            NoonAuthIdentityRecoveryRecord successor = recoveryId == null
-                    ? null
-                    : recoveryRepository.selectRecovery(recoveryId);
-            if (successor == null
-                    || successor.getStatus() != NoonAuthRecoveryStatus.WAITING_PREDECESSOR
-                    || !identityKey.equals(successor.getIdentityKey())
-                    || !activeRecoveryId.equals(successor.getPredecessorRecoveryId())) {
-                throw new IllegalStateException("Noon auth recovery queue could not fence a successor batch.");
-            }
+            recoveryId = activeRecoveryId;
         }
 
         Long expectedAuthVersion;

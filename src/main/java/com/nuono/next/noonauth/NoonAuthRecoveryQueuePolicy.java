@@ -2,7 +2,6 @@ package com.nuono.next.noonauth;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
-import org.springframework.util.StringUtils;
 
 final class NoonAuthRecoveryQueuePolicy {
     private NoonAuthRecoveryQueuePolicy() {
@@ -20,6 +19,25 @@ final class NoonAuthRecoveryQueuePolicy {
                 && stateBeforeEnqueue.getAuthVersion() > 0L
                 && stateBeforeEnqueue.getLastSuccessAt() != null
                 && !stateBeforeEnqueue.getLastSuccessAt().isBefore(sourceStartedAt);
+    }
+
+    static boolean startsFreshIdentityRenewal(
+            NoonProjectAuthStateRecord state,
+            Long sourceTaskId,
+            boolean explicitBinding,
+            String configFingerprint
+    ) {
+        if (explicitBinding
+                || sourceTaskId == null
+                || state == null
+                || state.getStatus() != NoonProjectAuthStatus.MANUAL_HOLD) {
+            return false;
+        }
+        if (!Objects.equals(state.getConfigFingerprint(), configFingerprint)) {
+            return false;
+        }
+        return state.getLastFailureTaskId() == null
+                || !sourceTaskId.equals(state.getLastFailureTaskId());
     }
 
     static NoonAuthRecoveryItemRecord resolveCommittedProjectJoin(
@@ -50,37 +68,9 @@ final class NoonAuthRecoveryQueuePolicy {
         return existing;
     }
 
-    static boolean keepsManualHold(
-            NoonAuthRecoveryRepository repository,
-            NoonProjectAuthStateRecord state,
-            String bindingFingerprint,
-            String configFingerprint
-    ) {
-        if (state == null || state.getStatus() != NoonProjectAuthStatus.MANUAL_HOLD) {
-            return false;
-        }
-        if (!StringUtils.hasText(state.getBindingFingerprint())
-                || !StringUtils.hasText(state.getConfigFingerprint())) {
-            return true;
-        }
-        boolean bindingChanged = !Objects.equals(state.getBindingFingerprint(), bindingFingerprint);
-        boolean configChanged = !Objects.equals(state.getConfigFingerprint(), configFingerprint);
-        if (!bindingChanged && !configChanged) {
-            return true;
-        }
-        if (state.getActiveRecoveryId() == null) {
-            return false;
-        }
-        NoonAuthIdentityRecoveryRecord bound = repository.selectRecovery(state.getActiveRecoveryId());
-        return bound != null
-                && bound.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD
-                && !configChanged;
-    }
-
     static Long resolveProjectBoundRecovery(
             NoonProjectAuthStateRecord state,
             NoonAuthIdentityRecoveryRecord activeRecovery,
-            NoonAuthIdentityRecoveryRecord waitingSuccessor,
             String identityKey
     ) {
         if (state == null
@@ -93,43 +83,6 @@ final class NoonAuthRecoveryQueuePolicy {
         if (state.getActiveRecoveryId().equals(activeRecovery.getId())) {
             return activeRecovery.getId();
         }
-        if (waitingSuccessor == null
-                || !state.getActiveRecoveryId().equals(waitingSuccessor.getId())
-                || waitingSuccessor.getStatus() != NoonAuthRecoveryStatus.WAITING_PREDECESSOR
-                || !identityKey.equals(waitingSuccessor.getIdentityKey())
-                || !activeRecovery.getId().equals(waitingSuccessor.getPredecessorRecoveryId())) {
-            return null;
-        }
-        return waitingSuccessor.getId();
-    }
-
-    static boolean keepsManualHoldWithLockedRecoveries(
-            NoonProjectAuthStateRecord state,
-            String bindingFingerprint,
-            String configFingerprint,
-            NoonAuthIdentityRecoveryRecord activeRecovery,
-            NoonAuthIdentityRecoveryRecord waitingSuccessor
-    ) {
-        if (state == null || state.getStatus() != NoonProjectAuthStatus.MANUAL_HOLD) {
-            return false;
-        }
-        if (!StringUtils.hasText(state.getBindingFingerprint())
-                || !StringUtils.hasText(state.getConfigFingerprint())) {
-            return true;
-        }
-        boolean bindingChanged = !Objects.equals(state.getBindingFingerprint(), bindingFingerprint);
-        boolean configChanged = !Objects.equals(state.getConfigFingerprint(), configFingerprint);
-        if (!bindingChanged && !configChanged) {
-            return true;
-        }
-        if (configChanged || state.getActiveRecoveryId() == null) {
-            return false;
-        }
-        if (activeRecovery != null && state.getActiveRecoveryId().equals(activeRecovery.getId())) {
-            return activeRecovery.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD;
-        }
-        return waitingSuccessor != null
-                && state.getActiveRecoveryId().equals(waitingSuccessor.getId())
-                && waitingSuccessor.getStatus() == NoonAuthRecoveryStatus.MANUAL_HOLD;
+        return null;
     }
 }

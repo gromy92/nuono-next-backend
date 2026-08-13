@@ -50,6 +50,8 @@ class NoonAuthRecoveryCoordinatorTest {
         );
         when(recoveryRepository.selectProjectBindingFingerprint(anyLong(), anyString()))
                 .thenReturn("binding-fingerprint-v1");
+        when(recoveryRepository.reopenLegacyManualHoldForRenewal(anyString(), any()))
+                .thenReturn(null);
         when(storeSyncMapper.selectOwnerStore(anyLong(), anyString())).thenAnswer(invocation ->
                 store("PRJ1", invocation.getArgument(1))
         );
@@ -105,34 +107,6 @@ class NoonAuthRecoveryCoordinatorTest {
     }
 
     @Test
-    void runningOrHeldBatchNeverAbsorbsLateTaskAndUsesOneSuccessor() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(anyLong(), anyString())).thenReturn(project);
-        when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
-        NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
-        active.setId(91L);
-        active.setStatus(NoonAuthRecoveryStatus.AUTHENTICATING);
-        when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active);
-        when(recoveryRepository.coalesceSuccessorRecovery(any())).thenReturn(92L);
-        NoonAuthIdentityRecoveryRecord successor = new NoonAuthIdentityRecoveryRecord();
-        successor.setId(92L);
-        successor.setPredecessorRecoveryId(91L);
-        successor.setIdentityKey(NoonAuthIdentityKey.fromEmail("shared@example.com"));
-        successor.setStatus(NoonAuthRecoveryStatus.WAITING_PREDECESSOR);
-        when(recoveryRepository.selectRecovery(92L)).thenReturn(successor);
-        NoonProjectAuthStateRecord state = new NoonProjectAuthStateRecord();
-        state.setActiveRecoveryId(92L);
-        state.setAuthVersion(8L);
-        when(recoveryRepository.selectProjectAuthStateForUpdate(anyLong(), anyString()))
-                .thenReturn(null, state);
-        assertEquals(Optional.of(92L), enqueue(task(7L, 307L, "STORE-7")));
-
-        verify(recoveryRepository).coalesceSuccessorRecovery(any());
-        verify(recoveryRepository).promoteReadySuccessors(any(), any());
-    }
-
-    @Test
     void lateTaskForProjectAlreadyInRunningBatchJoinsSameGeneration() {
         StoreSyncStoreRecord project = new StoreSyncStoreRecord();
         project.setProjectCode("PRJ1");
@@ -151,30 +125,6 @@ class NoonAuthRecoveryCoordinatorTest {
         when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(state);
         assertEquals(Optional.of(91L), enqueue(task(8L, 307L, "STORE-8")));
 
-        verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
-    }
-
-    @Test
-    void terminalProjectManualHoldRejectsNewRecoveryWhileBindingAndCredentialsAreUnchanged() {
-        StoreSyncStoreRecord project = new StoreSyncStoreRecord();
-        project.setProjectCode("PRJ1");
-        when(storeSyncMapper.selectOwnerProject(307L, "STORE-9")).thenReturn(project);
-        NoonProjectAuthStateRecord held = heldState(
-                307L,
-                "PRJ1",
-                80L,
-                "binding-fingerprint-v1",
-                NoonAuthIdentityKey.configFingerprint(
-                        "shared@example.com",
-                        "imap-secret",
-                        properties.normalizedTrustedSenderDomains()
-                )
-        );
-        when(recoveryRepository.selectProjectAuthState(307L, "PRJ1")).thenReturn(held);
-
-        assertTrue(enqueue(task(9L, 307L, "STORE-9")).isEmpty());
-
-        verify(recoveryRepository, never()).coalesceActiveRecovery(any());
     }
 
     @Test
@@ -313,7 +263,6 @@ class NoonAuthRecoveryCoordinatorTest {
         org.mockito.InOrder lockOrder = org.mockito.Mockito.inOrder(recoveryRepository);
         lockOrder.verify(recoveryRepository).coalesceActiveRecovery(any());
         lockOrder.verify(recoveryRepository).selectActiveRecoveryForUpdate(anyString());
-        lockOrder.verify(recoveryRepository).selectWaitingSuccessorForUpdate(anyString());
         lockOrder.verify(recoveryRepository).selectProjectAuthStateForUpdate(307L, "PRJ1");
         lockOrder.verify(recoveryRepository).rebaseProjectBindingEpoch(
                 eq(91L), eq(307L), eq("PRJ1"), anyString(), eq("binding-fingerprint-v1"),
@@ -402,7 +351,6 @@ class NoonAuthRecoveryCoordinatorTest {
 
         assertEquals(Optional.of(91L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
-        verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository).rebaseProjectBindingEpoch(
                 eq(91L), eq(307L), eq("PRJ1"), anyString(), eq("binding-fingerprint-v1"),
                 anyString(), any(), any(), any()
@@ -415,7 +363,7 @@ class NoonAuthRecoveryCoordinatorTest {
     }
 
     @Test
-    void explicitBindAlreadyBoundToWaitingSuccessorRebasesOnlyThatSuccessor() {
+    void explicitBindRebasesTheSingleActiveRenewalInsteadOfAnOldWaitingSuccessor() {
         when(storeSyncMapper.selectOwnerStore(307L, "STORE-1")).thenReturn(store("PRJ1", "STORE-1"));
         when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
         NoonAuthIdentityRecoveryRecord active = new NoonAuthIdentityRecoveryRecord();
@@ -423,28 +371,21 @@ class NoonAuthRecoveryCoordinatorTest {
         active.setIdentityKey(NoonAuthIdentityKey.fromEmail("shared@example.com"));
         active.setStatus(NoonAuthRecoveryStatus.AUTHENTICATING);
         when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active);
-        NoonAuthIdentityRecoveryRecord successor = new NoonAuthIdentityRecoveryRecord();
-        successor.setId(92L);
-        successor.setIdentityKey(NoonAuthIdentityKey.fromEmail("shared@example.com"));
-        successor.setPredecessorRecoveryId(91L);
-        successor.setStatus(NoonAuthRecoveryStatus.WAITING_PREDECESSOR);
-        when(recoveryRepository.selectWaitingSuccessorForUpdate(anyString())).thenReturn(successor);
         NoonProjectAuthStateRecord bound = new NoonProjectAuthStateRecord();
         bound.setStatus(NoonProjectAuthStatus.REAUTH_REQUIRED);
         bound.setIdentityKey(NoonAuthIdentityKey.fromEmail("shared@example.com"));
-        bound.setActiveRecoveryId(92L);
+        bound.setActiveRecoveryId(91L);
         bound.setAuthVersion(8L);
         when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(bound);
         when(recoveryRepository.rebaseProjectBindingEpoch(
-                eq(92L), eq(307L), eq("PRJ1"), anyString(), anyString(), anyString(),
+                eq(91L), eq(307L), eq("PRJ1"), anyString(), anyString(), anyString(),
                 any(), any(), any()
         )).thenReturn(9L);
 
-        assertEquals(Optional.of(92L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
+        assertEquals(Optional.of(91L), coordinator.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ1", "STORE-1")));
 
-        verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository).rebaseProjectBindingEpoch(
-                eq(92L), eq(307L), eq("PRJ1"), anyString(), anyString(), anyString(),
+                eq(91L), eq(307L), eq("PRJ1"), anyString(), anyString(), anyString(),
                 any(), any(), any()
         );
     }
@@ -549,7 +490,6 @@ class NoonAuthRecoveryCoordinatorTest {
         when(recoveryRepository.selectProjectRecoveryItem(91L, 307L, "PRJ1")).thenReturn(committed);
         assertEquals(Optional.of(91L), enqueue(task(14L, 307L, "STORE-14")));
 
-        verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
         verify(recoveryRepository, never()).upsertProjectAuthRequired(
                 anyLong(), anyString(), anyString(), anyLong(), anyString(), anyString(),
                 anyString(), anyLong(), any()

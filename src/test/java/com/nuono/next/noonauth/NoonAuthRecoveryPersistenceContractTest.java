@@ -98,20 +98,27 @@ class NoonAuthRecoveryPersistenceContractTest {
     }
 
     @Test
-    void completionAndSuccessorRebindingCannotOrphanPendingTasks() {
+    void completionCannotOrphanPendingTasksAndLegacyHoldCanBeRetiredSafely() {
         String completion = updateSql("completeRecoveryIfDrained");
-        String promotion = updateSql("promoteSuccessorForPredecessor");
+        String retire = updateSql("retireLegacyManualHold");
+        String adopt = updateSql("promoteLegacyWaitingRecovery");
 
         assertThat(completion)
                 .contains("NOT EXISTS")
                 .contains("item.status IN ('PENDING', 'VALIDATING')")
                 .contains("version_no = #{expectedVersion}")
                 .contains("lease_token = #{expectedLeaseToken}");
-        assertThat(promotion)
-                .contains("predecessor.id = #{predecessorRecoveryId}")
-                .contains("predecessor.status IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')")
-                .contains("active.id IS NULL")
-                .contains("successor.status = 'COALESCING'");
+        assertThat(retire)
+                .contains("status = 'FAILED_FINAL'")
+                .contains("failure_code = 'SUPERSEDED_BY_RENEWAL'")
+                .contains("status = 'MANUAL_HOLD'")
+                .contains("active_identity_slot IS NOT NULL");
+        assertThat(adopt)
+                .contains("predecessor_recovery_id = NULL")
+                .contains("status = 'COALESCING'")
+                .contains("status = 'WAITING_PREDECESSOR'")
+                .contains("predecessor_recovery_id = #{predecessorRecoveryId}")
+                .contains("active_identity_slot IS NULL");
     }
 
     @Test
@@ -228,7 +235,6 @@ class NoonAuthRecoveryPersistenceContractTest {
 
         assertThat(cancel)
                 .contains("status = 'CANCELLED'")
-                .contains("'WAITING_PREDECESSOR'")
                 .contains("'MANUAL_HOLD'")
                 .contains("lease_token = NULL")
                 .contains("version_no = version_no + 1")
@@ -272,7 +278,6 @@ class NoonAuthRecoveryPersistenceContractTest {
         assertThat(sql)
                 .contains("SELECT DISTINCT recovery.identity_key")
                 .contains("LEFT JOIN noon_project_auth_state state")
-                .contains("'WAITING_PREDECESSOR'")
                 .contains("'MANUAL_HOLD'")
                 .contains("state.active_recovery_id IS NOT NULL")
                 .contains("recovery.identity_key <> #{identityKey}");
@@ -347,17 +352,12 @@ class NoonAuthRecoveryPersistenceContractTest {
     @Test
     void explicitBindingEpochIsRecoveryFencedAndReopensOnlyEligibleProjectItems() {
         String recoveryLock = selectSql("selectRecoveryForUpdate");
-        String successorLock = selectSql("selectWaitingSuccessorForUpdate");
         String activeRebase = updateSql("rebaseActiveRecoveryForBindingEpoch");
-        String successorRebase = updateSql("rebaseWaitingSuccessorForBindingEpoch");
         String projectRebase = insertSql("rebaseProjectAuthStateForBindingEpoch");
         String sourceLessLock = selectSql("selectSourceLessProjectRecoveryItemForUpdate");
         String reopenItems = updateSql("reopenProjectItemsForBindingEpoch");
 
         assertThat(recoveryLock).contains("id = #{recoveryId}").contains("FOR UPDATE");
-        assertThat(successorLock)
-                .contains("successor_identity_slot = #{identityKey}")
-                .contains("FOR UPDATE");
         assertThat(activeRebase)
                 .contains("status = CASE")
                 .contains("'COALESCING'")
@@ -373,12 +373,6 @@ class NoonAuthRecoveryPersistenceContractTest {
                 .doesNotContain("last_mail_uid_hash = NULL")
                 .doesNotContain("last_message_id_hash = NULL")
                 .doesNotContain("DELETE FROM noon_auth_identity_send_ledger");
-        assertThat(successorRebase)
-                .contains("status = 'WAITING_PREDECESSOR'")
-                .contains("predecessor_recovery_id IS NOT NULL")
-                .contains("version_no = version_no + 1")
-                .doesNotContain("send_budget_epoch")
-                .doesNotContain("predecessor_recovery_id =");
         assertThat(projectRebase)
                 .contains("status = 'REAUTH_REQUIRED'")
                 .contains("active_recovery_id = VALUES(active_recovery_id)")

@@ -7,8 +7,6 @@ public interface NoonAuthRecoveryRepository {
 
     Long coalesceActiveRecovery(NoonAuthIdentityRecoveryRecord recovery);
 
-    Long coalesceSuccessorRecovery(NoonAuthIdentityRecoveryRecord recovery);
-
     NoonAuthIdentityRecoveryRecord selectRecovery(Long recoveryId);
 
     NoonAuthIdentityRecoveryRecord selectRecoveryForUpdate(Long recoveryId);
@@ -17,15 +15,16 @@ public interface NoonAuthRecoveryRepository {
 
     NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey);
 
-    NoonAuthIdentityRecoveryRecord selectWaitingSuccessorForUpdate(String identityKey);
-
     List<NoonAuthIdentityRecoveryRecord> listDueRecoveries(LocalDateTime now, int limit);
 
     List<String> listUndrainedIdentityKeysExcept(String identityKey);
 
-    int promoteReadySuccessors(LocalDateTime coalesceUntil, LocalDateTime now);
-
-    boolean isOwnerScopeManifestValid(Long recoveryId);
+    /**
+     * Retires a held historical recovery and, when one exists, reopens its legacy waiting batch.
+     * A return value is the already-persisted renewal id; {@code null} means a fresh active batch
+     * must be coalesced normally.
+     */
+    Long reopenLegacyManualHoldForRenewal(String identityKey, LocalDateTime now);
 
     int drainDisabledRecoveries(LocalDateTime now);
 

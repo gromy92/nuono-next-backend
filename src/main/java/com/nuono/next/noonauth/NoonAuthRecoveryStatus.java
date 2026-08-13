@@ -3,6 +3,7 @@ package com.nuono.next.noonauth;
 import java.util.EnumSet;
 
 public enum NoonAuthRecoveryStatus {
+    /** Historical rows only. New recoveries must never enter this state. */
     WAITING_PREDECESSOR,
     COALESCING,
     AUTHENTICATING,
