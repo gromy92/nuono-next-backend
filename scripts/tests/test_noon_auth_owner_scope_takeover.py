@@ -76,7 +76,7 @@ class NoonAuthOwnerScopeTakeoverTest(unittest.TestCase):
         self.assertIn("SUPERSEDED_BY_OWNER_SCOPE_TAKEOVER", sql)
         self.assertIn("'COALESCING',NULL,0,0,0", sql)
         self.assertIn("status='CANCELLED'", sql)
-        self.assertIn("paused=b'1'", sql)
+        self.assertIn("paused=1", sql)
         self.assertIn("recovery_id=@owner_takeover_recovery_id", sql)
         self.assertNotIn("UPDATE noon_auth_identity_recovery SET send_attempt_count", sql)
         self.assertNotIn("UPDATE noon_auth_identity_recovery SET send_budget_epoch", sql)

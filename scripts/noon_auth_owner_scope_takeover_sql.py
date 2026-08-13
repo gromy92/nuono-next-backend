@@ -42,7 +42,7 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         "AND task.plan_id={plan_id} AND task.owner_user_id={owner} AND task.data_domain={domain} "
         "AND task.checkpoint_cursor IS NULL AND task.next_resume_position IS NULL "
         "AND task.last_safe_response_summary IS NULL AND COALESCE(task.processed_item_count,0)=0 "
-        "AND COALESCE(task.request_count,0)=0 AND task.finished_at IS NULL AND task.is_deleted=b'0')".format(
+        "AND COALESCE(task.request_count,0)=0 AND task.finished_at IS NULL AND task.is_deleted=0)".format(
             id=task["id"], source_id=source["id"], plan_id=task["planId"], owner=owner,
             domain=_text(task["domain"]),
         ) for task in tasks
@@ -58,7 +58,7 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         f"(SELECT COUNT(*) FROM noon_auth_identity_send_ledger WHERE recovery_id IN ({predecessor['id']},{source['id']}))=0",
         source_item_guard,
         f"(SELECT COUNT(*) FROM noon_project_auth_state state WHERE {project_predicates})={len(projects)}",
-        f"(SELECT COUNT(*) FROM noon_pull_task task JOIN noon_pull_plan plan ON plan.id=task.plan_id WHERE ({task_predicates}) AND plan.enabled=b'1' AND plan.paused=b'0')={len(tasks)}",
+        f"(SELECT COUNT(*) FROM noon_pull_task task JOIN noon_pull_plan plan ON plan.id=task.plan_id WHERE ({task_predicates}) AND plan.enabled=1 AND plan.paused=0)={len(tasks)}",
         f"(SELECT COUNT(*) FROM noon_http_call_log WHERE path='/_svc/mp-partner-identity/public/user/credential/generate')={manifest['providerGenerateCount']}",
         f"(SELECT COALESCE(MAX(id),0) FROM noon_http_call_log WHERE path='/_svc/mp-partner-identity/public/user/credential/generate')={manifest['providerGenerateMaxId']}",
     ))
@@ -71,8 +71,8 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         f"SELECT id FROM noon_pull_task WHERE id IN ({task_ids}) ORDER BY id FOR UPDATE;",
         f"SELECT id FROM noon_pull_plan WHERE id IN ({plan_ids}) ORDER BY id FOR UPDATE;",
         _signal("NOON_AUTH_OWNER_TAKEOVER_SCOPE_DRIFT", guards),
-        "UPDATE noon_pull_plan SET paused=b'1',pause_reason=" + _text(reason)
-        + f",gmt_updated=UTC_TIMESTAMP(3) WHERE id IN ({plan_ids}) AND enabled=b'1' AND paused=b'0';",
+        "UPDATE noon_pull_plan SET paused=1,pause_reason=" + _text(reason)
+        + f",gmt_updated=UTC_TIMESTAMP(3) WHERE id IN ({plan_ids}) AND enabled=1 AND paused=0;",
         _signal("NOON_AUTH_OWNER_TAKEOVER_PLAN_PAUSE_CAS_FAILED", f"ROW_COUNT()={len(manifest['planIds'])}"),
         "UPDATE noon_pull_task SET status='CANCELLED',finished_at=UTC_TIMESTAMP(3),gmt_updated=UTC_TIMESTAMP(3) "
         + f"WHERE id IN ({task_ids}) AND status='BLOCKED_AUTH' AND auth_recovery_id={source['id']};",
