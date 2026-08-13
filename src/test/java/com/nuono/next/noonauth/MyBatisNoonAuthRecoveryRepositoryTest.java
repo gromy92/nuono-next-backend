@@ -15,6 +15,22 @@ import org.mockito.Mockito;
 
 class MyBatisNoonAuthRecoveryRepositoryTest {
     @Test
+    void activeLegacyOwnerScopeManifestFailsClosedBeforeANewRenewalCanBeCoalesced() {
+        NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
+        MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
+        NoonAuthIdentityRecoveryRecord recovery = recovery(
+                null, NoonAuthRecoveryStatus.COALESCING, 0L, "identity-hash"
+        );
+        when(mapper.selectActiveLegacyOwnerScopeManifestForUpdate("identity-hash")).thenReturn(51L);
+
+        assertThatThrownBy(() -> repository.coalesceActiveRecovery(recovery))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("legacy owner-scope manifests");
+
+        verify(mapper, never()).coalesceActiveRecovery(recovery);
+    }
+
+    @Test
     void explicitBindingRebasesActiveRecoveryProjectAndEveryEligibleItemInRecoveryFirstOrder() {
         NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
         MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
@@ -171,54 +187,36 @@ class MyBatisNoonAuthRecoveryRepositoryTest {
 
 
     @Test
-    void successorBindingEpochDoesNotResetItsActivePredecessor() {
+    void legacyWaitingRecoveryIsPromotedIntoASingleExecutableRenewal() {
         NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
         MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
         LocalDateTime now = LocalDateTime.of(2026, 7, 16, 12, 0);
-        NoonAuthIdentityRecoveryRecord successor = recovery(
+        NoonAuthIdentityRecoveryRecord held = recovery(
+                91L,
+                NoonAuthRecoveryStatus.MANUAL_HOLD,
+                2L,
+                "identity-hash"
+        );
+        NoonAuthIdentityRecoveryRecord waiting = recovery(
                 92L,
                 NoonAuthRecoveryStatus.WAITING_PREDECESSOR,
                 2L,
                 "identity-hash"
         );
-        successor.setPredecessorRecoveryId(91L);
-        NoonProjectAuthStateRecord state = projectState(
-                NoonProjectAuthStatus.REAUTH_REQUIRED,
-                92L,
-                4L,
-                "binding-v1",
-                "config-v1"
-        );
-        NoonProjectAuthStateRecord rebased = projectState(
-                NoonProjectAuthStatus.REAUTH_REQUIRED,
-                92L,
-                5L,
-                "binding-v2",
-                "config-v1"
-        );
-        rebased.setIdentityKey("identity-hash");
-        when(mapper.selectRecoveryForUpdate(92L)).thenReturn(successor);
-        when(mapper.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(state, rebased);
-        when(mapper.rebaseWaitingSuccessorForBindingEpoch(92L, 2L, "config-v1", now)).thenReturn(1);
-        when(mapper.rebaseProjectAuthStateForBindingEpoch(
-                307L, "PRJ1", "identity-hash", 92L, "binding-v2", "config-v1", now
-        )).thenReturn(2);
+        when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
+        when(mapper.selectActiveLegacyOwnerScopeManifestForUpdate("identity-hash")).thenReturn(null);
+        when(mapper.selectLegacyWaitingRecoveryForUpdate("identity-hash")).thenReturn(waiting);
+        when(mapper.retireLegacyManualHold(91L, 2L, now)).thenReturn(1);
+        when(mapper.promoteLegacyWaitingRecovery(92L, 91L, now, now)).thenReturn(1);
 
-        assertThat(repository.rebaseProjectBindingEpoch(
-                92L, 307L, "PRJ1", "identity-hash", "binding-v2", "config-v1",
-                now.plusSeconds(15), now.plusMinutes(1), now
-        )).isEqualTo(5L);
+        assertThat(repository.reopenLegacyManualHoldForRenewal("identity-hash", now)).isEqualTo(92L);
 
-        verify(mapper).rebaseWaitingSuccessorForBindingEpoch(92L, 2L, "config-v1", now);
-        verify(mapper, never()).rebaseActiveRecoveryForBindingEpoch(
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.anyLong(),
-                org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any(),
-                org.mockito.ArgumentMatchers.any()
-        );
+        InOrder ordered = Mockito.inOrder(mapper);
+        ordered.verify(mapper).selectActiveLegacyOwnerScopeManifestForUpdate("identity-hash");
+        ordered.verify(mapper).selectActiveRecoveryForUpdate("identity-hash");
+        ordered.verify(mapper).selectLegacyWaitingRecoveryForUpdate("identity-hash");
+        ordered.verify(mapper).retireLegacyManualHold(91L, 2L, now);
+        ordered.verify(mapper).promoteLegacyWaitingRecovery(92L, 91L, now, now);
     }
 
     @Test

@@ -19,31 +19,15 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
 
     @Override
     public Long coalesceActiveRecovery(NoonAuthIdentityRecoveryRecord recovery) {
-        return NoonAuthOwnerScopeCoalescer.coalesce(mapper, recovery);
-    }
-
-    @Override
-    public Long coalesceSuccessorRecovery(NoonAuthIdentityRecoveryRecord recovery) {
-        mapper.coalesceSuccessorRecovery(recovery);
+        requireNoActiveLegacyOwnerScopeManifest(recovery.getIdentityKey());
+        mapper.coalesceActiveRecovery(recovery);
         return recovery.getId();
     }
 
-    @Override
-    public NoonAuthIdentityRecoveryRecord selectRecovery(Long recoveryId) { return mapper.selectRecovery(recoveryId); }
-
-    @Override
-    public NoonAuthIdentityRecoveryRecord selectRecoveryForUpdate(Long recoveryId) { return mapper.selectRecoveryForUpdate(recoveryId); }
-
-    @Override
-    public NoonAuthIdentityRecoveryRecord selectActiveRecovery(String identityKey) { return mapper.selectActiveRecovery(identityKey); }
-
-    @Override
-    public NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey) { return mapper.selectActiveRecoveryForUpdate(identityKey); }
-
-    @Override
-    public NoonAuthIdentityRecoveryRecord selectWaitingSuccessorForUpdate(String identityKey) {
-        return mapper.selectWaitingSuccessorForUpdate(identityKey);
-    }
+    @Override public NoonAuthIdentityRecoveryRecord selectRecovery(Long recoveryId) { return mapper.selectRecovery(recoveryId); }
+    @Override public NoonAuthIdentityRecoveryRecord selectRecoveryForUpdate(Long recoveryId) { return mapper.selectRecoveryForUpdate(recoveryId); }
+    @Override public NoonAuthIdentityRecoveryRecord selectActiveRecovery(String identityKey) { return mapper.selectActiveRecovery(identityKey); }
+    @Override public NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey) { return mapper.selectActiveRecoveryForUpdate(identityKey); }
 
     @Override
     public List<NoonAuthIdentityRecoveryRecord> listDueRecoveries(LocalDateTime now, int limit) {
@@ -56,10 +40,37 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     }
 
     @Override
-    public int promoteReadySuccessors(LocalDateTime coalesceUntil, LocalDateTime now) { return mapper.promoteReadySuccessors(coalesceUntil, now); }
+    @Transactional
+    public Long reopenLegacyManualHoldForRenewal(String identityKey, LocalDateTime now) {
+        requireNoActiveLegacyOwnerScopeManifest(identityKey);
+        NoonAuthIdentityRecoveryRecord held = mapper.selectActiveRecoveryForUpdate(identityKey);
+        if (held == null || held.getStatus() != NoonAuthRecoveryStatus.MANUAL_HOLD
+                || held.getId() == null || held.getVersionNo() == null) {
+            return null;
+        }
+        NoonAuthIdentityRecoveryRecord waiting = mapper.selectLegacyWaitingRecoveryForUpdate(identityKey);
+        if (mapper.retireLegacyManualHold(held.getId(), held.getVersionNo(), now) != 1) {
+            throw new IllegalStateException("Noon auth renewal could not retire the held identity fence.");
+        }
+        if (waiting == null || waiting.getId() == null) {
+            return null;
+        }
+        if (mapper.promoteLegacyWaitingRecovery(
+                waiting.getId(), held.getId(), now, now
+        ) != 1) {
+            throw new IllegalStateException("Noon auth renewal could not promote the legacy waiting batch.");
+        }
+        return waiting.getId();
+    }
 
-    @Override
-    public boolean isOwnerScopeManifestValid(Long recoveryId) { return mapper.isOwnerScopeManifestValid(recoveryId) == 1; }
+    private void requireNoActiveLegacyOwnerScopeManifest(String identityKey) {
+        if (mapper.selectActiveLegacyOwnerScopeManifestForUpdate(identityKey) != null) {
+            throw new IllegalStateException(
+                    "Noon auth renewal requires completed legacy owner-scope manifests before it can run."
+            );
+        }
+    }
+
     @Override
     @Transactional
     public int drainDisabledRecoveries(LocalDateTime now) {
@@ -200,7 +211,6 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
         if (completed != 1) {
             return false;
         }
-        mapper.promoteSuccessorForPredecessor(recoveryId, successorCoalesceUntil, now);
         return true;
     }
 
@@ -363,25 +373,15 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
             return state.getAuthVersion();
         }
 
-        int recoveryRebased;
-        if (target.getStatus() == NoonAuthRecoveryStatus.WAITING_PREDECESSOR) {
-            recoveryRebased = mapper.rebaseWaitingSuccessorForBindingEpoch(
-                    recoveryId,
-                    target.getVersionNo(),
-                    configFingerprint,
-                    now
-            );
-        } else {
-            recoveryRebased = mapper.rebaseActiveRecoveryForBindingEpoch(
-                    recoveryId,
-                    target.getStatus(),
-                    target.getVersionNo(),
-                    configFingerprint,
-                    coalesceUntil,
-                    cooldownAt,
-                    now
-            );
-        }
+        int recoveryRebased = mapper.rebaseActiveRecoveryForBindingEpoch(
+                recoveryId,
+                target.getStatus(),
+                target.getVersionNo(),
+                configFingerprint,
+                coalesceUntil,
+                cooldownAt,
+                now
+        );
         if (recoveryRebased != 1) {
             throw new IllegalStateException("Noon auth recovery binding epoch lost its recovery fence.");
         }
@@ -454,9 +454,7 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
                 || target.getStatus() == null
                 || target.getStatus().isTerminal()
                 || target.getVersionNo() == null
-                || !identityKey.equals(target.getIdentityKey())
-                || (target.getStatus() == NoonAuthRecoveryStatus.WAITING_PREDECESSOR
-                && target.getPredecessorRecoveryId() == null)) {
+                || !identityKey.equals(target.getIdentityKey())) {
             throw new IllegalStateException("Noon auth recovery binding epoch requires a live target recovery.");
         }
     }

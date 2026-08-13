@@ -72,7 +72,6 @@ class NoonAuthRecoveryIdentityBatchTest {
                 eq(308L), eq("PRJ-B"), anyString(), anyLong(), anyString(), anyString(),
                 anyString(), eq(null), any()
         );
-        verify(recoveryRepository, never()).coalesceSuccessorRecovery(any());
     }
 
     private NoonAuthRecoveryCoordinator coordinator() {

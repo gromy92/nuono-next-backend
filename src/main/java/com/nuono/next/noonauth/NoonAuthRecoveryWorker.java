@@ -176,7 +176,6 @@ public class NoonAuthRecoveryWorker {
             );
         }
         reopenChangedManualHolds(now);
-        repository.promoteReadySuccessors(now.plus(properties.coalesceDuration()), now);
         List<NoonAuthIdentityRecoveryRecord> candidates = repository.listDueRecoveries(
                 now,
                 MAX_RECOVERIES_PER_TICK
@@ -191,7 +190,6 @@ public class NoonAuthRecoveryWorker {
                 repository.drainIdentityRecoveries(candidate.getIdentityKey(), now);
                 continue;
             }
-            NoonAuthOwnerScopeGuard.requireValid(repository, candidate);
             String leaseToken = UUID.randomUUID().toString().replace("-", "");
             long expectedVersion = safeLong(candidate.getVersionNo());
             if (!repository.tryClaimRecovery(

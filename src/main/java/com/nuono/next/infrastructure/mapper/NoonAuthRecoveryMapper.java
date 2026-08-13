@@ -13,11 +13,10 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 import org.apache.ibatis.annotations.Update;
-public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper, NoonAuthOwnerScopeMapper {
+public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper {
     String RECOVERY_COLUMNS = ""
             + "id, predecessor_recovery_id AS predecessorRecoveryId, identity_key AS identityKey, "
             + "status, generation_no AS generationNo, "
-            + "scope_owner_user_id AS scopeOwnerUserId, "
             + "send_attempt_count AS sendAttemptCount, first_send_at AS firstSendAt, "
             + "second_send_at AS secondSendAt, coalesce_until AS coalesceUntil, "
             + "next_attempt_at AS nextAttemptAt, lease_owner AS leaseOwner, lease_token AS leaseToken, "
@@ -61,23 +60,12 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper,
     )
     int coalesceActiveRecovery(NoonAuthIdentityRecoveryRecord recovery);
 
-    @Insert({
-            "INSERT INTO noon_auth_identity_recovery (",
-            "  predecessor_recovery_id, identity_key, status, generation_no, send_attempt_count,",
-            "  coalesce_until, next_attempt_at, version_no, config_fingerprint, requested_at, gmt_create, gmt_updated",
-            ") VALUES (",
-            "  #{predecessorRecoveryId}, #{identityKey}, 'WAITING_PREDECESSOR', 0, 0,",
-            "  #{coalesceUntil}, #{coalesceUntil}, 0, #{configFingerprint}, #{requestedAt}, #{requestedAt}, #{requestedAt}",
-            ") ON DUPLICATE KEY UPDATE",
-            "  id = LAST_INSERT_ID(id)"
+    @Select({
+            "SELECT id FROM noon_auth_owner_scope_manifest",
+            "WHERE active_identity_slot = #{identityKey}",
+            "LIMIT 1 FOR UPDATE"
     })
-    @SelectKey(
-            statement = "SELECT LAST_INSERT_ID()",
-            keyProperty = "id",
-            before = false,
-            resultType = Long.class
-    )
-    int coalesceSuccessorRecovery(NoonAuthIdentityRecoveryRecord recovery);
+    Long selectActiveLegacyOwnerScopeManifestForUpdate(@Param("identityKey") String identityKey);
 
     @Select({
             "SELECT", RECOVERY_COLUMNS,
@@ -119,9 +107,57 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper,
             "SELECT", RECOVERY_COLUMNS,
             "FROM noon_auth_identity_recovery",
             "WHERE successor_identity_slot = #{identityKey}",
+            "  AND status = 'WAITING_PREDECESSOR'",
             "LIMIT 1 FOR UPDATE"
     })
-    NoonAuthIdentityRecoveryRecord selectWaitingSuccessorForUpdate(@Param("identityKey") String identityKey);
+    NoonAuthIdentityRecoveryRecord selectLegacyWaitingRecoveryForUpdate(@Param("identityKey") String identityKey);
+
+    @Update({
+            "UPDATE noon_auth_identity_recovery",
+            "SET status = 'FAILED_FINAL',",
+            "    failure_code = 'SUPERSEDED_BY_RENEWAL',",
+            "    diagnostic_summary = 'historical held recovery retired before a fresh identity renewal',",
+            "    completed_at = COALESCE(completed_at, #{now}),",
+            "    lease_owner = NULL,",
+            "    lease_token = NULL,",
+            "    lease_until = NULL,",
+            "    version_no = version_no + 1,",
+            "    gmt_updated = #{now}",
+            "WHERE id = #{recoveryId}",
+            "  AND status = 'MANUAL_HOLD'",
+            "  AND version_no = #{expectedVersion}",
+            "  AND active_identity_slot IS NOT NULL"
+    })
+    int retireLegacyManualHold(
+            @Param("recoveryId") Long recoveryId,
+            @Param("expectedVersion") Long expectedVersion,
+            @Param("now") LocalDateTime now
+    );
+
+    @Update({
+            "UPDATE noon_auth_identity_recovery",
+            "SET predecessor_recovery_id = NULL,",
+            "    status = 'COALESCING',",
+            "    coalesce_until = #{coalesceUntil},",
+            "    next_attempt_at = #{coalesceUntil},",
+            "    failure_code = NULL,",
+            "    diagnostic_summary = NULL,",
+            "    lease_owner = NULL,",
+            "    lease_token = NULL,",
+            "    lease_until = NULL,",
+            "    version_no = version_no + 1,",
+            "    gmt_updated = #{now}",
+            "WHERE id = #{recoveryId}",
+            "  AND status = 'WAITING_PREDECESSOR'",
+            "  AND predecessor_recovery_id = #{predecessorRecoveryId}",
+            "  AND active_identity_slot IS NULL"
+    })
+    int promoteLegacyWaitingRecovery(
+            @Param("recoveryId") Long recoveryId,
+            @Param("predecessorRecoveryId") Long predecessorRecoveryId,
+            @Param("coalesceUntil") LocalDateTime coalesceUntil,
+            @Param("now") LocalDateTime now
+    );
 
     @Select({
             "SELECT", RECOVERY_COLUMNS,
@@ -155,32 +191,6 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper,
             "  )"
     })
     List<String> listUndrainedIdentityKeysExcept(@Param("identityKey") String identityKey);
-
-    @Update({
-            "UPDATE noon_auth_identity_recovery successor",
-            "JOIN noon_auth_identity_recovery predecessor ON predecessor.id = successor.predecessor_recovery_id",
-            "LEFT JOIN noon_auth_identity_recovery active",
-            "  ON active.identity_key = successor.identity_key",
-            " AND active.active_identity_slot IS NOT NULL",
-            "LEFT JOIN noon_auth_owner_scope_manifest owner_scope",
-            "  ON owner_scope.predecessor_recovery_id = predecessor.id",
-            " AND owner_scope.status = 'ACTIVE'",
-            "SET successor.status = 'COALESCING',",
-            "    successor.coalesce_until = #{coalesceUntil},",
-            "    successor.next_attempt_at = #{coalesceUntil},",
-            "    successor.version_no = successor.version_no + 1,",
-            "    successor.gmt_updated = #{now}",
-            "WHERE successor.status = 'WAITING_PREDECESSOR'",
-            "  AND predecessor.id = #{predecessorRecoveryId}",
-            "  AND predecessor.status IN ('COMPLETED', 'FAILED_FINAL', 'CANCELLED')",
-            "  AND (owner_scope.id IS NULL OR owner_scope.scoped_recovery_id = successor.id)",
-            "  AND active.id IS NULL"
-    })
-    int promoteSuccessorForPredecessor(
-            @Param("predecessorRecoveryId") Long predecessorRecoveryId,
-            @Param("coalesceUntil") LocalDateTime coalesceUntil,
-            @Param("now") LocalDateTime now
-    );
 
     @Update({
             "UPDATE noon_auth_identity_recovery",
@@ -730,28 +740,6 @@ public interface NoonAuthRecoveryMapper extends NoonAuthRateLimitRecoveryMapper,
             @Param("configFingerprint") String configFingerprint,
             @Param("coalesceUntil") LocalDateTime coalesceUntil,
             @Param("cooldownAt") LocalDateTime cooldownAt,
-            @Param("now") LocalDateTime now
-    );
-
-    @Update({
-            "UPDATE noon_auth_identity_recovery",
-            "SET config_fingerprint = #{configFingerprint},",
-            "    failure_code = NULL,",
-            "    diagnostic_summary = NULL,",
-            "    lease_owner = NULL,",
-            "    lease_token = NULL,",
-            "    lease_until = NULL,",
-            "    version_no = version_no + 1,",
-            "    gmt_updated = #{now}",
-            "WHERE id = #{recoveryId}",
-            "  AND status = 'WAITING_PREDECESSOR'",
-            "  AND version_no = #{expectedVersion}",
-            "  AND predecessor_recovery_id IS NOT NULL"
-    })
-    int rebaseWaitingSuccessorForBindingEpoch(
-            @Param("recoveryId") Long recoveryId,
-            @Param("expectedVersion") Long expectedVersion,
-            @Param("configFingerprint") String configFingerprint,
             @Param("now") LocalDateTime now
     );
 
