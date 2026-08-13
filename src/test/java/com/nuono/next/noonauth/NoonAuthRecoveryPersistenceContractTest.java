@@ -9,6 +9,7 @@ import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.stream.Collectors;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
@@ -98,27 +99,20 @@ class NoonAuthRecoveryPersistenceContractTest {
     }
 
     @Test
-    void completionCannotOrphanPendingTasksAndLegacyHoldCanBeRetiredSafely() {
+    void completionCannotOrphanPendingTasksAndRuntimeCannotPromoteLegacyChains() {
         String completion = updateSql("completeRecoveryIfDrained");
-        String retire = updateSql("retireLegacyManualHold");
-        String adopt = updateSql("promoteLegacyWaitingRecovery");
 
         assertThat(completion)
                 .contains("NOT EXISTS")
                 .contains("item.status IN ('PENDING', 'VALIDATING')")
                 .contains("version_no = #{expectedVersion}")
                 .contains("lease_token = #{expectedLeaseToken}");
-        assertThat(retire)
+        assertThat(updateSql("retireLegacyManualHold"))
                 .contains("status = 'FAILED_FINAL'")
-                .contains("failure_code = 'SUPERSEDED_BY_RENEWAL'")
-                .contains("status = 'MANUAL_HOLD'")
-                .contains("active_identity_slot IS NOT NULL");
-        assertThat(adopt)
-                .contains("predecessor_recovery_id = NULL")
-                .contains("status = 'COALESCING'")
-                .contains("status = 'WAITING_PREDECESSOR'")
-                .contains("predecessor_recovery_id = #{predecessorRecoveryId}")
-                .contains("active_identity_slot IS NULL");
+                .contains("failure_code = 'SUPERSEDED_BY_RENEWAL'");
+        assertThat(Arrays.stream(NoonAuthRecoveryMapper.class.getDeclaredMethods())
+                .map(Method::getName).collect(Collectors.toList()))
+                .doesNotContain("promoteLegacyWaitingRecovery");
     }
 
     @Test

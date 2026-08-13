@@ -46,7 +46,6 @@ class NoonAuthRecoveryRenewalAdmissionTest {
         when(storeSyncMapper.selectOwnerStore(307L, "STORE-9")).thenReturn(project);
         when(recoveryRepository.selectProjectBindingFingerprint(307L, "PRJ1"))
                 .thenReturn("binding-fingerprint-v1");
-        when(recoveryRepository.reopenLegacyManualHoldForRenewal(anyString(), any())).thenReturn(null);
     }
 
     @Test
@@ -70,21 +69,21 @@ class NoonAuthRecoveryRenewalAdmissionTest {
 
         assertEquals(Optional.of(91L), enqueue(9L));
 
-        verify(recoveryRepository).reopenLegacyManualHoldForRenewal(anyString(), any());
+        verify(recoveryRepository).retireLegacyManualHoldForFreshRenewal(anyString(), any());
         verifyBoundTo(91L, 9L);
     }
 
     @Test
-    void legacyHeldIdentityAdoptsItsWaitingBatchInsteadOfCreatingAnotherRecovery() {
+    void historicalWaitingBatchIsNeverPromotedByANewTask() {
         when(recoveryRepository.selectProjectAuthState(307L, "PRJ1")).thenReturn(held(877L, 8L));
-        when(recoveryRepository.reopenLegacyManualHoldForRenewal(anyString(), any())).thenReturn(882L);
-        when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active(882L));
-        when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(renewed(882L));
+        when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
+        when(recoveryRepository.selectActiveRecoveryForUpdate(anyString())).thenReturn(active(91L));
+        when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ1")).thenReturn(renewed(91L));
 
-        assertEquals(Optional.of(882L), enqueue(9L));
+        assertEquals(Optional.of(91L), enqueue(9L));
 
-        verify(recoveryRepository, never()).coalesceActiveRecovery(any());
-        verifyBoundTo(882L, 9L);
+        verify(recoveryRepository).retireLegacyManualHoldForFreshRenewal(anyString(), any());
+        verifyBoundTo(91L, 9L);
     }
 
     @Test
@@ -93,7 +92,6 @@ class NoonAuthRecoveryRenewalAdmissionTest {
 
         assertTrue(enqueue(9L).isEmpty());
 
-        verify(recoveryRepository, never()).reopenLegacyManualHoldForRenewal(anyString(), any());
         verify(recoveryRepository, never()).coalesceActiveRecovery(any());
     }
 

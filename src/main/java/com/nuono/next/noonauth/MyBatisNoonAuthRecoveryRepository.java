@@ -30,6 +30,20 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     @Override public NoonAuthIdentityRecoveryRecord selectActiveRecoveryForUpdate(String identityKey) { return mapper.selectActiveRecoveryForUpdate(identityKey); }
 
     @Override
+    @Transactional
+    public void retireLegacyManualHoldForFreshRenewal(String identityKey, LocalDateTime now) {
+        requireNoActiveLegacyOwnerScopeManifest(identityKey);
+        NoonAuthIdentityRecoveryRecord held = mapper.selectActiveRecoveryForUpdate(identityKey);
+        if (held == null || held.getStatus() != NoonAuthRecoveryStatus.MANUAL_HOLD
+                || held.getId() == null || held.getVersionNo() == null) {
+            return;
+        }
+        if (mapper.retireLegacyManualHold(held.getId(), held.getVersionNo(), now) != 1) {
+            throw new IllegalStateException("Noon auth renewal could not retire the held identity fence.");
+        }
+    }
+
+    @Override
     public List<NoonAuthIdentityRecoveryRecord> listDueRecoveries(LocalDateTime now, int limit) {
         return mapper.listDueRecoveries(now, limit);
     }
@@ -37,30 +51,6 @@ public class MyBatisNoonAuthRecoveryRepository implements NoonAuthRecoveryReposi
     @Override
     public List<String> listUndrainedIdentityKeysExcept(String identityKey) {
         return mapper.listUndrainedIdentityKeysExcept(identityKey);
-    }
-
-    @Override
-    @Transactional
-    public Long reopenLegacyManualHoldForRenewal(String identityKey, LocalDateTime now) {
-        requireNoActiveLegacyOwnerScopeManifest(identityKey);
-        NoonAuthIdentityRecoveryRecord held = mapper.selectActiveRecoveryForUpdate(identityKey);
-        if (held == null || held.getStatus() != NoonAuthRecoveryStatus.MANUAL_HOLD
-                || held.getId() == null || held.getVersionNo() == null) {
-            return null;
-        }
-        NoonAuthIdentityRecoveryRecord waiting = mapper.selectLegacyWaitingRecoveryForUpdate(identityKey);
-        if (mapper.retireLegacyManualHold(held.getId(), held.getVersionNo(), now) != 1) {
-            throw new IllegalStateException("Noon auth renewal could not retire the held identity fence.");
-        }
-        if (waiting == null || waiting.getId() == null) {
-            return null;
-        }
-        if (mapper.promoteLegacyWaitingRecovery(
-                waiting.getId(), held.getId(), now, now
-        ) != 1) {
-            throw new IllegalStateException("Noon auth renewal could not promote the legacy waiting batch.");
-        }
-        return waiting.getId();
     }
 
     private void requireNoActiveLegacyOwnerScopeManifest(String identityKey) {

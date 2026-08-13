@@ -187,39 +187,6 @@ class MyBatisNoonAuthRecoveryRepositoryTest {
 
 
     @Test
-    void legacyWaitingRecoveryIsPromotedIntoASingleExecutableRenewal() {
-        NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
-        MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
-        LocalDateTime now = LocalDateTime.of(2026, 7, 16, 12, 0);
-        NoonAuthIdentityRecoveryRecord held = recovery(
-                91L,
-                NoonAuthRecoveryStatus.MANUAL_HOLD,
-                2L,
-                "identity-hash"
-        );
-        NoonAuthIdentityRecoveryRecord waiting = recovery(
-                92L,
-                NoonAuthRecoveryStatus.WAITING_PREDECESSOR,
-                2L,
-                "identity-hash"
-        );
-        when(mapper.selectActiveRecoveryForUpdate("identity-hash")).thenReturn(held);
-        when(mapper.selectActiveLegacyOwnerScopeManifestForUpdate("identity-hash")).thenReturn(null);
-        when(mapper.selectLegacyWaitingRecoveryForUpdate("identity-hash")).thenReturn(waiting);
-        when(mapper.retireLegacyManualHold(91L, 2L, now)).thenReturn(1);
-        when(mapper.promoteLegacyWaitingRecovery(92L, 91L, now, now)).thenReturn(1);
-
-        assertThat(repository.reopenLegacyManualHoldForRenewal("identity-hash", now)).isEqualTo(92L);
-
-        InOrder ordered = Mockito.inOrder(mapper);
-        ordered.verify(mapper).selectActiveLegacyOwnerScopeManifestForUpdate("identity-hash");
-        ordered.verify(mapper).selectActiveRecoveryForUpdate("identity-hash");
-        ordered.verify(mapper).selectLegacyWaitingRecoveryForUpdate("identity-hash");
-        ordered.verify(mapper).retireLegacyManualHold(91L, 2L, now);
-        ordered.verify(mapper).promoteLegacyWaitingRecovery(92L, 91L, now, now);
-    }
-
-    @Test
     void terminalRecoveryCannotBeRevivedAsBindingEpochTarget() {
         NoonAuthRecoveryMapper mapper = mock(NoonAuthRecoveryMapper.class);
         MyBatisNoonAuthRecoveryRepository repository = new MyBatisNoonAuthRecoveryRepository(mapper);
