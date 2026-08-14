@@ -172,6 +172,35 @@ class Ali1688HistoricalOrderOAuthServiceTest {
     }
 
     @Test
+    void savesEnterpriseSelfUseTokenWithoutARefreshTokenOrProviderCall() {
+        Ali1688EnterpriseSelfUseTokenService service = enterpriseSelfUseService();
+        Ali1688HistoricalOrderAuthorizationView.EnterpriseSelfUseTokenRequest request =
+                new Ali1688HistoricalOrderAuthorizationView.EnterpriseSelfUseTokenRequest();
+        request.setProviderAccountId("enterprise-buyer-001");
+        request.setAccountLabel("企业采购主账号");
+        request.setAccessToken("permanent-token-001");
+        when(mapper.selectAuthorizationByProviderAccount(307L, "ALI1688_OPEN_API", "enterprise-buyer-001"))
+                .thenReturn(null);
+        when(mapper.nextAuthorizationId()).thenReturn(91009L);
+        when(mapper.nextOrderStoreBindingId()).thenReturn(96009L);
+
+        Ali1688HistoricalOrderAuthorizationView.CompleteView completed =
+                service.save(bossContext(), request);
+
+        ArgumentCaptor<Ali1688HistoricalOrderAuthorizationRow> authorizationCaptor =
+                ArgumentCaptor.forClass(Ali1688HistoricalOrderAuthorizationRow.class);
+        verify(mapper).insertAuthorization(authorizationCaptor.capture());
+        Ali1688HistoricalOrderAuthorizationRow saved = authorizationCaptor.getValue();
+        assertThat(saved.getProviderAccountId()).isEqualTo("enterprise-buyer-001");
+        assertThat(saved.getAccessTokenCipher()).startsWith("v1:");
+        assertThat(saved.getRefreshTokenCipher()).isNull();
+        assertThat(saved.getExpiresAt()).isNull();
+        verify(mapper).insertOwnerWideStoreBinding(eq(96009L), eq(307L), eq(91009L), eq(307L));
+        verifyNoInteractions(authorizationMapper);
+        assertThat(completed.getMessage()).contains("企业自用 Token 已安全保存");
+    }
+
+    @Test
     void completeAuthorizationRejectsExpiredStateBeforeTokenExchange() {
         RestTemplate restTemplate = new RestTemplate();
         MockRestServiceServer.createServer(restTemplate);
@@ -220,6 +249,14 @@ class Ali1688HistoricalOrderOAuthServiceTest {
                 new Ali1688TokenCipher(properties),
                 new ObjectMapper(),
                 restTemplate
+        );
+    }
+
+    private Ali1688EnterpriseSelfUseTokenService enterpriseSelfUseService() {
+        return new Ali1688EnterpriseSelfUseTokenService(
+                mapper,
+                authorizationMapper,
+                new Ali1688TokenCipher(configuredProperties())
         );
     }
 
