@@ -91,7 +91,6 @@ public class Ali1688HistoricalOrderOAuthService {
             view.setMessage("1688 OpenAPI 尚未配置 AppKey、AppSecret、回调地址或 token 加密密钥。");
             return view;
         }
-
         String state = encodeState(context, storeCode, siteCode);
         Map<String, String> params = new LinkedHashMap<>();
         params.put("client_id", trim(properties.getAppKey()));
@@ -105,6 +104,7 @@ public class Ali1688HistoricalOrderOAuthService {
         view.setConfigured(true);
         view.setAuthorizationUrl(builder.build(true).toUriString());
         view.setMessage("请在 1688 页面完成账号授权，系统只读取历史订单。");
+        Ali1688OAuthRuntimeDiagnosticLogger.log(params, view.getAuthorizationUrl(), properties);
         return view;
     }
 
