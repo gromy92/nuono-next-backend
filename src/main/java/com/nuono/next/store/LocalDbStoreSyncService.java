@@ -146,7 +146,7 @@ public class LocalDbStoreSyncService {
         }
 
         String noonPartnerId = firstNonBlank(derivePartnerId(project.getProjectCode()), project.getNoonPartnerId());
-        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String noonUser = noonSessionGateway.configuredMerchantLoginEmail();
 
         int updated = storeSyncMapper.updateProjectSharedEmailBinding(
                 project.getId(),
@@ -193,7 +193,7 @@ public class LocalDbStoreSyncService {
         String projectCode = normalize(command.getProjectCode());
         requireText(projectCode, "请输入 Noon Project Code。");
         String noonPartnerId = derivePartnerId(projectCode);
-        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String noonUser = noonSessionGateway.configuredMerchantLoginEmail();
         String orgCode = null;
         String orgName = normalize(owner.getCompanyName());
         if (storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), projectCode) != null

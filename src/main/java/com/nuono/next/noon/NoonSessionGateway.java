@@ -110,8 +110,6 @@ public class NoonSessionGateway {
     private long edgeAccessHoldSeconds = 1800L;
     @Value("${nuono.noon.auth.email-otp.email:}")
     private String configuredMerchantEmail;
-    @Value("${nuono.noon.auth.email-otp.mail-auth-code:}")
-    private String configuredMerchantMailAuthCode;
     @Value("${nuono.noon.auth.catalog-capability-probe-url:}")
     private String catalogCapabilityProbeUrl = DEFAULT_CATALOG_CAPABILITY_PROBE_URL;
     @Value("${nuono.noon.auth.catalog-session-bootstrap-url:}")
@@ -174,11 +172,6 @@ public class NoonSessionGateway {
         if (accountSessionAttention != null) {
             this.accountSessionAttention = accountSessionAttention;
         }
-    }
-
-    void setConfiguredMerchantEmailOtpCredential(String email, String mailAuthCode) {
-        this.configuredMerchantEmail = email;
-        this.configuredMerchantMailAuthCode = mailAuthCode;
     }
 
     void setCatalogCapabilityProbeUrl(String url) {
@@ -310,19 +303,6 @@ public class NoonSessionGateway {
         );
     }
 
-    boolean hasConfiguredMerchantEmailLogin() {
-        return StringUtils.hasText(normalizeUser(configuredMerchantEmail))
-                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
-    }
-
-    public String configuredMerchantEmail() {
-        String normalizedEmail = normalizeUser(configuredMerchantEmail);
-        if (!StringUtils.hasText(normalizedEmail) || !StringUtils.hasText(normalize(configuredMerchantMailAuthCode))) {
-            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
-        }
-        return normalizedEmail;
-    }
-
     /**
      * Returns the configured Noon login identity for an operator-entered OTP flow.
      *
@@ -335,14 +315,6 @@ public class NoonSessionGateway {
             throw new IllegalStateException("未配置统一 Noon 商家后台登录邮箱。");
         }
         return normalizedEmail;
-    }
-
-    String configuredMerchantMailAuthCode() {
-        String normalizedMailAuthCode = normalize(configuredMerchantMailAuthCode);
-        if (!StringUtils.hasText(normalizeUser(configuredMerchantEmail)) || !StringUtils.hasText(normalizedMailAuthCode)) {
-            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
-        }
-        return normalizedMailAuthCode;
     }
 
     EmailOtpGeneration prepareEmailOtpGeneration(String noonEmail) {

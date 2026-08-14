@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,7 +31,7 @@ class NoonPullStoreBindingResolverTest {
     }
 
     @Test
-    void missingSessionAndRecoveryCredentialFailsClosed() {
+    void missingSessionAndSharedLoginFailsClosed() {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         StoreSyncStoreRecord store = store();
         store.setNoonPartnerProjectUser("project-session-user");
@@ -42,11 +43,8 @@ class NoonPullStoreBindingResolverTest {
                 () -> resolver.resolve(request())
         );
 
-        assertEquals(
-                true,
-                exception.getMessage().contains(
-                        "missing persisted Noon project session or shared email OTP recovery configuration")
-        );
+        assertTrue(exception.getMessage().contains(
+                "missing persisted Noon project session or shared Noon login configuration"));
     }
 
     private NoonInterfacePullRequest request() {

@@ -13,22 +13,20 @@ import org.springframework.util.StringUtils;
 public class NoonPullStoreBindingResolver {
     private final StoreSyncMapper storeSyncMapper;
     private final String configuredMerchantEmail;
-    private final boolean configuredMerchantEmailLoginAvailable;
+    private final boolean configuredMerchantLoginAvailable;
 
     @Autowired
     public NoonPullStoreBindingResolver(
             StoreSyncMapper storeSyncMapper,
-            @Value("${nuono.noon.auth.email-otp.email:}") String configuredMerchantEmail,
-            @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMerchantMailAuthCode
+            @Value("${nuono.noon.auth.email-otp.email:}") String configuredMerchantEmail
     ) {
         this.storeSyncMapper = storeSyncMapper;
         this.configuredMerchantEmail = normalize(configuredMerchantEmail);
-        this.configuredMerchantEmailLoginAvailable = StringUtils.hasText(normalize(configuredMerchantEmail))
-                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
+        this.configuredMerchantLoginAvailable = StringUtils.hasText(this.configuredMerchantEmail);
     }
 
     public NoonPullStoreBindingResolver(StoreSyncMapper storeSyncMapper) {
-        this(storeSyncMapper, null, null);
+        this(storeSyncMapper, null);
     }
 
     public NoonPullStoreBinding resolve(NoonInterfacePullRequest request) {
@@ -82,7 +80,7 @@ public class NoonPullStoreBindingResolver {
         String noonUser = firstNonBlank(
                 storeNoonUser,
                 ownerNoonUser,
-                configuredMerchantEmailLoginAvailable ? configuredMerchantEmail : null
+                configuredMerchantLoginAvailable ? configuredMerchantEmail : null
         );
         String sessionProjectUser = firstNonBlank(
                 store.getNoonPartnerProjectUser(),
@@ -102,10 +100,10 @@ public class NoonPullStoreBindingResolver {
         requireText(siteCode, "missing Noon siteCode");
         requireText(partnerId, "missing Noon partnerId");
         requireText(noonUser, "missing Noon login account");
-        requireNoonSessionOrRecoveryCredential(
+        requireNoonSessionOrSharedLogin(
                 persistedCookie,
                 sessionProjectUser,
-                configuredMerchantEmailLoginAvailable
+                configuredMerchantLoginAvailable
         );
 
         return new NoonPullStoreBinding(
@@ -200,18 +198,18 @@ public class NoonPullStoreBindingResolver {
         }
     }
 
-    private static void requireNoonSessionOrRecoveryCredential(
+    private static void requireNoonSessionOrSharedLogin(
             String persistedCookie,
             String sessionProjectUser,
-            boolean configuredMerchantEmailLoginAvailable
+            boolean configuredMerchantLoginAvailable
     ) {
         if (StringUtils.hasText(persistedCookie)
                 && StringUtils.hasText(sessionProjectUser)) {
             return;
         }
-        if (!configuredMerchantEmailLoginAvailable) {
+        if (!configuredMerchantLoginAvailable) {
             throw providerNotConfigured(
-                    "missing persisted Noon project session or shared email OTP recovery configuration"
+                    "missing persisted Noon project session or shared Noon login configuration"
             );
         }
     }

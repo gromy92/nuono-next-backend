@@ -17,9 +17,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
-import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
-import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
-import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -31,13 +28,6 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.http.HttpRequest;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
-import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -279,82 +269,6 @@ class NoonSessionGatewayTest {
             assertTrue(projectSession.getCookie().contains("projectCode=PRJ7001"));
             assertEquals(1, server.generateCount());
             assertEquals(1, server.sessionCreateCount());
-            verifyNoInteractions(mapper);
-        }
-    }
-
-    @Test
-    void centralRecoveryAdapterAuthenticatesOnceAndRecoversQueuedProjectsSerially() throws Exception {
-        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
-        AtomicInteger acknowledgeCount = new AtomicInteger();
-        NoonEmailOtpReader reader = new NoonEmailOtpReader() {
-            @Override
-            public String readOtp(String email, String mailAuthCode) {
-                throw new AssertionError("central recovery must use generation-aware mailbox reads");
-            }
-
-            @Override
-            public MailboxCursor snapshot(String email, String mailAuthCode){ return new MailboxCursor(7L, 100L, Instant.parse("2026-07-16T00:00:00Z")); }
-
-            @Override
-            public Optional<OtpCandidate> pollAfter(
-                    String email,
-                    String mailAuthCode,
-                    MailboxCursor cursor,
-                    Instant notBefore,
-                    Set<String> excludedMessageKeyHashes
-            ) {
-                return Optional.of(new OtpCandidate(
-                        "654321",
-                        "message-key-hash",
-                        Instant.parse("2026-07-16T00:00:01Z"),
-                        7L,
-                        101L
-                ));
-            }
-
-            @Override
-            public void acknowledge(String email, String mailAuthCode, OtpCandidate candidate) {
-                acknowledgeCount.incrementAndGet();
-            }
-        };
-        try (AuthRefreshServer server = new AuthRefreshServer(
-                "{\"projects\":[{\"projectCode\":\"PRJ7001\"},{\"projectCode\":\"PRJ8001\"}]}",
-                "sid=central-worker; Path=/"
-        )) {
-            NoonSessionGateway gateway = identityGateway(mapper, server);
-            gateway.setConfiguredMerchantEmailOtpCredential("merchant@example.com", "imap-secret");
-            NoonSessionGatewayAuthRecoveryGateway recoveryGateway = new NoonSessionGatewayAuthRecoveryGateway(
-                    gateway,
-                    reader,
-                    Duration.ofMillis(1),
-                    Duration.ofSeconds(1),
-                    Clock.fixed(Instant.parse("2026-07-16T00:00:00Z"), ZoneOffset.UTC),
-                    millis -> {
-                        throw new AssertionError("an immediately available OTP must not sleep");
-                    }
-            );
-
-            NoonAuthRecoveryAttemptResult result = recoveryGateway.attempt(new NoonAuthRecoveryAttemptCommand(
-                    9001L,
-                    1,
-                    Instant.parse("2026-07-16T00:00:00Z"),
-                    Set.of(),
-                    List.of(
-                            new NoonAuthRecoveryProjectTarget(307L, "PRJ7001", "STR7001-NAE", "AE", 0L),
-                            new NoonAuthRecoveryProjectTarget(308L, "PRJ8001", "STR8001-NAE", "AE", 0L)
-                    ),
-                    () -> true,
-                    () -> true
-            ));
-
-            assertTrue(result.isIdentityAuthenticated());
-            assertEquals("message-key-hash", result.getMessageKeyHash());
-            assertEquals(2, result.getProjectResults().size());
-            assertTrue(result.getProjectResults().stream().allMatch(item -> item.isRecovered()));
-            assertEquals(1, server.generateCount());
-            assertEquals(2, server.sessionCreateCount());
-            assertEquals(1, acknowledgeCount.get());
             verifyNoInteractions(mapper);
         }
     }
