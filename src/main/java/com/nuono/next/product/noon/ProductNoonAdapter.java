@@ -53,6 +53,31 @@ public class ProductNoonAdapter {
         }
     }
 
+    public NoonSession loginWithPersistedCookiePinnedEgress(
+            Long ownerUserId,
+            String noonUser,
+            String persistedCookie,
+            String projectCode,
+            String storeCode,
+            String targetHost,
+            int targetPort
+    ) {
+        productWriteAuthRecovery.requireAvailable(ownerUserId, projectCode, storeCode);
+        try {
+            return noonSessionGateway.loginWithPersistedCookiePinnedEgress(
+                    ownerUserId,
+                    noonUser,
+                    persistedCookie,
+                    projectCode,
+                    storeCode,
+                    targetHost,
+                    targetPort
+            );
+        } catch (RuntimeException exception) {
+            throw classifyOrSuspend(ownerUserId, projectCode, storeCode, exception);
+        }
+    }
+
     public NoonSessionGateway.RequestCountScope openRequestCountScope() {
         return noonSessionGateway.openRequestCountScope();
     }

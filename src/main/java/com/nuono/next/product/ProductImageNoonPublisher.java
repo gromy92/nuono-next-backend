@@ -22,6 +22,8 @@ import org.springframework.util.StringUtils;
 class ProductImageNoonPublisher {
     private static final String ASSET_UPLOAD_URL =
             "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
+    private static final String ASSET_UPLOAD_HOST = "noon-catalog.noon.partners";
+    private static final int ASSET_UPLOAD_PORT = 443;
     private static final int MAX_NOON_IMAGES = ProductImagePublishCheckpoint.MAX_IMAGES;
     private final StoreSyncMapper storeSyncMapper;
     private final ProductNoonAdapter noonAdapter;
@@ -70,8 +72,14 @@ class ProductImageNoonPublisher {
         if (!StringUtils.hasText(noonUser) || !StringUtils.hasText(projectCode)) {
             throw new IllegalArgumentException("当前店铺缺少 Noon 账号或项目配置，暂时不能发布。");
         }
-        NoonSession session = noonAdapter.loginWithPersistedCookie(
-                ownerUserId, noonUser, store.getNoonPartnerCookie(), projectCode, storeCode
+        NoonSession session = noonAdapter.loginWithPersistedCookiePinnedEgress(
+                ownerUserId,
+                noonUser,
+                store.getNoonPartnerCookie(),
+                projectCode,
+                storeCode,
+                ASSET_UPLOAD_HOST,
+                ASSET_UPLOAD_PORT
         );
         if (checkpoint.isWriteAttempted() && checkpointUrls != null) {
             try {
