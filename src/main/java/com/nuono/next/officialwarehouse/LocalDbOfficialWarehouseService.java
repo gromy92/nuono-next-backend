@@ -1,5 +1,4 @@
 package com.nuono.next.officialwarehouse;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -25,7 +24,6 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundRecei
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnNoonListSyncRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnPreflightAuditRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkRecord;
@@ -87,16 +85,11 @@ import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Service
 @Profile("local-db")
-public class LocalDbOfficialWarehouseService implements
-        OfficialWarehouseAsnNumberSyncer,
-        OfficialWarehouseAsnListTaskExecutor {
+public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumberSyncer, OfficialWarehouseAsnListTaskExecutor {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(LocalDbOfficialWarehouseService.class);
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
     private static final int DEFAULT_SEAL_CHECK_ATTEMPTS = 8;
@@ -154,7 +147,6 @@ public class LocalDbOfficialWarehouseService implements
                 new OfficialWarehouseAppointmentLifecycleModule(mapper)
         );
     }
-
     @Autowired
     public LocalDbOfficialWarehouseService(
             OfficialWarehouseMapper mapper,
@@ -187,17 +179,14 @@ public class LocalDbOfficialWarehouseService implements
                 mapper, noonInboundClient, objectMapper, this.failurePolicy
         );
     }
-
     @Autowired(required = false)
     void setAsnListPullServiceProvider(ObjectProvider<OfficialWarehouseAsnListPullService> provider) {
         this.asnListPullServiceProvider = provider;
     }
-
     @Autowired(required = false)
     void setAsnSyncThrottleMapper(OfficialWarehouseAsnSyncThrottleMapper throttleMapper) {
         asnListRemoteExecutor.setThrottleMapper(throttleMapper);
     }
-
     public List<AsnView> listAsns(
             BusinessAccessContext access,
             String storeCode,
@@ -229,7 +218,6 @@ public class LocalDbOfficialWarehouseService implements
                 })
                 .collect(Collectors.toList());
     }
-
     public AsnListSyncView syncNoonAsnList(
             BusinessAccessContext access,
             String storeCode,
@@ -703,16 +691,9 @@ public class LocalDbOfficialWarehouseService implements
             prepared = OfficialWarehouseAsnWritePreparation.prepare(
                     noonSessionGateway, asnProductPreflight, ownerUserId, binding, asnCallContext, lineRows);
         } catch (ApiProblemException exception) {
-            try {
-                recordAsnProductPreflightFailure(
-                        binding, asnCallContext, access.getSessionUserId(), lineRows.size(), exception
-                );
-            } catch (RuntimeException auditException) {
-                LOGGER.error(
-                        "官方仓 ASN 商品预检失败审计写入异常: attemptAsnId={}, storeCode={}, siteCode={}",
-                        asnId, site.storeCode, site.siteCode, auditException
-                );
-            }
+            OfficialWarehouseAsnPreflightAuditRecorder.record(
+                    mapper, objectMapper, binding, asnCallContext, access.getSessionUserId(), lineRows.size(), exception
+            );
             throw exception;
         }
         OfficialWarehouseAsnProductPreflightProof preflightProof = prepared.preflightProof();
@@ -2845,57 +2826,6 @@ public class LocalDbOfficialWarehouseService implements
         } catch (Exception exception) {
             return "{}";
         }
-    }
-
-    private void recordAsnProductPreflightFailure(
-            NoonSalesReportBinding binding,
-            NoonCallContext context,
-            Long operatorUserId,
-            int requestLineCount,
-            ApiProblemException exception
-    ) {
-        if (exception == null || !"OFFICIAL_WAREHOUSE_ASN_PRODUCT_PREFLIGHT_FAILED".equals(exception.getCode())) {
-            return;
-        }
-        JsonNode invalidLines = objectMapper.valueToTree(
-                exception.getDetails() == null ? List.of() : exception.getDetails().get("invalidLines")
-        );
-        AsnPreflightAuditRecord row = new AsnPreflightAuditRecord();
-        row.id = mapper.nextAsnPreflightAuditId();
-        row.ownerUserId = binding.getOwnerUserId();
-        row.operatorUserId = operatorUserId;
-        row.logicalStoreId = binding.getLogicalStoreId();
-        row.projectCode = binding.getProjectCode();
-        row.storeCode = binding.getStoreCode();
-        row.siteCode = binding.getSiteCode();
-        row.partnerId = binding.getPartnerId();
-        row.attemptAsnId = parseLongOrNull(context.businessId);
-        row.attemptRef = context.businessRef;
-        row.operation = "CREATE_ASN";
-        row.requestLineCount = requestLineCount;
-        row.invalidLineCount = invalidLines.isArray() ? invalidLines.size() : 0;
-        row.failureCode = exception.getCode();
-        row.failureMessage = shrinkMessage(exception);
-        row.reasonSummary = preflightReasonSummary(invalidLines);
-        row.invalidLinesJson = writeJson(invalidLines);
-        mapper.insertAsnPreflightAudit(row);
-    }
-
-    private String preflightReasonSummary(JsonNode invalidLines) {
-        if (invalidLines == null || !invalidLines.isArray()) {
-            return null;
-        }
-        Map<String, Integer> counts = new LinkedHashMap<>();
-        for (JsonNode line : invalidLines) {
-            String reasonCode = text(line, "reasonCode");
-            if (reasonCode != null) {
-                counts.merge(reasonCode, 1, Integer::sum);
-            }
-        }
-        String summary = counts.entrySet().stream()
-                .map(entry -> entry.getKey() + " x" + entry.getValue())
-                .collect(Collectors.joining("; "));
-        return summary.length() > 1000 ? summary.substring(0, 1000) : summary;
     }
 
     private String resolveFailureStage() {

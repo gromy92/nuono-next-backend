@@ -64,6 +64,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "249_official_warehouse_asn_line_source_allocation.sql",
                 "250_dp_pull_advertising_campaign_pagination.sql",
                 "251_noon_auth_owner_scope_successor.sql",
+                "252_official_warehouse_asn_preflight_audit.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -94,6 +95,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE",
                 "MANAGED",
+                "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
         )

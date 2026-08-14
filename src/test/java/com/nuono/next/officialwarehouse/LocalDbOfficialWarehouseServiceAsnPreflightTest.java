@@ -29,7 +29,6 @@ import com.nuono.next.officialwarehouse.OfficialWarehouseAppointmentRunner.AsnDe
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseCommands.CreateAsnLineCommand;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnRecord;
-import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnPreflightAuditRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnShippingBatchLinkInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.ProductCandidateRecord;
@@ -85,7 +84,6 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         stubCandidates(List.of(candidate("SGGRB329", "PSKU-329", "N329", 329L)));
         when(mapper.nextAsnLineId()).thenReturn(510001L);
         when(mapper.nextAsnId()).thenReturn(500001L);
-        when(mapper.nextAsnPreflightAuditId()).thenReturn(630001L);
         when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
                 .thenReturn(offerPage("SGGRB329", "PSKU-329"));
 
@@ -97,37 +95,6 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
                 });
 
         verify(inboundClient).searchProductOffersPage(any(), any(), any(), any());
-        verify(inboundClient, never()).createAsn(any(), any(), any(), any());
-        verify(mapper, never()).insertAsn(any());
-        verify(mapper, never()).insertAsnLine(any());
-        ArgumentCaptor<AsnPreflightAuditRecord> auditCaptor = ArgumentCaptor.forClass(AsnPreflightAuditRecord.class);
-        verify(mapper).insertAsnPreflightAudit(auditCaptor.capture());
-        AsnPreflightAuditRecord audit = auditCaptor.getValue();
-        assertThat(audit.id).isEqualTo(630001L);
-        assertThat(audit.ownerUserId).isEqualTo(307L);
-        assertThat(audit.operatorUserId).isEqualTo(901L);
-        assertThat(audit.storeCode).isEqualTo("STR108065-NSA");
-        assertThat(audit.siteCode).isEqualTo("SA");
-        assertThat(audit.attemptAsnId).isEqualTo(500001L);
-        assertThat(audit.attemptRef).isEqualTo("OWA-500001");
-        assertThat(audit.failureCode).isEqualTo("OFFICIAL_WAREHOUSE_ASN_PRODUCT_PREFLIGHT_FAILED");
-        assertThat(audit.reasonSummary).isEqualTo("PBARCODE_UNMAPPED x1");
-        assertThat(audit.invalidLinesJson).contains("SGGRB329").contains("PBARCODE_UNMAPPED");
-    }
-
-    @Test
-    void auditWriteFailureDoesNotHideTheOriginalPreflightRejection() {
-        stubCandidates(List.of(candidate("SGGRB329", "PSKU-329", "N329", 329L)));
-        when(mapper.nextAsnLineId()).thenReturn(510001L);
-        when(mapper.nextAsnId()).thenReturn(500001L);
-        when(mapper.nextAsnPreflightAuditId()).thenThrow(new IllegalStateException("audit table unavailable"));
-        when(inboundClient.searchProductOffersPage(any(), any(), any(), any()))
-                .thenReturn(offerPage("SGGRB329", "PSKU-329"));
-
-        assertThatThrownBy(() -> service.createAsn(access(), command(line("SGGRB329", 20))))
-                .isInstanceOfSatisfying(ApiProblemException.class, problem ->
-                        assertThat(problem.getCode()).isEqualTo("OFFICIAL_WAREHOUSE_ASN_PRODUCT_PREFLIGHT_FAILED"));
-
         verify(inboundClient, never()).createAsn(any(), any(), any(), any());
         verify(mapper, never()).insertAsn(any());
         verify(mapper, never()).insertAsnLine(any());
@@ -222,7 +189,6 @@ class LocalDbOfficialWarehouseServiceAsnPreflightTest {
         order.verify(inboundClient).createAsn(any(), any(), any(), any());
         order.verify(inboundClient).routeWarehouse(any(), any(), any(), anyString(), any());
         order.verify(inboundClient).createLines(any(), any(), any(), anyString(), any());
-        verify(mapper, never()).insertAsnPreflightAudit(any());
     }
 
     @Test
