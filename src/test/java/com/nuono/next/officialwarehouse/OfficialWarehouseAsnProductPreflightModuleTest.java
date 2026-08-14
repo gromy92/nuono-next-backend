@@ -91,6 +91,34 @@ class OfficialWarehouseAsnProductPreflightModuleTest {
     }
 
     @Test
+    void reportsTheUniqueNoonOwnerWhenTheSourceBarcodeBelongsToAnotherOffer() {
+        ObjectNode page = offerPage("SGGRB127", "PSKU-127");
+        ((ObjectNode) page.path("data")).withArray("hits").addObject()
+                .put("partner_sku", "SGGRB130")
+                .put("psku_code", "PSKU-130")
+                .put("zsku_child", "Z130-1")
+                .withArray("partner_barcodes").add("SGGRB127");
+        ((ObjectNode) page.path("data")).put("total", 2);
+        when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
+                .thenReturn(page);
+        AsnLineInsertRecord selected = line("SGGRB127", "PSKU-127", "Z127-1", 1);
+        selected.sourceBarcodes.add("SGGRB127");
+
+        assertThatThrownBy(() -> module.freeze(session, binding, context, List.of(selected)))
+                .isInstanceOfSatisfying(ApiProblemException.class, problem -> {
+                    List<?> invalidLines = (List<?>) problem.getDetails().get("invalidLines");
+                    Map<?, ?> issue = (Map<?, ?>) invalidLines.get(0);
+                    assertThat(issue.get("reasonCode")).isEqualTo("PBARCODE_UNMAPPED");
+                    assertThat(issue.get("pbarcodeOwners")).isEqualTo(List.of(Map.of(
+                            "partnerSku", "SGGRB130",
+                            "pskuCode", "PSKU-130",
+                            "noonSku", "Z130-1",
+                            "sourceBarcodes", List.of("SGGRB127")
+                    )));
+                });
+    }
+
+    @Test
     void rejectsAStaleLocalPskuEvenWhenThePartnerSkuStillExists() {
         when(inboundClient.searchProductOffersPage(isNull(), eq(binding), eq(context), any()))
                 .thenReturn(offerPage("SGGRB329", "PSKU-NEW", "PB-329"));
