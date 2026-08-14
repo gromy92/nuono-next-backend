@@ -1715,7 +1715,7 @@ public class NoonSessionGateway {
         ) {
             synchronized (requestMutex) {
                 applyContextCookies(projectCode, storeCode);
-                requestThrottle.beforeRequest(false);
+                requestThrottle.beforeRequest(true);
                 URI uri = buildUri(url, withProject, projectCode);
                 try {
                     NoonBoundedDownloadSessionCall.execute(
