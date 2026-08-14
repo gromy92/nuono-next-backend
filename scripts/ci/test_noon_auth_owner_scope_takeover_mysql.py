@@ -79,6 +79,34 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
             ),
         )
 
+    def test_all_pending_owner_scope_drains_without_task_or_settled_item_sql(self):
+        database = self._database()
+        self.addCleanup(database.close)
+        resources = REPOSITORY_ROOT / "src/main/resources"
+        self._prepare_schema(database, resources)
+        migration = next(item for item in load_catalog(resources) if item.order == 251)
+        database.client.execute(migration.script_sql)
+        self._prepare_rows(database)
+
+        snapshot = load_snapshot(database.client, self.PREDECESSOR, self.SOURCE, 308)
+        manifest = build_manifest(snapshot, 308, ("PRJ8",), "ci", self._provenance())
+        sql = build_apply_sql(manifest, "ci")
+        self.assertNotIn("id IN ()", sql)
+        self.assertNotIn("TASK_CANCEL_CAS_FAILED", sql)
+        database.client.execute(sql)
+
+        self.assertEqual(
+            "WAITING_PREDECESSOR:5:1:1:4",
+            database.client.execute_readonly(
+                "SELECT CONCAT((SELECT status FROM noon_auth_identity_recovery WHERE id=9100882),':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882 AND owner_user_id=307 AND status='PENDING'),':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882 AND owner_user_id=308 AND status='SKIPPED'),':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=(SELECT MAX(id) FROM noon_auth_identity_recovery) AND owner_user_id=308 AND source_task_id IS NULL AND resume_policy='NONE'),':',"
+                "(SELECT COUNT(*) FROM noon_pull_task WHERE id IN (93001,93002,93003,93004) AND status='BLOCKED_AUTH'));"
+            ),
+        )
+        self.assertTrue(database.livecheck(migration))
+
     def _database(self):
         return MySqlMigrationDatabase(Path(os.environ["NUONO_MIGRATION_MYSQL_DEFAULTS_FILE"]),
             expected_schema=os.environ.get("NUONO_MIGRATION_EXPECTED_SCHEMA", "nuono_schema_migration_ci"),

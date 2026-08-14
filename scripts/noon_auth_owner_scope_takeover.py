@@ -124,9 +124,9 @@ def build_manifest(snapshot: dict, owner: int, projects: tuple[str, ...], actor:
     requested = tuple(sorted(set(project.strip() for project in projects if project.strip())))
     selected = [item for item in owner_items if item["projectCode"] in requested]
     settled = [item for item in owner_items if item["projectCode"] not in requested]
-    if (not selected or not settled or tuple(sorted({item["projectCode"] for item in selected})) != requested
-            or any(item["status"] != "PENDING" for item in items)):
-        raise ValueError("requested projects must be the pending owner subset with settled remainder")
+    if (not selected or tuple(sorted({item["projectCode"] for item in selected})) != requested
+            or any(item["status"] != "PENDING" for item in selected + settled)):
+        raise ValueError("requested projects must be the exact pending owner subset")
     states = {(state["ownerUserId"], state["projectCode"]): state for state in snapshot["projectStates"]}
     selected_states = []
     binding_items = []

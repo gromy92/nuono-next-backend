@@ -53,7 +53,7 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         "(owner_user_id={owner} AND BINARY project_code=BINARY {project} AND status='HEALTHY' "
         "AND active_recovery_id IS NULL AND auth_version>{version})".format(
             owner=owner, project=_text(project), version=version)
-        for project, version in sorted(settled_states.items()))
+        for project, version in sorted(settled_states.items())) or "0"
     state_predicates = " OR ".join(filter(None, (project_predicates, settled_predicates)))
     task_predicates = " OR ".join(
         "(task.id={id} AND task.status='BLOCKED_AUTH' AND task.auth_recovery_id={source} "
@@ -62,7 +62,7 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         "AND task.last_safe_response_summary IS NULL AND COALESCE(task.processed_item_count,0)=0 "
         "AND COALESCE(task.request_count,0)=0 AND task.finished_at IS NULL AND task.is_deleted=0)".format(
             id=task["id"], source=source["id"], plan=task["planId"], owner=owner, domain=_text(task["domain"]))
-        for task in tasks)
+        for task in tasks) or "0"
     binding_values = ",".join(
         "(@owner_takeover_recovery_id,{owner},{project},{store},{site},NULL,'STORE_BINDING','PROJECT_BINDING','NONE',{version},'PENDING',UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))".format(
             owner=owner, project=_text(item["projectCode"]), store=_text(item["storeCode"]),
@@ -84,16 +84,12 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         f"(SELECT COALESCE(MAX(id),0) FROM noon_http_call_log WHERE path='/_svc/mp-partner-identity/public/user/credential/generate')={manifest['providerGenerateMaxId']}",
     ))
     reason = "authorized owner-only terminal login recovery " + manifest["manifestKey"]
-    return "\n".join((
+    statements = [
         "SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE;START TRANSACTION;",
         f"SELECT id FROM noon_auth_identity_recovery WHERE id IN ({predecessor['id']},{source['id']}) ORDER BY id FOR UPDATE;",
         f"SELECT id FROM noon_auth_identity_recovery_item WHERE id IN ({all_item_ids}) ORDER BY id FOR UPDATE;",
         f"SELECT owner_user_id,project_code FROM noon_project_auth_state state WHERE {state_predicates} ORDER BY owner_user_id,project_code FOR UPDATE;",
-        f"SELECT id FROM noon_pull_task WHERE id IN ({task_ids}) ORDER BY id FOR UPDATE;",
         _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_SCOPE_DRIFT", guards),
-        "UPDATE noon_pull_task SET status='CANCELLED',finished_at=UTC_TIMESTAMP(3),gmt_updated=UTC_TIMESTAMP(3) "
-        + f"WHERE id IN ({task_ids}) AND status='BLOCKED_AUTH' AND auth_recovery_id={source['id']};",
-        _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_TASK_CANCEL_CAS_FAILED", f"ROW_COUNT()={len(tasks)}"),
         "INSERT INTO noon_auth_identity_recovery (predecessor_recovery_id,identity_key,status,scope_owner_user_id,generation_no,send_budget_epoch,send_attempt_count,coalesce_until,next_attempt_at,version_no,config_fingerprint,diagnostic_summary,requested_at,gmt_create,gmt_updated) "
         + f"SELECT NULL,identity_key,'COALESCING',NULL,0,0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),0,config_fingerprint,{_text(reason)},UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),UTC_TIMESTAMP(3) FROM noon_auth_identity_recovery WHERE id={source['id']};",
         "SET @owner_takeover_recovery_id=LAST_INSERT_ID();",
@@ -105,11 +101,22 @@ def build_apply_sql(manifest: dict, actor: str) -> str:
         "UPDATE noon_auth_identity_recovery_item SET status='SKIPPED',failure_code='LEGACY_OWNER_SCOPE_REQUEUED',diagnostic_summary=" + _text(reason) + ",gmt_updated=UTC_TIMESTAMP(3) "
         + f"WHERE recovery_id={source['id']} AND id IN ({selected_ids}) AND status='PENDING';",
         _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_SELECTED_ITEM_CAS_FAILED", f"ROW_COUNT()={len(selected)}"),
-        "UPDATE noon_auth_identity_recovery_item SET status='RECOVERED',failure_code=NULL,diagnostic_summary='already healthy before terminal owner drain',recovered_at=UTC_TIMESTAMP(3),gmt_updated=UTC_TIMESTAMP(3) "
-        + f"WHERE recovery_id={source['id']} AND id IN ({settled_ids}) AND status='PENDING';",
-        _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_SETTLED_ITEM_CAS_FAILED", f"ROW_COUNT()={len(settled)}"),
-        "COMMIT;SELECT @owner_takeover_recovery_id;",
-    )) + "\n"
+    ]
+    if tasks:
+        statements.insert(4, f"SELECT id FROM noon_pull_task WHERE id IN ({task_ids}) ORDER BY id FOR UPDATE;")
+        statements[6:6] = (
+            "UPDATE noon_pull_task SET status='CANCELLED',finished_at=UTC_TIMESTAMP(3),gmt_updated=UTC_TIMESTAMP(3) "
+            + f"WHERE id IN ({task_ids}) AND status='BLOCKED_AUTH' AND auth_recovery_id={source['id']};",
+            _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_TASK_CANCEL_CAS_FAILED", f"ROW_COUNT()={len(tasks)}"),
+        )
+    if settled:
+        statements.extend((
+            "UPDATE noon_auth_identity_recovery_item SET status='RECOVERED',failure_code=NULL,diagnostic_summary='already healthy before terminal owner drain',recovered_at=UTC_TIMESTAMP(3),gmt_updated=UTC_TIMESTAMP(3) "
+            + f"WHERE recovery_id={source['id']} AND id IN ({settled_ids}) AND status='PENDING';",
+            _signal("NOON_AUTH_OWNER_TERMINAL_DRAIN_SETTLED_ITEM_CAS_FAILED", f"ROW_COUNT()={len(settled)}"),
+        ))
+    statements.extend(("COMMIT;SELECT @owner_takeover_recovery_id;",))
+    return "\n".join(statements) + "\n"
 
 
 __all__ = ["build_apply_sql"]

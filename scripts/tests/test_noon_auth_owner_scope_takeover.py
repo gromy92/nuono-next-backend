@@ -69,6 +69,18 @@ class NoonAuthOwnerScopeTakeoverTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "settled"):
             build_manifest(snapshot, 307, ("PRJ244978", "PRJ245027"), "ci", self.provenance)
 
+    def test_terminal_drain_all_pending_owner_scope_needs_no_settled_item_or_task(self):
+        snapshot = copy.deepcopy(self.snapshot)
+        snapshot["tasks"] = []
+        manifest = build_manifest(snapshot, 308, ("PRJ100085",), "ci-owner308", self.provenance)
+        sql = build_apply_sql(manifest, "ci-owner308")
+        self.assertEqual([], manifest["settledItems"])
+        self.assertEqual([910], [item["id"] for item in manifest["items"]])
+        self.assertIn("WHERE 0)=0", sql)
+        self.assertNotIn("id IN ()", sql)
+        self.assertNotIn("TASK_CANCEL_CAS_FAILED", sql)
+        self.assertNotIn("SET status='RECOVERED'", sql)
+
     def test_snapshot_reader_accepts_mysql_newline_but_not_second_document(self):
         class Client:
             def execute_readonly(self, sql): return '\n {"id": 877}\n'
