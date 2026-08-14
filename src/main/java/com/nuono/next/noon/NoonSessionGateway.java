@@ -1715,7 +1715,10 @@ public class NoonSessionGateway {
         ) {
             synchronized (requestMutex) {
                 applyContextCookies(projectCode, storeCode);
-                requestThrottle.beforeRequest(false);
+                // A report status poll commonly completes immediately before its one-shot file
+                // download. Keep the download non-replayed, but wait for the shared session pace
+                // rather than turning that valid sequence into a local pacing failure.
+                requestThrottle.beforeRequest(true);
                 URI uri = buildUri(url, withProject, projectCode);
                 try {
                     NoonBoundedDownloadSessionCall.execute(
