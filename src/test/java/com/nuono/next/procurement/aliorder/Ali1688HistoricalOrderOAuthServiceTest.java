@@ -44,7 +44,7 @@ class Ali1688HistoricalOrderOAuthServiceTest {
         String appKey = "5890829";
         String nonDisclosureKey = "token-cipher-secret";
 
-        String fingerprint = Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint(
+        String fingerprint = Ali1688OAuthRuntimeDiagnosticLogger.fingerprint(
                 appKey,
                 nonDisclosureKey
         );
@@ -53,9 +53,9 @@ class Ali1688HistoricalOrderOAuthServiceTest {
                 .hasSize(16)
                 .doesNotContain(appKey)
                 .doesNotContain(nonDisclosureKey);
-        assertThat(Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint(appKey, nonDisclosureKey))
+        assertThat(Ali1688OAuthRuntimeDiagnosticLogger.fingerprint(appKey, nonDisclosureKey))
                 .isEqualTo(fingerprint);
-        assertThat(Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint("58908298", nonDisclosureKey))
+        assertThat(Ali1688OAuthRuntimeDiagnosticLogger.fingerprint("58908298", nonDisclosureKey))
                 .isNotEqualTo(fingerprint);
     }
 
