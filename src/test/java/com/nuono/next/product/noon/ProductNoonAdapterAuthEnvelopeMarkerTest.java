@@ -1,26 +1,21 @@
 package com.nuono.next.product.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.ProductWriteAuthRecovery;
 import com.nuono.next.product.ProductWriteAuthRequiredException;
 import java.util.List;
-import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class ProductNoonAdapterAuthEnvelopeMarkerTest {
@@ -31,7 +26,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void explicitNestedStatusCodesShouldEnterRecovery() {
+    void explicitNestedStatusCodesRequireManualLogin() {
         RecoveryFixture fixture = fixture();
 
         for (int status : List.of(301, 302, 303, 307, 308, 401, 403)) {
@@ -45,15 +40,14 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
                     ),
                     "HTTP " + status
             );
-            assertEquals(991L, exception.getRecoveryId());
+            assertNull(exception.getRecoveryId());
         }
 
-        verify(fixture.queue, times(7))
-                .enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE));
+        verify(fixture.attention, times(7)).requireManualLogin();
     }
 
     @Test
-    void explicitAuthTextMarkersShouldEnterRecovery() {
+    void explicitAuthTextMarkersRequireManualLogin() {
         RecoveryFixture fixture = fixture();
 
         for (JsonNode response : List.of(
@@ -77,8 +71,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
             );
         }
 
-        verify(fixture.queue, times(8))
-                .enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE));
+        verify(fixture.attention, times(8)).requireManualLogin();
     }
 
     @Test
@@ -97,7 +90,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueue(any());
+        verify(fixture.attention, never()).requireManualLogin();
     }
 
     @Test
@@ -118,7 +111,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueue(any());
+        verify(fixture.attention, never()).requireManualLogin();
     }
 
     @Test
@@ -138,7 +131,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
         );
 
         assertEquals(response, actual);
-        verify(fixture.queue, never()).enqueue(any());
+        verify(fixture.attention, never()).requireManualLogin();
     }
 
     private ObjectNode nestedStatus(int status) {
@@ -157,28 +150,26 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
     }
 
     private RecoveryFixture fixture() {
-        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
-        when(queue.enqueue(NoonAuthWaitRequest.binding(OWNER_USER_ID, PROJECT_CODE, STORE_CODE)))
-                .thenReturn(Optional.of(991L));
+        NoonAccountSessionAttentionPort attention = mock(NoonAccountSessionAttentionPort.class);
         ProductNoonAdapter adapter = new ProductNoonAdapter(
                 mock(NoonSessionGateway.class),
                 new NoonProductGateway()
         );
         adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
-                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
-        return new RecoveryFixture(adapter, queue);
+                attention));
+        return new RecoveryFixture(adapter, attention);
     }
 
     private static final class RecoveryFixture {
         private final ProductNoonAdapter adapter;
-        private final NoonAuthWaitQueue queue;
+        private final NoonAccountSessionAttentionPort attention;
 
         private RecoveryFixture(
                 ProductNoonAdapter adapter,
-                NoonAuthWaitQueue queue
+                NoonAccountSessionAttentionPort attention
         ) {
             this.adapter = adapter;
-            this.queue = queue;
+            this.attention = attention;
         }
     }
 }

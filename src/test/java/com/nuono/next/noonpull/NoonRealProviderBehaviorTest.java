@@ -209,7 +209,7 @@ class NoonRealProviderBehaviorTest {
 
         NoonInterfacePullException failure = assertThrows(NoonInterfacePullException.class,
                 () -> provider.createExport(salesRequest()));
-        assertTrue(failure.getMessage().contains("shared email OTP recovery configuration"));
+        assertTrue(failure.getMessage().contains("shared Noon login configuration"));
         assertEquals(null, sessionFactory.lastBinding);
     }
 
