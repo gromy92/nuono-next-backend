@@ -24,7 +24,7 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
     SOURCE = 9100882
     IDENTITY = "t" * 64
 
-    def test_owner_takeover_preserves_non_scope_waiter_and_budget(self):
+    def test_terminal_drain_preserves_non_scope_waiter_and_creates_login_only_recovery(self):
         database = self._database()
         self.addCleanup(database.close)
         resources = REPOSITORY_ROOT / "src/main/resources"
@@ -34,22 +34,23 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
         self._prepare_rows(database)
 
         snapshot = load_snapshot(database.client, self.PREDECESSOR, self.SOURCE, 307)
-        manifest = build_manifest(snapshot, 307, ("PRJ0", "PRJ1", "PRJ2", "PRJ3"), "ci", self._provenance())
+        manifest = build_manifest(snapshot, 307, ("PRJ1", "PRJ2"), "ci", self._provenance())
         database.client.execute(build_apply_sql(manifest, "ci"))
 
         self.assertEqual(
-            "FAILED_FINAL:WAITING_PREDECESSOR:0:0:1:COALESCING:5:4:4:REAUTH_REQUIRED:9100882",
+            "COMPLETED:WAITING_PREDECESSOR:0:0:6:COALESCING:2:4:0:3:2:1",
             database.client.execute_readonly(
                 "SELECT CONCAT((SELECT status FROM noon_auth_identity_recovery WHERE id=9100877),':',"
                 "source.status,':',source.send_budget_epoch,':',source.send_attempt_count,':',"
                 "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882),':',"
-                "scoped.status,':',(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=scoped.id),':',"
+                "scoped.status,':',(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=scoped.id AND source_task_id IS NULL AND resume_policy='NONE'),':',"
                 "(SELECT COUNT(*) FROM noon_pull_task WHERE id IN (93001,93002,93003,93004) AND status='CANCELLED'),':',"
                 "(SELECT COUNT(*) FROM noon_pull_plan WHERE id IN (94001,94002,94003,94004) AND paused=b'1'),':',"
-                "state.status,':',state.active_recovery_id) FROM noon_auth_identity_recovery source "
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882 AND owner_user_id=307 AND status='SKIPPED'),':',"
+                "(SELECT COUNT(*) FROM noon_auth_identity_recovery_item WHERE recovery_id=9100882 AND owner_user_id=307 AND status='RECOVERED'),':',"
+                "(SELECT COUNT(*) FROM noon_project_auth_state WHERE owner_user_id=308 AND project_code='PRJ8' AND active_recovery_id=9100882)) FROM noon_auth_identity_recovery source "
                 "JOIN noon_auth_identity_recovery scoped ON scoped.identity_key=source.identity_key "
-                "AND scoped.status='COALESCING' JOIN noon_project_auth_state state ON state.owner_user_id=308 "
-                "AND state.project_code='PRJ8' WHERE source.id=9100882;"
+                "AND scoped.status='COALESCING' WHERE source.id=9100882;"
             ),
         )
         self.assertTrue(database.livecheck(migration))
@@ -64,12 +65,12 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
         self._prepare_rows(database)
 
         snapshot = load_snapshot(database.client, self.PREDECESSOR, self.SOURCE, 307)
-        manifest = build_manifest(snapshot, 307, ("PRJ0", "PRJ1", "PRJ2", "PRJ3"), "ci", self._provenance())
+        manifest = build_manifest(snapshot, 307, ("PRJ1", "PRJ2"), "ci", self._provenance())
         manifest["predecessor"]["versionNo"] += 1
         with self.assertRaises(MySqlExecutionError):
             database.client.execute(build_apply_sql(manifest, "ci"))
         self.assertEqual(
-            "MANUAL_HOLD:WAITING_PREDECESSOR:4:5",
+            "COMPLETED:WAITING_PREDECESSOR:4:5",
             database.client.execute_readonly(
                 "SELECT CONCAT((SELECT status FROM noon_auth_identity_recovery WHERE id=9100877),':',"
                 "(SELECT status FROM noon_auth_identity_recovery WHERE id=9100882),':',"
@@ -105,13 +106,13 @@ class NoonAuthOwnerScopeTakeoverMySqlTest(unittest.TestCase):
             "(94004,307,'STR3','SA','REPORT','FINANCE_TRANSACTION','SCHEDULED_DAILY','daily',b'1',b'0',b'0');"
             "INSERT INTO noon_auth_identity_recovery (id,identity_key,status,generation_no,send_budget_epoch,"
             "send_attempt_count,coalesce_until,next_attempt_at,version_no,config_fingerprint,requested_at) VALUES "
-            f"({self.PREDECESSOR},'{self.IDENTITY}','MANUAL_HOLD',0,0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),4,'{'d'*64}',UTC_TIMESTAMP(3)),"
+            f"({self.PREDECESSOR},'{self.IDENTITY}','COMPLETED',1,3,1,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),4,'{'d'*64}',UTC_TIMESTAMP(3)),"
             f"({self.SOURCE},'{self.IDENTITY}','WAITING_PREDECESSOR',0,0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3),3,'{'d'*64}',UTC_TIMESTAMP(3));"
             f"UPDATE noon_auth_identity_recovery SET predecessor_recovery_id={self.PREDECESSOR} WHERE id={self.SOURCE};"
-            f"UPDATE noon_auth_identity_recovery SET failure_code='IDENTITY_AUTH_FAILED' WHERE id={self.PREDECESSOR};"
+            f"UPDATE noon_auth_identity_recovery SET first_send_at=UTC_TIMESTAMP(3) WHERE id={self.PREDECESSOR};"
             "INSERT INTO noon_project_auth_state (owner_user_id,project_code,identity_key,status,active_recovery_id,auth_version) VALUES "
-            f"(307,'PRJ0','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},1),(307,'PRJ1','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},2),"
-            f"(307,'PRJ2','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},3),(307,'PRJ3','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},4),"
+            f"(307,'PRJ0','{self.IDENTITY}','HEALTHY',NULL,2),(307,'PRJ1','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},2),"
+            f"(307,'PRJ2','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},3),(307,'PRJ3','{self.IDENTITY}','HEALTHY',NULL,5),"
             f"(308,'PRJ8','{self.IDENTITY}','REAUTH_REQUIRED',{self.SOURCE},8);"
         )
         values = []
