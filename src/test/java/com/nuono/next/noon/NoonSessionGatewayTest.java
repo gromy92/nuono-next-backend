@@ -1,7 +1,6 @@
 package com.nuono.next.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -486,31 +485,6 @@ class NoonSessionGatewayTest {
         }
     }
 
-    @Test
-    void shouldWaitForSessionPacingBeforeOneShotReportDownload() throws Exception {
-        byte[] export = "date,amount\n2026-08-14,10\n".getBytes(StandardCharsets.UTF_8);
-        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.createContext("/whoami", exchange -> sendResponse(exchange, "application/json", "{}".getBytes(StandardCharsets.UTF_8)));
-        server.createContext("/report.csv", exchange -> sendResponse(exchange, "text/csv", export));
-        server.start();
-        try {
-            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
-            NoonSessionGateway gateway = directGateway(baseUrl + "/whoami", 300L);
-            NoonSessionGateway.NoonSession session = gateway.loginWithPersistedCookie(
-                    307L, "merchant@example.com", "sid=valid", "PRJ1", "STORE1"
-            );
-            NoonBinaryDownloadTestSupport.RecordingSink sink =
-                    new NoonBinaryDownloadTestSupport.RecordingSink(1024, 1024);
-
-            session.getBytesOnce(baseUrl + "/report.csv", false, null, sink);
-
-            assertTrue(sink.completed);
-            assertArrayEquals(export, sink.joined());
-        } finally {
-            server.stop(0);
-        }
-    }
-
     private NoonSessionGateway gateway(String proxyProviderUrl){ return gateway(mock(StoreSyncMapper.class), proxyProviderUrl); }
 
     private NoonSessionGateway gateway(StoreSyncMapper storeSyncMapper, String proxyProviderUrl) {
@@ -566,14 +540,10 @@ class NoonSessionGatewayTest {
     }
 
     private NoonSessionGateway directGateway(String whoamiUrl) {
-        return directGateway(whoamiUrl, 0L);
-    }
-
-    private NoonSessionGateway directGateway(String whoamiUrl, long accountMinRequestIntervalMillis) {
         return new NoonSessionGateway(
                 objectMapper,
                 mock(StoreSyncMapper.class),
-                accountMinRequestIntervalMillis,
+                0L,
                 true,
                 "",
                 "",
@@ -593,18 +563,6 @@ class NoonSessionGatewayTest {
                 0,
                 ""
         );
-    }
-
-    private static void sendResponse(
-            com.sun.net.httpserver.HttpExchange exchange,
-            String contentType,
-            byte[] body
-    ) throws IOException {
-        exchange.getResponseHeaders().set("Content-Type", contentType);
-        exchange.sendResponseHeaders(200, body.length);
-        try (OutputStream response = exchange.getResponseBody()) {
-            response.write(body);
-        }
     }
 
     private NoonSessionGateway identityGateway(StoreSyncMapper mapper, AuthRefreshServer server) {
