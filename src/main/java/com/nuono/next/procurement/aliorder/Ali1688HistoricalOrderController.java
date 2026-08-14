@@ -1,5 +1,4 @@
 package com.nuono.next.procurement.aliorder;
-
 import com.nuono.next.permission.access.BusinessAccessContext;
 import com.nuono.next.permission.access.BusinessAccessResolver;
 import com.nuono.next.permission.access.BusinessCapability;
@@ -161,6 +160,7 @@ public class Ali1688HistoricalOrderController {
         BusinessAccessContext context = requireBoss(authorizedContext(request));
         return historicalOrderService().createDevAuthorization(context);
     }
+
 
     @GetMapping("/authorizations/open-api/start")
     public Ali1688HistoricalOrderAuthorizationView.StartView startOpenApiAuthorization(
