@@ -5,12 +5,15 @@ import com.nuono.next.procurement.aliorder.Ali1688OAuthTokenParser.TokenPayload;
 import com.nuono.next.infrastructure.mapper.Ali1688HistoricalOrderMapper;
 import com.nuono.next.infrastructure.mapper.Ali1688OpenApiAuthorizationMapper;
 import com.nuono.next.permission.access.BusinessAccessContext;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.ResponseEntity;
@@ -18,12 +21,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class Ali1688HistoricalOrderOAuthService {
 
     public static final String PROVIDER_CODE = "ALI1688_OPEN_API";
     static final String OPEN_API_SCOPE_SUMMARY = "1688 OpenAPI 历史订单只读授权，不会付款、下单或发送供应商消息。";
+    private static final Logger LOGGER = LoggerFactory.getLogger(Ali1688HistoricalOrderOAuthService.class);
 
     private final Ali1688HistoricalOrderMapper mapper;
     private final Ali1688OpenApiAuthorizationMapper authorizationMapper;
@@ -102,9 +108,11 @@ public class Ali1688HistoricalOrderOAuthService {
 
         UriComponentsBuilder builder = UriComponentsBuilder.fromHttpUrl(trim(properties.getAuthorizeUrl()));
         params.forEach(builder::queryParam);
+        String authorizationUrl = builder.build(true).toUriString();
         view.setConfigured(true);
-        view.setAuthorizationUrl(builder.build(true).toUriString());
+        view.setAuthorizationUrl(authorizationUrl);
         view.setMessage("请在 1688 页面完成账号授权，系统只读取历史订单。");
+        logAuthorizationRuntimeDiagnostic(params, authorizationUrl);
         return view;
     }
 
@@ -308,6 +316,50 @@ public class Ali1688HistoricalOrderOAuthService {
 
     private String defaultText(String value, String fallback) {
         return StringUtils.hasText(value) ? value.trim() : fallback;
+    }
+
+    private void logAuthorizationRuntimeDiagnostic(Map<String, String> params, String authorizationUrl) {
+        String runtimeAppKey = defaultText(params.get("client_id"), "");
+        String authorizationClientId = UriComponentsBuilder.fromUriString(authorizationUrl)
+                .build()
+                .getQueryParams()
+                .getFirst("client_id");
+        String authorizationRedirectUri = UriComponentsBuilder.fromUriString(authorizationUrl)
+                .build()
+                .getQueryParams()
+                .getFirst("redirect_uri");
+        LOGGER.info(
+                "ALI1688_OAUTH_RUNTIME_DIAGNOSTIC runtimeAppKeyLength={} runtimeAppKeyFingerprint={} "
+                        + "authorizationClientIdLength={} authorizationClientIdFingerprint={} "
+                        + "clientIdMatchesRuntime={} redirectUriMatchesRuntime={} authorizeHost={}",
+                runtimeAppKey.length(),
+                runtimeDiagnosticFingerprint(runtimeAppKey, properties.getTokenCipherSecret()),
+                authorizationClientId == null ? 0 : authorizationClientId.length(),
+                runtimeDiagnosticFingerprint(authorizationClientId, properties.getTokenCipherSecret()),
+                runtimeAppKey.equals(authorizationClientId),
+                trim(properties.getRedirectUri()).equals(authorizationRedirectUri),
+                UriComponentsBuilder.fromUriString(authorizationUrl).build().getHost()
+        );
+    }
+
+    static String runtimeDiagnosticFingerprint(String value, String nonDisclosureKey) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(
+                    trimStatic(nonDisclosureKey).getBytes(StandardCharsets.UTF_8),
+                    "HmacSHA256"
+            ));
+            String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(
+                    mac.doFinal(trimStatic(value).getBytes(StandardCharsets.UTF_8))
+            );
+            return encoded.substring(0, 16);
+        } catch (Exception exception) {
+            throw new IllegalStateException("Unable to fingerprint 1688 OAuth runtime configuration.", exception);
+        }
+    }
+
+    private static String trimStatic(String value) {
+        return value == null ? "" : value.trim();
     }
 
     static class StatePayload {

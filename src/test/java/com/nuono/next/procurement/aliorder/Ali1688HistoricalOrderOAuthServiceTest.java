@@ -40,6 +40,26 @@ import org.springframework.web.util.UriComponentsBuilder;
 class Ali1688HistoricalOrderOAuthServiceTest {
 
     @Test
+    void runtimeDiagnosticFingerprintDoesNotExposeTheAppKeyOrDiagnosticKey() {
+        String appKey = "5890829";
+        String nonDisclosureKey = "token-cipher-secret";
+
+        String fingerprint = Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint(
+                appKey,
+                nonDisclosureKey
+        );
+
+        assertThat(fingerprint)
+                .hasSize(16)
+                .doesNotContain(appKey)
+                .doesNotContain(nonDisclosureKey);
+        assertThat(Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint(appKey, nonDisclosureKey))
+                .isEqualTo(fingerprint);
+        assertThat(Ali1688HistoricalOrderOAuthService.runtimeDiagnosticFingerprint("58908298", nonDisclosureKey))
+                .isNotEqualTo(fingerprint);
+    }
+
+    @Test
     void tokenExchangeBypassesMessageConverterLoggingForSensitiveForm() throws Exception {
         String oauthSource = Files.readString(Path.of(
                 "src/main/java/com/nuono/next/procurement/aliorder/"
