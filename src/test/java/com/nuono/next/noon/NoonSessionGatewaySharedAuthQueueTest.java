@@ -1,28 +1,31 @@
 package com.nuono.next.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noonauth.NoonAuthResumePolicy;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class NoonSessionGatewaySharedAuthQueueTest {
 
     @Test
-    void missingProjectCookieShouldJoinSharedAuthorizationQueueBeforeFailing() {
+    void missingProjectCookieShouldRequireOneSharedManualLoginBeforeFailing() {
         NoonSessionGateway gateway = gateway();
-        AtomicReference<NoonAuthWaitRequest> queued = new AtomicReference<>();
-        gateway.setAuthWaitQueue(request -> {
-            queued.set(request);
-            return Optional.of(88001L);
+        AtomicReference<Boolean> manualLoginRequired = new AtomicReference<>(false);
+        gateway.setAccountSessionAttention(new NoonAccountSessionAttentionPort() {
+            @Override
+            public void requireManualLogin() {
+                manualLoginRequired.set(true);
+            }
+
+            @Override
+            public boolean blocksProviderCalls() {
+                return false;
+            }
         });
 
         NoonSessionGateway.NoonCookieAuthRequiredException failure = assertThrows(
@@ -37,13 +40,7 @@ class NoonSessionGatewaySharedAuthQueueTest {
         );
 
         assertTrue(failure.getMessage().contains("auth_required"));
-        assertEquals(307L, queued.get().getOwnerUserId());
-        assertEquals("PRJ245027", queued.get().getProjectCode());
-        assertEquals("STR245027-NAE", queued.get().getStoreCode());
-        assertEquals(NoonAuthWaitRequest.STORE_BINDING_DOMAIN, queued.get().getSourceDomain());
-        assertEquals("PROJECT_BINDING", queued.get().getCheckpoint());
-        assertEquals(NoonAuthResumePolicy.NONE, queued.get().getResumePolicy());
-        assertFalse(queued.get().hasSourceTask());
+        assertTrue(manualLoginRequired.get());
     }
 
     private NoonSessionGateway gateway() {

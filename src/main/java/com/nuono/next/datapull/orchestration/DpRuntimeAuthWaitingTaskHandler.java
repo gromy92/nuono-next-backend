@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.RUNTIME)
 public final class DpRuntimeAuthWaitingTaskHandler implements NoonAuthWaitingTaskHandler {
     static final String MANUAL_REVIEW_CODE = "AUTH_MANUAL_REVIEW";
+    private static final String LEGACY_SOURCE_DOMAIN = "DP_RUNTIME";
 
     private final DataPullAuthWaitingTaskMapper mapper;
 
@@ -26,7 +27,7 @@ public final class DpRuntimeAuthWaitingTaskHandler implements NoonAuthWaitingTas
 
     @Override
     public boolean supports(String sourceDomain) {
-        return NoonDataPullAuthRecoveryQueue.SOURCE_DOMAIN.equalsIgnoreCase(sourceDomain);
+        return LEGACY_SOURCE_DOMAIN.equalsIgnoreCase(sourceDomain);
     }
 
     @Override
@@ -120,7 +121,7 @@ public final class DpRuntimeAuthWaitingTaskHandler implements NoonAuthWaitingTas
                 || !hasText(item.getProjectCode())
                 || !hasText(item.getStoreCode())
                 || !hasText(item.getSiteCode())
-                || !NoonDataPullAuthRecoveryQueue.SOURCE_DOMAIN.equals(item.getSourceDomain())
+                || !LEGACY_SOURCE_DOMAIN.equals(item.getSourceDomain())
                 || item.getResumePolicy() != NoonAuthResumePolicy.AUTO_RESUME) {
             return null;
         }

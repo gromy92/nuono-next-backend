@@ -6,8 +6,6 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -92,7 +90,17 @@ public class NoonSessionGateway {
     private final ConcurrentMap<String, Object> accountLocks = new ConcurrentHashMap<>();
     private final ThreadLocal<LinkedHashMap<String, Integer>> requestCountScope = new ThreadLocal<>();
     private NoonHttpCallLogService noonHttpCallLogService;
-    private NoonAuthWaitQueue authWaitQueue = request -> java.util.Optional.empty();
+    private NoonAccountSessionAttentionPort accountSessionAttention = new NoonAccountSessionAttentionPort() {
+        @Override
+        public void requireManualLogin() {
+            // A manually constructed gateway has no Spring attention service.
+        }
+
+        @Override
+        public boolean blocksProviderCalls() {
+            return false;
+        }
+    };
     @Value("${nuono.noon.proxy.mode:AUTO}")
     private String proxyMode = "AUTO";
     @Value("${nuono.noon.proxy.preflight.max-attempts:3}") private int proxyPreflightMaxAttempts = 3;
@@ -162,9 +170,9 @@ public class NoonSessionGateway {
     }
 
     @Autowired(required = false)
-    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
-        if (authWaitQueue != null) {
-            this.authWaitQueue = authWaitQueue;
+    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
+        if (accountSessionAttention != null) {
+            this.accountSessionAttention = accountSessionAttention;
         }
     }
 
@@ -845,7 +853,7 @@ public class NoonSessionGateway {
 
     private void enqueueAuthorizationBinding(Long ownerUserId, String projectCode, String storeCode) {
         try {
-            authWaitQueue.enqueue(NoonAuthWaitRequest.binding(ownerUserId, projectCode, storeCode));
+            accountSessionAttention.requireManualLogin();
         } catch (RuntimeException ignored) {
             // Preserve the original Noon failure. Durable task callers may still attach their exact
             // source identity to the same recovery after this source-less binding request.

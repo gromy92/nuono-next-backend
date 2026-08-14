@@ -16,7 +16,10 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Profile("local-db")
-final class NoonAccountSessionAttention implements NoonAuthWaitQueue, NoonPullProjectAuthGate {
+final class NoonAccountSessionAttention implements
+        NoonAccountSessionAttentionPort,
+        NoonAuthWaitQueue,
+        NoonPullProjectAuthGate {
     private final ObjectProvider<NoonAccountManualOtpService> manualOtpServiceProvider;
 
     NoonAccountSessionAttention(ObjectProvider<NoonAccountManualOtpService> manualOtpServiceProvider) {
@@ -25,12 +28,22 @@ final class NoonAccountSessionAttention implements NoonAuthWaitQueue, NoonPullPr
 
     @Override
     public Optional<Long> enqueue(NoonAuthWaitRequest request) {
-        manualOtpService().recordAuthenticationRequired();
+        requireManualLogin();
         return Optional.empty();
     }
 
     @Override
     public boolean isBlocked(Long ownerUserId, String projectCode) {
+        return blocksProviderCalls();
+    }
+
+    @Override
+    public void requireManualLogin() {
+        manualOtpService().recordAuthenticationRequired();
+    }
+
+    @Override
+    public boolean blocksProviderCalls() {
         return manualOtpService().blocksProviderCalls();
     }
 

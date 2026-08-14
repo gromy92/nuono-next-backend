@@ -1,6 +1,6 @@
 package com.nuono.next.noonpull;
 
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -26,7 +26,17 @@ public class NoonPullFoundationService {
     private final NoonPullRepository repository;
     private final Clock clock;
     private final NoonPullFailurePolicy failurePolicy;
-    private final NoonPullAuthWaitSupport authWaitSupport;
+    private NoonAccountSessionAttentionPort accountSessionAttention = new NoonAccountSessionAttentionPort() {
+        @Override
+        public void requireManualLogin() {
+            // Explicitly configured only in the local-db application context.
+        }
+
+        @Override
+        public boolean blocksProviderCalls() {
+            return false;
+        }
+    };
 
     @Autowired
     public NoonPullFoundationService(NoonPullRepository repository) {
@@ -41,7 +51,6 @@ public class NoonPullFoundationService {
         this.repository = repository;
         this.clock = clock;
         this.failurePolicy = failurePolicy;
-        this.authWaitSupport = new NoonPullAuthWaitSupport(repository);
     }
 
     public NoonPullPlanRecord createPlan(NoonPullPlanDraft draft) {
@@ -524,10 +533,7 @@ public class NoonPullFoundationService {
     public NoonPullTaskRecord markFailedWithPolicy(Long taskId, String rawFailure, int attempt) {
         NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
         if (failureType == NoonPullFailureType.AUTH_REQUIRED) {
-            NoonPullTaskRecord blocked = tryBlockForAuthRecovery(taskId, rawFailure);
-            if (blocked != null) {
-                return blocked;
-            }
+            accountSessionAttention.requireManualLogin();
         }
         NoonPullFailureDecision decision = failurePolicy.decide(failureType, attempt);
         NoonPullTaskRecord task = requireTask(taskId);
@@ -561,19 +567,10 @@ public class NoonPullFoundationService {
     }
 
     @Autowired(required = false)
-    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
-        authWaitSupport.setQueue(authWaitQueue);
-    }
-
-    private NoonPullTaskRecord tryBlockForAuthRecovery(Long taskId, String rawFailure) {
-        NoonPullTaskRecord task = requireTask(taskId);
-        if (task.getStatus() == NoonPullTaskStatus.BLOCKED_AUTH) {
-            return task.copy();
+    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
+        if (accountSessionAttention != null) {
+            this.accountSessionAttention = accountSessionAttention;
         }
-        if (!NoonPullAuthRecoveryTaskPolicy.canAutomaticallyRecover(task)) {
-            return null;
-        }
-        return authWaitSupport.block(task, redact(rawFailure), now());
     }
 
     public NoonPullPlanRecord pausePlan(Long planId, String reason) {
