@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Freeze and take over one mixed historical Noon auth recovery for one owner."""
+"""Drain one owner's historical mixed Noon recovery into a normal login-only recovery."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +38,8 @@ SELECT JSON_OBJECT(
  'identityKey',source.identity_key,
  'activeManifestCount',(SELECT COUNT(*) FROM noon_auth_owner_scope_manifest
    WHERE identity_key=source.identity_key AND status='ACTIVE'),
+ 'activeRecoveryCount',(SELECT COUNT(*) FROM noon_auth_identity_recovery
+   WHERE identity_key=source.identity_key AND active_identity_slot=source.identity_key),
  'predecessor',JSON_OBJECT('id',predecessor.id,'versionNo',predecessor.version_no,
    'status',predecessor.status,'failureCode',predecessor.failure_code,
    'generationNo',predecessor.generation_no,'sendBudgetEpoch',predecessor.send_budget_epoch,
@@ -105,25 +107,29 @@ def build_manifest(snapshot: dict, owner: int, projects: tuple[str, ...], actor:
     predecessor, source = snapshot["predecessor"], snapshot["source"]
     if not isinstance(owner, int) or owner <= 0 or not actor.strip():
         raise ValueError("owner and actor are required")
-    if (predecessor["status"] != "MANUAL_HOLD" or predecessor["failureCode"] != "IDENTITY_AUTH_FAILED"
-            or predecessor["generationNo"] != 0 or predecessor["sendAttemptCount"] != 0
-            or predecessor["firstSendAt"] is not None or predecessor["secondSendAt"] is not None
+    if (predecessor["status"] != "COMPLETED" or predecessor["generationNo"] != 1
+            or predecessor["sendAttemptCount"] != 1 or predecessor["firstSendAt"] is None
+            or predecessor["secondSendAt"] is not None
             or not predecessor["leaseFree"]):
-        raise ValueError("predecessor is not the exact unsent identity hold")
+        raise ValueError("predecessor is not the exact completed single-send identity hold")
     if (source["status"] != "WAITING_PREDECESSOR" or source["predecessorRecoveryId"] != predecessor["id"]
             or source["generationNo"] != 0 or source["sendAttemptCount"] != 0
             or source["firstSendAt"] is not None or source["secondSendAt"] is not None
-            or not source["leaseFree"] or snapshot["activeManifestCount"] != 0):
-        raise ValueError("source is not the exact unsent mixed successor")
+            or not source["leaseFree"] or snapshot["activeManifestCount"] != 0
+            or snapshot["activeRecoveryCount"] != 0):
+        raise ValueError("source is not the exact dormant mixed successor")
     items = sorted((_item(item) for item in snapshot["items"]), key=lambda item: item["id"])
-    selected = [item for item in items if item["ownerUserId"] == owner]
+    owner_items = [item for item in items if item["ownerUserId"] == owner]
     remaining = [item for item in items if item["ownerUserId"] != owner]
     requested = tuple(sorted(set(project.strip() for project in projects if project.strip())))
-    if (not selected or tuple(sorted({item["projectCode"] for item in selected})) != requested
+    selected = [item for item in owner_items if item["projectCode"] in requested]
+    settled = [item for item in owner_items if item["projectCode"] not in requested]
+    if (not selected or not settled or tuple(sorted({item["projectCode"] for item in selected})) != requested
             or any(item["status"] != "PENDING" for item in items)):
-        raise ValueError("requested projects must equal the complete pending owner scope")
+        raise ValueError("requested projects must be the pending owner subset with settled remainder")
     states = {(state["ownerUserId"], state["projectCode"]): state for state in snapshot["projectStates"]}
     selected_states = []
+    binding_items = []
     for project in requested:
         state = states.get((owner, project))
         versions = {item["expectedAuthVersion"] for item in selected if item["projectCode"] == project}
@@ -131,11 +137,19 @@ def build_manifest(snapshot: dict, owner: int, projects: tuple[str, ...], actor:
                 or state["activeRecoveryId"] != source["id"] or state["authVersion"] != next(iter(versions))):
             raise ValueError("selected project state differs from its source recovery item")
         selected_states.append(state)
+        prototype = next(item for item in selected if item["projectCode"] == project)
+        binding_items.append({"projectCode": project, "storeCode": prototype["storeCode"],
+                              "siteCode": prototype["siteCode"],
+                              "expectedAuthVersion": state["authVersion"] + 1})
+    for project in sorted({item["projectCode"] for item in settled}):
+        state = states.get((owner, project))
+        versions = {item["expectedAuthVersion"] for item in settled if item["projectCode"] == project}
+        if (state is None or len(versions) != 1 or state["status"] != "HEALTHY"
+                or state["activeRecoveryId"] is not None or state["authVersion"] <= next(iter(versions))):
+            raise ValueError("settled project is not already healthy after its historical item")
     if len(states) != len({(item["ownerUserId"], item["projectCode"]) for item in items}):
         raise ValueError("source recovery has missing or duplicate project state")
-    selected_task_ids = {item["sourceTaskId"] for item in selected if item["sourceTaskId"] is not None}
-    if any(item["sourceTaskId"] is None and item["resumePolicy"] != "NONE" for item in selected):
-        raise ValueError("source-less selected item is not a binding-only recovery")
+    selected_task_ids = {item["sourceTaskId"] for item in owner_items if item["sourceTaskId"] is not None}
     tasks = sorted(snapshot["tasks"], key=lambda task: task["id"])
     if {task["id"] for task in tasks} != selected_task_ids or len(selected_task_ids) != len(tasks):
         raise ValueError("task scope differs from selected owner recovery items")
@@ -149,13 +163,14 @@ def build_manifest(snapshot: dict, owner: int, projects: tuple[str, ...], actor:
                 or task["planPaused"] != "base64:type16:AA=="):
             raise ValueError("selected task is not a zero-progress blocked pull")
     core = {"ownerUserId": owner, "identityKey": snapshot["identityKey"], "predecessor": predecessor,
-            "source": source, "items": selected, "remainingItems": remaining,
-            "projects": selected_states, "tasks": tasks, "planIds": sorted(task["planId"] for task in tasks),
+            "source": source, "items": selected, "settledItems": settled, "remainingItems": remaining,
+            "projects": selected_states, "bindingItems": binding_items, "tasks": tasks,
+            "planIds": sorted(task["planId"] for task in tasks),
             "remainingProjectCount": len({item["projectCode"] for item in remaining}),
             "remainingSha256": _sha(remaining), "providerGenerateCount": snapshot["providerGenerateCount"],
             "providerGenerateMaxId": snapshot["providerGenerateMaxId"], "releaseProvenance": provenance}
     digest = _sha(core)
-    return {"manifestVersion": 1, "manifestKey": f"owner{owner}-takeover-{predecessor['id']}-{source['id']}-{digest[:12]}",
+    return {"manifestVersion": 2, "manifestKey": f"owner{owner}-terminal-drain-{predecessor['id']}-{source['id']}-{digest[:12]}",
             "manifestSha256": digest, "preStateSha256": _sha(snapshot), "createdBy": actor.strip(), **core}
 
 
@@ -172,11 +187,11 @@ def _load(path: Path) -> dict:
         raise ValueError("takeover manifest must be an owner-only 0600 regular file")
     value = json.loads(path.read_text(encoding="utf-8"))
     core = {key: value[key] for key in ("ownerUserId", "identityKey", "predecessor", "source", "items",
-            "remainingItems", "projects", "tasks", "planIds", "remainingProjectCount", "remainingSha256",
+            "settledItems", "remainingItems", "projects", "bindingItems", "tasks", "planIds", "remainingProjectCount", "remainingSha256",
             "providerGenerateCount", "providerGenerateMaxId", "releaseProvenance")}
-    if _sha(core) != value.get("manifestSha256") or value.get("manifestVersion") != 1:
+    if _sha(core) != value.get("manifestSha256") or value.get("manifestVersion") != 2:
         raise ValueError("takeover manifest checksum mismatch")
-    if value.get("manifestKey") != f"owner{value['ownerUserId']}-takeover-{value['predecessor']['id']}-{value['source']['id']}-{value['manifestSha256'][:12]}":
+    if value.get("manifestKey") != f"owner{value['ownerUserId']}-terminal-drain-{value['predecessor']['id']}-{value['source']['id']}-{value['manifestSha256'][:12]}":
         raise ValueError("takeover manifest identity mismatch")
     return value
 
