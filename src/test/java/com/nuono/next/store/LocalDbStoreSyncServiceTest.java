@@ -49,8 +49,7 @@ class LocalDbStoreSyncServiceTest {
         service = new LocalDbStoreSyncService(
                 storeSyncMapper,
                 localDbBootstrapStatusService,
-                noonSessionGateway,
-                projectAuthRecoveryQueue
+                noonSessionGateway
         );
     }
 
@@ -134,9 +133,6 @@ class LocalDbStoreSyncServiceTest {
         ));
         when(storeSyncMapper.updateProjectSharedEmailBinding(any(), any(), any(), any(), any()))
                 .thenReturn(1);
-        when(projectAuthRecoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE")))
-                .thenReturn(Optional.of(91L));
-
         StoreBindingResult result = service.bindStore(command);
 
         assertEquals(true, result.isSuccess());
@@ -148,7 +144,7 @@ class LocalDbStoreSyncServiceTest {
                 eq("7001"),
                 eq(307L)
         );
-        verify(projectAuthRecoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE"));
+        verify(projectAuthRecoveryQueue, never()).enqueue(any());
     }
 
     @Test
@@ -179,9 +175,6 @@ class LocalDbStoreSyncServiceTest {
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
         when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
         when(storeSyncMapper.nextStoreId()).thenReturn(7010L);
-        when(projectAuthRecoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE")))
-                .thenReturn(Optional.of(91L));
-
         StoreBindingResult result = service.createStore(command);
 
         assertEquals(true, result.isSuccess());
@@ -208,7 +201,7 @@ class LocalDbStoreSyncServiceTest {
                 eq("AE"),
                 eq(true)
         );
-        verify(projectAuthRecoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE"));
+        verify(projectAuthRecoveryQueue, never()).enqueue(any());
     }
 
     @Test
