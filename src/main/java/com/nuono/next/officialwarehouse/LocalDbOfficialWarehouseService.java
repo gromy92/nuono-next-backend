@@ -1,5 +1,4 @@
 package com.nuono.next.officialwarehouse;
-
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -89,9 +88,7 @@ import org.springframework.util.StringUtils;
 
 @Service
 @Profile("local-db")
-public class LocalDbOfficialWarehouseService implements
-        OfficialWarehouseAsnNumberSyncer,
-        OfficialWarehouseAsnListTaskExecutor {
+public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumberSyncer, OfficialWarehouseAsnListTaskExecutor {
 
     private static final BigDecimal CUBIC_FEET_DIVISOR = new BigDecimal("28316.846592");
     private static final int DEFAULT_APPOINTMENT_RETRY_SECONDS = 5;
@@ -150,7 +147,6 @@ public class LocalDbOfficialWarehouseService implements
                 new OfficialWarehouseAppointmentLifecycleModule(mapper)
         );
     }
-
     @Autowired
     public LocalDbOfficialWarehouseService(
             OfficialWarehouseMapper mapper,
@@ -183,17 +179,14 @@ public class LocalDbOfficialWarehouseService implements
                 mapper, noonInboundClient, objectMapper, this.failurePolicy
         );
     }
-
     @Autowired(required = false)
     void setAsnListPullServiceProvider(ObjectProvider<OfficialWarehouseAsnListPullService> provider) {
         this.asnListPullServiceProvider = provider;
     }
-
     @Autowired(required = false)
     void setAsnSyncThrottleMapper(OfficialWarehouseAsnSyncThrottleMapper throttleMapper) {
         asnListRemoteExecutor.setThrottleMapper(throttleMapper);
     }
-
     public List<AsnView> listAsns(
             BusinessAccessContext access,
             String storeCode,
@@ -225,7 +218,6 @@ public class LocalDbOfficialWarehouseService implements
                 })
                 .collect(Collectors.toList());
     }
-
     public AsnListSyncView syncNoonAsnList(
             BusinessAccessContext access,
             String storeCode,
@@ -694,8 +686,16 @@ public class LocalDbOfficialWarehouseService implements
         NoonSalesReportBinding binding = bindingResolver.resolve(new NoonSalesReportRequest(
                 ownerUserId, site.logicalStoreId, site.storeCode, site.siteCode, LocalDate.now(), LocalDate.now()));
         NoonCallContext asnCallContext = NoonCallContext.asn(asnId, localAsnNo);
-        OfficialWarehouseAsnWritePreparation.Prepared prepared = OfficialWarehouseAsnWritePreparation.prepare(
-                noonSessionGateway, asnProductPreflight, ownerUserId, binding, asnCallContext, lineRows);
+        OfficialWarehouseAsnWritePreparation.Prepared prepared;
+        try {
+            prepared = OfficialWarehouseAsnWritePreparation.prepare(
+                    noonSessionGateway, asnProductPreflight, ownerUserId, binding, asnCallContext, lineRows);
+        } catch (ApiProblemException exception) {
+            OfficialWarehouseAsnPreflightAuditRecorder.record(
+                    mapper, objectMapper, binding, asnCallContext, access.getSessionUserId(), lineRows.size(), exception
+            );
+            throw exception;
+        }
         OfficialWarehouseAsnProductPreflightProof preflightProof = prepared.preflightProof();
         NoonSession writeSession = prepared.writeSession();
         asnRow.projectCode = binding.getProjectCode();
