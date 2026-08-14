@@ -189,7 +189,8 @@ class RealProductListingProviderSafetyTest {
                 new ProductListingRealWriteProperties(),
                 imageUrl -> new ProductListingImageDownload("item.jpg", "image/jpeg", new byte[] {1})
         );
-        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
         return adapter;
     }
 

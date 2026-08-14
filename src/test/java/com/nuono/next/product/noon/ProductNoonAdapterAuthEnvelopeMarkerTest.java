@@ -165,9 +165,7 @@ class ProductNoonAdapterAuthEnvelopeMarkerTest {
                 new NoonProductGateway()
         );
         adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
-                queue,
-                mock(NoonPullProjectAuthGate.class)
-        ));
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
         return new RecoveryFixture(adapter, queue);
     }
 

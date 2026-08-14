@@ -37,9 +37,7 @@ class ProductImageManualRetryAuthGateTest {
                 events
         );
         service.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
-                mock(NoonAuthWaitQueue.class),
-                authGate
-        ));
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
         ProductImageProfileRecord profile = profile();
         ProductImageSuiteRecord suite = failedGenerationSuite();
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
@@ -62,16 +60,14 @@ class ProductImageManualRetryAuthGateTest {
     }
 
     @Test
-    void authRecoveryRetryShouldStayFailedUntilASecondManualAttemptSeesCurrentProjectAvailable() {
+    void manualLoginRequiredShouldKeepImageRetryStoppedUntilAccountIsAvailable() {
         ProductImageProfileMapper mapper = mock(ProductImageProfileMapper.class);
         ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
-        NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
-        StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
+        com.nuono.next.noon.NoonAccountSessionAttentionPort attention =
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class);
+        when(attention.blocksProviderCalls()).thenReturn(true, false);
         ProductWriteAuthRecovery authRecovery = new ProductWriteAuthRecovery(
-                mock(NoonAuthWaitQueue.class),
-                authGate
-        );
-        authRecovery.setStoreSyncMapper(storeSyncMapper);
+                attention);
         ProductImageProfileService service = new ProductImageProfileService(
                 mapper,
                 mock(OperationsSkinMapper.class),
@@ -83,14 +79,8 @@ class ProductImageManualRetryAuthGateTest {
 
         ProductImageProfileRecord profile = profile();
         ProductImageSuiteRecord suite = failedAuthSuite();
-        StoreSyncStoreRecord blockedProject = project("PRJ-BLOCKED");
-        StoreSyncStoreRecord restoredProject = project("PRJ-RESTORED");
         when(mapper.selectProfileById(7001L, 307L, "STR108065-NAE")).thenReturn(profile);
         when(mapper.selectSuiteById(9901L, 7001L)).thenReturn(suite);
-        when(storeSyncMapper.selectOwnerProject(307L, "STR108065-NAE"))
-                .thenReturn(blockedProject, restoredProject, restoredProject);
-        when(authGate.isBlocked(307L, "PRJ-BLOCKED")).thenReturn(true);
-        when(authGate.isBlocked(307L, "PRJ-RESTORED")).thenReturn(false);
 
         assertThrows(
                 ProductWriteAuthRequiredException.class,
@@ -118,9 +108,6 @@ class ProductImageManualRetryAuthGateTest {
                 eq(9901L), eq(7001L), anyString(), eq(10003L)
         );
         verify(events).publishEvent(any(ProductImagePublishSubmittedEvent.class));
-        verify(storeSyncMapper, times(3)).selectOwnerProject(307L, "STR108065-NAE");
-        verify(authGate).isBlocked(307L, "PRJ-BLOCKED");
-        verify(authGate, times(2)).isBlocked(307L, "PRJ-RESTORED");
     }
 
     private ProductImageProfileRecord profile() {

@@ -2,6 +2,7 @@ package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -38,13 +39,9 @@ class ProductListingNoonAuthEnvelopeTest {
         ProductListingNoonWriteResult result = fixture.adapter.execute(request(List.of()));
 
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getFailureCode());
-        assertEquals(701L, result.getRecoveryId());
+        assertNull(result.getRecoveryId());
         assertFalse(result.getWriteMayHaveOccurred());
         assertEquals(1, session.writeCalls.get());
-        verify(fixture.queue).enqueue(listingWaitRequest(
-                "create_product",
-                NoonAuthResumePolicy.AUTO_RESUME
-        ));
     }
     @Test
     void authEnvelopeAfterSuccessfulCreateStopsLaterWritesAndKeepsRisk() {
@@ -172,7 +169,8 @@ class ProductListingNoonAuthEnvelopeTest {
                 properties,
                 imageUrl -> new ProductListingImageDownload("item.jpg", "image/jpeg", new byte[] {1})
         );
-        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
         return new RecoveryFixture(adapter, queue);
     }
 

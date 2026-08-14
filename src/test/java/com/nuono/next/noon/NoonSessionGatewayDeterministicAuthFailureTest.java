@@ -47,8 +47,7 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
             );
             NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
             ProductWriteAuthRecovery recovery = new ProductWriteAuthRecovery(
-                    recoveryQueue,
-                    mock(NoonPullProjectAuthGate.class)
+                    mock(NoonAccountSessionAttentionPort.class)
             );
 
             assertTrue(propagated instanceof NoonSessionGateway.NoonCookieAuthRequiredException);
