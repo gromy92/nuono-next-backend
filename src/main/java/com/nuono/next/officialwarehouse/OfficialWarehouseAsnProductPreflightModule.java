@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.util.StringUtils;
 
@@ -105,7 +106,17 @@ final class OfficialWarehouseAsnProductPreflightModule {
         }
         List<String> pbarcodes = partnerBarcodes(exactMatches.get(0));
         if (pbarcodes.isEmpty()) {
-            issues.add(issue(partnerSku, pskuCode, "PBARCODE_UNMAPPED", "Noon 未给该 PSKU 建立有效 pbarcode 映射。"));
+            Map<String, Object> issue = issue(
+                    partnerSku,
+                    pskuCode,
+                    "PBARCODE_UNMAPPED",
+                    "Noon 未给该 PSKU 建立有效 pbarcode 映射。"
+            );
+            List<Map<String, Object>> owners = pbarcodeOwners(offers, sourceBarcodes(line));
+            if (!owners.isEmpty()) {
+                issue.put("pbarcodeOwners", owners);
+            }
+            issues.add(issue);
             return null;
         }
         for (String sourceBarcode : sourceBarcodes(line)) {
@@ -121,6 +132,42 @@ final class OfficialWarehouseAsnProductPreflightModule {
             }
         }
         return new FrozenLine(line, sourceBarcodes(line), pbarcodes);
+    }
+
+    /**
+     * Keeps a failed preflight fail-closed, but exposes an exact same-store candidate when the
+     * physical logistics barcode is owned by a different live Noon offer. This is evidence for a
+     * separately confirmed catalog correction, never an implicit identity substitution.
+     */
+    private List<Map<String, Object>> pbarcodeOwners(List<JsonNode> offers, List<String> sourceBarcodes) {
+        if (sourceBarcodes == null || sourceBarcodes.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> owners = new ArrayList<>();
+        for (JsonNode offer : offers == null ? List.<JsonNode>of() : offers) {
+            List<String> offerPbarcodes = partnerBarcodes(offer);
+            List<String> matched = sourceBarcodes.stream()
+                    .filter(offerPbarcodes::contains)
+                    .sorted(Comparator.comparing(value -> value.toUpperCase(Locale.ROOT)))
+                    .collect(Collectors.toList());
+            if (matched.isEmpty()) {
+                continue;
+            }
+            String ownerPartnerSku = jsonText(offer, "partner_sku", "partnerSku");
+            String ownerPskuCode = NoonProductListFieldSupport.pskuCode(offer);
+            String ownerNoonSku = jsonText(offer, "zsku_child", "noon_sku", "noonSku", "sku");
+            if (ownerPartnerSku == null || ownerPskuCode == null || ownerNoonSku == null) {
+                continue;
+            }
+            Map<String, Object> owner = new LinkedHashMap<>();
+            owner.put("partnerSku", ownerPartnerSku);
+            owner.put("pskuCode", ownerPskuCode);
+            owner.put("noonSku", ownerNoonSku);
+            owner.put("sourceBarcodes", matched);
+            owners.add(owner);
+        }
+        owners.sort(Comparator.comparing(owner -> String.valueOf(owner.get("partnerSku")).toUpperCase(Locale.ROOT)));
+        return Collections.unmodifiableList(owners);
     }
 
     private static List<String> sourceBarcodes(AsnLineInsertRecord line) {
