@@ -2,12 +2,21 @@ package com.nuono.next.noon;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+
+import com.nuono.next.noonauth.NoonAuthRecoveryCoordinator;
+import com.nuono.next.noonauth.NoonAuthRecoveryScheduler;
+import com.nuono.next.noonauth.NoonAuthRecoveryWorker;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.stereotype.Component;
+import org.springframework.stereotype.Service;
 
 class NoonAccountManualOtpServiceTest {
 
@@ -16,7 +25,7 @@ class NoonAccountManualOtpServiceTest {
         RecordingGateway gateway = new RecordingGateway();
         NoonAccountManualOtpService service = service(gateway);
 
-        assertThat(service.status().getStatus()).isEqualTo(NoonAccountSessionStatus.MANUAL_OTP_REQUIRED);
+        assertThat(service.status().getStatus()).isEqualTo(NoonAccountSessionStatus.UNKNOWN);
         NoonAccountSessionView first = service.send(307L);
         NoonAccountSessionView repeated = service.send(307L);
 
@@ -59,6 +68,30 @@ class NoonAccountManualOtpServiceTest {
 
         assertThat(gateway.sendCount).isEqualTo(1);
         assertThat(gateway.validationCount).isZero();
+    }
+
+    @Test
+    void legacyCallersOnlyRaiseManualAttentionAndNeverCreateAnAutomaticRecovery() {
+        RecordingGateway gateway = new RecordingGateway();
+        NoonAccountManualOtpService service = service(gateway);
+        @SuppressWarnings("unchecked")
+        ObjectProvider<NoonAccountManualOtpService> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(service);
+
+        NoonAccountSessionAttention attention = new NoonAccountSessionAttention(provider);
+        attention.enqueue(null);
+
+        assertThat(service.status().getStatus()).isEqualTo(NoonAccountSessionStatus.MANUAL_OTP_REQUIRED);
+        assertThat(attention.isBlocked(307L, "PRJ307")).isTrue();
+        assertThat(gateway.sendCount).isZero();
+        assertThat(gateway.validationCount).isZero();
+    }
+
+    @Test
+    void oldRecoveryExecutorIsNotRegisteredAsAnApplicationComponent() {
+        assertThat(NoonAuthRecoveryCoordinator.class.getAnnotation(Service.class)).isNull();
+        assertThat(NoonAuthRecoveryWorker.class.getAnnotation(Service.class)).isNull();
+        assertThat(NoonAuthRecoveryScheduler.class.getAnnotation(Component.class)).isNull();
     }
 
     private static NoonAccountManualOtpService service(RecordingGateway gateway) {

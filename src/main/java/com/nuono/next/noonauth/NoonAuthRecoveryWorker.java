@@ -30,10 +30,8 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-@Service
 @Profile("local-db")
 public class NoonAuthRecoveryWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(NoonAuthRecoveryWorker.class);

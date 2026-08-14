@@ -25,10 +25,8 @@ import javax.mail.AuthenticationFailedException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-@Component
 @Profile("local-db")
 public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGateway {
 

@@ -25,8 +25,8 @@ public final class NoonAccountManualOtpService {
     private final Clock clock;
     private final SecureRandom random;
     private ActiveChallenge activeChallenge;
-    private NoonAccountSessionStatus lastStatus = NoonAccountSessionStatus.MANUAL_OTP_REQUIRED;
-    private String lastMessage = "Noon 账号需要人工登录；系统不会自动发送验证码。";
+    private NoonAccountSessionStatus lastStatus = NoonAccountSessionStatus.UNKNOWN;
+    private String lastMessage = "Noon 账号尚未校验；系统不会自动发送验证码。";
 
     NoonAccountManualOtpService(
             NoonAccountManualOtpGateway gateway,
@@ -135,6 +135,22 @@ public final class NoonAccountManualOtpService {
         lastMessage = active
                 ? "Noon 账号日常会话校验通过。"
                 : "Noon 账号会话已失效；请由账号管理员人工发送一次验证码。";
+    }
+
+    synchronized void recordAuthenticationRequired() {
+        expireIfNecessary();
+        if (activeChallenge != null) {
+            return;
+        }
+        lastStatus = NoonAccountSessionStatus.MANUAL_OTP_REQUIRED;
+        lastMessage = "Noon 账号会话已失效；请由账号管理员人工发送一次验证码。";
+    }
+
+    synchronized boolean blocksProviderCalls() {
+        expireIfNecessary();
+        return lastStatus == NoonAccountSessionStatus.MANUAL_OTP_REQUIRED
+                || lastStatus == NoonAccountSessionStatus.OTP_SENT
+                || lastStatus == NoonAccountSessionStatus.MANUAL_ACTION_REQUIRED;
     }
 
     private void expireIfNecessary() {
