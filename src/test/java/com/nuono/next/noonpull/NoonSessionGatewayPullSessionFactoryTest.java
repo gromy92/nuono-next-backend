@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonSessionGateway;
 import org.junit.jupiter.api.Test;
@@ -43,11 +44,12 @@ class NoonSessionGatewayPullSessionFactoryTest {
     }
 
     @Test
-    void blockedProjectMustStopBeforeAnyNoonHttpSessionCall() {
+    void unavailableSharedAccountMustStopBeforeAnyNoonHttpSessionCall() {
         NoonSessionGateway gateway = mock(NoonSessionGateway.class);
         NoonSessionGatewayPullSessionFactory factory = new NoonSessionGatewayPullSessionFactory(gateway);
-        factory.setProjectAuthGate((ownerUserId, projectCode) ->
-                Long.valueOf(308L).equals(ownerUserId) && "PRJ313934".equals(projectCode));
+        NoonAccountSessionAttentionPort attention = mock(NoonAccountSessionAttentionPort.class);
+        org.mockito.Mockito.when(attention.blocksProviderCalls()).thenReturn(true);
+        factory.setAccountSessionAttention(attention);
         NoonPullStoreBinding binding = new NoonPullStoreBinding(
                 308L,
                 "PRJ313934",

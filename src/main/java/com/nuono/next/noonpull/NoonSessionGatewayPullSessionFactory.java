@@ -3,6 +3,7 @@ package com.nuono.next.noonpull;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonBinaryDownloadSink;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import java.util.Map;
@@ -16,7 +17,7 @@ import org.springframework.stereotype.Component;
 @Conditional(NoonPullRealProviderCondition.class)
 public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySessionFactory {
     private final NoonSessionGateway noonSessionGateway;
-    private NoonPullProjectAuthGate projectAuthGate = (ownerUserId, projectCode) -> false;
+    private NoonAccountSessionAttentionPort accountSessionAttention;
 
     public NoonSessionGatewayPullSessionFactory(NoonSessionGateway noonSessionGateway) {
         this.noonSessionGateway = noonSessionGateway;
@@ -49,17 +50,14 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
     }
 
     @Autowired(required = false)
-    void setProjectAuthGate(NoonPullProjectAuthGate projectAuthGate) {
-        this.projectAuthGate = projectAuthGate == null
-                ? (ownerUserId, projectCode) -> false
-                : projectAuthGate;
+    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
+        this.accountSessionAttention = accountSessionAttention;
     }
 
     private void requireProjectAvailable(NoonPullStoreBinding binding) {
-        if (projectAuthGate.isBlocked(binding.getOwnerUserId(), binding.getProjectCode())) {
+        if (accountSessionAttention != null && accountSessionAttention.blocksProviderCalls()) {
             throw new NoonAuthenticationRequiredException(
-                    "Noon Project authorization recovery is pending; project="
-                            + binding.getProjectCode()
+                    "Noon shared account requires manual login before provider calls."
             );
         }
     }
