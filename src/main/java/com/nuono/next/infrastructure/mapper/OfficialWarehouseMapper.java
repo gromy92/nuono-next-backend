@@ -1,6 +1,7 @@
 package com.nuono.next.infrastructure.mapper;
 
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInsertRecord;
+import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnPreflightAuditRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnInboundReceiptRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineInsertRecord;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AsnLineRecord;
@@ -47,6 +48,9 @@ public interface OfficialWarehouseMapper {
     @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_asn_shipping_batch_link")
     Long selectMaxAsnShippingBatchLinkId();
 
+    @Select("SELECT COALESCE(MAX(id), 0) FROM official_warehouse_asn_preflight_audit")
+    Long selectMaxAsnPreflightAuditId();
+
     @Insert({
             "INSERT INTO product_management_id_sequence (sequence_name, next_id, gmt_create, gmt_updated)",
             "VALUES (#{sequenceName}, #{minAllocatedId}, NOW(), NOW())",
@@ -78,6 +82,12 @@ public interface OfficialWarehouseMapper {
         );
     }
 
+    default Long nextAsnPreflightAuditId() {
+        return nextIdAfterTableMax(
+                "official_warehouse_asn_preflight_audit", 630000L, selectMaxAsnPreflightAuditId()
+        );
+    }
+
     default Long nextIdAfterTableMax(String sequenceName, long initialValue, Long tableMaxId) {
         if (tableMaxId != null && tableMaxId > initialValue) {
             ensureSequenceAtLeast(sequenceName, tableMaxId);
@@ -89,6 +99,20 @@ public interface OfficialWarehouseMapper {
         }
         return command.getAllocatedId();
     }
+
+    @Insert({
+            "INSERT INTO official_warehouse_asn_preflight_audit (",
+            "id, owner_user_id, operator_user_id, logical_store_id, project_code, store_code, site_code, partner_id,",
+            "attempt_asn_id, attempt_ref, operation, request_line_count, invalid_line_count, failure_code,",
+            "failure_message, reason_summary, invalid_lines_json, created_by, updated_by, gmt_create, gmt_updated",
+            ") VALUES (",
+            "#{row.id}, #{row.ownerUserId}, #{row.operatorUserId}, #{row.logicalStoreId}, #{row.projectCode},",
+            "#{row.storeCode}, #{row.siteCode}, #{row.partnerId}, #{row.attemptAsnId}, #{row.attemptRef},",
+            "#{row.operation}, #{row.requestLineCount}, #{row.invalidLineCount}, #{row.failureCode},",
+            "#{row.failureMessage}, #{row.reasonSummary}, #{row.invalidLinesJson}, #{row.operatorUserId},",
+            "#{row.operatorUserId}, NOW(), NOW())"
+    })
+    int insertAsnPreflightAudit(@Param("row") AsnPreflightAuditRecord row);
 
     @Select({
             "<script>",
