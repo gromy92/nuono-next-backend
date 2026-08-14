@@ -315,6 +315,20 @@ public class NoonSessionGateway {
         return normalizedEmail;
     }
 
+    /**
+     * Returns the configured Noon login identity for an operator-entered OTP flow.
+     *
+     * <p>Unlike the retired mailbox-polling recovery path, this does not require an email
+     * authorization code because the operator supplies the OTP directly.</p>
+     */
+    public String configuredMerchantLoginEmail() {
+        String normalizedEmail = normalizeUser(configuredMerchantEmail);
+        if (!StringUtils.hasText(normalizedEmail)) {
+            throw new IllegalStateException("未配置统一 Noon 商家后台登录邮箱。");
+        }
+        return normalizedEmail;
+    }
+
     String configuredMerchantMailAuthCode() {
         String normalizedMailAuthCode = normalize(configuredMerchantMailAuthCode);
         if (!StringUtils.hasText(normalizeUser(configuredMerchantEmail)) || !StringUtils.hasText(normalizedMailAuthCode)) {
