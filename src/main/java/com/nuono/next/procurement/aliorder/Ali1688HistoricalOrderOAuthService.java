@@ -14,15 +14,16 @@ import java.util.Map;
 import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponents;
 import org.springframework.web.util.UriComponentsBuilder;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 @Service
 public class Ali1688HistoricalOrderOAuthService {
@@ -320,14 +321,9 @@ public class Ali1688HistoricalOrderOAuthService {
 
     private void logAuthorizationRuntimeDiagnostic(Map<String, String> params, String authorizationUrl) {
         String runtimeAppKey = defaultText(params.get("client_id"), "");
-        String authorizationClientId = UriComponentsBuilder.fromUriString(authorizationUrl)
-                .build()
-                .getQueryParams()
-                .getFirst("client_id");
-        String authorizationRedirectUri = UriComponentsBuilder.fromUriString(authorizationUrl)
-                .build()
-                .getQueryParams()
-                .getFirst("redirect_uri");
+        UriComponents authorizationUri = UriComponentsBuilder.fromUriString(authorizationUrl).build();
+        String authorizationClientId = authorizationUri.getQueryParams().getFirst("client_id");
+        String authorizationRedirectUri = authorizationUri.getQueryParams().getFirst("redirect_uri");
         LOGGER.info(
                 "ALI1688_OAUTH_RUNTIME_DIAGNOSTIC runtimeAppKeyLength={} runtimeAppKeyFingerprint={} "
                         + "authorizationClientIdLength={} authorizationClientIdFingerprint={} "
@@ -338,7 +334,7 @@ public class Ali1688HistoricalOrderOAuthService {
                 runtimeDiagnosticFingerprint(authorizationClientId, properties.getTokenCipherSecret()),
                 runtimeAppKey.equals(authorizationClientId),
                 trim(properties.getRedirectUri()).equals(authorizationRedirectUri),
-                UriComponentsBuilder.fromUriString(authorizationUrl).build().getHost()
+                authorizationUri.getHost()
         );
     }
 
