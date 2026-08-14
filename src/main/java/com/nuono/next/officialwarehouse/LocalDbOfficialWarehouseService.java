@@ -1550,7 +1550,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                             appointment.siteCode, appointment.id
                     );
             if (blocked != null) {
-                markAppointmentPendingAuthRecovery(claim, operatorId, blocked);
+                markAppointmentManualLoginRequired(claim, operatorId, blocked);
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
             NoonSession session = openNoonSession(appointment.ownerUserId, binding);
@@ -1629,7 +1629,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                             )
                             : null;
             if (authWait != null) {
-                markAppointmentPendingAuthRecovery(claim, operatorId, authWait);
+                markAppointmentManualLoginRequired(claim, operatorId, authWait);
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
             NoonRiskBackoffHold riskBackoffHold = recordAppointmentRiskBackoffIfNeeded(appointment, message);
@@ -1673,14 +1673,13 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
     }
 
-    private void markAppointmentPendingAuthRecovery(
+    private void markAppointmentManualLoginRequired(
             OfficialWarehouseAppointmentRunClaim claim,
             Long operatorUserId,
             OfficialWarehouseAppointmentAuthRecovery.AuthWait wait
     ) {
-        appointmentLifecycle.completePending(
+        appointmentLifecycle.completeFailed(
                 claim,
-                wait.retrySeconds,
                 wait.errorStage,
                 wait.failureType,
                 wait.message,
