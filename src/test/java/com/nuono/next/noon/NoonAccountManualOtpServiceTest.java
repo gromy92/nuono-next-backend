@@ -71,7 +71,7 @@ class NoonAccountManualOtpServiceTest {
     }
 
     @Test
-    void legacyCallersOnlyRaiseManualAttentionAndNeverCreateAnAutomaticRecovery() {
+    void attentionOnlyRaisesManualLoginAndHasNoLegacyQueueAdapter() {
         RecordingGateway gateway = new RecordingGateway();
         NoonAccountManualOtpService service = service(gateway);
         @SuppressWarnings("unchecked")
@@ -79,10 +79,10 @@ class NoonAccountManualOtpServiceTest {
         when(provider.getIfAvailable()).thenReturn(service);
 
         NoonAccountSessionAttention attention = new NoonAccountSessionAttention(provider);
-        attention.enqueue(null);
+        attention.requireManualLogin();
 
         assertThat(service.status().getStatus()).isEqualTo(NoonAccountSessionStatus.MANUAL_OTP_REQUIRED);
-        assertThat(attention.isBlocked(307L, "PRJ307")).isTrue();
+        assertThat(attention.blocksProviderCalls()).isTrue();
         assertThat(gateway.sendCount).isZero();
         assertThat(gateway.validationCount).isZero();
     }
