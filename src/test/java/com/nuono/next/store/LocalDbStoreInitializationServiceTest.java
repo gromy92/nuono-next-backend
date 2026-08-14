@@ -1,11 +1,13 @@
 package com.nuono.next.store;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -14,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreInitializationSnapshotMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noonauth.NoonAuthResumePolicy;
 import com.nuono.next.noonauth.NoonAuthWaitRequest;
@@ -197,7 +200,7 @@ class LocalDbStoreInitializationServiceTest {
     }
 
     @Test
-    void missingProjectCookieWaitsAndPreservesExactInitializationTaskForAutomaticResume() {
+    void missingProjectCookieRequiresManualLoginWithoutCreatingAutomaticResumeTask() {
         StoreSyncOwnerContext owner = ownerContext();
         StoreSyncStoreRecord referenceStore = store(
                 51004L,
@@ -215,11 +218,8 @@ class LocalDbStoreInitializationServiceTest {
         when(storeSyncMapper.selectOwnerStore(307L, "PRJ245027")).thenReturn(referenceStore);
         when(storeSyncMapper.listOwnerStores(307L)).thenReturn(List.of(referenceStore));
         when(storeInitializationSnapshotMapper.nextId()).thenReturn(40001L);
-        List<NoonAuthWaitRequest> requests = new ArrayList<>();
-        service.setAuthWaitQueue(request -> {
-            requests.add(request);
-            return Optional.of(91L);
-        });
+        NoonAccountSessionAttentionPort attention = mock(NoonAccountSessionAttentionPort.class);
+        service.setAccountSessionAttention(attention);
         LocalDbStoreInitializationService.StoreInitializationCommand command =
                 new LocalDbStoreInitializationService.StoreInitializationCommand();
         command.setOwnerUserId(307L);
@@ -227,13 +227,9 @@ class LocalDbStoreInitializationServiceTest {
 
         LocalDbStoreInitializationService.StoreInitializationStatusView result = service.start(command);
 
-        assertEquals("WAITING_AUTHORIZATION", result.getStatus());
-        assertEquals(1, requests.size());
-        NoonAuthWaitRequest request = requests.get(0);
-        assertEquals("STORE_INITIALIZATION", request.getSourceDomain());
-        assertEquals(40001L, request.getSourceTaskId());
-        assertEquals("PROJECT_SESSION", request.getCheckpoint());
-        assertEquals(NoonAuthResumePolicy.AUTO_RESUME, request.getResumePolicy());
+        assertEquals("FAILED", result.getStatus());
+        assertTrue(result.getMessage().contains("不会自动发送验证码或继续"));
+        verify(attention).requireManualLogin();
     }
 
     private StoreSyncOwnerContext ownerContext() {

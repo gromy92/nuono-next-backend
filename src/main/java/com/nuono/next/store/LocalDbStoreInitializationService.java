@@ -13,15 +13,11 @@ import com.nuono.next.product.ProductListSummaryView;
 import com.nuono.next.product.ProductProjectionPersistenceService;
 import com.nuono.next.product.ProductSourceTypeSupport;
 import com.nuono.next.noon.NoonAccountTaskQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
-import com.nuono.next.noonauth.NoonAuthResumePolicy;
-import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
-import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import com.nuono.next.product.ProductNoonCatalogContentService;
@@ -38,7 +34,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -84,8 +79,7 @@ public class LocalDbStoreInitializationService {
     private final ProductProjectionPersistenceService productProjectionPersistenceService;
     private final ProductNoonCatalogContentService productNoonCatalogContentService;
     private final Map<String, InitializationState> stateMap = new ConcurrentHashMap<>();
-    private NoonAuthWaitQueue authWaitQueue = request -> Optional.empty();
-    private NoonPullProjectAuthGate projectAuthGate = (ownerUserId, projectCode) -> false;
+    private NoonAccountSessionAttentionPort accountSessionAttention;
 
     public LocalDbStoreInitializationService(
             StoreSyncMapper storeSyncMapper,
@@ -108,17 +102,8 @@ public class LocalDbStoreInitializationService {
     }
 
     @Autowired(required = false)
-    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
-        if (authWaitQueue != null) {
-            this.authWaitQueue = authWaitQueue;
-        }
-    }
-
-    @Autowired(required = false)
-    void setProjectAuthGate(NoonPullProjectAuthGate projectAuthGate) {
-        if (projectAuthGate != null) {
-            this.projectAuthGate = projectAuthGate;
-        }
+    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
+        this.accountSessionAttention = accountSessionAttention;
     }
 
     public StoreInitializationStatusView getStatus(Long ownerUserId, String storeCode) {
@@ -166,14 +151,10 @@ public class LocalDbStoreInitializationService {
         requireText(noonUser, "当前店铺还没有 Noon 账号上下文，请先完成店铺绑定。");
 
         InitializationState state = new InitializationState(buildIdleView(context));
-        String projectCode = firstNonBlank(
-                context.referenceStore.getProjectCode(),
-                context.owner.getNoonPartnerId()
-        );
         if (!StringUtils.hasText(resolveNoonCookie(context))
-                || projectAuthGate.isBlocked(command.getOwnerUserId(), projectCode)) {
+                || (accountSessionAttention != null && accountSessionAttention.blocksProviderCalls())) {
             stateMap.put(key, state);
-            return waitForAuthorization(context, state, "PROJECT_SESSION");
+            return requireManualLogin(context, state);
         }
         state.markRunning("开始初始化", 5, 1, 8, "正在识别项目和站点结构...");
         stateMap.put(key, state);
@@ -185,16 +166,6 @@ public class LocalDbStoreInitializationService {
                 noonUser
         ));
         return state.snapshot();
-    }
-
-    void resumeQueued(StoreInitializationSnapshotRecord record) {
-        if (record == null || record.getOwnerUserId() == null || !StringUtils.hasText(record.getStoreCode())) {
-            throw new IllegalArgumentException("缺少待恢复的店铺初始化任务上下文。");
-        }
-        StoreInitializationCommand command = new StoreInitializationCommand();
-        command.setOwnerUserId(record.getOwnerUserId());
-        command.setStoreCode(record.getStoreCode());
-        start(command);
     }
 
     public StoreInitializationPreflightView preflight(StoreInitializationCommand command) {
@@ -601,7 +572,7 @@ public class LocalDbStoreInitializationService {
             if (NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)
                     && !NoonAuthenticationFailureClassifier
                             .hasPermanentAuthenticationFailureEvidence(exception)) {
-                waitForAuthorization(context, state, "INITIALIZATION_READ");
+                requireManualLogin(context, state);
                 return;
             }
             if (StringUtils.hasText(exception.getMessage())) {
@@ -817,42 +788,16 @@ public class LocalDbStoreInitializationService {
         }
     }
 
-    private StoreInitializationStatusView waitForAuthorization(
+    private StoreInitializationStatusView requireManualLogin(
             StoreContext context,
-            InitializationState state,
-            String checkpoint
+            InitializationState state
     ) {
-        state.markWaitingAuthorization(
-                "Noon Project 会话待恢复，授权完成后将自动继续本次初始化。"
-        );
-        Long snapshotId = persistSnapshot(
-                context.owner.getId(),
-                context.referenceStore.getStoreCode(),
-                state.snapshot()
-        );
-        try {
-            Optional<Long> recoveryId = authWaitQueue.enqueue(NoonAuthWaitRequest.task(
-                    context.owner.getId(),
-                    firstNonBlank(
-                            context.referenceStore.getProjectCode(),
-                            context.owner.getNoonPartnerId()
-                    ),
-                    context.referenceStore.getStoreCode(),
-                    context.referenceStore.getSite(),
-                    "STORE_INITIALIZATION",
-                    snapshotId,
-                    checkpoint,
-                    NoonAuthResumePolicy.AUTO_RESUME
-            ));
-            if (recoveryId.isPresent()) {
-                return state.snapshot();
-            }
-            state.markFailed("统一 Noon 授权恢复队列暂不可用，请稍后重试。");
-        } catch (NoonAuthRetrySuppressedException suppressed) {
-            state.markFailed(suppressed.getMessage());
-        } catch (RuntimeException queueFailure) {
-            state.markFailed("统一 Noon 授权恢复队列暂不可用，请稍后重试。");
+        if (accountSessionAttention != null) {
+            accountSessionAttention.requireManualLogin();
         }
+        state.markFailed(
+                "Noon 共享账号需要人工登录；系统不会自动发送验证码或继续本次店铺初始化。"
+        );
         persistSnapshot(
                 context.owner.getId(),
                 context.referenceStore.getStoreCode(),
