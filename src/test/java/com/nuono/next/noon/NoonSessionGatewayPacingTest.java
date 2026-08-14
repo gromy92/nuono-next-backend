@@ -21,7 +21,10 @@ class NoonSessionGatewayPacingTest {
         byte[] export = "date,amount\n2026-08-14,10\n".getBytes(StandardCharsets.UTF_8);
         HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/whoami", exchange -> respond(exchange, "application/json", "{}".getBytes(StandardCharsets.UTF_8)));
-        server.createContext("/report.csv", exchange -> respond(exchange, "text/csv", export));
+        server.createContext("/report.csv", exchange -> {
+            exchange.getResponseHeaders().set("ETag", "\"export-v1\"");
+            respond(exchange, "text/csv", export);
+        });
         server.start();
         try {
             String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort();
