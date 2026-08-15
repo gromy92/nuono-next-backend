@@ -3003,8 +3003,8 @@ public interface ProductManagementMapper extends ProductDeleteTaskSubmissionMapp
             "    AND logical_store_id = VALUES(logical_store_id) AND BINARY partner_sku = BINARY VALUES(partner_sku)),",
             "    VALUES(partner_sku), partner_sku),",
             "  variant_id = IF(is_deleted = 1, VALUES(variant_id), variant_id),",
-            "  barcode_type = VALUES(barcode_type),",
-            "  is_primary = VALUES(is_primary),",
+            "  is_primary = IF(is_deleted = 1 OR barcode_type IS NULL, VALUES(is_primary), is_primary),",
+            "  barcode_type = IF(is_deleted = 1 OR barcode_type IS NULL, VALUES(barcode_type), barcode_type),",
             "  is_deleted = 0,",
             "  updated_by = VALUES(updated_by),",
             "  gmt_updated = NOW()"

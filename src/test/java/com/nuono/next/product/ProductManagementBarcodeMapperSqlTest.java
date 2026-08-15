@@ -49,6 +49,33 @@ class ProductManagementBarcodeMapperSqlTest {
     }
 
     @Test
+    void projectionBarcodeUpsertMustPreserveGovernedAuthorityMetadata() throws Exception {
+        Method method = ProductManagementMapper.class.getMethod(
+                "upsertProductBarcode",
+                Long.class,
+                Long.class,
+                Long.class,
+                Long.class,
+                String.class,
+                String.class,
+                String.class,
+                boolean.class,
+                Long.class
+        );
+
+        String sql = String.join(" ", method.getAnnotation(Insert.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql)
+                .contains("is_primary = IF(is_deleted = 1 OR barcode_type IS NULL, VALUES(is_primary), is_primary)")
+                .contains("barcode_type = IF(is_deleted = 1 OR barcode_type IS NULL, VALUES(barcode_type), barcode_type)")
+                .doesNotContain("barcode_type = VALUES(barcode_type)")
+                .doesNotContain("is_primary = VALUES(is_primary)");
+        assertThat(sql.indexOf("is_primary = IF"))
+                .isLessThan(sql.indexOf("barcode_type = IF"));
+    }
+
+    @Test
     void productBarcodeLookupsAreScopedToLogicalStore() throws Exception {
         assertStoreScopedBarcodeLookup("selectProductBarcodeIdByBarcode", true);
         assertStoreScopedBarcodeLookup("selectProductBarcodeProductMasterIdByBarcode", true);

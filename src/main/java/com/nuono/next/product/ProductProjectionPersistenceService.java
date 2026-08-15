@@ -2690,16 +2690,14 @@ public class ProductProjectionPersistenceService {
         if (variantId == null) {
             return;
         }
-        for (String barcode : seed.getBarcodes()) {
-            productBarcodeProjectionWriter.persist(
-                    variantId,
-                    productMasterId,
-                    logicalStoreId,
-                    seed.getPartnerSku(),
-                    barcode,
-                    updatedBy
-            );
-        }
+        productBarcodeProjectionWriter.persistAll(
+                variantId,
+                productMasterId,
+                logicalStoreId,
+                seed.getPartnerSku(),
+                seed.getBarcodes(),
+                updatedBy
+        );
         if (seed.getSiteOffers().isEmpty()) {
             seed.addSiteOffer(SiteOfferSeed.fromRepresentative(seed));
         }
