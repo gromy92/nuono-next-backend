@@ -5,6 +5,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -40,6 +41,7 @@ public final class NoonAccountManualOtpService {
         this.random = random;
     }
 
+    @Autowired
     public NoonAccountManualOtpService(
             NoonAccountManualOtpGateway gateway,
             NoonAccountProjectSessionRefresher projectSessionRefresher
