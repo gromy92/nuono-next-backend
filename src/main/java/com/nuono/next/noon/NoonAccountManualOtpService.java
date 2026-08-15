@@ -116,7 +116,11 @@ public final class NoonAccountManualOtpService {
                 return new NoonAccountSessionView(lastStatus, null, null, lastMessage);
             }
             lastStatus = NoonAccountSessionStatus.ACTIVE;
-            lastMessage = "Noon 账号已验证，全部已绑定 Project 会话已更新。";
+            lastMessage = refreshed.getExcludedProjects() > 0
+                    ? "Noon 账号已验证，已更新 " + refreshed.getRefreshedProjects()
+                            + " 个 Project；" + refreshed.getExcludedProjects()
+                            + " 个本地 Project 不在当前 Noon 账号权限中，未发送第二次验证码。"
+                    : "Noon 账号已验证，全部已绑定 Project 会话已更新。";
             return new NoonAccountSessionView(lastStatus, null, null, lastMessage);
         } catch (RuntimeException exception) {
             lastStatus = NoonAccountSessionStatus.MANUAL_OTP_REQUIRED;
