@@ -10,7 +10,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
 import com.nuono.next.competitoranalysis.noon.NoonFrontendSearchAdapter;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
@@ -205,6 +204,7 @@ class CompetitorSearchRefreshRunnerTest {
                 .actorUserId(601L)
                 .build());
 
+        // Raw parser persistence is covered by CompetitorSearchResultRetentionMapperContractTest.
         ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
                 ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
         verify(mapper).insertSearchResult(searchCaptor.capture());

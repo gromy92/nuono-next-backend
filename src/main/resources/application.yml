@@ -182,6 +182,13 @@ nuono:
   competitor-analysis:
     noon-search:
       frontend-cookie-header: ${NUONO_COMPETITOR_ANALYSIS_NOON_SEARCH_FRONTEND_COOKIE_HEADER:}
+    search-result-retention:
+      enabled: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_ENABLED:false}
+      retention-days: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_DAYS:15}
+      batch-size: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_BATCH_SIZE:500}
+      maximum-batches-per-run: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_MAXIMUM_BATCHES_PER_RUN:5}
+      fixed-delay-ms: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_FIXED_DELAY_MS:60000}
+      initial-delay-ms: ${NUONO_COMPETITOR_ANALYSIS_SEARCH_RESULT_RETENTION_INITIAL_DELAY_MS:120000}
   bootstrap:
     db-enabled: false
     schema: nuono_new_dev

@@ -44,8 +44,14 @@ class CompetitorAnalysisRankChangeMapperContractTest {
 
         assertSelectContains(source, "listrankchanges", "case when rf.tracked_product_type = 'self' then wp.partner_sku");
         assertSelectContains(source, "listrankchanges", "else coalesce(nullif(rf.noon_product_code, ''), nullif(cp.noon_product_code, ''), wp.partner_sku)");
-        assertSelectContains(source, "listrankchanges", "case when rf.tracked_product_type = 'self' then coalesce(nullif(wp.title_snapshot, ''), wp.partner_sku)");
-        assertSelectContains(source, "listrankchanges", "else coalesce(nullif(sr.title_snapshot, ''), nullif(cp.title_snapshot, ''), rf.noon_product_code)");
+        assertSelectContains(source, "listrankchanges", "latest_listing_snapshot as");
+        assertSelectContains(source, "listrankchanges", "from operations_competitor_product_snapshot ps");
+        assertSelectContains(source, "listrankchanges", "ps.fact_date <= #{todate}");
+        assertSelectContains(source, "listrankchanges", "left join latest_listing_snapshot ls");
+        assertSelectContains(source, "listrankchanges", "case when rf.tracked_product_type = 'self' then coalesce(nullif(ls.title_en, ''), nullif(ls.title_ar, ''), nullif(wp.title_snapshot, ''), wp.partner_sku)");
+        assertSelectContains(source, "listrankchanges", "else coalesce(nullif(ls.title_en, ''), nullif(ls.title_ar, ''), nullif(cp.title_snapshot, ''), rf.noon_product_code)");
+        assertFalse(selectSql(source, "listrankchanges").contains("operations_competitor_search_result sr"),
+                "historical report rendering must not rely on expiring Top-200 evidence");
     }
 
     @Test
@@ -99,11 +105,14 @@ class CompetitorAnalysisRankChangeMapperContractTest {
     }
 
     private static void assertSelectContains(String source, String methodName, String expectedSql) {
+        assertTrue(selectSql(source, methodName).contains(expectedSql), methodName + " must filter by supported competitor detail changes");
+    }
+
+    private static String selectSql(String source, String methodName) {
         int methodIndex = source.indexOf(methodName);
         assertTrue(methodIndex >= 0, "expected mapper method: " + methodName);
         int selectIndex = source.lastIndexOf("@select({", methodIndex);
         assertTrue(selectIndex >= 0, "expected @Select SQL before mapper method: " + methodName);
-        String sql = source.substring(selectIndex, methodIndex);
-        assertTrue(sql.contains(expectedSql), methodName + " must filter by supported competitor detail changes");
+        return source.substring(selectIndex, methodIndex);
     }
 }
