@@ -22,7 +22,7 @@ import org.springframework.stereotype.Service;
 class NoonAccountManualOtpServiceTest {
 
     @Test
-    void springSelectsTheProductionGatewayAndRefresherConstructor() {
+    void springSelectsTheExplicitProductionGatewayAndRefresherConstructor() {
         try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
             context.getEnvironment().setActiveProfiles("local-db");
             context.registerBean(NoonAccountManualOtpGateway.class, RecordingGateway::new);
