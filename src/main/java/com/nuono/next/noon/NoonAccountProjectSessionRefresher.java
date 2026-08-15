@@ -6,10 +6,16 @@ interface NoonAccountProjectSessionRefresher {
 
     final class RefreshResult {
         private final int refreshedProjects;
+        private final int excludedProjects;
         private final int failedProjects;
 
         RefreshResult(int refreshedProjects, int failedProjects) {
+            this(refreshedProjects, 0, failedProjects);
+        }
+
+        RefreshResult(int refreshedProjects, int excludedProjects, int failedProjects) {
             this.refreshedProjects = refreshedProjects;
+            this.excludedProjects = excludedProjects;
             this.failedProjects = failedProjects;
         }
 
@@ -19,6 +25,10 @@ interface NoonAccountProjectSessionRefresher {
 
         int getFailedProjects() {
             return failedProjects;
+        }
+
+        int getExcludedProjects() {
+            return excludedProjects;
         }
     }
 }

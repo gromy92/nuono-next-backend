@@ -35,6 +35,29 @@ class NoonAccountProjectSessionRefresherAdapterTest {
         verify(mapper).persistProjectSession(307L, "PRJ307B", "sid=PRJ307B", "identity-user", 1L);
     }
 
+    @Test
+    void excludesProjectMissingFromCurrentAccountWithoutBlockingValidatedProjects() {
+        NoonAccountSessionMapper mapper = mock(NoonAccountSessionMapper.class);
+        RecordingGateway gateway = new RecordingGateway();
+        gateway.excludedProject = "PRJSTALE";
+        when(mapper.listBoundProjects()).thenReturn(List.of(
+                target(307L, "PRJVALID", "STRVALID"),
+                target(59L, "PRJSTALE", "STRSTALE")
+        ));
+        when(mapper.persistProjectSession(anyLong(), any(), any(), any(), anyLong())).thenReturn(1);
+
+        NoonAccountProjectSessionRefresher.RefreshResult result =
+                new NoonAccountProjectSessionRefresherAdapter(mapper, gateway).refresh(
+                        new NoonAccountManualOtpGateway.AuthenticatedGrant(new Object()), 1L
+                );
+
+        assertThat(result.getRefreshedProjects()).isEqualTo(1);
+        assertThat(result.getExcludedProjects()).isEqualTo(1);
+        assertThat(result.getFailedProjects()).isZero();
+        assertThat(gateway.createdProjects).containsExactly("PRJVALID", "PRJSTALE");
+        verify(mapper).persistProjectSession(307L, "PRJVALID", "sid=PRJVALID", "identity-user", 1L);
+    }
+
     private static NoonAccountSessionProjectTarget target(Long ownerUserId, String projectCode, String storeCode) {
         NoonAccountSessionProjectTarget target = new NoonAccountSessionProjectTarget();
         target.setOwnerUserId(ownerUserId);
@@ -46,6 +69,7 @@ class NoonAccountProjectSessionRefresherAdapterTest {
     private static final class RecordingGateway implements NoonAccountManualOtpGateway {
         private int sendCount;
         private final java.util.List<String> createdProjects = new java.util.ArrayList<>();
+        private String excludedProject;
 
         @Override
         public PreparedChallenge sendOneManualOtp() {
@@ -63,6 +87,9 @@ class NoonAccountProjectSessionRefresherAdapterTest {
                 AuthenticatedGrant grant, String projectCode, String storeCode
         ) {
             createdProjects.add(projectCode);
+            if (projectCode.equals(excludedProject)) {
+                throw new NoonAccountProjectExcludedException(projectCode);
+            }
             return new VerifiedProjectSession("sid=" + projectCode, "identity-user");
         }
     }

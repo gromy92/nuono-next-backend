@@ -1000,7 +1000,7 @@ public class NoonSessionGateway {
                 return project;
             }
         }
-        throw new IllegalStateException("Noon 账号不包含当前项目：" + normalizedRequested);
+        throw new NoonAccountProjectExcludedException(normalizedRequested);
     }
 
     static String generateCodeVerifier() {

@@ -72,6 +72,43 @@ class NoonAccountManualOtpServiceTest {
     }
 
     @Test
+    void keepsAccountActiveWhenOnlyStaleProjectBindingsAreExcluded() {
+        RecordingGateway gateway = new RecordingGateway();
+        NoonAccountManualOtpService service = new NoonAccountManualOtpService(
+                gateway,
+                (grant, operatorUserId) -> new NoonAccountProjectSessionRefresher.RefreshResult(28, 2, 0),
+                Clock.fixed(Instant.parse("2026-08-15T00:00:00Z"), ZoneOffset.UTC),
+                new SecureRandom()
+        );
+        NoonAccountSessionView challenge = service.send(307L);
+
+        NoonAccountSessionView result = service.verify(307L, challenge.getChallengeId(), "123456");
+
+        assertThat(result.getStatus()).isEqualTo(NoonAccountSessionStatus.ACTIVE);
+        assertThat(result.getMessage()).contains("2 个本地 Project 不在当前 Noon 账号权限中");
+        assertThat(service.blocksProviderCalls()).isFalse();
+        assertThat(gateway.sendCount).isEqualTo(1);
+        assertThat(gateway.validationCount).isEqualTo(1);
+    }
+
+    @Test
+    void keepsProviderCallsBlockedWhenProjectSessionRefreshActuallyFails() {
+        RecordingGateway gateway = new RecordingGateway();
+        NoonAccountManualOtpService service = new NoonAccountManualOtpService(
+                gateway,
+                (grant, operatorUserId) -> new NoonAccountProjectSessionRefresher.RefreshResult(28, 0, 1),
+                Clock.fixed(Instant.parse("2026-08-15T00:00:00Z"), ZoneOffset.UTC),
+                new SecureRandom()
+        );
+        NoonAccountSessionView challenge = service.send(307L);
+
+        NoonAccountSessionView result = service.verify(307L, challenge.getChallengeId(), "123456");
+
+        assertThat(result.getStatus()).isEqualTo(NoonAccountSessionStatus.MANUAL_ACTION_REQUIRED);
+        assertThat(service.blocksProviderCalls()).isTrue();
+    }
+
+    @Test
     void anotherOperatorCannotTakeOverOrSubmitTheCurrentChallenge() {
         RecordingGateway gateway = new RecordingGateway();
         NoonAccountManualOtpService service = service(gateway);

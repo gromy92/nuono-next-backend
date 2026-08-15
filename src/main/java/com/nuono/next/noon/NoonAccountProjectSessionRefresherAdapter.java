@@ -28,6 +28,7 @@ final class NoonAccountProjectSessionRefresherAdapter implements NoonAccountProj
     public RefreshResult refresh(NoonAccountManualOtpGateway.AuthenticatedGrant grant, Long operatorUserId) {
         List<NoonAccountSessionProjectTarget> targets = mapper.listBoundProjects();
         int refreshed = 0;
+        int excluded = 0;
         int failed = 0;
         for (NoonAccountSessionProjectTarget target : targets) {
             if (!isComplete(target)) {
@@ -50,12 +51,14 @@ final class NoonAccountProjectSessionRefresherAdapter implements NoonAccountProj
                 } else {
                     failed++;
                 }
+            } catch (NoonAccountProjectExcludedException exception) {
+                excluded++;
             } catch (RuntimeException exception) {
                 // Do not retry a Project session or request another OTP in this account login.
                 failed++;
             }
         }
-        return new RefreshResult(refreshed, failed);
+        return new RefreshResult(refreshed, excluded, failed);
     }
 
     private static boolean isComplete(NoonAccountSessionProjectTarget target) {
