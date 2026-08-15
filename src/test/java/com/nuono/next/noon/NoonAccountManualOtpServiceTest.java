@@ -15,10 +15,28 @@ import com.nuono.next.noonauth.NoonAuthRecoveryScheduler;
 import com.nuono.next.noonauth.NoonAuthRecoveryWorker;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
 
 class NoonAccountManualOtpServiceTest {
+
+    @Test
+    void springSelectsTheExplicitProductionGatewayAndRefresherConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.getEnvironment().setActiveProfiles("local-db");
+            context.registerBean(NoonAccountManualOtpGateway.class, RecordingGateway::new);
+            context.registerBean(
+                    NoonAccountProjectSessionRefresher.class,
+                    () -> (grant, operatorUserId) -> new NoonAccountProjectSessionRefresher.RefreshResult(1, 0)
+            );
+            context.register(NoonAccountManualOtpService.class);
+
+            context.refresh();
+
+            assertThat(context.getBean(NoonAccountManualOtpService.class)).isNotNull();
+        }
+    }
 
     @Test
     void onlyAnExplicitOperatorActionSendsOneOtpAndTheSameChallengeCannotSendAgain() {
