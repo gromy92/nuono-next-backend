@@ -248,6 +248,8 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("English competitor title", readString(searchCaptor.getValue(), "getTitleEnSnapshot"));
         assertEquals("عنوان المنافس", readString(searchCaptor.getValue(), "getTitleArSnapshot"));
         assertTrue(readString(searchCaptor.getValue(), "getTagsJson").contains("Best Seller"));
+        assertNull(readString(searchCaptor.getValue(), "getRawResultJson"),
+                "full parser HTML/JSON must not be persisted with ordinary Top-200 evidence");
 
         ArgumentCaptor<CompetitorProductInsertCommand> productCaptor =
                 ArgumentCaptor.forClass(CompetitorProductInsertCommand.class);
