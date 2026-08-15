@@ -12,6 +12,7 @@ import org.apache.ibatis.annotations.Update;
 import org.junit.jupiter.api.Test;
 
 class NoonAuthorizationTinyIntMapperSqlTest {
+    // user_project/user_store authorization flags are production tinyint(1), not BIT(1).
     @Test
     void manualAccountSessionUsesNumericPredicatesForTinyintAuthorizedBindings() {
         String selectSql = selectSql(NoonAccountSessionMapper.class, "listBoundProjects");
