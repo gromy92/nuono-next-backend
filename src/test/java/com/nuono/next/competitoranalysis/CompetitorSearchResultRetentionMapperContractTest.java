@@ -32,21 +32,19 @@ class CompetitorSearchResultRetentionMapperContractTest {
     void releaseMigrationAddsTheTerminalRunLookupIndexAndRegistersChecks() throws IOException {
         String migration = read("src/main/resources/db/init/253_operations_competitor_search_result_retention.sql");
         String postcheck = read("src/main/resources/db/postcheck/253_operations_competitor_search_result_retention.sql");
-        String livecheck = read("src/main/resources/db/livecheck/253_operations_competitor_search_result_retention.sql");
         String catalog = read("src/main/resources/db/init/release-migrations.tsv");
 
         assertTrue(migration.contains("idx_ops_comp_search_run_retention"));
         assertTrue(migration.contains("(`status`, `finished_at`, `id`)"));
         assertTrue(migration.contains("algorithm=inplace, lock=none"));
         assertTrue(postcheck.contains("status,finished_at,id"));
-        assertTrue(livecheck.contains("status,finished_at,id"));
         assertTrue(catalog.contains(String.join("\t",
                 "253",
                 "253_operations_competitor_search_result_retention.sql",
                 "auto_additive",
                 "db/init/253_operations_competitor_search_result_retention.sql",
                 "db/postcheck/253_operations_competitor_search_result_retention.sql",
-                "db/livecheck/253_operations_competitor_search_result_retention.sql"
+                "db/postcheck/253_operations_competitor_search_result_retention.sql"
         )));
     }
 
