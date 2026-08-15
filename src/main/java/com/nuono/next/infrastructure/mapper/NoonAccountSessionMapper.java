@@ -15,10 +15,10 @@ public interface NoonAccountSessionMapper {
             "FROM user_project up",
             "JOIN user_store us ON us.user_id = up.user_id",
             "  AND BINARY us.project_code = BINARY up.project_code",
-            "  AND us.is_deleted = 0 AND COALESCE(us.is_authorized, b'0') = b'1'",
+            "  AND us.is_deleted = 0 AND COALESCE(us.is_authorized, 0) = 1",
             "WHERE up.is_deleted = 0",
             "  AND up.bind_status = 1",
-            "  AND COALESCE(up.is_authorized, b'0') = b'1'",
+            "  AND COALESCE(up.is_authorized, 0) = 1",
             "  AND NULLIF(TRIM(up.project_code), '') IS NOT NULL",
             "GROUP BY up.user_id, up.project_code",
             "ORDER BY up.user_id ASC, up.project_code ASC"
@@ -36,7 +36,7 @@ public interface NoonAccountSessionMapper {
             "  AND BINARY project_code = BINARY #{projectCode}",
             "  AND is_deleted = 0",
             "  AND bind_status = 1",
-            "  AND COALESCE(is_authorized, b'0') = b'1'"
+            "  AND COALESCE(is_authorized, 0) = 1"
     })
     int persistProjectSession(
             @Param("ownerUserId") Long ownerUserId,
