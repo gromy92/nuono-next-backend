@@ -961,9 +961,9 @@ public class InTransitPluginSyncService {
         result.setPackageStatus(clean(itemPackage.getPackageStatus()));
         result.setLogisticsStatus(clean(itemPackage.getLogisticsStatus()));
         result.setPackageSnapshotAuthoritative(itemPackage.getLines().isEmpty());
+        result.setPreserveHigherPrecisionEquivalentWeights("CHIC".equals(normalizeCode(command.getSourceSystem())));
         return result;
     }
-
     private void validateBatch(
             PluginSyncCommand command,
             PluginSyncBatch batch,

@@ -551,6 +551,7 @@ public class InTransitBatchService {
                 clean(resolved.getPackageStatus()),
                 clean(resolved.getLogisticsStatus()),
                 resolved.isPackageSnapshotAuthoritative(),
+                false,
                 operatorUserId
         );
 
@@ -642,6 +643,7 @@ public class InTransitBatchService {
                 clean(resolved.getPackageStatus()),
                 clean(resolved.getLogisticsStatus()),
                 resolved.isPackageSnapshotAuthoritative(),
+                resolved.isPreserveHigherPrecisionEquivalentWeights(),
                 operatorUserId
         );
         refreshBatchAggregate(ownerUserId, batchId);
@@ -985,6 +987,7 @@ public class InTransitBatchService {
             String packageStatus,
             String logisticsStatus,
             boolean packageSnapshotAuthoritative,
+            boolean preserveHigherPrecisionEquivalentWeights,
             Long operatorUserId
     ) {
         if (!StringUtils.hasText(boxNo)) {
@@ -1016,13 +1019,13 @@ public class InTransitBatchService {
                 if (packageSnapshotAuthoritative) {
                     existing.setExternalBoxNo(externalBoxNo);
                     existing.setTrackingNo(trackingNo);
-                    existing.setWeightKg(firstValue(weightKg, existing.getWeightKg()));
+                    existing.setWeightKg(InTransitPackageWeightMergePolicy.merge(weightKg, existing.getWeightKg(), preserveHigherPrecisionEquivalentWeights));
                     existing.setLengthCm(firstValue(lengthCm, existing.getLengthCm()));
                     existing.setWidthCm(firstValue(widthCm, existing.getWidthCm()));
                     existing.setHeightCm(firstValue(heightCm, existing.getHeightCm()));
                     existing.setVolumeCbm(firstValue(volumeCbm, existing.getVolumeCbm()));
-                    existing.setVolumeWeightKg(firstValue(volumeWeightKg, existing.getVolumeWeightKg()));
-                    existing.setChargeableWeightKg(firstValue(chargeableWeightKg, existing.getChargeableWeightKg()));
+                    existing.setVolumeWeightKg(InTransitPackageWeightMergePolicy.merge(volumeWeightKg, existing.getVolumeWeightKg(), preserveHigherPrecisionEquivalentWeights));
+                    existing.setChargeableWeightKg(InTransitPackageWeightMergePolicy.merge(chargeableWeightKg, existing.getChargeableWeightKg(), preserveHigherPrecisionEquivalentWeights));
                     existing.setMeasuredWeightKg(firstValue(measuredWeightKg, existing.getMeasuredWeightKg()));
                     existing.setMeasuredLengthCm(firstValue(measuredLengthCm, existing.getMeasuredLengthCm()));
                     existing.setMeasuredWidthCm(firstValue(measuredWidthCm, existing.getMeasuredWidthCm()));
@@ -1033,13 +1036,13 @@ public class InTransitBatchService {
                 } else {
                     existing.setExternalBoxNo(firstText(externalBoxNo, existing.getExternalBoxNo()));
                     existing.setTrackingNo(firstText(trackingNo, existing.getTrackingNo()));
-                    existing.setWeightKg(firstValue(weightKg, existing.getWeightKg()));
+                    existing.setWeightKg(InTransitPackageWeightMergePolicy.merge(weightKg, existing.getWeightKg(), preserveHigherPrecisionEquivalentWeights));
                     existing.setLengthCm(firstValue(lengthCm, existing.getLengthCm()));
                     existing.setWidthCm(firstValue(widthCm, existing.getWidthCm()));
                     existing.setHeightCm(firstValue(heightCm, existing.getHeightCm()));
                     existing.setVolumeCbm(firstValue(volumeCbm, existing.getVolumeCbm()));
-                    existing.setVolumeWeightKg(firstValue(volumeWeightKg, existing.getVolumeWeightKg()));
-                    existing.setChargeableWeightKg(firstValue(chargeableWeightKg, existing.getChargeableWeightKg()));
+                    existing.setVolumeWeightKg(InTransitPackageWeightMergePolicy.merge(volumeWeightKg, existing.getVolumeWeightKg(), preserveHigherPrecisionEquivalentWeights));
+                    existing.setChargeableWeightKg(InTransitPackageWeightMergePolicy.merge(chargeableWeightKg, existing.getChargeableWeightKg(), preserveHigherPrecisionEquivalentWeights));
                     existing.setMeasuredWeightKg(firstValue(measuredWeightKg, existing.getMeasuredWeightKg()));
                     existing.setMeasuredLengthCm(firstValue(measuredLengthCm, existing.getMeasuredLengthCm()));
                     existing.setMeasuredWidthCm(firstValue(measuredWidthCm, existing.getMeasuredWidthCm()));
@@ -1049,10 +1052,7 @@ public class InTransitBatchService {
                     existing.setLogisticsStatus(firstText(logisticsStatus, existing.getLogisticsStatus()));
                 }
                 existing.setChargeableWeightKg(resolveChargeableWeight(
-                        existing.getChargeableWeightKg(),
-                        existing.getWeightKg(),
-                        existing.getVolumeWeightKg()
-                ));
+                        existing.getChargeableWeightKg(), existing.getWeightKg(), existing.getVolumeWeightKg()));
                 existing.setUpdatedBy(operatorUserId);
                 mapper.updatePackage(existing);
             }

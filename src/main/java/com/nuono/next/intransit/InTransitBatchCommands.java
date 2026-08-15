@@ -311,9 +311,7 @@ public final class InTransitBatchCommands {
         public String getLogisticsStatus() { return logisticsStatus; }
         public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
         public boolean isPackageSnapshotAuthoritative() { return packageSnapshotAuthoritative; }
-        public void setPackageSnapshotAuthoritative(boolean packageSnapshotAuthoritative) {
-            this.packageSnapshotAuthoritative = packageSnapshotAuthoritative;
-        }
+        public void setPackageSnapshotAuthoritative(boolean value) { this.packageSnapshotAuthoritative = value; }
         public String getSku() { return sku; }
         public void setSku(String sku) { this.sku = sku; }
         public String getMsku() { return msku; }
@@ -362,6 +360,7 @@ public final class InTransitBatchCommands {
         private String packageStatus;
         private String logisticsStatus;
         private boolean packageSnapshotAuthoritative;
+        private boolean preserveHigherPrecisionEquivalentWeights;
 
         public Long getBatchId() { return batchId; }
         public void setBatchId(Long batchId) { this.batchId = batchId; }
@@ -404,9 +403,10 @@ public final class InTransitBatchCommands {
         public String getLogisticsStatus() { return logisticsStatus; }
         public void setLogisticsStatus(String logisticsStatus) { this.logisticsStatus = logisticsStatus; }
         public boolean isPackageSnapshotAuthoritative() { return packageSnapshotAuthoritative; }
-        public void setPackageSnapshotAuthoritative(boolean packageSnapshotAuthoritative) {
-            this.packageSnapshotAuthoritative = packageSnapshotAuthoritative;
-        }
+        public void setPackageSnapshotAuthoritative(boolean value) { this.packageSnapshotAuthoritative = value; }
+
+        public boolean isPreserveHigherPrecisionEquivalentWeights() { return preserveHigherPrecisionEquivalentWeights; }
+        public void setPreserveHigherPrecisionEquivalentWeights(boolean value) { this.preserveHigherPrecisionEquivalentWeights = value; }
     }
 
     public static class DeleteLineCommand {

@@ -127,7 +127,8 @@ class InTransitPluginSyncServiceTest {
         assertEquals("AIR", batchCaptor.getValue().getTransportMode());
         assertEquals("RUH", batchCaptor.getValue().getTargetStoreCode());
         assertEquals("SA", batchCaptor.getValue().getTargetSiteCode());
-
+        verify(batchService).savePackage(org.mockito.ArgumentMatchers.argThat(
+                SavePackageCommand::isPreserveHigherPrecisionEquivalentWeights));
         ArgumentCaptor<SaveLineCommand> lineCaptor = ArgumentCaptor.forClass(SaveLineCommand.class);
         verify(productMatchService, times(2)).saveCandidate(lineCaptor.capture(), any());
         SaveLineCommand firstLine = lineCaptor.getAllValues().get(0);
@@ -153,7 +154,6 @@ class InTransitPluginSyncServiceTest {
         assertNull(firstLine.getSiteCode());
         assertNull(firstLine.getCartonWeightKg());
         assertNull(firstLine.getCartonVolumeCbm());
-
         ArgumentCaptor<SaveNodeCommand> nodeCaptor = ArgumentCaptor.forClass(SaveNodeCommand.class);
         verify(batchService).saveNode(nodeCaptor.capture());
         assertEquals(53010L, nodeCaptor.getValue().getBatchId());
@@ -888,10 +888,10 @@ class InTransitPluginSyncServiceTest {
         assertEquals(new BigDecimal("0.047250"), itemPackage.getPackageVolumeCbm());
         assertEquals(new BigDecimal("7.900000"), itemPackage.getPackageVolumeWeightKg());
         assertEquals(new BigDecimal("12.500000"), itemPackage.getPackageChargeableWeightKg());
+        assertEquals(false, itemPackage.isPreserveHigherPrecisionEquivalentWeights());
         verify(batchService, never()).saveLine(any(SaveLineCommand.class));
         verify(batchService, never()).reconcileSyncedDetails(any(), any(), any(), any(), any());
     }
-
     @Test
     void shouldCommitPackageSnapshotBeforeSkuLinesWhenPackageHasSpecs() {
         PluginSyncCommand command = sampleCommand();
