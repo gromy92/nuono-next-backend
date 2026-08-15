@@ -2,8 +2,6 @@ package com.nuono.next.store;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.system.CoreTableInspection;
 import com.nuono.next.system.LocalDbBootstrapStatusService;
 import java.util.ArrayList;
@@ -29,18 +27,15 @@ public class LocalDbStoreSyncService {
     private final StoreSyncMapper storeSyncMapper;
     private final LocalDbBootstrapStatusService localDbBootstrapStatusService;
     private final NoonSessionGateway noonSessionGateway;
-    private final NoonAuthWaitQueue projectAuthRecoveryQueue;
 
     public LocalDbStoreSyncService(
             StoreSyncMapper storeSyncMapper,
             LocalDbBootstrapStatusService localDbBootstrapStatusService,
-            NoonSessionGateway noonSessionGateway,
-            NoonAuthWaitQueue projectAuthRecoveryQueue
+            NoonSessionGateway noonSessionGateway
     ) {
         this.storeSyncMapper = storeSyncMapper;
         this.localDbBootstrapStatusService = localDbBootstrapStatusService;
         this.noonSessionGateway = noonSessionGateway;
-        this.projectAuthRecoveryQueue = projectAuthRecoveryQueue;
     }
 
     public StoreSyncOverview buildOverview(Long ownerUserId) {
@@ -151,7 +146,7 @@ public class LocalDbStoreSyncService {
         }
 
         String noonPartnerId = firstNonBlank(derivePartnerId(project.getProjectCode()), project.getNoonPartnerId());
-        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String noonUser = noonSessionGateway.configuredMerchantLoginEmail();
 
         int updated = storeSyncMapper.updateProjectSharedEmailBinding(
                 project.getId(),
@@ -166,12 +161,6 @@ public class LocalDbStoreSyncService {
 
         List<StoreSyncStoreRecord> siteRows = loadSiteMap(List.of(project), command.getOwnerUserId())
                 .getOrDefault(project.getProjectCode(), List.of());
-        String authStoreCode = siteRows.stream()
-                .map(StoreSyncStoreRecord::getStoreCode)
-                .filter(StringUtils::hasText)
-                .findFirst()
-                .orElse(project.getProjectCode());
-        requireRecoveryQueued(command.getOwnerUserId(), project.getProjectCode(), authStoreCode);
         int siteCount = siteRows.size();
         return StoreBindingResult.succeeded(
                 "店铺 "
@@ -204,7 +193,7 @@ public class LocalDbStoreSyncService {
         String projectCode = normalize(command.getProjectCode());
         requireText(projectCode, "请输入 Noon Project Code。");
         String noonPartnerId = derivePartnerId(projectCode);
-        String noonUser = noonSessionGateway.configuredMerchantEmail();
+        String noonUser = noonSessionGateway.configuredMerchantLoginEmail();
         String orgCode = null;
         String orgName = normalize(owner.getCompanyName());
         if (storeSyncMapper.selectOwnerProject(command.getOwnerUserId(), projectCode) != null
@@ -237,8 +226,6 @@ public class LocalDbStoreSyncService {
                     authorized
             );
         }
-        requireRecoveryQueued(command.getOwnerUserId(), projectCode, siteStoreCode);
-
         return StoreBindingResult.succeeded("店铺 " + projectName + " 已绑定到当前账号视图。");
     }
 
@@ -465,15 +452,6 @@ public class LocalDbStoreSyncService {
         boolean hasCookie = StringUtils.hasText(project.getNoonPartnerCookie());
         boolean bound = project.getBindStatus() != null && project.getBindStatus() == 1;
         return Boolean.TRUE.equals(project.getOwnerAuthorized()) && hasCredential && hasCookie && bound;
-    }
-
-    private void requireRecoveryQueued(Long ownerUserId, String projectCode, String storeCode) {
-        if (projectAuthRecoveryQueue == null
-                || projectAuthRecoveryQueue.enqueue(
-                        NoonAuthWaitRequest.binding(ownerUserId, projectCode, storeCode)
-                ).isEmpty()) {
-            throw new IllegalStateException("Noon 后台认证恢复暂不可用，店铺绑定未生效。");
-        }
     }
 
     private String resolveProjectLabel(StoreSyncStoreRecord store) {

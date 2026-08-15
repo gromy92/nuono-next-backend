@@ -2,6 +2,7 @@ package com.nuono.next.productlisting;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -36,7 +37,7 @@ import org.mockito.ArgumentCaptor;
 class RealProductListingNoonWriteAuthRecoveryTest {
 
     @Test
-    void newAuthFailureAfterCreateQueuesRecoveryAndPreservesWriteRisk() {
+    void newAuthFailureAfterCreateRequiresManualLoginAndPreservesWriteRisk() {
         NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
         when(queue.enqueue(any(NoonAuthWaitRequest.class)))
@@ -44,39 +45,35 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         AtomicInteger writeCalls = new AtomicInteger();
         NoonPullGatewaySession session = sessionThatFailsAfterCreate(writeCalls);
         RealProductListingNoonWriteAdapter adapter = adapter(binding -> session);
-        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
 
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertFalse(result.isSuccess());
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getFailureCode());
-        assertEquals(991L, result.getRecoveryId());
+        assertNull(result.getRecoveryId());
         assertTrue(result.getWriteMayHaveOccurred());
         assertEquals(2, writeCalls.get());
         assertEquals("succeeded", result.getSteps().get(0).getStatus());
         assertEquals("create_product", result.getSteps().get(0).getStepKey());
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getSteps().get(1).getFailureCode());
         assertTrue(result.getSteps().get(1).getWriteMayHaveOccurred());
-        ArgumentCaptor<NoonAuthWaitRequest> waitRequest = ArgumentCaptor.forClass(NoonAuthWaitRequest.class);
-        verify(queue).enqueue(waitRequest.capture());
-        assertListingWaitRequest(
-                waitRequest.getValue(),
-                "sku_cache",
-                NoonAuthResumePolicy.READBACK_REQUIRED
-        );
     }
 
     @Test
-    void pendingRecoveryBlocksManualContinuationBeforeSessionLogin() {
+    void unavailableSharedAccountBlocksContinuationBeforeSessionLogin() {
         NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
         NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        when(gate.isBlocked(10002L, "PRJ240053")).thenReturn(true);
+        com.nuono.next.noon.NoonAccountSessionAttentionPort attention =
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class);
+        when(attention.blocksProviderCalls()).thenReturn(true);
         AtomicInteger loginCalls = new AtomicInteger();
         RealProductListingNoonWriteAdapter adapter = adapter(binding -> {
             loginCalls.incrementAndGet();
             throw new AssertionError("authorization gate must stop before login");
         });
-        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(attention));
 
         ProductListingNoonWriteResult result =
                 adapter.continueAfterCreate(writeRequest(), "ZPARENT", "PSKU_CODE_1");
@@ -85,7 +82,6 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getFailureCode());
         assertEquals(Boolean.FALSE, result.getWriteMayHaveOccurred());
         assertEquals(0, loginCalls.get());
-        verify(queue, never()).enqueue(any(NoonAuthWaitRequest.class));
 
         ProductListingNoonWriteStepResult readBack =
                 adapter.verifyReadBack(writeRequest(), "ZPARENT", "PSKU_CODE_1", List.of());
@@ -104,19 +100,16 @@ class RealProductListingNoonWriteAuthRecoveryTest {
         AtomicInteger readBackCalls = new AtomicInteger();
         RealProductListingNoonWriteAdapter adapter =
                 adapter(binding -> sessionThatFailsOnReadBack(writeCalls, readBackCalls));
-        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        adapter.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class)));
 
         ProductListingNoonWriteResult result = adapter.execute(writeRequest());
 
         assertEquals(ProductListingWriteAuthRecovery.FAILURE_CODE, result.getFailureCode());
-        assertEquals(992L, result.getRecoveryId());
+        assertNull(result.getRecoveryId());
         assertTrue(result.getWriteMayHaveOccurred());
         assertTrue(writeCalls.get() > 1);
         assertEquals(1, readBackCalls.get());
-        verify(queue).enqueue(listingWaitRequest(
-                "verify_noon_readback",
-                NoonAuthResumePolicy.READBACK_REQUIRED
-        ));
     }
 
     private RealProductListingNoonWriteAdapter adapter(NoonPullGatewaySessionFactory sessionFactory) {

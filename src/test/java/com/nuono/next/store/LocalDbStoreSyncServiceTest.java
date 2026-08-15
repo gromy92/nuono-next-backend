@@ -49,8 +49,7 @@ class LocalDbStoreSyncServiceTest {
         service = new LocalDbStoreSyncService(
                 storeSyncMapper,
                 localDbBootstrapStatusService,
-                noonSessionGateway,
-                projectAuthRecoveryQueue
+                noonSessionGateway
         );
     }
 
@@ -128,15 +127,12 @@ class LocalDbStoreSyncServiceTest {
         when(storeSyncMapper.selectOwnerProject(307L, "PRJ7001")).thenReturn(
                 project(7000L, "新店铺", "PRJ7001", true, null, 0)
         );
-        when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
+        when(noonSessionGateway.configuredMerchantLoginEmail()).thenReturn("unified@example.com");
         when(storeSyncMapper.listOwnerProjectSites(307L, List.of("PRJ7001"))).thenReturn(List.of(
                 store(7001L, "新店铺", "STR7001-NAE", "AE", true, "PRJ7001")
         ));
         when(storeSyncMapper.updateProjectSharedEmailBinding(any(), any(), any(), any(), any()))
                 .thenReturn(1);
-        when(projectAuthRecoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE")))
-                .thenReturn(Optional.of(91L));
-
         StoreBindingResult result = service.bindStore(command);
 
         assertEquals(true, result.isSuccess());
@@ -148,7 +144,7 @@ class LocalDbStoreSyncServiceTest {
                 eq("7001"),
                 eq(307L)
         );
-        verify(projectAuthRecoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE"));
+        verify(projectAuthRecoveryQueue, never()).enqueue(any());
     }
 
     @Test
@@ -177,11 +173,8 @@ class LocalDbStoreSyncServiceTest {
         command.setSite("AE");
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
-        when(noonSessionGateway.configuredMerchantEmail()).thenReturn("unified@example.com");
+        when(noonSessionGateway.configuredMerchantLoginEmail()).thenReturn("unified@example.com");
         when(storeSyncMapper.nextStoreId()).thenReturn(7010L);
-        when(projectAuthRecoveryQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE")))
-                .thenReturn(Optional.of(91L));
-
         StoreBindingResult result = service.createStore(command);
 
         assertEquals(true, result.isSuccess());
@@ -208,7 +201,7 @@ class LocalDbStoreSyncServiceTest {
                 eq("AE"),
                 eq(true)
         );
-        verify(projectAuthRecoveryQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ7001", "STR7001-NAE"));
+        verify(projectAuthRecoveryQueue, never()).enqueue(any());
     }
 
     @Test
@@ -221,7 +214,7 @@ class LocalDbStoreSyncServiceTest {
 
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext(307L, "毕翠红"));
         command.setProjectCode("PRJ7001");
-        when(noonSessionGateway.configuredMerchantEmail())
+        when(noonSessionGateway.configuredMerchantLoginEmail())
                 .thenThrow(new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。"));
 
         IllegalStateException error = assertThrows(IllegalStateException.class, () -> service.createStore(command));

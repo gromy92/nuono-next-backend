@@ -93,7 +93,7 @@ class NoonRealProviderBehaviorTest {
         RecordingGatewaySessionFactory sessionFactory = new RecordingGatewaySessionFactory(session);
         RealNoonProductInterfaceSmokeProvider provider = new RealNoonProductInterfaceSmokeProvider(
                 objectMapper,
-                new NoonPullStoreBindingResolver(storeSyncMapper, "unified@example.com", "mail-auth-code"),
+                new NoonPullStoreBindingResolver(storeSyncMapper, "unified@example.com"),
                 sessionFactory,
                 OFFER_LIST_URL,
                 100
@@ -209,7 +209,7 @@ class NoonRealProviderBehaviorTest {
 
         NoonInterfacePullException failure = assertThrows(NoonInterfacePullException.class,
                 () -> provider.createExport(salesRequest()));
-        assertTrue(failure.getMessage().contains("shared email OTP recovery configuration"));
+        assertTrue(failure.getMessage().contains("shared Noon login configuration"));
         assertEquals(null, sessionFactory.lastBinding);
     }
 

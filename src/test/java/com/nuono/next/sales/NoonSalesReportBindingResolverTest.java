@@ -18,7 +18,7 @@ class NoonSalesReportBindingResolverTest {
     private StoreSyncMapper storeSyncMapper;
 
     @Test
-    void shouldAllowConfiguredEmailCredentialWhenStoreRowHasNoLegacySecret() {
+    void shouldAllowConfiguredLoginEmailWhenStoreRowHasNoLegacySecret() {
         StoreSyncStoreRecord store = new StoreSyncStoreRecord();
         store.setProjectCode("PRJ245027");
         store.setStoreCode("STR245027-NAE");
@@ -28,8 +28,7 @@ class NoonSalesReportBindingResolverTest {
 
         NoonSalesReportBinding binding = new NoonSalesReportBindingResolver(
                 storeSyncMapper,
-                "unified@example.com",
-                "mail-auth-code"
+                "unified@example.com"
         ).resolve(request());
 
         assertEquals("PRJ245027", binding.getProjectCode());

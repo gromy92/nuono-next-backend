@@ -32,10 +32,8 @@ import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
 import org.jsoup.Jsoup;
 import org.springframework.context.annotation.Profile;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
-@Component
 @Profile("local-db")
 public class ImapNoonEmailOtpReader implements NoonEmailOtpReader {
 

@@ -14,22 +14,20 @@ public class NoonSalesReportBindingResolver {
 
     private final StoreSyncMapper storeSyncMapper;
     private final String configuredMerchantEmail;
-    private final boolean configuredMerchantEmailLoginAvailable;
+    private final boolean configuredMerchantLoginAvailable;
 
     @Autowired
     public NoonSalesReportBindingResolver(
             StoreSyncMapper storeSyncMapper,
-            @Value("${nuono.noon.auth.email-otp.email:}") String configuredMerchantEmail,
-            @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMerchantMailAuthCode
+            @Value("${nuono.noon.auth.email-otp.email:}") String configuredMerchantEmail
     ) {
         this.storeSyncMapper = storeSyncMapper;
         this.configuredMerchantEmail = normalize(configuredMerchantEmail);
-        this.configuredMerchantEmailLoginAvailable = StringUtils.hasText(normalize(configuredMerchantEmail))
-                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
+        this.configuredMerchantLoginAvailable = StringUtils.hasText(this.configuredMerchantEmail);
     }
 
     public NoonSalesReportBindingResolver(StoreSyncMapper storeSyncMapper) {
-        this(storeSyncMapper, null, null);
+        this(storeSyncMapper, null);
     }
 
     public NoonSalesReportBinding resolve(NoonSalesReportRequest request) {
@@ -55,7 +53,7 @@ public class NoonSalesReportBindingResolver {
                 store.getNoonPartnerProjectUser(),
                 owner == null ? null : owner.getNoonPartnerUser(),
                 owner == null ? null : owner.getNoonPartnerProjectUser(),
-                configuredMerchantEmailLoginAvailable ? configuredMerchantEmail : null
+                configuredMerchantLoginAvailable ? configuredMerchantEmail : null
         );
         String persistedCookie = firstNonBlank(store.getNoonPartnerCookie());
 
@@ -64,7 +62,7 @@ public class NoonSalesReportBindingResolver {
         requireText(siteCode, "当前店铺缺少 Noon siteCode，不能同步销量报表。");
         requireText(partnerId, "当前店铺缺少 Noon partnerId，不能同步销量报表。");
         requireText(noonUser, "当前店铺缺少 Noon 登录账号，不能同步销量报表。");
-        requireNoonSessionOrSharedRecovery(persistedCookie, configuredMerchantEmailLoginAvailable);
+        requireNoonSessionOrSharedLogin(persistedCookie, configuredMerchantLoginAvailable);
 
         return new NoonSalesReportBinding(
                 request.getOwnerUserId(),
@@ -147,12 +145,12 @@ public class NoonSalesReportBindingResolver {
         }
     }
 
-    private static void requireNoonSessionOrSharedRecovery(
+    private static void requireNoonSessionOrSharedLogin(
             String persistedCookie,
-            boolean configuredMerchantEmailLoginAvailable
+            boolean configuredMerchantLoginAvailable
     ) {
-        if (!StringUtils.hasText(persistedCookie) && !configuredMerchantEmailLoginAvailable) {
-            throw new IllegalStateException("当前店铺缺少 Noon Project 会话，且统一邮箱 OTP 恢复未配置。");
+        if (!StringUtils.hasText(persistedCookie) && !configuredMerchantLoginAvailable) {
+            throw new IllegalStateException("当前店铺缺少 Noon Project 会话，且统一 Noon 登录邮箱未配置。");
         }
     }
 }

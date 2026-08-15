@@ -64,20 +64,21 @@ class ProductPublishAuthCommandServiceTest {
     }
 
     @Test
-    void blockedProjectShouldPreventManualRetry() {
+    void unavailableSharedAccountShouldPreventManualRetry() {
         ProductPublishTaskRecord task = authTask(false);
         when(mapper.selectProductPublishTaskById(1001L)).thenReturn(task);
-        NoonPullProjectAuthGate gate = mock(NoonPullProjectAuthGate.class);
-        NoonAuthWaitQueue queue = mock(NoonAuthWaitQueue.class);
-        when(gate.isBlocked(10002L, "PRJ-1")).thenReturn(true);
-        service.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(queue, gate));
+        com.nuono.next.noon.NoonAccountSessionAttentionPort attention =
+                mock(com.nuono.next.noon.NoonAccountSessionAttentionPort.class);
+        when(attention.blocksProviderCalls()).thenReturn(true);
+        service.setProductWriteAuthRecovery(new ProductWriteAuthRecovery(
+                attention));
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class,
                 () -> service.retryTask(1001L, 10002L, null, ignored -> java.util.List.of())
         );
 
-        assertTrue(failure.getMessage().contains("授权恢复中"));
+        assertTrue(failure.getMessage().contains("需要人工登录"));
         verify(mapper, never()).retryProductPublishTask(1001L, 10002L);
     }
 

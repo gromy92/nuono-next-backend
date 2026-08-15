@@ -38,7 +38,7 @@ import com.nuono.next.infrastructure.mapper.DataPullTaskCompactionMapper;
 import com.nuono.next.infrastructure.mapper.DataPullTaskRepairMapper;
 import com.nuono.next.infrastructure.mapper.SnapshotCarryProgressMapper;
 import com.nuono.next.infrastructure.mapper.SnapshotFactApplyMapper;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -82,7 +82,8 @@ final class DataPullRuntimeContextFixture {
                         () -> mock(SnapshotFactApplyMapper.class))
                 .withBean(SnapshotCarryProgressMapper.class,
                         () -> mock(SnapshotCarryProgressMapper.class))
-                .withBean(NoonAuthWaitQueue.class, () -> mock(NoonAuthWaitQueue.class))
+                .withBean(NoonAccountSessionAttentionPort.class,
+                        () -> mock(NoonAccountSessionAttentionPort.class))
                 .withBean(TaskSchedulerBuilder.class, TaskSchedulerBuilder::new)
                 .withBean(DataPullRuntimeReleaseGate.class,
                         DataPullRuntimeContextFixture::readyReleaseGate)

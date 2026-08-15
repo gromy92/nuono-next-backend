@@ -6,8 +6,6 @@ import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.io.IOException;
 import java.net.CookieManager;
 import java.net.CookiePolicy;
@@ -92,7 +90,17 @@ public class NoonSessionGateway {
     private final ConcurrentMap<String, Object> accountLocks = new ConcurrentHashMap<>();
     private final ThreadLocal<LinkedHashMap<String, Integer>> requestCountScope = new ThreadLocal<>();
     private NoonHttpCallLogService noonHttpCallLogService;
-    private NoonAuthWaitQueue authWaitQueue = request -> java.util.Optional.empty();
+    private NoonAccountSessionAttentionPort accountSessionAttention = new NoonAccountSessionAttentionPort() {
+        @Override
+        public void requireManualLogin() {
+            // A manually constructed gateway has no Spring attention service.
+        }
+
+        @Override
+        public boolean blocksProviderCalls() {
+            return false;
+        }
+    };
     @Value("${nuono.noon.proxy.mode:AUTO}")
     private String proxyMode = "AUTO";
     @Value("${nuono.noon.proxy.preflight.max-attempts:3}") private int proxyPreflightMaxAttempts = 3;
@@ -102,8 +110,6 @@ public class NoonSessionGateway {
     private long edgeAccessHoldSeconds = 1800L;
     @Value("${nuono.noon.auth.email-otp.email:}")
     private String configuredMerchantEmail;
-    @Value("${nuono.noon.auth.email-otp.mail-auth-code:}")
-    private String configuredMerchantMailAuthCode;
     @Value("${nuono.noon.auth.catalog-capability-probe-url:}")
     private String catalogCapabilityProbeUrl = DEFAULT_CATALOG_CAPABILITY_PROBE_URL;
     @Value("${nuono.noon.auth.catalog-session-bootstrap-url:}")
@@ -162,15 +168,10 @@ public class NoonSessionGateway {
     }
 
     @Autowired(required = false)
-    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
-        if (authWaitQueue != null) {
-            this.authWaitQueue = authWaitQueue;
+    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
+        if (accountSessionAttention != null) {
+            this.accountSessionAttention = accountSessionAttention;
         }
-    }
-
-    void setConfiguredMerchantEmailOtpCredential(String email, String mailAuthCode) {
-        this.configuredMerchantEmail = email;
-        this.configuredMerchantMailAuthCode = mailAuthCode;
     }
 
     void setCatalogCapabilityProbeUrl(String url) {
@@ -302,25 +303,18 @@ public class NoonSessionGateway {
         );
     }
 
-    boolean hasConfiguredMerchantEmailLogin() {
-        return StringUtils.hasText(normalizeUser(configuredMerchantEmail))
-                && StringUtils.hasText(normalize(configuredMerchantMailAuthCode));
-    }
-
-    public String configuredMerchantEmail() {
+    /**
+     * Returns the configured Noon login identity for an operator-entered OTP flow.
+     *
+     * <p>Unlike the retired mailbox-polling recovery path, this does not require an email
+     * authorization code because the operator supplies the OTP directly.</p>
+     */
+    public String configuredMerchantLoginEmail() {
         String normalizedEmail = normalizeUser(configuredMerchantEmail);
-        if (!StringUtils.hasText(normalizedEmail) || !StringUtils.hasText(normalize(configuredMerchantMailAuthCode))) {
-            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
+        if (!StringUtils.hasText(normalizedEmail)) {
+            throw new IllegalStateException("未配置统一 Noon 商家后台登录邮箱。");
         }
         return normalizedEmail;
-    }
-
-    String configuredMerchantMailAuthCode() {
-        String normalizedMailAuthCode = normalize(configuredMerchantMailAuthCode);
-        if (!StringUtils.hasText(normalizeUser(configuredMerchantEmail)) || !StringUtils.hasText(normalizedMailAuthCode)) {
-            throw new IllegalStateException("未配置统一 Noon 商家后台邮箱和邮箱授权码。");
-        }
-        return normalizedMailAuthCode;
     }
 
     EmailOtpGeneration prepareEmailOtpGeneration(String noonEmail) {
@@ -831,7 +825,7 @@ public class NoonSessionGateway {
 
     private void enqueueAuthorizationBinding(Long ownerUserId, String projectCode, String storeCode) {
         try {
-            authWaitQueue.enqueue(NoonAuthWaitRequest.binding(ownerUserId, projectCode, storeCode));
+            accountSessionAttention.requireManualLogin();
         } catch (RuntimeException ignored) {
             // Preserve the original Noon failure. Durable task callers may still attach their exact
             // source identity to the same recovery after this source-less binding request.

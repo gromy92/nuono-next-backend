@@ -5,21 +5,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListPullService;
 import com.nuono.next.officialwarehouse.OfficialWarehouseAsnListTaskExecutor;
-import com.nuono.next.officialwarehouse.OfficialWarehouseViews.AsnListSyncView;
 import com.nuono.next.permission.access.BusinessAccessContext;
-import com.nuono.next.web.ApiProblemException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -71,32 +66,17 @@ class OfficialWarehouseAsnListPullServiceTest {
     }
 
     @Test
-    void shouldResumeSameTaskAutomaticallyAfterAuthRecovery() {
-        AsnListSyncView success = new AsnListSyncView();
-        success.fetched = 3;
+    void authFailureRequiresManualLoginAndDoesNotAutomaticallyReplayAsnPull() {
         when(executor.syncNoonAsnListForTask(any(), eq("STR65267-NSA"), eq("SA")))
-                .thenThrow(new IllegalStateException("auth_required: cookie expired"))
-                .thenReturn(success);
-        foundationService.setAuthWaitQueue(request -> Optional.of(88001L));
+                .thenThrow(new IllegalStateException("auth_required: cookie expired"));
 
         assertThatThrownBy(() -> service.sync(access, "STR65267-NSA", "SA"))
-                .isInstanceOfSatisfying(ApiProblemException.class, problem -> {
-                    assertThat(problem.getStatus().value()).isEqualTo(409);
-                    assertThat(problem.getCode()).isEqualTo("OFFICIAL_WAREHOUSE_AUTH_RECOVERY_PENDING");
-                    assertThat(problem.getDetails()).containsEntry("automaticRetry", true);
-                });
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("auth_required");
 
-        NoonPullTaskRecord blocked = repository.listTasks().get(0);
-        assertThat(blocked.getStatus()).isEqualTo(NoonPullTaskStatus.BLOCKED_AUTH);
-        repository.requeueBlockedTaskAfterAuthForTest(
-                blocked.getId(),
-                blocked.getAuthRecoveryId(),
-                LocalDateTime.of(2026, 7, 28, 4, 1)
-        );
-
-        NoonPullTaskStatus status = service.executeScheduled(repository.selectTask(blocked.getId()));
-
-        assertThat(status).isEqualTo(NoonPullTaskStatus.SUCCEEDED);
-        verify(executor, times(2)).syncNoonAsnListForTask(any(), eq("STR65267-NSA"), eq("SA"));
+        NoonPullTaskRecord failed = repository.listTasks().get(0);
+        assertThat(failed.getStatus()).isEqualTo(NoonPullTaskStatus.FAILED);
+        assertThat(failed.getFailureType()).isEqualTo(NoonPullFailureType.AUTH_REQUIRED.code());
+        assertThat(failed.getRequiresManualAction()).isTrue();
     }
 }

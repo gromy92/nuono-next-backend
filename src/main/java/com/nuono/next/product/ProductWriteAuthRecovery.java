@@ -1,19 +1,13 @@
 package com.nuono.next.product;
 
-import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noonauth.NoonAuthRecoveryTriggerPolicy;
-import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.product.ProductWriteAuthTaskContext.TaskIdentity;
-import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductErrorCode;
 import com.nuono.next.product.noon.NoonProductException;
-import com.nuono.next.store.StoreSyncStoreRecord;
 import java.util.Optional;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -21,41 +15,35 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class ProductWriteAuthRecovery {
-    private final NoonAuthWaitQueue recoveryQueue;
-    private final NoonPullProjectAuthGate authGate;
+    private final NoonAccountSessionAttentionPort accountSessionAttention;
     private final ProductWriteAuthTaskContext taskContext;
-    private StoreSyncMapper storeSyncMapper;
     public ProductWriteAuthRecovery(
-            NoonAuthWaitQueue recoveryQueue,
-            NoonPullProjectAuthGate authGate
+            NoonAccountSessionAttentionPort accountSessionAttention
     ) {
-        this.recoveryQueue = recoveryQueue;
-        this.authGate = authGate;
-        this.taskContext = new ProductWriteAuthTaskContext(recoveryQueue, this::canonicalProjectCode);
+        this.accountSessionAttention = accountSessionAttention;
+        this.taskContext = new ProductWriteAuthTaskContext();
     }
     public static ProductWriteAuthRecovery disabled() {
-        return new ProductWriteAuthRecovery(
-                request -> Optional.empty(),
-                (ownerUserId, projectCode) -> false
-        );
-    }
+        return new ProductWriteAuthRecovery(new NoonAccountSessionAttentionPort() {
+            @Override
+            public void requireManualLogin() {
+                // Intentionally inert outside the local-db runtime.
+            }
 
-    @Autowired(required = false)
-    public void setStoreSyncMapper(StoreSyncMapper storeSyncMapper) {
-        this.storeSyncMapper = storeSyncMapper;
+            @Override
+            public boolean blocksProviderCalls() {
+                return false;
+            }
+        });
     }
     public void requireAvailable(Long ownerUserId, String projectCode) {
         requireAvailable(ownerUserId, projectCode, projectCode);
     }
     public void requireAvailable(Long ownerUserId, String projectCode, String storeCode) {
-        String canonicalProjectCode = canonicalProjectCode(ownerUserId, projectCode, storeCode);
-        if (authGate == null
-                || ownerUserId == null
-                || !StringUtils.hasText(canonicalProjectCode)
-                || !authGate.isBlocked(ownerUserId, canonicalProjectCode)) {
+        if (accountSessionAttention == null || !accountSessionAttention.blocksProviderCalls()) {
             return;
         }
-        throw pendingException(null, false, true, null);
+        throw pendingException(false, null);
     }
     public ProductWriteAuthRequiredException suspendIfAuthFailure(
             Long ownerUserId,
@@ -119,48 +107,16 @@ public class ProductWriteAuthRecovery {
             if (!effectiveWriteMayHaveOccurred || existing.isWriteMayHaveOccurred()) {
                 return existing;
             }
-            return pendingException(existing.getRecoveryId(), true, true, existing);
+            return pendingException(true, existing);
         }
         if (!isExplicitAuthFailure(failure)) {
             return null;
         }
 
-        String canonicalProjectCode = canonicalProjectCode(ownerUserId, projectCode, storeCode);
-        Long recoveryId = null;
-        boolean recoveryQueued = false;
-        if (recoveryQueue != null
-                && ownerUserId != null
-                && StringUtils.hasText(canonicalProjectCode)
-                && StringUtils.hasText(storeCode)) {
-            try {
-                TaskIdentity currentTask = scopedTask;
-                Optional<Long> queued;
-                if (currentTask != null) {
-                    queued = taskContext.enqueue(
-                            currentTask,
-                            canonicalProjectCode,
-                            effectiveWriteMayHaveOccurred
-                    );
-                } else if (taskIdentity != null && taskIdentity.sourceTaskId != null) {
-                    queued = taskContext.enqueue(
-                            taskIdentity, canonicalProjectCode, effectiveWriteMayHaveOccurred
-                    );
-                } else {
-                    queued = recoveryQueue.enqueue(NoonAuthWaitRequest.binding(
-                                ownerUserId,
-                                canonicalProjectCode,
-                                storeCode.trim()
-                    ));
-                }
-                recoveryId = queued.orElse(null);
-                recoveryQueued = queued.isPresent();
-            } catch (NoonAuthRetrySuppressedException suppressed) {
-                throw suppressed;
-            } catch (RuntimeException ignored) {
-                recoveryQueued = false;
-            }
+        if (accountSessionAttention != null) {
+            accountSessionAttention.requireManualLogin();
         }
-        return pendingException(recoveryId, effectiveWriteMayHaveOccurred, recoveryQueued, failure);
+        return pendingException(effectiveWriteMayHaveOccurred, failure);
     }
     public TaskScope openTaskScope(ProductPublishTaskRecord task) {
         return taskContext.open(task);
@@ -201,7 +157,10 @@ public class ProductWriteAuthRecovery {
             String checkpoint,
             boolean writeMayHaveOccurred
     ) {
-        return taskContext.enqueue(task, checkpoint, writeMayHaveOccurred);
+        if (accountSessionAttention != null) {
+            accountSessionAttention.requireManualLogin();
+        }
+        return Optional.empty();
     }
 
     public boolean isExplicitAuthFailure(Throwable failure) {
@@ -244,46 +203,18 @@ public class ProductWriteAuthRecovery {
                 && NoonAuthRecoveryTriggerPolicy.isExplicitAuthExpiry(details.toString()));
     }
 
-    private String canonicalProjectCode(Long ownerUserId, String projectCode, String storeCode) {
-        String fallback = StringUtils.hasText(projectCode) ? projectCode.trim() : null;
-        if (storeSyncMapper == null) {
-            return fallback;
-        }
-        if (ownerUserId == null || !StringUtils.hasText(storeCode)) {
-            throw new IllegalStateException("无法校验 Noon 授权范围：缺少 owner 或 storeCode。");
-        }
-        String normalizedStoreCode = storeCode.trim();
-        StoreSyncStoreRecord localProject;
-        try {
-            localProject = storeSyncMapper.selectOwnerProject(ownerUserId, normalizedStoreCode);
-        } catch (RuntimeException exception) {
-            throw new IllegalStateException("无法校验 Noon 授权范围：本地店铺映射查询失败。", exception);
-        }
-        if (localProject == null || !StringUtils.hasText(localProject.getProjectCode())) {
-            throw new IllegalStateException("无法校验 Noon 授权范围：本地店铺映射不存在。");
-        }
-        return localProject.getProjectCode().trim();
-    }
-
     private ProductWriteAuthRequiredException pendingException(
-            Long recoveryId,
             boolean writeMayHaveOccurred,
-            boolean recoveryQueued,
             Throwable cause
     ) {
-        StringBuilder message = new StringBuilder("Noon Project 授权恢复中");
-        if (recoveryId != null) {
-            message.append("；recoveryId=").append(recoveryId);
-        } else if (!recoveryQueued) {
-            message.append("；恢复队列暂未返回记录，请在店铺管理中确认授权状态");
-        }
+        StringBuilder message = new StringBuilder("Noon 共享账号需要人工登录");
         if (writeMayHaveOccurred) {
-            message.append("。本次操作已进入写入阶段，恢复后请先回读 Noon 结果，再人工决定是否继续");
+            message.append("。本次操作已进入写入阶段，人工登录后请先回读 Noon 结果，再由人工决定是否继续");
         } else {
-            message.append("。业务任务进入授权等待队列，恢复成功后将从安全检查点自动继续");
+            message.append("。系统不会自动发送验证码、重试或继续当前业务任务");
         }
         return new ProductWriteAuthRequiredException(
-                recoveryId,
+                null,
                 writeMayHaveOccurred,
                 message.append("。").toString(),
                 cause

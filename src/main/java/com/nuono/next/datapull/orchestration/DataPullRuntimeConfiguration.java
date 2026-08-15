@@ -13,7 +13,7 @@ import com.nuono.next.infrastructure.mapper.DataPullRuntimeMapper;
 import com.nuono.next.infrastructure.mapper.DataPullTaskCompactionMapper;
 import com.nuono.next.infrastructure.mapper.DataPullTaskRepairMapper;
 import com.nuono.next.infrastructure.mapper.DataPullScopeProgressMapper;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import java.time.Clock;
 import java.util.List;
 import java.util.concurrent.Executor;
@@ -143,9 +143,9 @@ public class DataPullRuntimeConfiguration {
 
     @Bean
     DataPullAuthRecoveryQueue dataPullAuthRecoveryQueue(
-            NoonAuthWaitQueue authWaitQueue
+            NoonAccountSessionAttentionPort accountSessionAttention
     ) {
-        return new NoonDataPullAuthRecoveryQueue(authWaitQueue);
+        return new NoonDataPullAuthRecoveryQueue(accountSessionAttention);
     }
 
     @Bean

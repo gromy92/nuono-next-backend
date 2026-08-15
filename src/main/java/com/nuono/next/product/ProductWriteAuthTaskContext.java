@@ -1,22 +1,8 @@
 package com.nuono.next.product;
 
-import com.nuono.next.noonauth.NoonAuthResumePolicy;
-import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
-import com.nuono.next.noonauth.NoonAuthWaitQueue;
-import com.nuono.next.noonauth.NoonAuthWaitRequest;
-import java.util.Optional;
-import org.springframework.util.StringUtils;
-
-/** Carries exact durable product-task identity across lower-level Noon adapter calls. */
+/** Carries write-outcome safety context across lower-level Noon adapter calls. */
 final class ProductWriteAuthTaskContext {
-    private final NoonAuthWaitQueue queue;
-    private final ProjectResolver projectResolver;
     private final ThreadLocal<TaskIdentity> current = new ThreadLocal<>();
-
-    ProductWriteAuthTaskContext(NoonAuthWaitQueue queue, ProjectResolver projectResolver) {
-        this.queue = queue;
-        this.projectResolver = projectResolver;
-    }
 
     TaskIdentity current() {
         return current.get();
@@ -52,6 +38,12 @@ final class ProductWriteAuthTaskContext {
         ));
     }
 
+    private static String domain(ProductPublishTaskRecord task) {
+        return "product-delete".equalsIgnoreCase(task.getTaskType())
+                ? "PRODUCT_DELETE"
+                : "PRODUCT_PUBLISH";
+    }
+
     private ProductWriteAuthRecovery.TaskScope open(TaskIdentity task) {
         TaskIdentity previous = current.get();
         if (task == null) {
@@ -66,51 +58,6 @@ final class ProductWriteAuthTaskContext {
                 current.set(previous);
             }
         };
-    }
-
-    Optional<Long> enqueue(ProductPublishTaskRecord task, String checkpoint, boolean writeMayHaveOccurred) {
-        if (task == null || task.getId() == null || queue == null) {
-            return Optional.empty();
-        }
-        String projectCode = projectResolver.resolve(
-                task.getOwnerUserId(), task.getProjectCode(), task.getStoreCode()
-        );
-        try {
-            return enqueue(identity(
-                    task.getOwnerUserId(), projectCode, task.getStoreCode(), task.getCurrentSiteCode(),
-                    domain(task), task.getId(),
-                    StringUtils.hasText(checkpoint) ? checkpoint : "AUTH_FAILURE", false
-            ), projectCode, writeMayHaveOccurred);
-        } catch (NoonAuthRetrySuppressedException suppressed) {
-            throw suppressed;
-        } catch (RuntimeException ignored) {
-            return Optional.empty();
-        }
-    }
-
-    Optional<Long> enqueue(
-            TaskIdentity task,
-            String canonicalProjectCode,
-            boolean writeMayHaveOccurred
-    ) {
-        return queue.enqueue(NoonAuthWaitRequest.task(
-                task.ownerUserId, canonicalProjectCode, task.storeCode, task.siteCode,
-                task.sourceDomain, task.sourceTaskId, task.checkpoint,
-                writeMayHaveOccurred
-                        ? NoonAuthResumePolicy.READBACK_REQUIRED
-                        : NoonAuthResumePolicy.AUTO_RESUME
-        ));
-    }
-
-    private static String domain(ProductPublishTaskRecord task) {
-        return "product-delete".equalsIgnoreCase(task.getTaskType())
-                ? "PRODUCT_DELETE"
-                : "PRODUCT_PUBLISH";
-    }
-
-    @FunctionalInterface
-    interface ProjectResolver {
-        String resolve(Long ownerUserId, String projectCode, String storeCode);
     }
 
     static final class TaskIdentity {
