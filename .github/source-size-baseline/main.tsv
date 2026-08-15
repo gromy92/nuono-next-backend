@@ -153,7 +153,7 @@ src/main/java/com/nuono/next/product/ProductListSummaryView.java	567
 src/main/java/com/nuono/next/product/ProductMasterController.java	734
 src/main/java/com/nuono/next/product/ProductNoonCatalogContentService.java	339
 src/main/java/com/nuono/next/product/ProductProjectSiteResolver.java	362
-src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5678
+src/main/java/com/nuono/next/product/ProductProjectionPersistenceService.java	5676
 src/main/java/com/nuono/next/product/ProductPublishChangedDomainComparator.java	510
 src/main/java/com/nuono/next/product/ProductPublishOfferWriter.java	408
 src/main/java/com/nuono/next/product/ProductPublishPreparationService.java	1094
