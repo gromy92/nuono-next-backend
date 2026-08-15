@@ -13,7 +13,7 @@ import org.junit.jupiter.api.Test;
 
 class NoonAuthorizationTinyIntMapperSqlTest {
     @Test
-    void manualAccountSessionReadsAndPersistsTinyintAuthorizedBindings() {
+    void manualAccountSessionUsesNumericPredicatesForTinyintAuthorizedBindings() {
         String selectSql = selectSql(NoonAccountSessionMapper.class, "listBoundProjects");
         String updateSql = updateSql(NoonAccountSessionMapper.class, "persistProjectSession");
 
