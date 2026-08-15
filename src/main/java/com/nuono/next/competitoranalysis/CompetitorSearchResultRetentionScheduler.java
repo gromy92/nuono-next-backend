@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,7 @@ public class CompetitorSearchResultRetentionScheduler {
     private final Clock clock;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
+    @Autowired
     public CompetitorSearchResultRetentionScheduler(
             CompetitorSearchResultRetentionMapper mapper,
             @Value("${nuono.competitor-analysis.search-result-retention.enabled:false}") boolean enabled,

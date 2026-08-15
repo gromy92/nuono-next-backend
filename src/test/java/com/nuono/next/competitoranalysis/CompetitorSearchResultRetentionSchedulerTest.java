@@ -1,6 +1,7 @@
 package com.nuono.next.competitoranalysis;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -16,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 @ExtendWith(MockitoExtension.class)
 class CompetitorSearchResultRetentionSchedulerTest {
@@ -28,6 +30,18 @@ class CompetitorSearchResultRetentionSchedulerTest {
 
     @Mock
     private CompetitorSearchResultRetentionMapper mapper;
+
+    @Test
+    void springContextUsesTheConfiguredProductionConstructor() {
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(CompetitorSearchResultRetentionMapper.class, () -> mapper);
+            context.register(CompetitorSearchResultRetentionScheduler.class);
+
+            context.refresh();
+
+            assertNotNull(context.getBean(CompetitorSearchResultRetentionScheduler.class));
+        }
+    }
 
     @Test
     void disabledCleanerDoesNotIssueAnyDelete() {
