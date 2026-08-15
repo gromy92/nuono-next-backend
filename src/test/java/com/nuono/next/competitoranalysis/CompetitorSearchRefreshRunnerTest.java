@@ -10,7 +10,6 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
 import com.nuono.next.competitoranalysis.noon.NoonFrontendSearchAdapter;
 import com.nuono.next.competitoranalysis.noon.NoonSearchPage;
 import com.nuono.next.competitoranalysis.noon.NoonSearchRequest;
@@ -205,6 +204,7 @@ class CompetitorSearchRefreshRunnerTest {
                 .actorUserId(601L)
                 .build());
 
+        // Raw parser persistence is covered by CompetitorSearchResultRetentionMapperContractTest.
         ArgumentCaptor<CompetitorSearchResultInsertCommand> searchCaptor =
                 ArgumentCaptor.forClass(CompetitorSearchResultInsertCommand.class);
         verify(mapper).insertSearchResult(searchCaptor.capture());
@@ -248,8 +248,6 @@ class CompetitorSearchRefreshRunnerTest {
         assertEquals("English competitor title", readString(searchCaptor.getValue(), "getTitleEnSnapshot"));
         assertEquals("عنوان المنافس", readString(searchCaptor.getValue(), "getTitleArSnapshot"));
         assertTrue(readString(searchCaptor.getValue(), "getTagsJson").contains("Best Seller"));
-        assertNull(readString(searchCaptor.getValue(), "getRawResultJson"),
-                "full parser HTML/JSON must not be persisted with ordinary Top-200 evidence");
 
         ArgumentCaptor<CompetitorProductInsertCommand> productCaptor =
                 ArgumentCaptor.forClass(CompetitorProductInsertCommand.class);

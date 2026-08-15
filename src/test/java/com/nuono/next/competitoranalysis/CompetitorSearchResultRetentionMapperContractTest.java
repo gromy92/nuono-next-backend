@@ -50,6 +50,16 @@ class CompetitorSearchResultRetentionMapperContractTest {
         )));
     }
 
+    @Test
+    void ordinaryTop200WritesDoNotPersistParserRawPayloads() throws IOException {
+        String source = read("src/main/java/com/nuono/next/competitoranalysis/CompetitorSearchRefreshRunner.java");
+        int methodStart = source.indexOf("private competitorsearchresultinsertcommand buildsearchresult(");
+        int nextMethod = source.indexOf("private string normalizecode", methodStart);
+
+        assertTrue(methodStart >= 0 && nextMethod > methodStart);
+        assertFalse(source.substring(methodStart, nextMethod).contains("setrawresultjson"));
+    }
+
     private static String read(String relativePath) throws IOException {
         return Files.readString(Path.of(relativePath)).toLowerCase(Locale.ROOT);
     }
