@@ -19,12 +19,14 @@ class Ali1688OrderCanonicalIndexMigrationTest {
         assertThat(migration)
                 .contains("add column `superseded_by_order_id` bigint default null")
                 .contains("create table if not exists `procurement_ali1688_order_dedup_audit`")
+                .contains("`original_gmt_updated` datetime default null")
                 .contains("idx_proc_ali1688_order_canonical")
                 .contains("(`owner_user_id`, `provider_order_no`, `superseded_by_order_id`, `is_deleted`, `authorization_id`, `gmt_updated`, `id`)")
                 .contains("algorithm=inplace, lock=none");
         assertThat(postcheck)
                 .contains("owner_user_id,provider_order_no,superseded_by_order_id,is_deleted,authorization_id,gmt_updated,id")
                 .contains("procurement_ali1688_order_dedup_audit")
+                .contains("correction_code,entity_type,entity_id")
                 .contains("superseded_by_order_id");
         assertThat(catalog).contains(String.join("\t",
                 "254",
