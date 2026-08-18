@@ -217,7 +217,7 @@ public final class OfficialWarehouseShippingBatchSqlProvider {
         );
     }
 
-    private static String strictBarcodeProductCtes() {
+    static String strictBarcodeProductCtes() {
         return String.join("\n",
                 "WITH ownerBarcodeCandidates AS (",
                 "  SELECT BINARY pb.barcode AS barcodeKey, pb.logical_store_id AS logicalStoreId, pb.partner_sku AS partnerSku",
