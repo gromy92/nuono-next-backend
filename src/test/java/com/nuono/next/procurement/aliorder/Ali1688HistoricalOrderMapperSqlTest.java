@@ -164,20 +164,15 @@ class Ali1688HistoricalOrderMapperSqlTest {
         String listOrdersSql = annotationSql(listOrdersMethod.getAnnotation(Select.class).value());
         String countOrdersSql = annotationSql(countOrdersMethod.getAnnotation(Select.class).value());
 
-        assertThat(listOrdersSql)
-                .contains("canonical_order.owner_user_id = procurement_ali1688_order_header.owner_user_id")
-                .contains("BINARY canonical_order.provider_order_no = BINARY procurement_ali1688_order_header.provider_order_no")
-                .contains("canonical_order.superseded_by_order_id IS NULL")
-                .contains("WHEN canonical_authorization.provider_code = 'ALI1688_OPEN_API' THEN 0")
-                .contains("canonical_order.gmt_updated DESC, canonical_order.id DESC")
-                .contains("LIMIT 1");
-        assertThat(countOrdersSql)
-                .contains("canonical_order.owner_user_id = procurement_ali1688_order_header.owner_user_id")
-                .contains("BINARY canonical_order.provider_order_no = BINARY procurement_ali1688_order_header.provider_order_no")
-                .contains("canonical_order.superseded_by_order_id IS NULL")
-                .contains("WHEN canonical_authorization.provider_code = 'ALI1688_OPEN_API' THEN 0")
-                .contains("canonical_order.gmt_updated DESC, canonical_order.id DESC")
-                .contains("LIMIT 1");
+        for (String sql : java.util.List.of(listOrdersSql, countOrdersSql)) {
+            assertThat(sql)
+                    .contains("canonical_order.owner_user_id = procurement_ali1688_order_header.owner_user_id")
+                    .contains("BINARY canonical_order.provider_order_no = BINARY procurement_ali1688_order_header.provider_order_no")
+                    .contains("canonical_order.superseded_by_order_id IS NULL")
+                    .contains("WHEN canonical_authorization.provider_code = 'ALI1688_OPEN_API' THEN 0")
+                    .contains("canonical_order.gmt_updated DESC, canonical_order.id DESC")
+                    .contains("LIMIT 1");
+        }
     }
 
     @Test
