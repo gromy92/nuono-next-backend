@@ -20,8 +20,8 @@ POSTCHECK = REPOSITORY_ROOT / "src/main/resources/db/postcheck"
 
 # A source change must be reviewed together with this exact-path fixture.
 # Authoritative legacy tables are extracted byte-for-byte because running all of
-# 071 would require unrelated menu/user seed domains. Migration 092 and runtime
-# 243 execute whole; 127 stays a pinned, non-executed compatibility definition.
+# 071 would require unrelated menu/user seed domains. Migrations 092, 243, and
+# 254 execute whole; 127 stays a pinned, non-executed compatibility definition.
 EXPECTED_SOURCE_DIGESTS = {
     "003_product_management_v1.sql":
         "9ec9573ab1b63ee370ede60639d7ea021ea403ef16dada8669be417f8f90c9a7",
@@ -35,6 +35,8 @@ EXPECTED_SOURCE_DIGESTS = {
         "d4165cdd19d9b9db804c68bff18d1919bf9c5ff96acc7ba1c13f6ea35c2dc8ae",
     "243_dp_pull_runtime.sql":
         "5b5b2ea1ab3970905b50e12a4086388f74b54f156431ce8337ba48c624e17848",
+    "254_procurement_ali1688_order_canonical_index.sql":
+        "a46a3fd3a01367dcbe91dea1d11d19f60a36cc3c5e4274fc6dd1195a109a0c1d",
 }
 
 LEGACY_BASE_TABLE_SOURCES = {
@@ -66,6 +68,7 @@ PRODUCT_SEQUENCE_FLOORS = {
 EVOLUTION_MIGRATIONS = (
     "092_procurement_ali1688_order_cleanup_audit.sql",
     "243_dp_pull_runtime.sql",
+    "254_procurement_ali1688_order_canonical_index.sql",
 )
 
 
@@ -101,11 +104,15 @@ def main() -> None:
             database.client.execute(sources[migration])
         assert_legacy_shapes(database, sources)
         assert_sequence_tables(database, sources)
-        exact_243 = (POSTCHECK / "243_dp_pull_runtime.sql").read_text(
-            encoding="utf-8"
-        )
-        if database.client.execute_readonly(exact_243) != "1":
-            raise RuntimeError("migration 243 exact postcheck failed after DP10 setup")
+        for postcheck_name in (
+            "243_dp_pull_runtime.sql",
+            "254_procurement_ali1688_order_canonical_index.sql",
+        ):
+            postcheck = (POSTCHECK / postcheck_name).read_text(encoding="utf-8")
+            if database.client.execute_readonly(postcheck) != "1":
+                raise RuntimeError(
+                    f"migration {postcheck_name[:3]} exact postcheck failed after DP10 setup"
+                )
     finally:
         database.close()
 
@@ -199,10 +206,12 @@ def assert_legacy_shapes(
 ) -> None:
     base = sources["071_procurement_ali1688_historical_order_sync.sql"]
     audit = sources["092_procurement_ali1688_order_cleanup_audit.sql"]
+    canonical = sources["254_procurement_ali1688_order_canonical_index.sql"]
     for table in FACT_TARGET_TABLES:
         expected = set(column_names(extract_create_table(base, table)))
         if table == "procurement_ali1688_order_header":
             expected.update(re.findall(r"ADD\s+COLUMN\s+`([^`]+)`", audit))
+            expected.update(re.findall(r"ADD\s+COLUMN\s+`([^`]+)`", canonical))
         actual_text = database.client.execute_readonly(
             "SELECT GROUP_CONCAT(column_name ORDER BY column_name SEPARATOR ',') "
             "FROM information_schema.columns WHERE table_schema=DATABASE() "

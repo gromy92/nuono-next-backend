@@ -181,6 +181,7 @@ class DataPullDeadlineCiContractTest(unittest.TestCase):
             "092_procurement_ali1688_order_cleanup_audit.sql",
             "127_procurement_ali1688_history_read_model.sql",
             "243_dp_pull_runtime.sql",
+            "254_procurement_ali1688_order_canonical_index.sql",
             "EXPECTED_SOURCE_DIGESTS",
             "procurement_ali1688_order_authorization",
             "procurement_ali1688_order_header",
@@ -198,6 +199,7 @@ class DataPullDeadlineCiContractTest(unittest.TestCase):
         evolution = source.split("EVOLUTION_MIGRATIONS = (", 1)[1].split(")", 1)[0]
         self.assertIn("092_procurement_ali1688_order_cleanup_audit.sql", evolution)
         self.assertIn("243_dp_pull_runtime.sql", evolution)
+        self.assertIn("254_procurement_ali1688_order_canonical_index.sql", evolution)
         self.assertNotIn("127_procurement_ali1688_history_read_model.sql", evolution)
 
     def test_dp10_exact_path_uses_an_isolated_rds_policy_schema(self):
