@@ -10,9 +10,18 @@ public class MobileAppCorsWebMvcConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                .allowedOrigins("https://localhost", "capacitor://localhost")
+                .allowedOrigins(
+                        "https://localhost",
+                        "capacitor://localhost",
+                        "chrome-extension://hpbbkgdmajhhjbkbiaegidiagggliame")
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
-                .allowedHeaders("Authorization", "Content-Type", "Accept")
+                .allowedHeaders(
+                        "Authorization",
+                        "Content-Type",
+                        "Accept",
+                        "X-Nuono-Extension",
+                        "X-Nuono-Extension-Build",
+                        "X-Nuono-Extension-Version")
                 .allowCredentials(true)
                 .maxAge(3600L);
     }
