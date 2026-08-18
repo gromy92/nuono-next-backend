@@ -138,14 +138,14 @@ final class Ali1688HistoricalOrderFactPersistence implements Ali1688Dp10FactSegm
                 itemId = positive(dp10Facts.selectAnyCanonicalItemIdByNaturalKey(
                         orderId, item.getItemNaturalKey()));
             }
-            if (itemId == null && existingOrder && !rows.hasProviderIdentity(itemSnapshot)) {
+            if (itemId == null && existingOrder) {
                 itemId = positive(dp10Facts.selectCanonicalItemIdByStableTuple(
                         orderId,
                         rows.normalizedFallbackPart(itemSnapshot.getOfferId()),
                         rows.normalizedFallbackPart(itemSnapshot.getSkuId()),
                         rows.normalizedFallbackPart(itemSnapshot.getProductCode()),
                         rows.normalizedFallbackPart(itemSnapshot.getSingleProductCode()),
-                        identityOccurrence - 1
+                        rows.stableTupleOccurrence(snapshot.getItems(), cursor) - 1
                 ));
             }
             item.setId(itemId == null ? mapper.nextOrderItemId() : itemId);
@@ -188,8 +188,8 @@ final class Ali1688HistoricalOrderFactPersistence implements Ali1688Dp10FactSegm
             Ali1688HistoricalOrderProvider.OrderSnapshot snapshot
     ) {
         return identity != null
-                && authorization.getProviderCode().equals(identity.getProviderCode())
-                && authorization.getProviderAccountId().equals(identity.getProviderAccountId())
+                && Ali1688HistoricalOrderSourceIdentity.compatible(
+                        identity.getProviderCode(), authorization.getProviderCode())
                 && snapshot.getProviderOrderNo().equals(identity.getProviderOrderNo());
     }
 
