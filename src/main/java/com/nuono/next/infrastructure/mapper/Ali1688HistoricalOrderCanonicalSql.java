@@ -12,7 +12,7 @@ final class Ali1688HistoricalOrderCanonicalSql {
             + "      ON canonical_authorization.id = canonical_order.authorization_id"
             + "     AND canonical_authorization.owner_user_id = canonical_order.owner_user_id"
             + "    WHERE canonical_order.owner_user_id = procurement_ali1688_order_header.owner_user_id"
-            + "      AND BINARY canonical_order.provider_order_no = BINARY procurement_ali1688_order_header.provider_order_no"
+            + "      AND canonical_order.provider_order_no = procurement_ali1688_order_header.provider_order_no"
             + "      AND canonical_order.superseded_by_order_id IS NULL"
             + "      AND canonical_order.is_deleted = b'0'"
             + "      AND canonical_order.authorization_id IN"
