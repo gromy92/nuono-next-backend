@@ -5,7 +5,6 @@ import static com.nuono.next.procurement.aliorder.Ali1688Dp10OrderHeaderIdentity
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -76,11 +75,12 @@ class Ali1688HistoricalOrderFactPersistenceTest {
                 eq(task), eq(slice), eq(93_001L), anyList());
     }
     @Test
-    void providerIdentityNeverFallsBackToAnOffsetOrLegacyTuplePrimaryKey() {
+    void providerIdentityFallsBackToStableTupleInsideExistingOrder() {
         Ali1688HistoricalOrderMapper mapper = mock(Ali1688HistoricalOrderMapper.class);
         Ali1688Dp10FactLookupMapper compatibility = mock(Ali1688Dp10FactLookupMapper.class);
         stubCanonicalOrder(compatibility, activeIdentity(93_001L, "legacy:ORDER-1"));
-        when(mapper.nextOrderItemId()).thenReturn(94_101L);
+        when(compatibility.selectCanonicalItemIdByStableTuple(
+                93_001L, "OFFER-1", "SKU-1", "", "", 0)).thenReturn(94_101L);
         when(compatibility.countDp10ChildFinalizeFence(any(), any())).thenReturn(1);
         Ali1688HistoricalOrderProvider.OrderSnapshot order = order();
         order.getItems().get(0).setProviderSubOrderId("SUBORDER-1");
@@ -93,10 +93,10 @@ class Ali1688HistoricalOrderFactPersistenceTest {
 
         persistence.persistSegment(task, authorization(99_999L), slice, 20);
 
-        verify(compatibility, never()).selectCanonicalItemIdByStableTuple(
-                any(), any(), any(), any(), any(), anyInt());
+        verify(compatibility).selectCanonicalItemIdByStableTuple(
+                93_001L, "OFFER-1", "SKU-1", "", "", 0);
         verify(mapper, never()).nextOrderId();
-        verify(mapper).nextOrderItemId();
+        verify(mapper, never()).nextOrderItemId();
     }
     @Test
     void duplicateProviderIdentityKeepsFirstFactAndSkipsEveryLaterOccurrence() {

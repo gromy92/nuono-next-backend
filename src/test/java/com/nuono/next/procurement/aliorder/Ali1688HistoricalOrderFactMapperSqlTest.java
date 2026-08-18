@@ -29,7 +29,7 @@ class Ali1688HistoricalOrderFactMapperSqlTest {
     }
 
     @Test
-    void dp10LocksExactOrderHeaderIncludingManualTombstones() {
+    void dp10LocksProviderOrderAcrossReauthorizationIncludingManualTombstones() {
         String header = selectSql(lookup("selectCanonicalOrderHeadersForUpdate"));
 
         assertThat(header)
@@ -43,12 +43,14 @@ class Ali1688HistoricalOrderFactMapperSqlTest {
                 .contains("auth.id = oh.authorization_id")
                 .contains("auth.owner_user_id = oh.owner_user_id")
                 .contains("oh.owner_user_id = #{ownerUserId}")
-                .contains(" OR (BINARY auth.provider_code = BINARY #{providerCode}")
-                .contains("BINARY auth.provider_account_id = BINARY #{providerAccountId}")
+                .contains("auth.provider_code IN ('ALI1688_OPEN_API',")
+                .contains("'ALI1688_EXCEL_LOCAL', 'ALI1688_EXCEL_UPLOAD')")
                 .contains("BINARY oh.provider_order_no = BINARY #{providerOrderNo}")
                 .contains("BINARY oh.order_natural_key = BINARY #{orderNaturalKey}")
+                .contains("oh.superseded_by_order_id IS NULL")
                 .contains("THEN 0 ELSE 1 END, oh.id ASC")
                 .contains("LIMIT 2 FOR UPDATE")
+                .doesNotContain("BINARY auth.provider_account_id = BINARY #{providerAccountId}")
                 .doesNotContain("oh.is_deleted = b'0'");
     }
 

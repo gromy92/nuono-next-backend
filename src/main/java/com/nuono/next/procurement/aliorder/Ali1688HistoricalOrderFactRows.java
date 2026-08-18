@@ -165,6 +165,23 @@ final class Ali1688HistoricalOrderFactRows {
         return occurrence;
     }
 
+    int stableTupleOccurrence(
+            List<Ali1688HistoricalOrderProvider.OrderItemSnapshot> items,
+            int itemIndex
+    ) {
+        if (items == null || itemIndex < 0 || itemIndex >= items.size()) {
+            throw new IllegalArgumentException("1688 item tuple occurrence locator is invalid");
+        }
+        Ali1688HistoricalOrderProvider.OrderItemSnapshot current = items.get(itemIndex);
+        int occurrence = 1;
+        for (int index = 0; index < itemIndex; index++) {
+            if (!isFirstProviderIdentity(items, index)) continue;
+            Ali1688HistoricalOrderProvider.OrderItemSnapshot previous = items.get(index);
+            if (sameStableTuple(current, previous)) occurrence++;
+        }
+        return occurrence;
+    }
+
     boolean hasProviderIdentity(Ali1688HistoricalOrderProvider.OrderItemSnapshot item) {
         return item != null && (hasText(item.getProviderSubOrderId())
                 || hasText(item.getProviderItemId()));
@@ -188,6 +205,24 @@ final class Ali1688HistoricalOrderFactRows {
 
     String normalizedFallbackPart(String value) {
         return hasText(value) ? value.trim() : "";
+    }
+
+    private boolean sameStableTuple(
+            Ali1688HistoricalOrderProvider.OrderItemSnapshot left,
+            Ali1688HistoricalOrderProvider.OrderItemSnapshot right
+    ) {
+        return Objects.equals(
+                normalizedFallbackPart(left.getOfferId()),
+                normalizedFallbackPart(right.getOfferId()))
+                && Objects.equals(
+                        normalizedFallbackPart(left.getSkuId()),
+                        normalizedFallbackPart(right.getSkuId()))
+                && Objects.equals(
+                        normalizedFallbackPart(left.getProductCode()),
+                        normalizedFallbackPart(right.getProductCode()))
+                && Objects.equals(
+                        normalizedFallbackPart(left.getSingleProductCode()),
+                        normalizedFallbackPart(right.getSingleProductCode()));
     }
 
     String logisticsKey(String itemNaturalKey) {
