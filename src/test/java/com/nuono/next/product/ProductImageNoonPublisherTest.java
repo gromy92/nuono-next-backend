@@ -131,6 +131,15 @@ class ProductImageNoonPublisherTest {
         );
 
         assertEquals(List.of("https://noon.example/image-1.png"), result);
+        verify(noonAdapter).loginWithPersistedCookiePinnedEgress(
+                307L,
+                "operator@example.com",
+                "cookie",
+                "PRJ-1",
+                "STR108065-NAE",
+                "noon-catalog.noon.partners",
+                443
+        );
         ArgumentCaptor<JsonNode> writeBody = ArgumentCaptor.forClass(JsonNode.class);
         verify(noonAdapter).postWriteJson(eq(session), eq(NoonProductGateway.ZSKU_UPSERT_URL), writeBody.capture(), eq(true));
         assertEquals("https://noon.example/image-1.png", writeBody.getValue().path("attributes").path("image_url_1").asText());
@@ -255,8 +264,14 @@ class ProductImageNoonPublisherTest {
         when(storeSyncMapper.selectOwnerProject(307L, "STR108065-NAE"))
                 .thenReturn(storeRecord());
         when(storeSyncMapper.selectOwnerContext(307L)).thenReturn(ownerContext());
-        when(noonAdapter.loginWithPersistedCookie(
-                307L, "operator@example.com", "cookie", "PRJ-1", "STR108065-NAE"
+        when(noonAdapter.loginWithPersistedCookiePinnedEgress(
+                307L,
+                "operator@example.com",
+                "cookie",
+                "PRJ-1",
+                "STR108065-NAE",
+                "noon-catalog.noon.partners",
+                443
         )).thenReturn(session);
     }
 
