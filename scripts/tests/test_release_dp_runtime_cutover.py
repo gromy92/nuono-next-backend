@@ -173,6 +173,29 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         self.assertIn("UPDATE dp_pull_task SET id = NULL", writer)
         self.assertIn('lines.append("COMMIT;")', writer)
 
+    def test_bootstrap_count_probe_closes_concat_and_arms_rollback_before_postchecks(self):
+        fragment = cutover_fragment()
+        counts = fragment[
+            fragment.index("dp_runtime_bootstrap_counts()"):
+            fragment.index("bootstrap_dp_runtime_cutover()")
+        ]
+        bootstrap = fragment[
+            fragment.index("bootstrap_dp_runtime_cutover()"):
+            fragment.index("dp_runtime_new_work_count()")
+        ]
+
+        self.assertIn(
+            "(SELECT COUNT(*) FROM dp_pull_schedule_cutover));",
+            counts,
+        )
+        transaction = bootstrap.index(
+            'dp_runtime_mysql --batch --raw < "$DP_RUNTIME_BOOTSTRAP_SQL"'
+        )
+        rollback_armed = bootstrap.index("DP_RUNTIME_BOOTSTRAPPED=1")
+        binding = bootstrap.index("capture_dp_runtime_database_binding")
+        self.assertLess(transaction, rollback_armed)
+        self.assertLess(rollback_armed, binding)
+
     def test_automatic_predecessor_restart_requires_exact_zero_work_data_rollback(self):
         script = build_script()
         rollback = script[script.index("rollback_cutover()") : script.index("validate_cutover()")]
