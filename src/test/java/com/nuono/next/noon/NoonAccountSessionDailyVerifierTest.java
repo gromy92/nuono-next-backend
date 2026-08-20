@@ -15,7 +15,11 @@ import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import com.nuono.next.noonauth.NoonAuthRecoveryProperties;
 import com.nuono.next.noonauth.NoonAuthRecoveryItemRecord;
 import com.nuono.next.noonauth.NoonAuthRecoveryItemStatus;
+import com.nuono.next.noonauth.NoonAuthRecoveryRepository;
+import com.nuono.next.noonauth.NoonAuthIdentityRecoveryRecord;
+import com.nuono.next.noonauth.NoonAuthRecoveryStatus;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class NoonAccountSessionDailyVerifierTest {
@@ -108,6 +112,30 @@ class NoonAccountSessionDailyVerifierTest {
         org.junit.jupiter.api.Assertions.assertTrue(result.isReady());
         org.junit.jupiter.api.Assertions.assertEquals(2, result.getVerifiedProjects());
         org.junit.jupiter.api.Assertions.assertEquals(0, result.getUnverifiedProjects());
+    }
+
+    @Test
+    void startupAuditObservesQueuedRecoveryBeforePublishingReadiness() {
+        NoonAccountSessionMapper mapper = mock(NoonAccountSessionMapper.class);
+        NoonSessionGateway gateway = mock(NoonSessionGateway.class);
+        NoonAuthWaitQueue authWaitQueue = mock(NoonAuthWaitQueue.class);
+        NoonAuthRecoveryRepository repository = mock(NoonAuthRecoveryRepository.class);
+        when(mapper.listBoundProjects()).thenReturn(List.of(target("PRJ100", "STR100", null)));
+        when(authWaitQueue.enqueue(NoonAuthWaitRequest.binding(307L, "PRJ100", "STR100")))
+                .thenReturn(Optional.of(42L));
+        NoonAccountSessionDailyVerifier verifier = verifier(
+                mapper, gateway, authWaitQueue, allProjects()
+        );
+        verifier.verifyNow();
+        NoonAuthIdentityRecoveryRecord recovery = new NoonAuthIdentityRecoveryRecord();
+        recovery.setId(42L);
+        recovery.setStatus(NoonAuthRecoveryStatus.COMPLETED);
+        when(repository.selectRecovery(42L)).thenReturn(recovery);
+        when(repository.listRecoveryItems(42L)).thenReturn(List.of(recoveredItem("PRJ100")));
+
+        NoonAccountSessionStartupVerifier.audit(verifier, repository);
+
+        org.junit.jupiter.api.Assertions.assertTrue(verifier.latestResult().isReady());
     }
 
     private static NoonAccountSessionDailyVerifier verifier(

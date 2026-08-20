@@ -9,6 +9,7 @@ public final class NoonAccountSessionAuditResult {
     private final int verifiedProjects;
     private final int excludedProjects;
     private final int unverifiedProjects;
+    private final Long recoveryId;
 
     private NoonAccountSessionAuditResult(
             String scopeMode,
@@ -17,7 +18,8 @@ public final class NoonAccountSessionAuditResult {
             int scopedProjects,
             int verifiedProjects,
             int excludedProjects,
-            int unverifiedProjects
+            int unverifiedProjects,
+            Long recoveryId
     ) {
         this.scopeMode = scopeMode;
         this.status = status;
@@ -26,10 +28,11 @@ public final class NoonAccountSessionAuditResult {
         this.verifiedProjects = verifiedProjects;
         this.excludedProjects = excludedProjects;
         this.unverifiedProjects = unverifiedProjects;
+        this.recoveryId = recoveryId;
     }
 
     static NoonAccountSessionAuditResult notRun(String scopeMode) {
-        return new NoonAccountSessionAuditResult(scopeMode, "NOT_RUN", 0, 0, 0, 0, 0);
+        return new NoonAccountSessionAuditResult(scopeMode, "NOT_RUN", 0, 0, 0, 0, 0, null);
     }
 
     static NoonAccountSessionAuditResult of(
@@ -37,7 +40,8 @@ public final class NoonAccountSessionAuditResult {
             String status,
             int totalProjects,
             int scopedProjects,
-            int verifiedProjects
+            int verifiedProjects,
+            Long recoveryId
     ) {
         return new NoonAccountSessionAuditResult(
                 scopeMode,
@@ -46,7 +50,8 @@ public final class NoonAccountSessionAuditResult {
                 scopedProjects,
                 verifiedProjects,
                 Math.max(0, totalProjects - scopedProjects),
-                Math.max(0, scopedProjects - verifiedProjects)
+                Math.max(0, scopedProjects - verifiedProjects),
+                recoveryId
         );
     }
 
@@ -64,4 +69,6 @@ public final class NoonAccountSessionAuditResult {
     public int getVerifiedProjects() { return verifiedProjects; }
     public int getExcludedProjects() { return excludedProjects; }
     public int getUnverifiedProjects() { return unverifiedProjects; }
+
+    Long recoveryId() { return recoveryId; }
 }

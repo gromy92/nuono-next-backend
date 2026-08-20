@@ -27,6 +27,7 @@ public class NoonAuthRecoveryProperties {
     private boolean sessionAuditEnabled = true;
     private boolean startupAuditEnabled;
     private long startupAuditDelayMs = 30_000L;
+    private long startupAuditPollMs = 10_000L;
     private String projectAllowlist;
     private String trustedSenderDomains;
     private String checkpointCipherSecret;
@@ -155,6 +156,14 @@ public class NoonAuthRecoveryProperties {
 
     public void setStartupAuditDelayMs(long startupAuditDelayMs) {
         this.startupAuditDelayMs = startupAuditDelayMs;
+    }
+
+    public long getStartupAuditPollMs() {
+        return Math.max(1_000L, startupAuditPollMs);
+    }
+
+    public void setStartupAuditPollMs(long startupAuditPollMs) {
+        this.startupAuditPollMs = startupAuditPollMs;
     }
 
     public String projectScopeMode() {

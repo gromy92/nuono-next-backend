@@ -1,7 +1,11 @@
 package com.nuono.next.noon;
 
 import com.nuono.next.noonauth.NoonAuthRecoveryProperties;
+import com.nuono.next.noonauth.NoonAuthRecoveryRepository;
+import com.nuono.next.noonauth.NoonAuthIdentityRecoveryRecord;
+import com.nuono.next.noonauth.NoonAuthRecoveryStatus;
 import java.time.Clock;
+import java.util.Collections;
 import java.util.Date;
 import java.util.concurrent.ScheduledFuture;
 import java.util.function.Supplier;
@@ -14,7 +18,7 @@ import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 
-/** Runs one asynchronous full-scope session audit shortly after the Java service starts. */
+/** Runs and observes one asynchronous full-scope session audit after Java starts. */
 @Component
 @Profile("local-db")
 final class NoonAccountSessionStartupVerifier implements SmartLifecycle {
@@ -35,10 +39,11 @@ final class NoonAccountSessionStartupVerifier implements SmartLifecycle {
     NoonAccountSessionStartupVerifier(
             NoonAccountSessionDailyVerifier verifier,
             NoonAuthRecoveryProperties properties,
+            NoonAuthRecoveryRepository repository,
             TaskSchedulerBuilder schedulerBuilder
     ) {
         this(
-                verifier::verifyNow,
+                () -> audit(verifier, repository),
                 properties,
                 Clock.systemUTC(),
                 () -> schedulerBuilder.poolSize(1).threadNamePrefix(THREAD_NAME_PREFIX).build()
@@ -75,9 +80,10 @@ final class NoonAccountSessionStartupVerifier implements SmartLifecycle {
             configure(candidate);
             candidate.initialize();
             try {
-                scheduledFuture = candidate.schedule(
+                scheduledFuture = candidate.scheduleWithFixedDelay(
                         this::runSafely,
-                        Date.from(clock.instant().plusMillis(properties.getStartupAuditDelayMs()))
+                        Date.from(clock.instant().plusMillis(properties.getStartupAuditDelayMs())),
+                        properties.getStartupAuditPollMs()
                 );
                 if (scheduledFuture == null) {
                     throw new IllegalStateException("Noon startup session audit was not scheduled.");
@@ -132,5 +138,31 @@ final class NoonAccountSessionStartupVerifier implements SmartLifecycle {
                     exception.getClass().getSimpleName()
             );
         }
+    }
+
+    static void audit(
+            NoonAccountSessionDailyVerifier verifier,
+            NoonAuthRecoveryRepository repository
+    ) {
+        NoonAccountSessionAuditResult result = verifier.latestResult();
+        if (result.isReady()) {
+            return;
+        }
+        if ("NOT_RUN".equals(result.getStatus())) {
+            verifier.verifyNow();
+            return;
+        }
+        if (!"RECOVERY_QUEUED".equals(result.getStatus()) || result.recoveryId() == null) {
+            return;
+        }
+        NoonAuthIdentityRecoveryRecord recovery = repository.selectRecovery(result.recoveryId());
+        if (recovery == null || recovery.getStatus() == null || !recovery.getStatus().isTerminal()) {
+            return;
+        }
+        verifier.recordRecoveryCompletion(
+                recovery.getStatus() == NoonAuthRecoveryStatus.COMPLETED
+                        ? repository.listRecoveryItems(result.recoveryId())
+                        : Collections.emptyList()
+        );
     }
 }

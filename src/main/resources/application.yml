@@ -184,6 +184,7 @@ nuono:
       session-audit-enabled: ${NUONO_NOON_AUTH_SESSION_AUDIT_ENABLED:true}
       startup-audit-enabled: ${NUONO_NOON_AUTH_STARTUP_AUDIT_ENABLED:false}
       startup-audit-delay-ms: ${NUONO_NOON_AUTH_STARTUP_AUDIT_DELAY_MS:30000}
+      startup-audit-poll-ms: ${NUONO_NOON_AUTH_STARTUP_AUDIT_POLL_MS:10000}
       project-allowlist: ${NUONO_NOON_AUTH_RECOVERY_PROJECT_ALLOWLIST:}
       trusted-sender-domains: ${NUONO_NOON_AUTH_RECOVERY_TRUSTED_SENDER_DOMAINS:}
   competitor-analysis:

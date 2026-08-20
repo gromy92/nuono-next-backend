@@ -128,7 +128,8 @@ public final class NoonAccountSessionDailyVerifier {
                 recoveryId.isPresent() ? "RECOVERY_QUEUED" : "RECOVERY_REJECTED",
                 totalProjects,
                 scopedProjects,
-                verifiedProjects
+                verifiedProjects,
+                recoveryId.orElse(null)
         );
     }
 
@@ -147,8 +148,23 @@ public final class NoonAccountSessionDailyVerifier {
             int scopedProjects,
             int verifiedProjects
     ) {
+        return record(status, totalProjects, scopedProjects, verifiedProjects, null);
+    }
+
+    private NoonAccountSessionAuditResult record(
+            String status,
+            int totalProjects,
+            int scopedProjects,
+            int verifiedProjects,
+            Long recoveryId
+    ) {
         NoonAccountSessionAuditResult result = NoonAccountSessionAuditResult.of(
-                properties.projectScopeMode(), status, totalProjects, scopedProjects, verifiedProjects
+                properties.projectScopeMode(),
+                status,
+                totalProjects,
+                scopedProjects,
+                verifiedProjects,
+                recoveryId
         );
         latestResult = result;
         LOGGER.info(

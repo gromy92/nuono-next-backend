@@ -31,7 +31,11 @@ class NoonAccountSessionStartupVerifierTest {
         @SuppressWarnings("rawtypes")
         ScheduledFuture future = mock(ScheduledFuture.class);
         ArgumentCaptor<Runnable> runnable = ArgumentCaptor.forClass(Runnable.class);
-        when(taskScheduler.schedule(runnable.capture(), eq(Date.from(clock.instant().plusMillis(1_234L)))))
+        when(taskScheduler.scheduleWithFixedDelay(
+                runnable.capture(),
+                eq(Date.from(clock.instant().plusMillis(1_234L))),
+                eq(10_000L)
+        ))
                 .thenReturn(future);
         AtomicBoolean audited = new AtomicBoolean();
         NoonAccountSessionStartupVerifier verifier = new NoonAccountSessionStartupVerifier(
