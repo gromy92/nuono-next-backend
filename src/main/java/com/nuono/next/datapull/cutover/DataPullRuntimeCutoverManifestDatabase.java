@@ -23,7 +23,10 @@ import java.sql.Connection;
 import java.sql.Statement;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.EnumMap;
@@ -41,6 +44,8 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 /** Opens one read-only consistent snapshot and invokes the production scope Implementations. */
 final class DataPullRuntimeCutoverManifestDatabase {
 
+    private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
+    private static final LocalTime DP08B_DUE_TIME = LocalTime.of(2, 0);
     private static final DateTimeFormatter MYSQL_MILLIS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
     static final String READ_ONLY_SNAPSHOT_SQL =
@@ -92,8 +97,7 @@ final class DataPullRuntimeCutoverManifestDatabase {
                 session.getMapper(Dp08ScopeMapper.class), captured, new ObjectMapper()
         );
         DataPullScopePreparation dp08a = dp08.prepareKeywordScopesForEnqueue();
-        LocalDate factDate = observedAtUtc.atZone(java.time.ZoneOffset.UTC)
-                .withZoneSameInstant(ZoneId.of("Asia/Shanghai")).toLocalDate();
+        LocalDate factDate = latestDueDp08bFactDate(observedAtUtc);
         Dp08ListTargetPreparation dp08b = dp08.prepareListTargetScopesForEnqueue(factDate);
         complete(dp08a, cutoverKey, observedAtUtc);
         complete(dp08b, cutoverKey, observedAtUtc);
@@ -116,6 +120,15 @@ final class DataPullRuntimeCutoverManifestDatabase {
                 captured.snapshot(),
                 new DataPullLegacyScheduleBoundaryReader().read(connection, noon)
         );
+    }
+
+    static LocalDate latestDueDp08bFactDate(LocalDateTime observedAtUtc) {
+        ZonedDateTime observedShanghai = observedAtUtc.atZone(ZoneOffset.UTC)
+                .withZoneSameInstant(SHANGHAI);
+        LocalDate observedDate = observedShanghai.toLocalDate();
+        return observedShanghai.toLocalTime().isBefore(DP08B_DUE_TIME)
+                ? observedDate.minusDays(1)
+                : observedDate;
     }
 
     private static void complete(
