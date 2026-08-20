@@ -155,6 +155,7 @@ esac
 freeze_active_runtime_payloads
 assert_only_backend_jvm "$ACTIVE_PID"
 prepare_dp_runtime_cutover
+capture_dp08_legacy_cohort
 run_dp10_openapi_probe
 run_dp_report_download_probe
 run_dp_runtime_cutover_manifest
@@ -180,6 +181,7 @@ stop_pid "$ACTIVE_PID"
 assert_no_backend_jvms
 OLD_STOPPED=1
 finalize_dp_runtime_legacy_cutover
+finalize_dp08_legacy_cutover
 recheck_dp_runtime_cutover_manifest
 bootstrap_dp_runtime_cutover
 prepare_dp10_probe_runtime_environment
@@ -214,6 +216,7 @@ emit ACTIVE_SLOT "$TARGET_SLOT"; emit ACTIVE_JAR_PATH "$TARGET_SLOT_DIR/$JAR_NAM
 emit TOPOLOGY_CAS_SHA256 "$FINAL_TOPOLOGY_CAS_SHA256"; emit EXTERNAL_HEALTH "$external_health"
 emit DP_LEGACY_SUPERSEDED_COUNT "$DP_RUNTIME_LEGACY_SUPERSEDED_COUNT"; emit DP_LEGACY_REMAINING_AFTER_STOP "$DP_RUNTIME_LEGACY_REMAINING_AFTER_STOP"
 emit DP_LEGACY_AUTH_SUPERSEDED_COUNT "$DP_RUNTIME_LEGACY_AUTH_SUPERSEDED_COUNT"
+emit DP08_LEGACY_SUPERSEDED_COUNT "$DP08_LEGACY_SUPERSEDED_COUNT"
 emit DP_RUNTIME_SCHEMA_BINDING_SHA256 "$DP_RUNTIME_SCHEMA_BINDING_SHA256"; emit DP_RUNTIME_CUTOVER_BINDING_SHA256 "$DP_RUNTIME_CUTOVER_BINDING_SHA256"
 emit DP_RUNTIME_MANIFEST_BASELINE_SHA256 "$DP_RUNTIME_BASELINE_MANIFEST_SHA256"; emit DP_RUNTIME_MANIFEST_RECHECK_SHA256 "$DP_RUNTIME_RECHECK_MANIFEST_SHA256"; emit DP_RUNTIME_BOOTSTRAP_SQL_SHA256 "$DP_RUNTIME_BOOTSTRAP_SQL_SHA256"
 """

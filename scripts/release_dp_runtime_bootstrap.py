@@ -213,6 +213,7 @@ dp_runtime_new_work_count() {
 rollback_managed_release_data() {
   assert_no_backend_jvms || return 1
   if [ "$DP_RUNTIME_BOOTSTRAPPED" = 0 ]; then
+    rollback_dp08_legacy_cohort || return 1
     rollback_dp_runtime_legacy_cohort || return 1
     require_legacy_cutover_ready
     return
@@ -224,6 +225,7 @@ rollback_managed_release_data() {
     [ "$cutover_count" = 11 ] || return 1
     verify_dp_runtime_database_binding || return 1
   fi
+  rollback_dp08_legacy_cohort || return 1
   rollback_dp_runtime_legacy_cohort || return 1
   dp_runtime_db_scalar "START TRANSACTION;
     DELETE anchor FROM dp_pull_schedule_anchor anchor

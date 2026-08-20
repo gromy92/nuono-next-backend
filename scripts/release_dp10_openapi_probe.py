@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Shell fragment for the candidate-Jar DP-10 OpenAPI execution-contract probe."""
 from __future__ import annotations
+from release_dp_runtime_env_contract import build_dp_runtime_env_contract_shell
 from release_secure_slot_files import build_secure_file_shell
 
 
@@ -212,6 +213,9 @@ persist_dp10_probe_for_target() {
 prepare_dp10_probe_runtime_environment() {
   local runtime_format runtime_suffix attestation_payload expected_attestation_sha
   [ -n "$DP10_SLOT_EVIDENCE_FILE" ] && [ -n "$DP10_RUNTIME_ENV_ATTESTATION_FILE" ]
+  DP_RUNTIME_BASE_ENV_FILE="$BACKUP_DIR/dp-runtime-base.env"
+  prepare_dp_runtime_base_env "$APP_DIR/.env" "$DP10_PROBE_SOURCE_ENV_SHA256" \
+    "$DP_RUNTIME_BASE_ENV_FILE"
   runtime_format='\nNUONO_NEXT_APP_DIR=%s\nNUONO_NEXT_PORT=%s\n'
   runtime_format+='NUONO_NEXT_JAR=%s/%s\nNUONO_NEXT_LOG_FILE=%s/nuono-next.log\n'
   runtime_format+='NUONO_NEXT_PID_FILE=%s/nuono-next.pid\n'
@@ -234,8 +238,8 @@ prepare_dp10_probe_runtime_environment() {
     "$EXPECTED_COMMIT" "$DP_RUNTIME_SCHEMA_BINDING_SHA256" \
     "$DP_RUNTIME_CUTOVER_BINDING_SHA256" \
     "$DP10_RUNTIME_ENV_ATTESTATION_FILE"
-  TARGET_ENV_SHA256="$(secure_file_operation install "$APP_DIR/.env" \
-    "$TARGET_SLOT_DIR/.env" 600 600 600 "$DP10_PROBE_SOURCE_ENV_SHA256" \
+  TARGET_ENV_SHA256="$(secure_file_operation install "$DP_RUNTIME_BASE_ENV_FILE" \
+    "$TARGET_SLOT_DIR/.env" 600 600 600 "$DP_RUNTIME_BASE_ENV_SHA256" \
     replace "$runtime_suffix")"
   runtime_env_has_forbidden_injection "$TARGET_SLOT_DIR/.env"
   printf -v attestation_payload '%s\n' "$TARGET_ENV_SHA256"
@@ -252,7 +256,7 @@ prepare_target_runtime_payloads() {
     "600,640,644" 600 "600,640,644" "$EXPECTED_JAR_SHA256" replace "")" = \
     "$EXPECTED_JAR_SHA256" ]
 }
-'''
+''' + build_dp_runtime_env_contract_shell()
 
 
 __all__ = ["build_dp10_openapi_probe_shell"]
