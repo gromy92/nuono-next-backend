@@ -43,6 +43,8 @@ final class DataPullRuntimeCutoverManifestDatabase {
 
     private static final DateTimeFormatter MYSQL_MILLIS =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+    static final String READ_ONLY_SNAPSHOT_SQL =
+            "START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY";
 
     DataPullRuntimeCutoverSourceCohort read(
             DataPullRuntimeCutoverManifestEnvironment environment,
@@ -60,7 +62,7 @@ final class DataPullRuntimeCutoverManifestDatabase {
             connection.setReadOnly(true);
             try (Statement statement = connection.createStatement()) {
                 statement.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
-                statement.execute("START TRANSACTION READ ONLY WITH CONSISTENT SNAPSHOT");
+                statement.execute(READ_ONLY_SNAPSHOT_SQL);
             }
             try (SqlSession session = sessions.openSession(connection)) {
                 LocalDateTime observedAtUtc = databaseTime(connection);
