@@ -15,11 +15,17 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import javax.sql.DataSource;
+import org.apache.ibatis.mapping.Environment;
+import org.apache.ibatis.session.Configuration;
+import org.apache.ibatis.session.SqlSessionFactory;
+import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -98,6 +104,23 @@ class NoonReportDownloadProbeSourceCommandTest {
         verify(sessions).openOneShot(binding);
         verify(sessions, never()).login(any());
         verify(session).postJsonOnce(anyString(), any(), eq(false), anyMap());
+    }
+
+    @Test
+    void exposesTheExplicitMapperBeanAsItsInterfaceType() throws Exception {
+        Environment environment = new Environment(
+                "probe-test",
+                new JdbcTransactionFactory(),
+                mock(DataSource.class)
+        );
+        SqlSessionFactory sqlSessionFactory = mock(SqlSessionFactory.class);
+        when(sqlSessionFactory.getConfiguration())
+                .thenReturn(new Configuration(environment));
+
+        StoreSyncMapper mapper = new NoonReportDownloadProbeSourceCommand
+                .ProbeConfiguration().storeSyncMapper(sqlSessionFactory);
+
+        assertTrue(StoreSyncMapper.class.isInstance(mapper));
     }
 
     @Test

@@ -245,13 +245,14 @@ public final class NoonReportDownloadProbeSourceCommand {
         }
 
         @Bean
-        MapperFactoryBean<StoreSyncMapper> storeSyncMapper(
+        StoreSyncMapper storeSyncMapper(
                 SqlSessionFactory sqlSessionFactory
-        ) {
+        ) throws Exception {
             MapperFactoryBean<StoreSyncMapper> mapper =
                     new MapperFactoryBean<>(StoreSyncMapper.class);
             mapper.setSqlSessionFactory(sqlSessionFactory);
-            return mapper;
+            mapper.afterPropertiesSet();
+            return mapper.getObject();
         }
 
         private static String required(Environment environment, String name) {
