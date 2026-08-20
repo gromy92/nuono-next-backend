@@ -36,7 +36,7 @@ class NoonAuthBusinessWaitPersistenceContractTest {
 
     @Test
     void recoveryItemPersistsTheGenericBusinessContract() throws Exception {
-        Method method = NoonAuthRecoveryMapper.class.getDeclaredMethod(
+        Method method = NoonAuthRecoveryMapper.class.getMethod(
                 "coalesceRecoveryItem",
                 NoonAuthRecoveryItemRecord.class
         );

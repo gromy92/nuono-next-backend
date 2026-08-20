@@ -2,7 +2,6 @@ package com.nuono.next.noon;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonauth.NoonAuthWaitQueue;
@@ -16,14 +15,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpClient.Version;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -62,8 +55,6 @@ public class NoonSessionGateway {
             NoonCatalogApiRoutes.OFFER_LIST_NOON;
     private static final String DEFAULT_CATALOG_SESSION_BOOTSTRAP_URL =
             "https://noon-catalog.noon.partners/en/catalog?tab=noon";
-    private static final String NOON_WEB_CLIENT_CODE = "web";
-    private static final NoonReadRetryPolicy READ_RETRY = new NoonReadRetryPolicy();
     private static final String DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                     + "(KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
@@ -85,6 +76,7 @@ public class NoonSessionGateway {
     private final String identityValidateUrl;
     private final String identityProjectListUrl;
     private final String identitySessionCreateUrl;
+    private final NoonPartnerIdentityClient partnerIdentityClient;
     private final boolean proxyEnabled;
     private final NoonProxyRouteFactory proxyRouteFactory;
     private final NoonEdgeAccessGuard edgeAccessGuard = new NoonEdgeAccessGuard();
@@ -150,6 +142,15 @@ public class NoonSessionGateway {
         this.identityValidateUrl = defaultIfBlank(identityValidateUrl, DEFAULT_IDENTITY_VALIDATE_URL);
         this.identityProjectListUrl = defaultIfBlank(identityProjectListUrl, DEFAULT_IDENTITY_PROJECT_LIST_URL);
         this.identitySessionCreateUrl = defaultIfBlank(identitySessionCreateUrl, DEFAULT_IDENTITY_SESSION_CREATE_URL);
+        this.partnerIdentityClient = new NoonPartnerIdentityClient(
+                objectMapper,
+                this.identityUserLookupUrl,
+                this.identityPkceUrl,
+                this.identityGenerateUrl,
+                this.identityValidateUrl,
+                this.identityProjectListUrl,
+                this.identitySessionCreateUrl
+        );
         this.proxyEnabled = proxyEnabled;
         this.proxyRouteFactory = new NoonProxyRouteFactory(objectMapper, proxyEnabled, proxyType, proxyHost, proxyPort, proxyProviderUrl);
     }
@@ -831,28 +832,15 @@ public class NoonSessionGateway {
     private void enqueueAuthorizationBinding(Long ownerUserId, String projectCode, String storeCode) {
         authQueueSignal.enqueue(ownerUserId, projectCode, storeCode);
     }
-    private PartnerIdentityUser lookupPartnerIdentityEmailOtpUser(AuthSessionState state, String noonEmail) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("channelIdentifier", noonEmail);
-        body.put("client_code", NOON_WEB_CLIENT_CODE);
-        JsonNode root = state.postJson(null, null, identityUserLookupUrl, body, false, null);
-        return extractPartnerIdentityEmailOtpUser(root);
+    private PartnerIdentityUser lookupPartnerIdentityEmailOtpUser(
+            AuthSessionState state,
+            String noonEmail
+    ) {
+        return partnerIdentityClient.lookupEmailOtpUser(state, noonEmail);
     }
 
     private PkcePair createPkcePair(AuthSessionState state) {
-        String codeVerifier = generateCodeVerifier();
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("code_challenge", generateCodeChallenge(codeVerifier));
-        body.put("client_code", NOON_WEB_CLIENT_CODE);
-        JsonNode root = state.postJson(null, null, identityPkceUrl, body, false, null);
-        if (root == null || !root.path("success").asBoolean(false)) {
-            throw new IllegalStateException("Noon PKCE 初始化失败：" + partnerIdentityError(root));
-        }
-        String pkceKey = text(root, "pkce_key");
-        if (!StringUtils.hasText(pkceKey)) {
-            throw new IllegalStateException("Noon PKCE 初始化失败：缺少 pkce_key。");
-        }
-        return new PkcePair(codeVerifier, pkceKey);
+        return partnerIdentityClient.createPkce(state);
     }
 
     private void generatePartnerIdentityEmailOtp(
@@ -860,16 +848,7 @@ public class NoonSessionGateway {
             String userCode,
             PkcePair pkce
     ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("channelCode", "emailotp");
-        body.put("client_code", NOON_WEB_CLIENT_CODE);
-        body.put("userCode", userCode);
-        body.put("code_verifier", pkce.getCodeVerifier());
-        body.put("pkce_key", pkce.getPkceKey());
-        JsonNode root = state.postJson(null, null, identityGenerateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
-        if (root == null || !"ok".equalsIgnoreCase(root.path("emailotp").asText(null))) {
-            throw new IllegalStateException("Noon emailotp 发送失败：" + partnerIdentityError(root));
-        }
+        partnerIdentityClient.sendEmailOtp(state, userCode, pkce);
     }
 
     private String validatePartnerIdentityEmailOtp(
@@ -879,31 +858,9 @@ public class NoonSessionGateway {
             String otpCode,
             PkcePair pkce
     ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("channel_code", "emailotp");
-        body.put("client_code", NOON_WEB_CLIENT_CODE);
-        body.put("user_code", userCode);
-        body.put("channel_identifier", noonEmail);
-        body.put("channel_credential", otpCode);
-        body.put("code_verifier", pkce.getCodeVerifier());
-        body.put("pkce_key", pkce.getPkceKey());
-        final JsonNode root;
-        try {
-            root = state.postJson(null, null, identityValidateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
-        } catch (SessionExpiredException exception) {
-            // A 401/403 from identity validate rejects this OTP exchange; it does not describe an
-            // already-created merchant session. Preserve structured HTTP facts for classification
-            // while keeping the provider body out of the exception message.
-            throw exception.toHttpException();
-        }
-        if (root == null || !root.path("success").asBoolean(false)) {
-            throw new IllegalStateException("Noon emailotp validate 失败：" + partnerIdentityError(root));
-        }
-        String accessToken = text(root, "access_token");
-        if (!StringUtils.hasText(accessToken)) {
-            throw new IllegalStateException("Noon emailotp validate 失败：缺少 access_token。");
-        }
-        return accessToken;
+        return partnerIdentityClient.validateEmailOtp(
+                state, userCode, noonEmail, otpCode, pkce
+        );
     }
 
     private List<MerchantProject> listPartnerIdentityProjects(
@@ -911,11 +868,7 @@ public class NoonSessionGateway {
             String userCode,
             String accessToken
     ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("userCode", userCode);
-        body.put("accessToken", accessToken);
-        JsonNode root = state.postJson(null, null, identityProjectListUrl, body, false, null);
-        return extractPartnerIdentityProjects(root);
+        return partnerIdentityClient.listProjects(state, userCode, accessToken);
     }
 
     private void createPartnerIdentitySession(
@@ -925,100 +878,34 @@ public class NoonSessionGateway {
             String projectCode,
             PkcePair pkce
     ) {
-        ObjectNode body = objectMapper.createObjectNode();
-        body.put("userCode", userCode);
-        body.put("accessToken", accessToken);
-        body.put("pkce_key", pkce.getPkceKey());
-        body.put("projectCode", projectCode);
-        body.put("clientCode", NOON_WEB_CLIENT_CODE);
-        body.put("code_verifier", pkce.getCodeVerifier());
-        state.postJson(projectCode, null, identitySessionCreateUrl, body, false, null, NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING);
-        if (!StringUtils.hasText(state.exportAuthCookieHeader())) {
-            throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
-        }
+        partnerIdentityClient.createSession(
+                state, userCode, accessToken, projectCode, pkce
+        );
     }
 
-    static PartnerIdentityUser extractPartnerIdentityEmailOtpUser(JsonNode root){ return extractPartnerIdentityUser(root, "emailotp", "该 Noon 商家后台账号未启用邮箱验证码登录。"); }
-
-    private static PartnerIdentityUser extractPartnerIdentityUser(
-            JsonNode root,
-            String requiredChannel,
-            String missingChannelMessage
-    ) {
-        if (root == null || !root.isArray() || root.size() == 0) {
-            throw new IllegalStateException("Noon 账号不存在或 lookup 响应为空。");
-        }
-        JsonNode user = root.get(0);
-        String userCode = firstText(user, "userCode", "user_code");
-        if (!StringUtils.hasText(userCode)) {
-            throw new IllegalStateException("Noon lookup 响应缺少 userCode。");
-        }
-        JsonNode channels = user.path("channels");
-        boolean channelEnabled = false;
-        if (channels.isArray()) {
-            for (JsonNode channel : channels) {
-                String channelCode = firstText(channel, "channelCode", "channel_code");
-                if (requiredChannel.equalsIgnoreCase(channelCode)) {
-                    channelEnabled = true;
-                    break;
-                }
-            }
-        }
-        if (!channelEnabled) {
-            throw new IllegalStateException(missingChannelMessage);
-        }
-        return new PartnerIdentityUser(userCode);
+    static PartnerIdentityUser extractPartnerIdentityEmailOtpUser(JsonNode root) {
+        return NoonPartnerIdentityClient.extractEmailOtpUser(root);
     }
+
 
     static List<MerchantProject> extractPartnerIdentityProjects(JsonNode root) {
-        JsonNode projectsNode = root == null ? MissingNode.getInstance() : root.path("projects");
-        if (!projectsNode.isArray() || projectsNode.size() == 0) {
-            throw new IllegalStateException("Noon 账号没有可用 Project。");
-        }
-        List<MerchantProject> projects = new ArrayList<>();
-        for (JsonNode project : projectsNode) {
-            String projectCode = firstText(project, "projectCode", "project_code");
-            if (!StringUtils.hasText(projectCode)) {
-                throw new IllegalStateException("Noon project/list 响应缺少 projectCode。");
-            }
-            projects.add(new MerchantProject(
-                    projectCode,
-                    firstText(project, "projectName", "project_name"),
-                    firstText(project, "orgCode", "org_code"),
-                    firstText(project, "orgName", "org_name")
-            ));
-        }
-        return projects;
+        return NoonPartnerIdentityClient.extractProjects(root);
     }
 
-    private static MerchantProject selectMerchantProject(List<MerchantProject> projects, String requestedProjectCode) {
-        String normalizedRequested = normalize(requestedProjectCode);
-        for (MerchantProject project : projects) {
-            if (StringUtils.hasText(project.getProjectCode())
-                    && project.getProjectCode().equalsIgnoreCase(normalizedRequested)) {
-                return project;
-            }
-        }
-        throw new NoonAccountProjectExcludedException(normalizedRequested);
+    private static MerchantProject selectMerchantProject(
+            List<MerchantProject> projects,
+            String requestedProjectCode
+    ) {
+        return NoonPartnerIdentityClient.selectProject(projects, requestedProjectCode);
     }
 
     static String generateCodeVerifier() {
-        byte[] randomBytes = new byte[96];
-        SECURE_RANDOM.nextBytes(randomBytes);
-        return Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+        return NoonPartnerIdentityClient.generateCodeVerifier();
     }
 
     static String generateCodeChallenge(String codeVerifier) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hashed = digest.digest(codeVerifier.getBytes(StandardCharsets.US_ASCII));
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(hashed);
-        } catch (Exception exception) {
-            throw new IllegalStateException("生成 Noon PKCE challenge 失败：" + exception.getMessage(), exception);
-        }
+        return NoonPartnerIdentityClient.generateCodeChallenge(codeVerifier);
     }
-
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private static String normalizeUser(String value) {
         String normalized = normalize(value);
@@ -1048,40 +935,6 @@ public class NoonSessionGateway {
     private static String normalizeCookie(String value) {
         String normalized = normalize(value);
         return StringUtils.hasText(normalized) ? normalized : null;
-    }
-
-    private static String text(JsonNode node, String fieldName) {
-        if (node == null || !StringUtils.hasText(fieldName)){ return null; }
-        JsonNode value = node.path(fieldName);
-        if (value.isMissingNode() || value.isNull()){ return null; }
-        String text = value.asText(null);
-        return normalize(text);
-    }
-
-    private static String firstText(JsonNode node, String... fieldNames) {
-        if (fieldNames == null){ return null; }
-        for (String fieldName : fieldNames) {
-            String value = text(node, fieldName);
-            if (StringUtils.hasText(value)){ return value; }
-        }
-        return null;
-    }
-
-    private static String partnerIdentityError(JsonNode root) {
-        if (root == null || root.isMissingNode() || root.isNull()){ return "empty response"; }
-        JsonNode err = root.path("err");
-        if (err.isArray() && err.size() > 0) {
-            String value = normalize(err.get(0).asText(null));
-            if (StringUtils.hasText(value)){ return value; }
-        }
-        String value = firstText(root, "err", "error", "message", "errorMessage", "error_message");
-        return StringUtils.hasText(value) ? value : "provider response indicated failure";
-    }
-
-    private static String shrinkBody(String body) {
-        if (!StringUtils.hasText(body)){ return "empty response"; }
-        String normalized = body.replaceAll("\\s+", " ").trim();
-        return normalized.length() > 220 ? normalized.substring(0, 220) + "..." : normalized;
     }
 
     void persistCookie(Long ownerUserId, String projectCode, String cookieHeader) {
@@ -1460,7 +1313,7 @@ public class NoonSessionGateway {
     static final class PartnerIdentityUser {
         private final String userCode;
 
-        private PartnerIdentityUser(String userCode) {
+        PartnerIdentityUser(String userCode) {
             this.userCode = userCode;
         }
 
@@ -1545,18 +1398,18 @@ public class NoonSessionGateway {
         }
     }
 
-    private static final class PkcePair {
+    static final class PkcePair {
         private final String codeVerifier;
         private final String pkceKey;
 
-        private PkcePair(String codeVerifier, String pkceKey) {
+        PkcePair(String codeVerifier, String pkceKey) {
             this.codeVerifier = codeVerifier;
             this.pkceKey = pkceKey;
         }
 
-        private String getCodeVerifier(){ return codeVerifier; }
+        String getCodeVerifier(){ return codeVerifier; }
 
-        private String getPkceKey(){ return pkceKey; }
+        String getPkceKey(){ return pkceKey; }
     }
 
     private interface SessionCall {
@@ -1571,7 +1424,7 @@ public class NoonSessionGateway {
         byte[] execute();
     }
 
-    private static final class AuthSessionState {
+    static final class AuthSessionState {
         private final ObjectMapper objectMapper;
         private final String credentialFingerprint;
         private final HttpClient httpClient;
@@ -1584,6 +1437,7 @@ public class NoonSessionGateway {
         private final NoonEdgeAccessGuard edgeAccessGuard;
         private final long edgeAccessHoldSeconds;
         private final NoonCatalogAuthCookieExport authCookieExport;
+        private final NoonSessionHttpTransport transport;
         private final String egressFingerprint;
         private final Object requestMutex = new Object();
         private final Instant createdAt = Instant.now();
@@ -1623,6 +1477,17 @@ public class NoonSessionGateway {
             this.edgeAccessGuard = edgeAccessGuard;
             this.edgeAccessHoldSeconds = edgeAccessHoldSeconds;
             this.egressFingerprint = egressFingerprint;
+            this.transport = new NoonSessionHttpTransport(
+                    objectMapper,
+                    httpClient,
+                    requestThrottle,
+                    requestRecorder,
+                    httpCallRecorder,
+                    edgeAccessGuard,
+                    edgeAccessHoldSeconds,
+                    authCookieExport,
+                    SessionExpiredException::new
+            );
             addCookie("projectUser", noonUser);
         }
 
@@ -1752,7 +1617,7 @@ public class NoonSessionGateway {
             }
         }
 
-        private JsonNode postJson(
+        JsonNode postJson(
                 String projectCode,
                 String storeCode,
                 String url,
@@ -1763,7 +1628,7 @@ public class NoonSessionGateway {
             return postJson(projectCode, storeCode, url, body, withProject, extraHeaders, NoonJsonRequestPolicy.READ_WITH_RETRY);
         }
 
-        private JsonNode postJson(
+        JsonNode postJson(
                 String projectCode,
                 String storeCode,
                 String url,
@@ -1916,301 +1781,18 @@ public class NoonSessionGateway {
         }
 
         private JsonNode send(HttpRequest request, boolean retryTransientReadFailures) {
-            int attempt = 0;
-            while (true) {
-                long startedNanos = System.nanoTime();
-                try {
-                    if (requestRecorder != null) {
-                        requestRecorder.accept(request.uri().toString());
-                    }
-                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
-                    authCookieExport.captureRequestCookieHeader(request.uri());
-                    requestThrottle.markCompleted();
-                    String responseBody = NoonResponseBodyDecoder.text(response);
-                    if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        attempt++;
-                        throwIfEdgeAccessDenied(request, response, responseBody, startedNanos);
-                        if (retryTransientReadFailures
-                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
-                            READ_RETRY.sleepForRateLimit(attempt);
-                            continue;
-                        }
-                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
-                                response.statusCode(),
-                                responseBody,
-                                request.uri().getPath(),
-                                response.headers().firstValue("location").orElse(null)
-                        )) {
-                            recordAttempt(
-                                    request,
-                                    response.statusCode(),
-                                    responseBody,
-                                    startedNanos,
-                                    "FAILED",
-                                    "AUTH_EXPIRED",
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
-                            );
-                            throw new SessionExpiredException(response.statusCode(), responseBody,
-                                    request.uri().getPath());
-                        }
-                        if (READ_RETRY.shouldRetryTransientResponse(
-                                retryTransientReadFailures,
-                                response.statusCode(),
-                                attempt
-                        )) {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        }
-                        recordAttempt(
-                                request,
-                                response.statusCode(),
-                                responseBody,
-                                startedNanos,
-                                "FAILED",
-                                "HTTP_STATUS",
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
-                        );
-                        throw NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath());
-                    }
-                    recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
-                    if (!StringUtils.hasText(responseBody)){ return MissingNode.getInstance(); }
-                    return objectMapper.readTree(responseBody);
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "INTERRUPTED", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                } catch (IOException exception) {
-                    attempt++;
-                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
-                        try {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        } catch (InterruptedException interruptedException) {
-                            Thread.currentThread().interrupt();
-                            throw new IllegalStateException(
-                                    "请求 Noon 失败：" + interruptedException.getMessage(),
-                                    interruptedException
-                            );
-                        }
-                    }
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "IO_EXCEPTION", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                }
-            }
+            return transport.json(request, retryTransientReadFailures);
         }
 
         private String sendText(HttpRequest request, boolean retryTransientReadFailures) {
-            int attempt = 0;
-            while (true) {
-                long startedNanos = System.nanoTime();
-                try {
-                    if (requestRecorder != null) {
-                        requestRecorder.accept(request.uri().toString());
-                    }
-                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
-                    requestThrottle.markCompleted();
-                    String responseBody = NoonResponseBodyDecoder.text(response);
-                    if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        attempt++;
-                        throwIfEdgeAccessDenied(request, response, responseBody, startedNanos);
-                        if (retryTransientReadFailures
-                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseBody, attempt)) {
-                            READ_RETRY.sleepForRateLimit(attempt);
-                            continue;
-                        }
-                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
-                                response.statusCode(),
-                                responseBody,
-                                request.uri().getPath(),
-                                response.headers().firstValue("location").orElse(null)
-                        )) {
-                            recordAttempt(
-                                    request,
-                                    response.statusCode(),
-                                    responseBody,
-                                    startedNanos,
-                                    "FAILED",
-                                    "AUTH_EXPIRED",
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
-                            );
-                            throw new SessionExpiredException(response.statusCode(), responseBody,
-                                    request.uri().getPath());
-                        }
-                        if (READ_RETRY.shouldRetryTransientResponse(
-                                retryTransientReadFailures,
-                                response.statusCode(),
-                                attempt
-                        )) {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        }
-                        recordAttempt(
-                                request,
-                                response.statusCode(),
-                                responseBody,
-                                startedNanos,
-                                "FAILED",
-                                "HTTP_STATUS",
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseBody)
-                        );
-                        throw NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath());
-                    }
-                    recordAttempt(request, response.statusCode(), responseBody, startedNanos, "SUCCESS", null, null);
-                    return responseBody;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "INTERRUPTED", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                } catch (IOException exception) {
-                    attempt++;
-                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
-                        try {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        } catch (InterruptedException interruptedException) {
-                            Thread.currentThread().interrupt();
-                            throw new IllegalStateException(
-                                    "请求 Noon 失败：" + interruptedException.getMessage(),
-                                    interruptedException
-                            );
-                        }
-                    }
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "IO_EXCEPTION", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                }
-            }
+            return transport.text(request, retryTransientReadFailures);
         }
 
         private byte[] sendBytes(HttpRequest request, boolean retryTransientReadFailures) {
-            int attempt = 0;
-            while (true) {
-                long startedNanos = System.nanoTime();
-                try {
-                    if (requestRecorder != null) {
-                        requestRecorder.accept(request.uri().toString());
-                    }
-                    HttpResponse<byte[]> response = NoonHardDeadlineHttpClient.send(httpClient, request, HttpResponse.BodyHandlers.ofByteArray());
-                    requestThrottle.markCompleted();
-                    byte[] responseBody = NoonResponseBodyDecoder.bytes(response);
-                    if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                        String responseText = new String(responseBody, StandardCharsets.UTF_8);
-                        attempt++;
-                        throwIfEdgeAccessDenied(request, response, responseText, startedNanos);
-                        if (retryTransientReadFailures
-                                && READ_RETRY.shouldRetryRateLimit(response.statusCode(), responseText, attempt)) {
-                            READ_RETRY.sleepForRateLimit(attempt);
-                            continue;
-                        }
-                        if (NoonSessionResponseClassifier.isAuthExpiredResponse(
-                                response.statusCode(),
-                                responseText,
-                                request.uri().getPath(),
-                                response.headers().firstValue("location").orElse(null)
-                        )) {
-                            recordAttempt(
-                                    request,
-                                    response.statusCode(),
-                                    responseText,
-                                    startedNanos,
-                                    "FAILED",
-                                    "AUTH_EXPIRED",
-                                    "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
-                            );
-                            throw new SessionExpiredException(response.statusCode(), responseText,
-                                    request.uri().getPath());
-                        }
-                        if (READ_RETRY.shouldRetryTransientResponse(
-                                retryTransientReadFailures,
-                                response.statusCode(),
-                                attempt
-                        )) {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        }
-                        recordAttempt(
-                                request,
-                                response.statusCode(),
-                                responseText,
-                                startedNanos,
-                                "FAILED",
-                                "HTTP_STATUS",
-                                "HTTP " + response.statusCode() + " " + shrinkBody(responseText)
-                        );
-                        throw NoonHttpFailureFactory.from(response, responseText, request.uri().getPath());
-                    }
-                    recordAttempt(
-                            request,
-                            response.statusCode(),
-                            "binary response bytes=" + responseBody.length,
-                            startedNanos,
-                            "SUCCESS",
-                            null,
-                            null
-                    );
-                    return responseBody;
-                } catch (InterruptedException exception) {
-                    Thread.currentThread().interrupt();
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "INTERRUPTED", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                } catch (IOException exception) {
-                    attempt++;
-                    if (READ_RETRY.shouldRetryTransientException(retryTransientReadFailures, attempt)) {
-                        try {
-                            READ_RETRY.sleepForTransientFailure(attempt);
-                            continue;
-                        } catch (InterruptedException interruptedException) {
-                            Thread.currentThread().interrupt();
-                            throw new IllegalStateException(
-                                    "请求 Noon 失败：" + interruptedException.getMessage(),
-                                    interruptedException
-                            );
-                        }
-                    }
-                    recordAttempt(request, null, null, startedNanos, "FAILED", "IO_EXCEPTION", throwableMessage(exception));
-                    throw new IllegalStateException("请求 Noon 失败：" + throwableMessage(exception), exception);
-                }
-            }
+            return transport.bytes(request, retryTransientReadFailures);
         }
 
-        private void recordAttempt(
-                HttpRequest request,
-                Integer responseStatusCode,
-                String responseBody,
-                long startedNanos,
-                String status,
-                String failureType,
-                String errorMessage
-        ) {
-            if (httpCallRecorder == null) {
-                return;
-            }
-            long elapsedMs = Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
-            httpCallRecorder.record(
-                    request,
-                    responseStatusCode,
-                    responseBody,
-                    elapsedMs,
-                    status,
-                    failureType,
-                    errorMessage
-            );
-        }
 
-        private void throwIfEdgeAccessDenied(
-                HttpRequest request,
-                HttpResponse<?> response,
-                String responseBody,
-                long startedNanos
-        ) {
-            if (!NoonEdgeAccessGuard.matches(response.statusCode(), responseBody)) {
-                return;
-            }
-            NoonEdgeAccessDeniedException failure = edgeAccessGuard.block(edgeAccessHoldSeconds);
-            failure.initCause(NoonHttpFailureFactory.from(response, responseBody, request.uri().getPath()));
-            recordAttempt(request, response.statusCode(), responseBody, startedNanos,
-                    "FAILED", "EGRESS_BLOCKED", failure.getMessage());
-            throw failure;
-        }
 
         private URI buildUri(String url, boolean withProject, String projectCode) {
             return requestContext.uri(url, withProject, projectCode);
@@ -2241,7 +1823,7 @@ public class NoonSessionGateway {
             }
         }
 
-        private String exportAuthCookieHeader(){ return authCookieExport.exportAuthCookieHeader(); }
+        String exportAuthCookieHeader(){ return authCookieExport.exportAuthCookieHeader(); }
     }
 
     private static final class SessionExpiredException

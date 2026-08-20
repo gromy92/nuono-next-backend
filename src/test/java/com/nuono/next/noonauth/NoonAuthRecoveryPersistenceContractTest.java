@@ -110,7 +110,7 @@ class NoonAuthRecoveryPersistenceContractTest {
         assertThat(updateSql("retireLegacyManualHold"))
                 .contains("status = 'FAILED_FINAL'")
                 .contains("failure_code = 'SUPERSEDED_BY_RENEWAL'");
-        assertThat(Arrays.stream(NoonAuthRecoveryMapper.class.getDeclaredMethods())
+        assertThat(Arrays.stream(NoonAuthRecoveryMapper.class.getMethods())
                 .map(Method::getName).collect(Collectors.toList()))
                 .doesNotContain("promoteLegacyWaitingRecovery");
     }
@@ -474,7 +474,7 @@ class NoonAuthRecoveryPersistenceContractTest {
             String methodName,
             Class<A> annotationType
     ) {
-        Method method = Arrays.stream(NoonAuthRecoveryMapper.class.getDeclaredMethods())
+        Method method = Arrays.stream(NoonAuthRecoveryMapper.class.getMethods())
                 .filter(candidate -> candidate.getName().equals(methodName))
                 .findFirst()
                 .orElseThrow();
