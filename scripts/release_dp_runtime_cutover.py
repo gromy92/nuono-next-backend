@@ -15,6 +15,37 @@ DP_RUNTIME_SCHEMA_BINDING_SHA256=""
 DP_RUNTIME_CUTOVER_BINDING_SHA256=""
 DP_RUNTIME_CUTOVER_OPERATION_COUNT=""
 
+require_dp_runtime_secret_environment() {
+  python3 - "$APP_DIR/.env" <<'PY'
+import base64
+import binascii
+from pathlib import Path
+import sys
+
+key_name = "NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64"
+values = []
+for raw in Path(sys.argv[1]).read_text(encoding="utf-8").splitlines():
+    line = raw.strip()
+    if not line or line.startswith("#") or "=" not in line:
+        continue
+    name, value = line.split("=", 1)
+    if name.strip() != key_name:
+        continue
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1]
+    values.append(value)
+if len(values) != 1:
+    raise SystemExit("managed DP report locator key is unavailable or ambiguous")
+try:
+    decoded = base64.b64decode(values[0], validate=True)
+except (binascii.Error, ValueError) as error:
+    raise SystemExit("managed DP report locator key is not valid base64") from error
+if len(decoded) != 32:
+    raise SystemExit("managed DP report locator key must decode to 32 bytes")
+PY
+}
+
 dp_runtime_mysql() {
   [ -n "$DP_RUNTIME_DB_HOST" ]
   [[ "$DP_RUNTIME_DB_PORT" =~ ^[0-9]+$ ]]

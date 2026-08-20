@@ -127,6 +127,7 @@ validate_cutover() {{
   [ "$(secure_file_operation verify "$STAGED_JAR" "600,640,644" \
     "$EXPECTED_JAR_SHA256")" = "$EXPECTED_JAR_SHA256" ]
   secure_file_operation verify "$APP_DIR/.env" 600 - >/dev/null
+  require_dp_runtime_secret_environment
   SOURCE_START_SCRIPT_SHA256="$(secure_file_operation verify \
     "$APP_DIR/start-nuono-next-test.sh" "700,750,755" -)"
   [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{{40}}$ ]]

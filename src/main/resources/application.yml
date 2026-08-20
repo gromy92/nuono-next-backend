@@ -23,6 +23,8 @@ nuono:
   data-pull:
     # Deployment-time implementation choice; individual DPs are not switched here.
     execution-mode: ${NUONO_DATA_PULL_EXECUTION_MODE:LEGACY}
+    report:
+      locator-key-base64: ${NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64:}
     runtime:
       scheduler-initial-delay-ms: ${NUONO_DATA_PULL_RUNTIME_INITIAL_DELAY_MS:30000}
       scheduler-fixed-delay-ms: ${NUONO_DATA_PULL_RUNTIME_FIXED_DELAY_MS:15000}
