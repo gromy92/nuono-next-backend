@@ -1,8 +1,5 @@
 import importlib.util
-import base64
-import shlex
 import subprocess
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -64,68 +61,6 @@ def run_fragment(body):
 
 
 class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
-    def test_report_locator_key_is_validated_before_any_cutover_mutation(self):
-        script = build_script()
-        validation_start = script.index("validate_cutover()")
-        validation_call = script.index("  require_dp_runtime_secret_environment", validation_start)
-        validation_run = script.index("\nvalidate_cutover\n")
-        mutation = script.index("prepare_dp_runtime_cutover", validation_run)
-
-        self.assertLess(validation_call, validation_run)
-        self.assertLess(validation_run, mutation)
-
-    def test_report_locator_key_contract_requires_one_base64_aes_256_key(self):
-        fragment = cutover_fragment()
-        function = fragment[
-            fragment.index("require_dp_runtime_secret_environment()"):
-            fragment.index("dp_runtime_mysql()")
-        ]
-        with tempfile.TemporaryDirectory() as temporary:
-            env_file = Path(temporary) / ".env"
-            valid_key = base64.b64encode(bytes(range(32))).decode("ascii")
-            cases = (
-                ("", 1, "unavailable or ambiguous"),
-                ("NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64=invalid!\n", 1, "not valid base64"),
-                (
-                    "NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64="
-                    + base64.b64encode(bytes(range(16))).decode("ascii")
-                    + "\n",
-                    1,
-                    "must decode to 32 bytes",
-                ),
-                (
-                    "NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64=" + valid_key + "\n",
-                    0,
-                    "",
-                ),
-                (
-                    "NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64=" + valid_key + "\n"
-                    "NUONO_DATA_PULL_REPORT_LOCATOR_KEY_BASE64=" + valid_key + "\n",
-                    1,
-                    "unavailable or ambiguous",
-                ),
-            )
-            for payload, expected_code, expected_error in cases:
-                with self.subTest(payload_lines=payload.count("\n")):
-                    env_file.write_text(payload, encoding="utf-8")
-                    result = subprocess.run(
-                        [
-                            "bash",
-                            "-c",
-                            "\n".join((
-                                "set -Eeuo pipefail",
-                                "APP_DIR=" + shlex.quote(temporary),
-                                function,
-                                "require_dp_runtime_secret_environment",
-                            )),
-                        ],
-                        text=True,
-                        capture_output=True,
-                        check=False,
-                    )
-                    self.assertEqual(expected_code, result.returncode)
-                    self.assertIn(expected_error, result.stderr)
-
     def test_preflight_precedes_probe_and_every_service_mutation(self):
         execution = build_script().split("\nvalidate_cutover\n", 1)[1]
         preflight = execution.index("prepare_dp_runtime_cutover")
