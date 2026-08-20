@@ -8,6 +8,7 @@ import com.nuono.next.datapull.orchestration.DataPullRuntimeReleaseRequirement;
 import com.nuono.next.datapull.orchestration.DataPullRuntimeProperties;
 import java.nio.file.Path;
 import java.time.Clock;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
@@ -33,6 +34,7 @@ public final class Ali1688Dp10OpenApiExecutionEvidence
     private final Clock clock;
     private final Path processDirectory;
 
+    @Autowired
     public Ali1688Dp10OpenApiExecutionEvidence(
             Ali1688HistoricalOrderOpenApiProperties properties,
             DataPullRuntimeProperties runtimeProperties,
