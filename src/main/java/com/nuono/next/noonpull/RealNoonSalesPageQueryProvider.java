@@ -80,6 +80,7 @@ public class RealNoonSalesPageQueryProvider implements NoonSalesPageQueryProvide
             return NoonInterfacePullPage.builder()
                     .items(items)
                     .pageNumber(Math.max(1, pageNumber))
+                    .pageSize(pageSize)
                     .totalItems(total)
                     .hasNextPage(Math.max(1, pageNumber) * pageSize < total)
                     .requestCount(1)
@@ -101,29 +102,36 @@ public class RealNoonSalesPageQueryProvider implements NoonSalesPageQueryProvide
     }
 
     private JsonNode hitsNode(JsonNode root) {
-        if (root == null || root.isMissingNode() || root.isNull()) {
-            return objectMapper.createArrayNode();
-        }
-        JsonNode hits = root.path("hits");
+        JsonNode response = root == null ? objectMapper.missingNode() : root;
+        JsonNode hits = response.path("hits");
         if (hits.isArray()) {
             return hits;
         }
-        return root.path("data").path("hits");
+        JsonNode nested = response.path("data").path("hits");
+        if (nested.isArray()) {
+            return nested;
+        }
+        throw contract("sales page hits array is missing");
     }
 
     private int totalItems(JsonNode root, int fallback) {
-        if (root == null || root.isMissingNode() || root.isNull()) {
-            return fallback;
+        JsonNode response = root == null ? objectMapper.missingNode() : root;
+        JsonNode direct = response.path("total");
+        JsonNode total = direct.isMissingNode()
+                ? response.path("data").path("total")
+                : direct;
+        if (!total.canConvertToInt()) {
+            throw contract("sales page authoritative total is missing");
         }
-        JsonNode total = root.path("total");
-        if (!total.isMissingNode() && total.canConvertToInt()) {
-            return Math.max(fallback, total.asInt(fallback));
+        int value = total.asInt();
+        if (value < 0 || value < fallback) {
+            throw contract("sales page authoritative total is invalid");
         }
-        JsonNode nestedTotal = root.path("data").path("total");
-        if (!nestedTotal.isMissingNode() && nestedTotal.canConvertToInt()) {
-            return Math.max(fallback, nestedTotal.asInt(fallback));
-        }
-        return fallback;
+        return value;
+    }
+
+    private NoonInterfacePullException contract(String message) {
+        return new NoonInterfacePullException("contract: " + message);
     }
 
     private String providerError(JsonNode root) {

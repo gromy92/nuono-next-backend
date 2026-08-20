@@ -14,11 +14,10 @@ import com.nuono.next.infrastructure.mapper.NoonDataPullScopeMapper;
 import com.nuono.next.infrastructure.mapper.ReportCreateAttemptMapper;
 import com.nuono.next.infrastructure.mapper.ReportFactApplyMapper;
 import com.nuono.next.infrastructure.mapper.ReportStageMapper;
-import com.nuono.next.noonpull.NoonOrderReportRowClassifier;
 import com.nuono.next.noonpull.NoonSalesReportRowClassifier;
 import com.nuono.next.noonpull.RealNoonFinanceTransactionReportProvider;
-import com.nuono.next.noonpull.RealNoonOrderReportSmokeProvider;
 import com.nuono.next.noonpull.RealNoonSalesReportSmokeProvider;
+import com.nuono.next.noonpull.datapull.Dp02OrderPageProvider;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnStageClassifier;
 import com.nuono.next.orderfinance.NoonFinanceTransactionReportRowClassifier;
@@ -93,27 +92,6 @@ public class ExportReportRuntimeConfiguration {
                 artifacts
         );
     }
-    @Bean("dp02ReportProvider")
-    LegacyNoonReportProviderBridge dp02ReportProvider(
-            RealNoonOrderReportSmokeProvider delegate,
-            ReportDownloadLocatorVault vault,
-            ReportArtifactStore artifacts
-    ) {
-        return legacy(
-                definitions.dp02(),
-                delegate,
-                // /latest may be stale. Every non-empty row must still prove the requested
-                // date/site container; an empty file remains waiting and is never applied.
-                LegacyNoonReportProviderBridge.ReadbackMode
-                        .SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION,
-                LegacyNoonReportProviderBridge.EmptyProofMode
-                        .UNPROVEN_EMPTY_REMAINS_WAITING,
-                LegacyNoonReportProviderBridge.ArtifactCompletenessMode
-                        .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION,
-                vault,
-                artifacts
-        );
-    }
     @Bean("dp03ReportProvider")
     LegacyNoonReportProviderBridge dp03ReportProvider(
             RealNoonFinanceTransactionReportProvider delegate,
@@ -155,7 +133,7 @@ public class ExportReportRuntimeConfiguration {
     @Bean
     ReportRuntimeReleaseEvidence reportRuntimeReleaseEvidence(
             @Qualifier("dp01ReportProvider") LegacyNoonReportProviderBridge dp01,
-            @Qualifier("dp02ReportProvider") LegacyNoonReportProviderBridge dp02,
+            @Qualifier("dp02OrderPageProvider") Dp02OrderPageProvider dp02,
             @Qualifier("dp03ReportProvider") LegacyNoonReportProviderBridge dp03,
             @Qualifier("dp07bReportProvider") FbnReceivedExportReportProvider dp07b
     ) {
@@ -173,23 +151,6 @@ public class ExportReportRuntimeConfiguration {
             ProviderWaitTransition providerWaitTransition
     ) {
         NoonReportDefinition definition = definitions.dp01();
-        return job(definition, scopes, provider,
-                importer(definition, artifacts, stageStore, objectMapper,
-                        classifier::requireHeader, classifier::classifyRows,
-                        classifier::stableIdentity), createAttemptFence, providerWaitTransition);
-    }
-    @Bean("dp02ReportJob")
-    DataPullJob dp02ReportJob(
-            NoonDataPullScopeMapper scopes,
-            @Qualifier("dp02ReportProvider") ExportReportProvider provider,
-            NoonOrderReportRowClassifier classifier,
-            ReportArtifactStore artifacts,
-            ReportStageStore stageStore,
-            ObjectMapper objectMapper,
-            ReportCreateAttemptFence createAttemptFence,
-            ProviderWaitTransition providerWaitTransition
-    ) {
-        NoonReportDefinition definition = definitions.dp02();
         return job(definition, scopes, provider,
                 importer(definition, artifacts, stageStore, objectMapper,
                         classifier::requireHeader, classifier::classifyRows,

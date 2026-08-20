@@ -14,6 +14,8 @@ public final class ReportProviderCapabilities {
         READ_ONLY_EXPORT_RETRY_AFTER_PERSISTED_BACKOFF,
         /** The same requested window is read and the downloaded container validates every row. */
         SAME_INTENT_POLL_WITH_CONTAINER_VALIDATION,
+        /** No create exists: every page request carries and validates the exact business window. */
+        DIRECT_EXACT_WINDOW_PAGE_QUERY,
         UNAVAILABLE,
         PAGINATION_UNSAFE,
         STABLE_REQUEST_KEY_UNAVAILABLE
@@ -23,6 +25,8 @@ public final class ReportProviderCapabilities {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
         /** An unproven empty file remains non-terminal and therefore cannot erase facts. */
         UNPROVEN_EMPTY_REMAINS_WAITING,
+        /** The exact-window page response authoritatively declares total=0. */
+        AUTHORITATIVE_TOTAL_FOR_EXACT_WINDOW,
         UNAVAILABLE
     }
 
@@ -30,6 +34,8 @@ public final class ReportProviderCapabilities {
         AUTHORITATIVE_ROW_COUNT_FOR_EXACT_HANDLE_AND_INTENT,
         /** Immutable full download plus bounded local row counting and container validation. */
         COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION,
+        /** Exact total, page extent, and two identical full passes prove the collection. */
+        EXACT_PAGE_EXTENT_WITH_TWO_PASS_VALIDATION,
         UNAVAILABLE
     }
 

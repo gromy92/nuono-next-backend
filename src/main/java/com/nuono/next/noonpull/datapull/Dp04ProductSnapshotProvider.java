@@ -89,43 +89,11 @@ public final class Dp04ProductSnapshotProvider
             SnapshotPageRequest request,
             NoonInterfacePullPage page
     ) {
-        if (page.getPageNumber() != request.getPageNo()
-                || page.getPageSize() < 1
-                || page.getTotalItems() < 0
-                || page.getItems() == null
-                || page.getRequestCount() != 1) {
-            throw new IllegalArgumentException("DP-04 page contract is invalid");
-        }
+        NoonSnapshotPageContract pageContract = NoonSnapshotPageContract.requireExact(
+                request, page, "DP-04"
+        );
         SnapshotCollectionAuthority authority = authority(page);
-        List<Map<String, Object>> rawItems = page.getItems();
-        if (page.getTotalItems() == 0
-                && (!rawItems.isEmpty() || page.isHasNextPage())) {
-            throw new IllegalArgumentException("DP-04 empty-page metadata conflicts");
-        }
-        if (page.getTotalItems() > 0 && rawItems.isEmpty()) {
-            throw new IllegalArgumentException("DP-04 non-empty snapshot returned an empty page");
-        }
-        if (rawItems.size() > page.getTotalItems()) {
-            throw new IllegalArgumentException("DP-04 page exceeds declared total");
-        }
-
-        long offset = (long) (request.getPageNo() - 1) * page.getPageSize();
-        int expectedRows = offset >= page.getTotalItems()
-                ? 0
-                : (int) Math.min(page.getPageSize(), (long) page.getTotalItems() - offset);
-        if (rawItems.size() != expectedRows) {
-            throw new IllegalArgumentException("DP-04 page row count is incomplete");
-        }
-
-        int totalPages = page.getTotalItems() == 0
-                ? 1
-                : (int) (((long) page.getTotalItems() + page.getPageSize() - 1L)
-                / page.getPageSize());
-        if (request.getPageNo() > totalPages
-                || page.isHasNextPage() != (request.getPageNo() < totalPages)) {
-            throw new IllegalArgumentException("DP-04 pagination metadata conflicts");
-        }
-
+        List<Map<String, Object>> rawItems = pageContract.getRawItems();
         List<Dp04ProductSnapshotItem> classified = new ArrayList<>();
         for (int ordinal = 0; ordinal < rawItems.size(); ordinal++) {
             classified.add(Dp04ProductSnapshotItem.fromProvider(
@@ -134,18 +102,10 @@ public final class Dp04ProductSnapshotProvider
                     ordinal
             ));
         }
-        boolean lastPage = !page.isHasNextPage();
-        int pageNo = request.getPageNo();
         if (authority == null) {
-            return SnapshotPage.twoPassRequired(
-                    pageNo, lastPage ? null : Math.addExact(pageNo, 1),
-                    lastPage, totalPages, classified, rawItems.size(), 0
-            );
+            return pageContract.twoPass(classified);
         }
-        return new SnapshotPage<>(
-                pageNo, lastPage ? null : Math.addExact(pageNo, 1),
-                lastPage, totalPages, classified, authority, rawItems.size(), 0
-        );
+        return pageContract.providerAuthority(classified, authority);
     }
 
     private SnapshotCollectionAuthority authority(NoonInterfacePullPage page) {
