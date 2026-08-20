@@ -195,8 +195,10 @@ dp_runtime_new_work_count() {
     (SELECT COUNT(*) FROM dp_pull_advertising_campaign_fact) +
     (SELECT COUNT(*) FROM dp_pull_advertising_query_fact) +
     (SELECT COUNT(*) FROM dp_pull_advertising_current_head) +
-    (SELECT COUNT(*) FROM dp_pull_schedule_rotation) +
-    (SELECT COUNT(*) FROM dp_pull_schedule_epoch_sequence) +
+    (SELECT COUNT(*) FROM dp_pull_schedule_rotation
+      WHERE next_operation_ordinal<>0 OR version_no<>0 OR gmt_updated<>gmt_create) +
+    (SELECT COUNT(*) FROM dp_pull_schedule_epoch_sequence
+      WHERE last_epoch_no<>0 OR version_no<>0 OR gmt_updated<>gmt_create) +
     (SELECT COUNT(*) FROM dp_pull_schedule_manifest_seal) +
     (SELECT COUNT(*) FROM dp_pull_schedule_source_epoch) +
     (SELECT COUNT(*) FROM dp_pull_schedule_source_scope) +
