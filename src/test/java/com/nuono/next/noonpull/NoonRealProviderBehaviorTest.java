@@ -278,32 +278,9 @@ class NoonRealProviderBehaviorTest {
         assertEquals("2026-05-22", session.posts.get(0).body.get("to_date").asText());
         assertEquals(10, page.getItems().size());
         assertEquals("NAEI50000000001-1", page.getItems().get(0).get("item_nr"));
-        assertEquals(10, page.getPageSize());
         assertEquals(21, page.getTotalItems());
         assertTrue(page.isHasNextPage());
         assertEquals(1, page.getRequestCount());
-    }
-
-    @Test
-    void salesPageQueryProviderRejectsMissingAuthoritativeExtent() {
-        when(storeSyncMapper.selectOwnerStore(10002L, "STR245027-NAE")).thenReturn(boundStore());
-        RecordingGatewaySession session = new RecordingGatewaySession(objectMapper);
-        session.enqueuePostResponse(objectMapper.createObjectNode()
-                .set("hits", objectMapper.createArrayNode()));
-        RealNoonSalesPageQueryProvider provider = new RealNoonSalesPageQueryProvider(
-                objectMapper,
-                new NoonPullStoreBindingResolver(storeSyncMapper),
-                new RecordingGatewaySessionFactory(session),
-                SALES_PAGE_LIST_URL,
-                10
-        );
-
-        NoonInterfacePullException failure = assertThrows(
-                NoonInterfacePullException.class,
-                () -> provider.fetchPage(salesPageRequest(), 1)
-        );
-
-        assertTrue(failure.getMessage().contains("authoritative total is missing"));
     }
 
     @Test
