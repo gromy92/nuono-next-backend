@@ -14,14 +14,14 @@ import com.nuono.next.infrastructure.mapper.NoonDataPullScopeMapper;
 import com.nuono.next.infrastructure.mapper.ReportCreateAttemptMapper;
 import com.nuono.next.infrastructure.mapper.ReportFactApplyMapper;
 import com.nuono.next.infrastructure.mapper.ReportStageMapper;
-import com.nuono.next.noonpull.NoonOrderReportAdapter;
-import com.nuono.next.noonpull.NoonSalesReportAdapter;
+import com.nuono.next.noonpull.NoonOrderReportRowClassifier;
+import com.nuono.next.noonpull.NoonSalesReportRowClassifier;
 import com.nuono.next.noonpull.RealNoonFinanceTransactionReportProvider;
 import com.nuono.next.noonpull.RealNoonOrderReportSmokeProvider;
 import com.nuono.next.noonpull.RealNoonSalesReportSmokeProvider;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnExportProvider;
 import com.nuono.next.officialwarehouse.OfficialWarehouseFbnStageClassifier;
-import com.nuono.next.orderfinance.NoonFinanceTransactionReportAdapter;
+import com.nuono.next.orderfinance.NoonFinanceTransactionReportRowClassifier;
 import java.time.Duration;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -165,7 +165,7 @@ public class ExportReportRuntimeConfiguration {
     DataPullJob dp01ReportJob(
             NoonDataPullScopeMapper scopes,
             @Qualifier("dp01ReportProvider") ExportReportProvider provider,
-            NoonSalesReportAdapter adapter,
+            NoonSalesReportRowClassifier classifier,
             ReportArtifactStore artifacts,
             ReportStageStore stageStore,
             ObjectMapper objectMapper,
@@ -175,14 +175,14 @@ public class ExportReportRuntimeConfiguration {
         NoonReportDefinition definition = definitions.dp01();
         return job(definition, scopes, provider,
                 importer(definition, artifacts, stageStore, objectMapper,
-                        adapter::requireStageHeader, adapter::classifyStageRows,
-                        adapter::stageIdentity), createAttemptFence, providerWaitTransition);
+                        classifier::requireHeader, classifier::classifyRows,
+                        classifier::stableIdentity), createAttemptFence, providerWaitTransition);
     }
     @Bean("dp02ReportJob")
     DataPullJob dp02ReportJob(
             NoonDataPullScopeMapper scopes,
             @Qualifier("dp02ReportProvider") ExportReportProvider provider,
-            NoonOrderReportAdapter adapter,
+            NoonOrderReportRowClassifier classifier,
             ReportArtifactStore artifacts,
             ReportStageStore stageStore,
             ObjectMapper objectMapper,
@@ -192,14 +192,14 @@ public class ExportReportRuntimeConfiguration {
         NoonReportDefinition definition = definitions.dp02();
         return job(definition, scopes, provider,
                 importer(definition, artifacts, stageStore, objectMapper,
-                        adapter::requireStageHeader, adapter::classifyStageRows,
-                        adapter::stageIdentity), createAttemptFence, providerWaitTransition);
+                        classifier::requireHeader, classifier::classifyRows,
+                        classifier::stableIdentity), createAttemptFence, providerWaitTransition);
     }
     @Bean("dp03ReportJob")
     DataPullJob dp03ReportJob(
             NoonDataPullScopeMapper scopes,
             @Qualifier("dp03ReportProvider") ExportReportProvider provider,
-            NoonFinanceTransactionReportAdapter adapter,
+            NoonFinanceTransactionReportRowClassifier classifier,
             ReportArtifactStore artifacts,
             ReportStageStore stageStore,
             ObjectMapper objectMapper,
@@ -209,8 +209,8 @@ public class ExportReportRuntimeConfiguration {
         NoonReportDefinition definition = definitions.dp03();
         return job(definition, scopes, provider,
                 importer(definition, artifacts, stageStore, objectMapper,
-                        adapter::requireStageHeader, adapter::classifyStageRows,
-                        adapter::stageIdentity), createAttemptFence, providerWaitTransition);
+                        classifier::requireHeader, classifier::classifyRows,
+                        classifier::stableIdentity), createAttemptFence, providerWaitTransition);
     }
 
     @Bean("dp07bReportJob")

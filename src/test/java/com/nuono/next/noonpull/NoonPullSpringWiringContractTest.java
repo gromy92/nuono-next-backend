@@ -126,9 +126,11 @@ class NoonPullSpringWiringContractTest {
             NoonInterfacePuller.class,
             NoonProductListPullAdapter.class,
             NoonProductListInitializationService.class,
+            NoonSalesReportRowClassifier.class,
             NoonSalesReportAdapter.class,
             NoonSalesReportPullService.class,
             NoonSalesPageQueryPullService.class,
+            NoonOrderReportRowClassifier.class,
             NoonOrderReportAdapter.class,
             NoonOrderReportPullService.class
     })
@@ -138,6 +140,7 @@ class NoonPullSpringWiringContractTest {
     @Configuration
     @Import({
             MyBatisNoonSalesFactWriter.class,
+            NoonSalesReportRowClassifier.class,
             NoonSalesReportAdapter.class
     })
     static class NoonSalesWriterWiringConfig {
@@ -146,6 +149,7 @@ class NoonPullSpringWiringContractTest {
     @Configuration
     @Import({
             MyBatisNoonOrderFactWriter.class,
+            NoonOrderReportRowClassifier.class,
             NoonOrderReportAdapter.class
     })
     static class NoonOrderWriterWiringConfig {
