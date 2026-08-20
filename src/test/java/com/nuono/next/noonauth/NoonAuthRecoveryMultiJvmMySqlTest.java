@@ -62,9 +62,6 @@ class NoonAuthRecoveryMultiJvmMySqlTest {
         }
         try (Statement statement = connection.createStatement()) {
             statement.executeUpdate(
-                    "DELETE FROM noon_auth_recovery_checkpoint WHERE recovery_id=" + recoveryId
-            );
-            statement.executeUpdate(
                     "DELETE FROM noon_auth_identity_send_ledger WHERE recovery_id=" + recoveryId
             );
             statement.executeUpdate(
