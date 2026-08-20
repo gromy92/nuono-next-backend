@@ -7,7 +7,7 @@ import java.util.Objects;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Production create-intent Implementation; no external call runs inside this transaction. */
-public final class MyBatisReportCreateAttemptFence implements ReportCreateAttemptFence {
+public class MyBatisReportCreateAttemptFence implements ReportCreateAttemptFence {
     private static final String RECONCILE_STEP = "REPORT_RECONCILE_CREATE";
 
     private final ReportCreateAttemptMapper mapper;

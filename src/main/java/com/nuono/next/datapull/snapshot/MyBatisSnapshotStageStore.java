@@ -7,7 +7,7 @@ import java.util.Objects;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Production stage adapter; locks the task fence before its snapshot staging header. */
-public final class MyBatisSnapshotStageStore<T> implements SnapshotStageStore<T> {
+public class MyBatisSnapshotStageStore<T> implements SnapshotStageStore<T> {
     private static final String STALE_FENCE = "SNAPSHOT_STAGE_STALE_FENCE";
 
     private final CompleteSnapshotStageMapper mapper;

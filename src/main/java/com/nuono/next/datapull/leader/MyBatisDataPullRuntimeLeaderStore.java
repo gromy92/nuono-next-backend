@@ -8,7 +8,7 @@ import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
 /** MyBatis Adapter whose lease decisions are based exclusively on MySQL time. */
-public final class MyBatisDataPullRuntimeLeaderStore implements DataPullRuntimeLeaderStore {
+public class MyBatisDataPullRuntimeLeaderStore implements DataPullRuntimeLeaderStore {
 
     private final DataPullRuntimeLeaderMapper mapper;
 
