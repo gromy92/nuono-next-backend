@@ -9,7 +9,8 @@ import org.springframework.stereotype.Service;
 /** Predecessor DP-10 executor; runtime DP-10 has a separate task/fence/checkpoint model. */
 @Service
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.LEGACY)
-class LegacyAli1688HistoricalOrderWeeklySyncService {
+class LegacyAli1688HistoricalOrderWeeklySyncService
+        implements Ali1688HistoricalOrderManualSync {
     static final String OPEN_API_PROVIDER_CODE = Ali1688HistoricalOrderOAuthService.PROVIDER_CODE;
     static final String SCHEDULED_WEEKLY_TASK_TYPE = "scheduled_weekly";
     private final Ali1688HistoricalOrderMapper facts;
@@ -43,6 +44,11 @@ class LegacyAli1688HistoricalOrderWeeklySyncService {
                 ownerUserId, authorizationId, operatorUserId);
         execute(authorization, task);
         return task;
+    }
+
+    @Override
+    public boolean request(Long ownerUserId, Long authorizationId, Long operatorUserId) {
+        return runScheduledWeekly(ownerUserId, authorizationId, operatorUserId) != null;
     }
 
     private Ali1688HistoricalOrderSyncTaskRow createTask(
