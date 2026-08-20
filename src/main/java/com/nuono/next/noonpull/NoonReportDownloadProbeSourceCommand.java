@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -11,10 +13,10 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.apache.ibatis.session.SqlSessionFactory;
+import org.mybatis.spring.SqlSessionFactoryBean;
 import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
-import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
@@ -210,13 +212,38 @@ public final class NoonReportDownloadProbeSourceCommand {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
     @Import({
             NoonPullStoreBindingResolver.class,
             NoonSessionGatewayPullSessionFactory.class,
             com.nuono.next.noon.NoonSessionGateway.class
     })
     static class ProbeConfiguration {
+        @Bean(destroyMethod = "close")
+        HikariDataSource dataSource(Environment environment) {
+            HikariConfig hikari = new HikariConfig();
+            hikari.setJdbcUrl(required(environment, "NUONO_NEXT_DB_URL"));
+            hikari.setUsername(required(environment, "NUONO_NEXT_DB_USERNAME"));
+            hikari.setPassword(required(environment, "NUONO_NEXT_DB_PASSWORD"));
+            hikari.setMaximumPoolSize(2);
+            hikari.setMinimumIdle(0);
+            hikari.setConnectionTimeout(10_000L);
+            hikari.addDataSourceProperty("connectTimeout", "10000");
+            hikari.addDataSourceProperty("socketTimeout", "30000");
+            return new HikariDataSource(hikari);
+        }
+
+        @Bean
+        SqlSessionFactory sqlSessionFactory(HikariDataSource dataSource) throws Exception {
+            SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
+            factory.setDataSource(dataSource);
+            return factory.getObject();
+        }
+
+        @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper();
+        }
+
         @Bean
         MapperFactoryBean<StoreSyncMapper> storeSyncMapper(
                 SqlSessionFactory sqlSessionFactory
@@ -225,6 +252,14 @@ public final class NoonReportDownloadProbeSourceCommand {
                     new MapperFactoryBean<>(StoreSyncMapper.class);
             mapper.setSqlSessionFactory(sqlSessionFactory);
             return mapper;
+        }
+
+        private static String required(Environment environment, String name) {
+            String value = environment.getProperty(name);
+            if (!StringUtils.hasText(value)) {
+                throw new IllegalArgumentException("required probe database setting is missing");
+            }
+            return value.trim();
         }
     }
 }
