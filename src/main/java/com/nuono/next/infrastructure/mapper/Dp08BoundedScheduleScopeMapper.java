@@ -7,7 +7,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
-/** Globally row-bounded native member keysets; no logical scope can expand one SQL call. */
+/** Bounded native keysets; legacy gmt_* values are normalized from Shanghai to UTC. */
 @Mapper
 public interface Dp08BoundedScheduleScopeMapper {
     @Select({"<script>",
@@ -19,7 +19,8 @@ public interface Dp08BoundedScheduleScopeMapper {
             " wp.id watchProductId,kw.id keywordId,UPPER(wp.store_code) storeCode,",
             " UPPER(wp.site_code) siteCode,kw.keyword,kw.locale,'SELF' trackedProductType,",
             " NULL competitorProductId,UPPER(TRIM(wp.self_noon_product_code)) trackedNoonProductCode,",
-            " GREATEST(wp.gmt_updated,kw.gmt_updated) sourceUpdatedAtUtc,0 memberOrder,0 memberId",
+            " CONVERT_TZ(GREATEST(wp.gmt_updated,kw.gmt_updated),'+08:00','+00:00')",
+            " sourceUpdatedAtUtc,0 memberOrder,0 memberId",
             " FROM operations_competitor_watch_product wp",
             " JOIN operations_competitor_keyword kw ON kw.watch_product_id=wp.id",
             "  AND kw.status='ACTIVE' AND kw.is_deleted=b'0'",
@@ -29,7 +30,8 @@ public interface Dp08BoundedScheduleScopeMapper {
             " SELECT wp.owner_user_id,wp.logical_store_id,wp.id,kw.id,UPPER(wp.store_code),",
             " UPPER(wp.site_code),kw.keyword,kw.locale,'COMPETITOR',cp.id,",
             " UPPER(TRIM(cp.noon_product_code)),",
-            " GREATEST(wp.gmt_updated,kw.gmt_updated,kp.gmt_updated,cp.gmt_updated),1,cp.id",
+            " CONVERT_TZ(GREATEST(wp.gmt_updated,kw.gmt_updated,kp.gmt_updated,cp.gmt_updated),",
+            " '+08:00','+00:00'),1,cp.id",
             " FROM operations_competitor_watch_product wp",
             " JOIN operations_competitor_keyword kw ON kw.watch_product_id=wp.id",
             "  AND kw.status='ACTIVE' AND kw.is_deleted=b'0'",
@@ -66,13 +68,15 @@ public interface Dp08BoundedScheduleScopeMapper {
             " SELECT wp.owner_user_id ownerUserId,wp.logical_store_id logicalStoreId,",
             " UPPER(wp.store_code) storeCode,UPPER(wp.site_code) siteCode,",
             " UPPER(TRIM(wp.self_noon_product_code)) noonProductCode,wp.id watchProductId,",
-            " NULL competitorProductId,wp.gmt_updated sourceUpdatedAtUtc,0 memberId",
+            " NULL competitorProductId,CONVERT_TZ(wp.gmt_updated,'+08:00','+00:00')",
+            " sourceUpdatedAtUtc,0 memberId",
             " FROM operations_competitor_watch_product wp",
             " WHERE wp.status='ACTIVE' AND wp.is_deleted=b'0'",
             "  AND NULLIF(TRIM(wp.self_noon_product_code),'') IS NOT NULL",
             " UNION ALL",
             " SELECT wp.owner_user_id,wp.logical_store_id,UPPER(wp.store_code),UPPER(wp.site_code),",
-            " UPPER(TRIM(cp.noon_product_code)),wp.id,cp.id,GREATEST(wp.gmt_updated,cp.gmt_updated),cp.id",
+            " UPPER(TRIM(cp.noon_product_code)),wp.id,cp.id,",
+            " CONVERT_TZ(GREATEST(wp.gmt_updated,cp.gmt_updated),'+08:00','+00:00'),cp.id",
             " FROM operations_competitor_watch_product wp",
             " JOIN operations_competitor_product cp ON cp.watch_product_id=wp.id",
             "  AND cp.review_status='CONFIRMED' AND cp.is_deleted=b'0'",
