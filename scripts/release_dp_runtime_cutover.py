@@ -3,6 +3,7 @@
 from __future__ import annotations
 from release_dp_runtime_legacy_auth import build_dp_runtime_legacy_auth_shell
 from release_dp_runtime_legacy_drain import build_dp_runtime_legacy_drain_shell
+from release_dp08_legacy_drain import build_dp08_legacy_drain_shell
 
 
 def build_dp_runtime_cutover_shell() -> str:
@@ -195,7 +196,8 @@ verify_dp_runtime_database_binding() {
   [ "$cutover" = "$DP_RUNTIME_CUTOVER_BINDING_SHA256" ]
   [ "$count" = "$DP_RUNTIME_CUTOVER_OPERATION_COUNT" ]
 }
-''' + build_dp_runtime_legacy_auth_shell() + build_dp_runtime_legacy_drain_shell()
+''' + build_dp_runtime_legacy_auth_shell() + build_dp_runtime_legacy_drain_shell() \
+        + build_dp08_legacy_drain_shell()
 
 
 __all__ = ["build_dp_runtime_cutover_shell"]
