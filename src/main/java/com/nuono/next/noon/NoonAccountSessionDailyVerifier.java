@@ -86,7 +86,12 @@ public final class NoonAccountSessionDailyVerifier {
                 );
                 verifiedProjects++;
             } catch (RuntimeException exception) {
-                return recoveryResult(target, totalProjects, scopedTargets.size(), verifiedProjects);
+                if (NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)) {
+                    return recoveryResult(target, totalProjects, scopedTargets.size(), verifiedProjects);
+                }
+                return record(
+                        "PROBE_FAILED", totalProjects, scopedTargets.size(), verifiedProjects
+                );
             }
         }
         return record("READY", totalProjects, scopedTargets.size(), verifiedProjects);

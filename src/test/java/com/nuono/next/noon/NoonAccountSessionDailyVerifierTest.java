@@ -57,13 +57,37 @@ class NoonAccountSessionDailyVerifierTest {
         when(gateway.whoamiWithCookie(anyString(), anyString(), anyString())).thenReturn(
                 objectMapper.readTree("{\"projectCode\":\"PRJ307\"}")
         );
-        doThrow(new IllegalStateException("expired")).when(gateway).validateCatalogSessionWithCookie(
+        doThrow(new NoonSessionGateway.NoonCookieAuthRequiredException("expired"))
+                .when(gateway).validateCatalogSessionWithCookie(
                 anyString(), anyString(), anyString(), anyString()
         );
 
         verifier(mapper, gateway, authWaitQueue, allProjects()).verifyNow();
 
         verify(authWaitQueue).enqueue(NoonAuthWaitRequest.binding(307L, "PRJ307", "STR307"));
+    }
+
+    @Test
+    void transientProviderFailureNeverQueuesOtpRecovery() throws Exception {
+        NoonAccountSessionMapper mapper = mock(NoonAccountSessionMapper.class);
+        NoonSessionGateway gateway = mock(NoonSessionGateway.class);
+        NoonAuthWaitQueue authWaitQueue = mock(NoonAuthWaitQueue.class);
+        when(mapper.listBoundProjects()).thenReturn(List.of(target("PRJ307", "STR307", "sid=current")));
+        when(gateway.configuredMerchantLoginEmail()).thenReturn("merchant@example.com");
+        when(gateway.whoamiWithCookie(anyString(), anyString(), anyString())).thenReturn(
+                objectMapper.readTree("{\"projectCode\":\"PRJ307\"}")
+        );
+        doThrow(new NoonHttpException(503, "temporary", "/offer/list/noon"))
+                .when(gateway).validateCatalogSessionWithCookie(
+                        anyString(), anyString(), anyString(), anyString()
+                );
+
+        NoonAccountSessionAuditResult result = verifier(
+                mapper, gateway, authWaitQueue, allProjects()
+        ).verifyNow();
+
+        org.junit.jupiter.api.Assertions.assertEquals("PROBE_FAILED", result.getStatus());
+        verify(authWaitQueue, never()).enqueue(any());
     }
 
     @Test
