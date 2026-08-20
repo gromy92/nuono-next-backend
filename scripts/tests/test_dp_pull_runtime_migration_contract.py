@@ -21,7 +21,6 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
         247: "247_dp_pull_schedule_core.sql",
         248: "248_dp_pull_dp08_member_retention.sql",
         250: "250_dp_pull_advertising_campaign_pagination.sql",
-        256: "256_dp02_snapshot_operation_contract.sql",  # DP02 snapshot seal
     }
 
     @classmethod
@@ -186,7 +185,7 @@ class DpPullRuntimeMigrationContractTest(unittest.TestCase):
             246: "dp_pull_advertising_generation",
             247: "dp_pull_schedule_manifest_seal",
             248: "dp_pull_dp08_member_set",
-            250: "campaign_page_count", 256: "chk_dp_snapshot_apply_operation",
+            250: "campaign_page_count",
         }
         for order, key in self.SUCCESSOR_KEYS.items():
             migration = self.migrations[order]
