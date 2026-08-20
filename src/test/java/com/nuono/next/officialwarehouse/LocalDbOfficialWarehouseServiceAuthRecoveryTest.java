@@ -12,9 +12,10 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import com.nuono.next.permission.access.BusinessAccessContext;
@@ -23,6 +24,7 @@ import com.nuono.next.sales.NoonSalesReportBinding;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
     private OfficialWarehouseMapper mapper;
     private NoonSessionGateway sessionGateway;
     private NoonSalesReportBindingResolver bindingResolver;
-    private NoonAccountSessionAttentionPort attention;
+    private NoonAuthWaitQueue recoveryQueue;
+    private NoonPullProjectAuthGate authGate;
     private LocalDbOfficialWarehouseService service;
 
     @BeforeEach
@@ -39,7 +42,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         mapper = mock(OfficialWarehouseMapper.class);
         sessionGateway = mock(NoonSessionGateway.class);
         bindingResolver = mock(NoonSalesReportBindingResolver.class);
-        attention = mock(NoonAccountSessionAttentionPort.class);
+        recoveryQueue = mock(NoonAuthWaitQueue.class);
+        authGate = mock(NoonPullProjectAuthGate.class);
         service = new LocalDbOfficialWarehouseService(
                 mapper,
                 sessionGateway,
@@ -49,7 +53,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 new ObjectMapper(),
                 NoonRiskBackoffGuard.disabled(),
                 new NoonPullFailurePolicy(),
-                new OfficialWarehouseAppointmentAuthRecovery(attention)
+                new OfficialWarehouseAppointmentAuthRecovery(recoveryQueue, authGate)
         );
         AppointmentRecord appointment = appointment("PENDING", 0L);
         when(mapper.selectAuthorizedAppointment(Map.of("STR512183-NSA", 308L), 611402L))
@@ -61,7 +65,8 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
     }
 
     @Test
-    void expiredCookieRequiresManualLoginAndDoesNotScheduleAppointmentReplay() {
+    void expiredCookieQueuesRecoveryAndSchedulesAppointmentReplay() {
+        when(recoveryQueue.enqueue(any())).thenReturn(Optional.of(991L));
         when(sessionGateway.loginWithPersistedCookiePinnedEgress(
                 eq(308L),
                 eq("merchant@example.com"),
@@ -76,35 +81,37 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
         service.runAppointmentOnce(access(), "611402");
 
-        verify(mapper).markAppointmentFailed(
+        verify(mapper).markAppointmentPendingRetry(
                 eq(308L),
                 eq(611402L),
                 eq(1L),
-                eq("AUTH_REQUIRED"),
-                eq("MANUAL_LOGIN_REQUIRED"),
-                contains("不会自动发送验证码或继续"),
+                eq(60),
+                eq("AUTH_RECOVERY"),
+                eq("AUTH_RECOVERY_PENDING"),
+                contains("恢复后将自动继续原约仓"),
                 eq(901L)
         );
-        verify(attention).requireManualLogin();
+        verify(recoveryQueue).enqueue(any());
     }
 
     @Test
-    void unavailableSharedAccountStopsWithoutOpeningAnotherNoonSession() {
-        when(attention.blocksProviderCalls()).thenReturn(true);
+    void activeSharedRecoveryStopsProviderCallAndKeepsAppointmentWaiting() {
+        when(authGate.isBlocked(308L, "PRJ512183")).thenReturn(true);
+        when(recoveryQueue.enqueue(any())).thenReturn(Optional.of(991L));
 
         service.runAppointmentOnce(access(), "611402");
 
         verify(sessionGateway, never()).loginWithPersistedCookiePinnedEgress(
                 any(), any(), any(), any(), any(), any(), anyInt()
         );
-        verify(attention).requireManualLogin();
-        verify(mapper).markAppointmentFailed(
+        verify(mapper).markAppointmentPendingRetry(
                 eq(308L),
                 eq(611402L),
                 eq(1L),
-                eq("AUTH_REQUIRED"),
-                eq("MANUAL_LOGIN_REQUIRED"),
-                contains("不会自动发送验证码或继续"),
+                eq(60),
+                eq("AUTH_RECOVERY"),
+                eq("AUTH_RECOVERY_PENDING"),
+                contains("恢复后将自动继续原约仓"),
                 eq(901L)
         );
     }
@@ -119,7 +126,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
 
         service.runAppointmentOnce(access(), "611402");
 
-        verify(attention, never()).requireManualLogin();
+        verify(recoveryQueue, never()).enqueue(any());
         verify(mapper).markAppointmentFailed(
                 eq(308L),
                 eq(611402L),

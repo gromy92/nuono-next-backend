@@ -10,21 +10,25 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonAuthenticationRequiredException;
 import com.nuono.next.noon.NoonHttpException;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.product.noon.NoonProductError;
 import com.nuono.next.product.noon.NoonProductErrorCode;
 import com.nuono.next.product.noon.NoonProductException;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 
 class ProductWriteAuthRecoveryTest {
-    private final NoonAccountSessionAttentionPort attention = mock(NoonAccountSessionAttentionPort.class);
-    private final ProductWriteAuthRecovery recovery = new ProductWriteAuthRecovery(attention);
+    private final NoonAuthWaitQueue recoveryQueue = mock(NoonAuthWaitQueue.class);
+    private final NoonPullProjectAuthGate authGate = mock(NoonPullProjectAuthGate.class);
+    private final ProductWriteAuthRecovery recovery =
+            new ProductWriteAuthRecovery(recoveryQueue, authGate);
 
     @Test
-    void unavailableSharedAccountStopsBeforeWriteWithoutCreatingRecoveryTask() {
-        when(attention.blocksProviderCalls()).thenReturn(true);
+    void activeSharedRecoveryStopsBeforeWriteAndRetainsAutomaticResume() {
+        when(authGate.isBlocked(307L, "PRJ-1")).thenReturn(true);
 
         ProductWriteAuthRequiredException exception = assertThrows(
                 ProductWriteAuthRequiredException.class,
@@ -33,11 +37,13 @@ class ProductWriteAuthRecoveryTest {
 
         assertFalse(exception.isWriteMayHaveOccurred());
         assertNull(exception.getRecoveryId());
-        assertTrue(exception.getMessage().contains("不会自动发送验证码、重试或继续"));
+        assertTrue(exception.getMessage().contains("恢复成功后将从安全检查点自动继续"));
     }
 
     @Test
-    void explicitAuthFailureOnlyRequestsManualLoginAndRetainsReadbackSafety() {
+    void explicitAuthFailureQueuesRecoveryAndRetainsReadbackSafety() {
+        when(recoveryQueue.enqueue(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(Optional.of(991L));
         ProductWriteAuthRequiredException exception = recovery.suspendIfAuthFailure(
                 307L,
                 "PRJ-1",
@@ -47,14 +53,14 @@ class ProductWriteAuthRecoveryTest {
         );
 
         assertNotNull(exception);
-        assertNull(exception.getRecoveryId());
+        assertTrue(exception.getRecoveryId() == 991L);
         assertTrue(exception.isWriteMayHaveOccurred());
         assertTrue(exception.getMessage().contains("先回读 Noon 结果"));
-        verify(attention).requireManualLogin();
+        verify(recoveryQueue).enqueue(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
-    void dedicatedAuthenticationFailuresAndExplicit401RequireManualLogin() {
+    void dedicatedAuthenticationFailuresAndExplicit401QueueAutomaticRecovery() {
         for (RuntimeException failure : new RuntimeException[] {
                 new NoonAuthenticationRequiredException("Noon authentication required."),
                 new NoonHttpException(401, "", "/catalog")
@@ -64,7 +70,7 @@ class ProductWriteAuthRecoveryTest {
             assertNotNull(exception);
             assertFalse(exception.isWriteMayHaveOccurred());
         }
-        verify(attention, times(2)).requireManualLogin();
+        verify(recoveryQueue, times(2)).enqueue(org.mockito.ArgumentMatchers.any());
     }
 
     @Test
