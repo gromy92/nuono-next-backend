@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
@@ -66,6 +67,43 @@ public final class NoonOrderReportRowClassifier {
                     : classifyRow(file, row, indexes));
         }
         return List.copyOf(result);
+    }
+
+    /** Classifies exact-window Sales Dashboard rows without converting them into a fake CSV. */
+    public List<NoonReportRowDecision<NoonOrderLineFact>> classifyPageRows(
+            NoonReportPullRequest request,
+            String sourceBatchId,
+            List<Map<String, Object>> rows
+    ) {
+        Objects.requireNonNull(request, "request");
+        Objects.requireNonNull(sourceBatchId, "sourceBatchId");
+        List<Map<String, Object>> sourceRows = List.copyOf(
+                Objects.requireNonNull(rows, "rows")
+        );
+        List<String> headers = new ArrayList<>(NoonOrderReportDescriptor.requiredColumns());
+        headers.add("bayan_nr");
+        String[] header = headers.toArray(new String[0]);
+        List<String[]> values = new ArrayList<>(sourceRows.size());
+        for (Map<String, Object> row : sourceRows) {
+            Map<String, Object> source = Objects.requireNonNull(row, "row");
+            if (!source.keySet().containsAll(NoonOrderReportDescriptor.requiredColumns())) {
+                throw new IllegalArgumentException("DP02 page row schema is incomplete");
+            }
+            String[] columns = new String[header.length];
+            for (int index = 0; index < header.length; index++) {
+                Object value = source.get(header[index]);
+                columns[index] = value == null ? "" : String.valueOf(value);
+            }
+            values.add(columns);
+        }
+        NoonReportDownloadedFile file = new NoonReportDownloadedFile(
+                request,
+                sourceBatchId,
+                sourceBatchId,
+                "",
+                new byte[0]
+        );
+        return classifyRows(file, header, values);
     }
 
     public String stableIdentity(NoonOrderLineFact fact) {
@@ -217,7 +255,14 @@ public final class NoonOrderReportRowClassifier {
         try {
             return LocalDateTime.parse(value, NOON_TIMESTAMP);
         } catch (DateTimeParseException invalidTimestamp) {
-            throw new IllegalArgumentException("Invalid timestamp value: " + key, invalidTimestamp);
+            try {
+                return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            } catch (DateTimeParseException invalidIsoTimestamp) {
+                throw new IllegalArgumentException(
+                        "Invalid timestamp value: " + key,
+                        invalidIsoTimestamp
+                );
+            }
         }
     }
 }

@@ -2,6 +2,7 @@ package com.nuono.next.datapull.report;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.nuono.next.datapull.wiring.Dp02PageRuntimeConfiguration;
 import com.nuono.next.noonpull.NoonOrderReportAdapter;
 import com.nuono.next.noonpull.NoonOrderReportRowClassifier;
 import com.nuono.next.noonpull.NoonSalesReportAdapter;
@@ -16,16 +17,19 @@ class ExportReportRuntimeClassifierWiringTest {
     @Test
     void runtimeJobsDependOnPureRowClassifiersInsteadOfLegacyDirectWriteAdapters() {
         assertClassifierBoundary(
+                ExportReportRuntimeConfiguration.class,
                 "dp01ReportJob",
                 NoonSalesReportRowClassifier.class,
                 NoonSalesReportAdapter.class
         );
         assertClassifierBoundary(
-                "dp02ReportJob",
+                Dp02PageRuntimeConfiguration.class,
+                "dp02OrderPageProvider",
                 NoonOrderReportRowClassifier.class,
                 NoonOrderReportAdapter.class
         );
         assertClassifierBoundary(
+                ExportReportRuntimeConfiguration.class,
                 "dp03ReportJob",
                 NoonFinanceTransactionReportRowClassifier.class,
                 NoonFinanceTransactionReportAdapter.class
@@ -45,11 +49,12 @@ class ExportReportRuntimeClassifierWiringTest {
     }
 
     private void assertClassifierBoundary(
+            Class<?> configuration,
             String factoryMethod,
             Class<?> classifier,
             Class<?> legacyAdapter
     ) {
-        Method method = Arrays.stream(ExportReportRuntimeConfiguration.class.getDeclaredMethods())
+        Method method = Arrays.stream(configuration.getDeclaredMethods())
                 .filter(candidate -> candidate.getName().equals(factoryMethod))
                 .findFirst()
                 .orElseThrow();

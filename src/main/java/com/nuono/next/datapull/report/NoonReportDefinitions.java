@@ -2,11 +2,10 @@ package com.nuono.next.datapull.report;
 
 import com.nuono.next.datapull.runtime.OperationCode;
 import com.nuono.next.noonpull.NoonFinanceTransactionReportDescriptor;
-import com.nuono.next.noonpull.NoonOrderReportDescriptor;
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import org.springframework.util.StringUtils;
 
-/** Single composition-time catalog for the four export-report operations. */
+/** Single composition-time catalog for the remaining export-report operations. */
 final class NoonReportDefinitions {
     private final String financeReportType;
 
@@ -19,11 +18,6 @@ final class NoonReportDefinitions {
     NoonReportDefinition dp01() {
         return definition(OperationCode.DP01, "NOON_REPORT_SALES", NoonPullDataDomain.SALES,
                 "noon_catalog_reports_productviewsandsalesdata", null);
-    }
-
-    NoonReportDefinition dp02() {
-        return definition(OperationCode.DP02, "NOON_REPORT_ORDER", NoonPullDataDomain.ORDER,
-                NoonOrderReportDescriptor.REPORT_TYPE, "sales-dashboard-export");
     }
 
     NoonReportDefinition dp03() {

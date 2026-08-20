@@ -4,11 +4,11 @@ import com.nuono.next.datapull.report.ReportFactColumnContract;
 import java.math.BigDecimal;
 
 /** Exact row-level bridge from a Noon order export to its legacy fact table. */
-final class NoonOrderFactColumnContract {
+public final class NoonOrderFactColumnContract {
     private NoonOrderFactColumnContract() {
     }
 
-    static NoonOrderLineFact requirePersistable(NoonOrderLineFact fact) {
+    public static NoonOrderLineFact requirePersistable(NoonOrderLineFact fact) {
         ReportFactColumnContract.positiveId(fact.getOwnerUserId());
         text(fact.getStoreCode(), 80);
         text(fact.getSiteCode(), 20);

@@ -34,6 +34,19 @@ class ReportProviderCapabilitiesTest {
         assertEquals(List.of(), evidence.getBlockers());
     }
 
+    @Test
+    void exactWindowTwoPassPageQueryIsReleaseSafe() {
+        ReportRuntimeReleaseEvidence evidence = new ReportRuntimeReleaseEvidence(
+                supported(OperationCode.DP01),
+                exactWindowPage(OperationCode.DP02),
+                supported(OperationCode.DP03),
+                supported(OperationCode.DP07B)
+        );
+
+        assertTrue(evidence.verified());
+        assertEquals(List.of(), evidence.getBlockers());
+    }
+
     private ReportProviderCapabilitySource supported(OperationCode operation) {
         return () -> new ReportProviderCapabilities(
                 operation,
@@ -67,6 +80,18 @@ class ReportProviderCapabilitiesTest {
                         .UNPROVEN_EMPTY_REMAINS_WAITING,
                 ReportProviderCapabilities.ArtifactCompletenessEvidence
                         .COMPLETE_DOWNLOAD_WITH_LOCAL_ROW_COUNT_AND_CONTAINER_VALIDATION
+        );
+    }
+
+    private ReportProviderCapabilitySource exactWindowPage(OperationCode operation) {
+        return () -> new ReportProviderCapabilities(
+                operation,
+                ReportProviderCapabilities.CreateReadbackEvidence
+                        .DIRECT_EXACT_WINDOW_PAGE_QUERY,
+                ReportProviderCapabilities.EmptyProofEvidence
+                        .AUTHORITATIVE_TOTAL_FOR_EXACT_WINDOW,
+                ReportProviderCapabilities.ArtifactCompletenessEvidence
+                        .EXACT_PAGE_EXTENT_WITH_TWO_PASS_VALIDATION
         );
     }
 }
