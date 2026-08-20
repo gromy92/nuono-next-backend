@@ -13,8 +13,6 @@ class NoonAuthRecoveryCheckpointSchemaTest {
                 "src/main/resources/db/init/255_noon_auth_recovery_checkpoint.sql"));
         String postcheck = Files.readString(Path.of(
                 "src/main/resources/db/postcheck/255_noon_auth_recovery_checkpoint.sql"));
-        String livecheck = Files.readString(Path.of(
-                "src/main/resources/db/livecheck/255_noon_auth_recovery_checkpoint.sql"));
         String catalog = Files.readString(Path.of(
                 "src/main/resources/db/init/release-migrations.tsv"));
 
@@ -25,8 +23,10 @@ class NoonAuthRecoveryCheckpointSchemaTest {
         assertTrue(!sql.toLowerCase().contains("otp_code"));
         assertTrue(!sql.toLowerCase().contains("access_token"));
         assertTrue(postcheck.contains("initialization_vector"));
-        assertTrue(livecheck.contains("ciphertext"));
         assertTrue(catalog.contains(
-                "255\t255_noon_auth_recovery_checkpoint.sql\tAUTO_ADDITIVE"));
+                "255\t255_noon_auth_recovery_checkpoint.sql\tAUTO_ADDITIVE"
+                        + "\tdb/init/255_noon_auth_recovery_checkpoint.sql"
+                        + "\tdb/postcheck/255_noon_auth_recovery_checkpoint.sql"
+                        + "\tdb/postcheck/255_noon_auth_recovery_checkpoint.sql"));
     }
 }

@@ -67,6 +67,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "252_official_warehouse_asn_preflight_audit.sql",
                 "253_operations_competitor_search_result_retention.sql",
                 "254_procurement_ali1688_order_canonical_index.sql",
+                "255_noon_auth_recovery_checkpoint.sql",
             ],
             [migration.key for migration in migrations],
         )
@@ -78,7 +79,7 @@ class RepositoryMigrationCatalogTest(unittest.TestCase):
                 "MANAGED", "MANAGED", "MANAGED", "AUTO_ADDITIVE", "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE",
                 "AUTO_ADDITIVE", "AUTO_ADDITIVE", "MANAGED", "AUTO_ADDITIVE",
-                "AUTO_ADDITIVE", "AUTO_ADDITIVE",
+                "AUTO_ADDITIVE", "AUTO_ADDITIVE", "AUTO_ADDITIVE",
             ],
             [migration.kind for migration in migrations],
         )
