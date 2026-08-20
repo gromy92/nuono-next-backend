@@ -249,9 +249,6 @@ public class LocalDbStoreSyncService {
 
         String cookie = normalize(project.getNoonPartnerCookie());
         StoreSyncOwnerContext owner = storeSyncMapper.selectOwnerContext(ownerUserId);
-        if (!StringUtils.hasText(cookie)) {
-            cookie = owner == null ? null : normalize(owner.getNoonPartnerCookie());
-        }
         String noonUser = firstNonBlank(
                 capabilityStore.getNoonPartnerProjectUser(),
                 capabilityStore.getNoonPartnerUserCode(), capabilityStore.getNoonPartnerUser(),

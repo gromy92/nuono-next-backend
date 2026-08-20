@@ -25,6 +25,9 @@ public class NoonAuthRecoveryProperties {
     private int maxSendAttemptsPerRecovery = 2;
     private String projectAllowlist;
     private String trustedSenderDomains;
+    private String checkpointCipherSecret;
+    private String checkpointKeyVersion = "v1";
+    private int checkpointTtlSeconds = 600;
 
     public boolean isEnabled() {
         return enabled;
@@ -163,6 +166,34 @@ public class NoonAuthRecoveryProperties {
                 .filter(StringUtils::hasText)
                 .collect(Collectors.toCollection(TreeSet::new));
         return domains.isEmpty() ? Collections.emptySet() : Collections.unmodifiableSet(domains);
+    }
+
+    public String getCheckpointCipherSecret() {
+        return checkpointCipherSecret;
+    }
+
+    public void setCheckpointCipherSecret(String value) {
+        checkpointCipherSecret = value;
+    }
+
+    public String getCheckpointKeyVersion() {
+        return StringUtils.hasText(checkpointKeyVersion) ? checkpointKeyVersion.trim() : "v1";
+    }
+
+    public void setCheckpointKeyVersion(String value) {
+        checkpointKeyVersion = value;
+    }
+
+    public Duration checkpointTtl() {
+        return Duration.ofSeconds(Math.max(120, checkpointTtlSeconds));
+    }
+
+    public int getCheckpointTtlSeconds() {
+        return checkpointTtlSeconds;
+    }
+
+    public void setCheckpointTtlSeconds(int value) {
+        checkpointTtlSeconds = value;
     }
 
     public boolean allowsTrustedSenderDomain(String senderDomain) {

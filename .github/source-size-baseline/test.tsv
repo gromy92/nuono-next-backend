@@ -24,7 +24,7 @@ src/test/java/com/nuono/next/noonads/NoonAdvertisingAnalyticsServiceTest.java	30
 src/test/java/com/nuono/next/noonauth/MyBatisNoonAuthRecoveryRepositoryTest.java	491
 src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryCoordinatorTest.java	552
 src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryPersistenceContractTest.java	495
-src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryWorkerTest.java	1056
+src/test/java/com/nuono/next/noonauth/NoonAuthRecoveryWorkerTest.java	1055
 src/test/java/com/nuono/next/noonpull/NoonInterfacePullerTest.java	329
 src/test/java/com/nuono/next/noonpull/NoonRealProviderBehaviorTest.java	529
 src/test/java/com/nuono/next/noonpull/NoonReportPullerTest.java	632

@@ -1,12 +1,10 @@
 package com.nuono.next.noonauth;
-
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.excludedMessageHashes;
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.isInterruptedAttempt;
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.projectKey;
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.safeLong;
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.uniqueProjectItems;
 import static com.nuono.next.noonauth.NoonAuthRecoveryWorkerValues.uniqueTargets;
-
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptCommand.LeaseLostException;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
@@ -30,8 +28,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
+@Service
 @Profile("local-db")
 public class NoonAuthRecoveryWorker {
     private static final Logger LOGGER = LoggerFactory.getLogger(NoonAuthRecoveryWorker.class);
@@ -212,25 +212,11 @@ public class NoonAuthRecoveryWorker {
         }
         return claimed;
     }
-
     void validateEnabledConfiguration() {
-        if (!properties.isEnabled()) {
-            return;
-        }
-        if (!StringUtils.hasText(configuredIdentityKey)) {
-            throw new IllegalStateException("Noon auth recovery requires a configured shared mailbox email.");
-        }
-        if (!StringUtils.hasText(configuredFingerprint)) {
-            throw new IllegalStateException("Noon auth recovery requires a configured mailbox credential.");
-        }
-        if (properties.normalizedTrustedSenderDomains().isEmpty()) {
-            throw new IllegalStateException("Noon auth recovery requires trusted sender domains.");
-        }
-        if (gateway == null) {
-            throw new IllegalStateException("Noon auth recovery gateway is not configured.");
-        }
+        NoonAuthRecoveryConfigurationValidator.validate(
+                properties, gateway, configuredIdentityKey, configuredFingerprint
+        );
     }
-
     private void processClaimed(NoonAuthIdentityRecoveryRecord candidate, ExecutionFence fence) {
         if (candidate.getStatus() == NoonAuthRecoveryStatus.COALESCING
                 && !transition(fence, NoonAuthRecoveryStatus.AUTHENTICATING, null, null, null, false)) {
@@ -288,7 +274,10 @@ public class NoonAuthRecoveryWorker {
             return;
         }
 
-        if (isInterruptedAttempt(candidate.getStatus())) {
+        boolean resumingCheckpoint = isInterruptedAttempt(candidate.getStatus())
+                && gateway != null
+                && gateway.canResume(candidate.getId());
+        if (isInterruptedAttempt(candidate.getStatus()) && !resumingCheckpoint) {
             holdInterruptedAttempt(
                     candidate,
                     fence,
@@ -310,7 +299,8 @@ public class NoonAuthRecoveryWorker {
         }
 
         int sendsInBatch = safeInt(candidate.getSendAttemptCount());
-        if (sendsInBatch >= properties.getMaxSendAttemptsPerRecovery()) {
+        if (!resumingCheckpoint
+                && sendsInBatch >= properties.getMaxSendAttemptsPerRecovery()) {
             holdIdentityAndItems(
                     candidate,
                     fence,
@@ -331,7 +321,7 @@ public class NoonAuthRecoveryWorker {
         LocalDateTime nextSendAt = latestSendAt == null
                 ? null
                 : latestSendAt.plus(properties.minSendInterval());
-        if (nextSendAt != null && now.isBefore(nextSendAt)) {
+        if (!resumingCheckpoint && nextSendAt != null && now.isBefore(nextSendAt)) {
             cooldown(
                     fence,
                     "MIN_SEND_INTERVAL",
@@ -341,7 +331,8 @@ public class NoonAuthRecoveryWorker {
             return;
         }
 
-        if (fence.status != NoonAuthRecoveryStatus.AUTHENTICATING
+        if (!resumingCheckpoint
+                && fence.status != NoonAuthRecoveryStatus.AUTHENTICATING
                 && !transition(fence, NoonAuthRecoveryStatus.AUTHENTICATING, null, null, null, false)) {
             return;
         }
@@ -361,7 +352,9 @@ public class NoonAuthRecoveryWorker {
                 return;
             }
         }
-        int generation = safeInt(candidate.getGenerationNo()) + 1;
+        int generation = resumingCheckpoint
+                ? Math.max(1, safeInt(candidate.getGenerationNo()))
+                : safeInt(candidate.getGenerationNo()) + 1;
         AtomicBoolean sendIntentRecorded = new AtomicBoolean(false);
 
         if (!renewFence(fence)) {
@@ -763,6 +756,13 @@ public class NoonAuthRecoveryWorker {
         if (completed) {
             fence.status = NoonAuthRecoveryStatus.COMPLETED;
             fence.version++;
+            if (gateway != null) {
+                try {
+                    gateway.clearCheckpoint(fence.recoveryId);
+                } catch (RuntimeException exception) {
+                    LOGGER.warn("Noon auth checkpoint cleanup deferred. recoveryId={}", fence.recoveryId);
+                }
+            }
             return;
         }
         if (repository.hasPendingItems(fence.recoveryId)) {

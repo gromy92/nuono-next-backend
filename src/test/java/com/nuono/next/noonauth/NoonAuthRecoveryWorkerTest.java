@@ -896,7 +896,6 @@ class NoonAuthRecoveryWorkerTest extends AbstractNoonAuthRecoveryWorkerTestSuppo
                 anyLong(), anyString(), any()
         );
     }
-
     @Test
     void disabledFeatureAtomicallyDrainsPersistedRecoveriesWithoutCallingGateway() {
         properties.setEnabled(false);

@@ -2,8 +2,12 @@ package com.nuono.next.sales;
 
 import com.nuono.next.datapull.orchestration.ConditionalOnDataPullExecutionMode;
 import com.nuono.next.datapull.orchestration.DataPullExecutionMode;
-import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noon.NoonAuthenticationFailureClassifier;
+import com.nuono.next.noonauth.NoonAuthResumePolicy;
+import com.nuono.next.noonauth.NoonAuthRetrySuppressedException;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -14,7 +18,7 @@ public class SalesSyncTaskService {
     private final SalesSyncTaskRepository taskRepository;
     private final NoonSalesReportProvider reportProvider;
     private final NoonSalesCsvImportService importService;
-    private NoonAccountSessionAttentionPort accountSessionAttention;
+    private NoonAuthWaitQueue authWaitQueue = request -> Optional.empty();
 
     public SalesSyncTaskService(
             SalesSyncTaskRepository taskRepository,
@@ -56,22 +60,19 @@ public class SalesSyncTaskService {
             ));
             return taskRepository.markSucceeded(task.getId(), result);
         } catch (RuntimeException exception) {
-            if (requiresManualLogin(exception)) {
-                if (accountSessionAttention != null) {
-                    accountSessionAttention.requireManualLogin();
-                }
-                return taskRepository.markFailed(
-                        task.getId(),
-                        "Noon 共享账号需要人工登录；系统不会自动发送验证码、重试或重放销量导入。"
-                );
+            SalesSyncTaskRecord waiting = waitForAuthorization(task, exception);
+            if (waiting != null) {
+                return waiting;
             }
             return taskRepository.markFailed(task.getId(), readableMessage(exception));
         }
     }
 
     @Autowired(required = false)
-    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
-        this.accountSessionAttention = accountSessionAttention;
+    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
+        if (authWaitQueue != null) {
+            this.authWaitQueue = authWaitQueue;
+        }
     }
 
     public SalesSyncTaskRecord getTask(Long taskId) {
@@ -85,10 +86,35 @@ public class SalesSyncTaskService {
         return exception.getMessage();
     }
 
-    private boolean requiresManualLogin(RuntimeException exception) {
-        return NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)
-                && !NoonAuthenticationFailureClassifier
-                        .hasPermanentAuthenticationFailureEvidence(exception);
+    private SalesSyncTaskRecord waitForAuthorization(
+            SalesSyncTaskRecord task,
+            RuntimeException exception
+    ) {
+        if (task == null
+                || !NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)
+                || NoonAuthenticationFailureClassifier
+                        .hasPermanentAuthenticationFailureEvidence(exception)) {
+            return null;
+        }
+        try {
+            Optional<Long> recoveryId = authWaitQueue.enqueue(NoonAuthWaitRequest.task(
+                    task.getOwnerUserId(),
+                    null,
+                    task.getStoreCode(),
+                    task.getSiteCode(),
+                    "SALES_SYNC",
+                    task.getId(),
+                    "REPORT_EXPORT",
+                    NoonAuthResumePolicy.AUTO_RESUME
+            ));
+            return recoveryId
+                    .map(id -> taskRepository.markWaitingForAuthorization(task.getId(), id))
+                    .orElse(null);
+        } catch (NoonAuthRetrySuppressedException suppressed) {
+            return taskRepository.markFailed(task.getId(), suppressed.getMessage());
+        } catch (RuntimeException queueFailure) {
+            return null;
+        }
     }
 
     private SalesSyncTaskCommand command(SalesSyncTaskRecord task) {

@@ -167,6 +167,9 @@ nuono:
         mail-auth-code: ${NUONO_NOON_MERCHANT_EMAIL_OTP_MAIL_AUTH_CODE:}
     auth-recovery:
       enabled: ${NUONO_NOON_AUTH_RECOVERY_ENABLED:false}
+      checkpoint-cipher-secret: ${NUONO_NOON_AUTH_CHECKPOINT_CIPHER_SECRET:}
+      checkpoint-key-version: ${NUONO_NOON_AUTH_CHECKPOINT_KEY_VERSION:v1}
+      checkpoint-ttl-seconds: ${NUONO_NOON_AUTH_CHECKPOINT_TTL_SECONDS:600}
       scheduler-initial-delay-ms: ${NUONO_NOON_AUTH_RECOVERY_INITIAL_DELAY_MS:30000}
       scheduler-fixed-delay-ms: ${NUONO_NOON_AUTH_RECOVERY_FIXED_DELAY_MS:10000}
       coalesce-seconds: ${NUONO_NOON_AUTH_RECOVERY_COALESCE_SECONDS:15}

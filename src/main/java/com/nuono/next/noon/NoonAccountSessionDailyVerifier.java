@@ -2,6 +2,8 @@ package com.nuono.next.noon;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.nuono.next.infrastructure.mapper.NoonAccountSessionMapper;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -20,7 +22,7 @@ import org.springframework.util.StringUtils;
 final class NoonAccountSessionDailyVerifier {
     private final NoonAccountSessionMapper mapper;
     private final NoonSessionGateway sessionGateway;
-    private final NoonAccountManualOtpService manualOtpService;
+    private final NoonAuthWaitQueue authWaitQueue;
 
     @Value("${nuono.noon.account-session.daily-check.enabled:true}")
     private boolean enabled;
@@ -28,11 +30,11 @@ final class NoonAccountSessionDailyVerifier {
     NoonAccountSessionDailyVerifier(
             NoonAccountSessionMapper mapper,
             NoonSessionGateway sessionGateway,
-            NoonAccountManualOtpService manualOtpService
+            NoonAuthWaitQueue authWaitQueue
     ) {
         this.mapper = mapper;
         this.sessionGateway = sessionGateway;
-        this.manualOtpService = manualOtpService;
+        this.authWaitQueue = authWaitQueue;
     }
 
     @Scheduled(cron = "${nuono.noon.account-session.daily-check.cron:0 10 4 * * *}")
@@ -46,13 +48,12 @@ final class NoonAccountSessionDailyVerifier {
     void verifyNow() {
         List<NoonAccountSessionProjectTarget> targets = mapper.listBoundProjects();
         if (targets.isEmpty()) {
-            manualOtpService.recordDailySessionCheck(false);
             return;
         }
         String noonEmail = sessionGateway.configuredMerchantLoginEmail();
         for (NoonAccountSessionProjectTarget target : targets) {
             if (!isUsable(target)) {
-                manualOtpService.recordDailySessionCheck(false);
+                enqueue(target);
                 return;
             }
             try {
@@ -60,18 +61,25 @@ final class NoonAccountSessionDailyVerifier {
                         target.getSessionCookie(), target.getProjectCode(), target.getStoreCode()
                 );
                 if (!NoonProjectSessionValidator.matchesTargetProject(whoami, target.getProjectCode())) {
-                    manualOtpService.recordDailySessionCheck(false);
+                    enqueue(target);
                     return;
                 }
                 sessionGateway.validateCatalogSessionWithCookie(
                         target.getSessionCookie(), target.getProjectCode(), target.getStoreCode(), noonEmail
                 );
             } catch (RuntimeException exception) {
-                manualOtpService.recordDailySessionCheck(false);
+                enqueue(target);
                 return;
             }
         }
-        manualOtpService.recordDailySessionCheck(true);
+    }
+
+    private void enqueue(NoonAccountSessionProjectTarget target) {
+        if (target != null && target.getOwnerUserId() != null && StringUtils.hasText(target.getStoreCode())) {
+            authWaitQueue.enqueue(NoonAuthWaitRequest.binding(
+                    target.getOwnerUserId(), target.getProjectCode(), target.getStoreCode()
+            ));
+        }
     }
 
     private static boolean isUsable(NoonAccountSessionProjectTarget target) {

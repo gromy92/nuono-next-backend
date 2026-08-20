@@ -11,6 +11,7 @@ import org.springframework.boot.task.TaskSchedulerBuilder;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Profile;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.stereotype.Component;
 
 /**
  * Runs the potentially long-lived mailbox recovery loop outside Spring's shared scheduler.
@@ -20,6 +21,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
  * scheduler and could route every other {@code @Scheduled} task through this single recovery
  * thread.</p>
  */
+@Component
 @Profile("local-db")
 public class NoonAuthRecoveryScheduler implements SmartLifecycle {
     static final String THREAD_NAME_PREFIX = "noon-auth-recovery-";

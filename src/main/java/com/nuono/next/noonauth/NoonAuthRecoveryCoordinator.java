@@ -1,5 +1,4 @@
 package com.nuono.next.noonauth;
-
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.store.StoreSyncStoreRecord;
@@ -10,9 +9,10 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
-
+@Service
 @Profile("local-db")
 public class NoonAuthRecoveryCoordinator implements
         NoonPullProjectAuthGate,
@@ -23,7 +23,7 @@ public class NoonAuthRecoveryCoordinator implements
     private final String configuredEmail;
     private final String configuredMailboxAuthCode;
     private final Clock clock;
-
+    private NoonAuthIdentityProjectFanout identityProjectFanout;
     @Autowired
     public NoonAuthRecoveryCoordinator(
             NoonAuthRecoveryRepository recoveryRepository,
@@ -41,7 +41,6 @@ public class NoonAuthRecoveryCoordinator implements
                 Clock.systemUTC()
         );
     }
-
     NoonAuthRecoveryCoordinator(
             NoonAuthRecoveryRepository recoveryRepository,
             StoreSyncMapper storeSyncMapper,
@@ -57,7 +56,6 @@ public class NoonAuthRecoveryCoordinator implements
         this.configuredMailboxAuthCode = normalize(configuredMailboxAuthCode);
         this.clock = clock;
     }
-
     @Override
     @Transactional(noRollbackFor = NoonAuthRetrySuppressedException.class)
     public Optional<Long> enqueue(NoonAuthWaitRequest request) {
@@ -71,7 +69,7 @@ public class NoonAuthRecoveryCoordinator implements
         if (target == null || !canQueueProject(ownerUserId, target.getProjectCode())) {
             return Optional.empty();
         }
-        return enqueueTarget(
+        Optional<Long> recoveryId = enqueueTarget(
                 ownerUserId,
                 target.getProjectCode(),
                 target.getStoreCode(),
@@ -86,8 +84,15 @@ public class NoonAuthRecoveryCoordinator implements
                 request.hasSourceTask() ? "AUTH_REQUIRED" : "BINDING_PENDING",
                 !request.hasSourceTask()
         );
+        if (recoveryId.isPresent() && !request.isIdentityBatch() && identityProjectFanout != null) {
+            identityProjectFanout.enqueueAll(this, ownerUserId, target.getProjectCode());
+        }
+        return recoveryId;
     }
-
+    @Autowired(required = false)
+    void setIdentityProjectFanout(NoonAuthIdentityProjectFanout identityProjectFanout) {
+        this.identityProjectFanout = identityProjectFanout;
+    }
     private Optional<Long> enqueueTarget(
             Long ownerUserId,
             String projectCode,
@@ -101,7 +106,6 @@ public class NoonAuthRecoveryCoordinator implements
             String failureCode,
             boolean explicitBinding
     ) {
-
         projectCode = normalize(projectCode);
         storeCode = normalize(storeCode);
         siteCode = NoonAuthRecoveryTargetPolicy.normalizeSite(siteCode);
@@ -113,7 +117,6 @@ public class NoonAuthRecoveryCoordinator implements
         )) {
             return Optional.empty();
         }
-
         String identityKey = NoonAuthIdentityKey.fromEmail(configuredEmail);
         String configFingerprint = NoonAuthIdentityKey.configFingerprint(
                 configuredEmail,
@@ -165,7 +168,6 @@ public class NoonAuthRecoveryCoordinator implements
         if (startsFreshRenewal) {
             recoveryRepository.retireLegacyManualHoldForFreshRenewal(identityKey, now);
         }
-
         NoonAuthIdentityRecoveryRecord recovery = new NoonAuthIdentityRecoveryRecord();
         recovery.setIdentityKey(identityKey);
         recovery.setConfigFingerprint(configFingerprint);
@@ -219,7 +221,6 @@ public class NoonAuthRecoveryCoordinator implements
         } else {
             recoveryId = activeRecoveryId;
         }
-
         Long expectedAuthVersion;
         if (explicitBinding) {
             expectedAuthVersion = recoveryRepository.rebaseProjectBindingEpoch(
@@ -263,7 +264,6 @@ public class NoonAuthRecoveryCoordinator implements
             }
             expectedAuthVersion = projectState.getAuthVersion();
         }
-
         NoonAuthRecoveryItemRecord item = new NoonAuthRecoveryItemRecord();
         item.setRecoveryId(recoveryId);
         item.setOwnerUserId(ownerUserId);

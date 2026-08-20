@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.infrastructure.mapper.NoonAccountSessionMapper;
+import com.nuono.next.noon.NoonAccountSessionProjectTarget;
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullTaskRecord;
 import com.nuono.next.noonpull.NoonPullTaskStatus;
@@ -19,6 +21,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -72,6 +75,46 @@ class NoonAuthRecoveryIdentityBatchTest {
                 eq(308L), eq("PRJ-B"), anyString(), anyLong(), anyString(), anyString(),
                 anyString(), eq(null), any()
         );
+    }
+
+    @Test
+    void firstExpiredProjectShouldAttachEveryBoundProjectToTheSameIdentityRecovery() {
+        when(storeSyncMapper.selectOwnerProject(307L, "STORE-A")).thenReturn(project("PRJ-A"));
+        when(storeSyncMapper.selectOwnerStore(307L, "STORE-A")).thenReturn(store("PRJ-A", "STORE-A"));
+        when(storeSyncMapper.selectOwnerStore(308L, "STORE-B")).thenReturn(store("PRJ-B", "STORE-B"));
+        when(recoveryRepository.coalesceActiveRecovery(any())).thenReturn(91L);
+        when(recoveryRepository.selectActiveRecoveryForUpdate(anyString()))
+                .thenReturn(recovery(91L, NoonAuthRecoveryStatus.COALESCING));
+        when(recoveryRepository.selectProjectAuthStateForUpdate(307L, "PRJ-A"))
+                .thenReturn(null, requiredState(91L, 7L));
+        when(recoveryRepository.rebaseProjectBindingEpoch(
+                anyLong(), anyLong(), anyString(), anyString(), anyString(), anyString(),
+                any(), any(), any()
+        )).thenReturn(7L);
+
+        NoonAccountSessionMapper accountMapper = mock(NoonAccountSessionMapper.class);
+        when(accountMapper.listBoundProjects()).thenReturn(List.of(
+                binding(307L, "PRJ-A", "STORE-A"),
+                binding(308L, "PRJ-B", "STORE-B")
+        ));
+        NoonAuthRecoveryCoordinator coordinator = coordinator();
+        coordinator.setIdentityProjectFanout(new NoonAuthIdentityProjectFanout(
+                accountMapper, storeSyncMapper, properties
+        ));
+
+        Optional<Long> recoveryId = coordinator.enqueue(NoonAuthWaitRequest.task(
+                307L, null, "STORE-A", "AE", "ORDER", 41L, "ORDER",
+                NoonAuthResumePolicy.AUTO_RESUME
+        ));
+
+        assertEquals(Optional.of(91L), recoveryId);
+        verify(recoveryRepository).coalesceRecoveryItem(org.mockito.ArgumentMatchers.argThat(item ->
+                Long.valueOf(91L).equals(item.getRecoveryId())
+                        && Long.valueOf(308L).equals(item.getOwnerUserId())
+                        && "PRJ-B".equals(item.getProjectCode())
+                        && item.getSourceTaskId() == null
+                        && item.getResumePolicy() == NoonAuthResumePolicy.NONE
+        ));
     }
 
     private NoonAuthRecoveryCoordinator coordinator() {
@@ -128,6 +171,22 @@ class NoonAuthRecoveryIdentityBatchTest {
         StoreSyncStoreRecord project = new StoreSyncStoreRecord();
         project.setProjectCode(projectCode);
         return project;
+    }
+
+    private StoreSyncStoreRecord store(String projectCode, String storeCode) {
+        StoreSyncStoreRecord store = new StoreSyncStoreRecord();
+        store.setProjectCode(projectCode);
+        store.setStoreCode(storeCode);
+        store.setSite("AE");
+        return store;
+    }
+
+    private NoonAccountSessionProjectTarget binding(Long owner, String project, String store) {
+        NoonAccountSessionProjectTarget target = new NoonAccountSessionProjectTarget();
+        target.setOwnerUserId(owner);
+        target.setProjectCode(project);
+        target.setStoreCode(store);
+        return target;
     }
 
     private NoonPullTaskRecord task(Long id, Long ownerUserId, String storeCode) {

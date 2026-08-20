@@ -9,7 +9,7 @@ import org.springframework.util.StringUtils;
 
 /**
  * Prevents scheduled and gap-planned tasks from being created while the shared Noon account
- * requires an explicit manual login.
+ * is unavailable under a compatibility hold.
  */
 @Component
 @Profile("local-db")

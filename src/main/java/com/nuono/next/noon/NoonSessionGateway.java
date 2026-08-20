@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.MissingNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
 import java.io.IOException;
 import java.net.CookieManager;
@@ -30,6 +31,7 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -90,17 +92,7 @@ public class NoonSessionGateway {
     private final ConcurrentMap<String, Object> accountLocks = new ConcurrentHashMap<>();
     private final ThreadLocal<LinkedHashMap<String, Integer>> requestCountScope = new ThreadLocal<>();
     private NoonHttpCallLogService noonHttpCallLogService;
-    private NoonAccountSessionAttentionPort accountSessionAttention = new NoonAccountSessionAttentionPort() {
-        @Override
-        public void requireManualLogin() {
-            // A manually constructed gateway has no Spring attention service.
-        }
-
-        @Override
-        public boolean blocksProviderCalls() {
-            return false;
-        }
-    };
+    private final NoonAuthQueueSignal authQueueSignal = new NoonAuthQueueSignal();
     @Value("${nuono.noon.proxy.mode:AUTO}")
     private String proxyMode = "AUTO";
     @Value("${nuono.noon.proxy.preflight.max-attempts:3}") private int proxyPreflightMaxAttempts = 3;
@@ -168,10 +160,8 @@ public class NoonSessionGateway {
     }
 
     @Autowired(required = false)
-    void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
-        if (accountSessionAttention != null) {
-            this.accountSessionAttention = accountSessionAttention;
-        }
+    void setAuthWaitQueue(NoonAuthWaitQueue authWaitQueue) {
+        authQueueSignal.setQueue(authWaitQueue);
     }
 
     void setCatalogCapabilityProbeUrl(String url) {
@@ -367,6 +357,63 @@ public class NoonSessionGateway {
                 accessToken
         );
         return new EmailIdentityGrant(generation, accessToken, projects);
+    }
+
+    NoonAuthGatewayCheckpointCodec.GenerationSnapshot snapshotEmailOtpGeneration(EmailOtpGeneration generation) {
+        if (generation == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱验证码代次。");
+        }
+        return new NoonAuthGatewayCheckpointCodec.GenerationSnapshot(
+                generation.email,
+                generation.user.getUserCode(),
+                generation.pkce.getCodeVerifier(),
+                generation.pkce.getPkceKey(),
+                generation.state.exportAuthCookieHeader()
+        );
+    }
+
+    EmailOtpGeneration restoreEmailOtpGeneration(NoonAuthGatewayCheckpointCodec.GenerationSnapshot snapshot) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱验证码检查点。");
+        }
+        AuthSessionState state = newSessionState(snapshot.getEmail(), "");
+        if (StringUtils.hasText(snapshot.getCookieHeader())) {
+            state.importCookieHeader(snapshot.getCookieHeader(), identityValidateUrl);
+        }
+        return new EmailOtpGeneration(
+                snapshot.getEmail(),
+                state,
+                new PartnerIdentityUser(snapshot.getUserCode()),
+                new PkcePair(snapshot.getCodeVerifier(), snapshot.getPkceKey())
+        );
+    }
+
+    NoonAuthGatewayCheckpointCodec.GrantSnapshot snapshotEmailIdentityGrant(EmailIdentityGrant grant) {
+        if (grant == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱身份授权。");
+        }
+        List<String> projects = grant.projects.stream()
+                .map(MerchantProject::getProjectCode)
+                .collect(Collectors.toList());
+        return new NoonAuthGatewayCheckpointCodec.GrantSnapshot(
+                snapshotEmailOtpGeneration(grant.generation),
+                grant.accessToken,
+                projects
+        );
+    }
+
+    EmailIdentityGrant restoreEmailIdentityGrant(NoonAuthGatewayCheckpointCodec.GrantSnapshot snapshot) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("缺少 Noon 邮箱身份授权检查点。");
+        }
+        List<MerchantProject> projects = snapshot.getProjectCodes().stream()
+                .map(code -> new MerchantProject(code, null, null, null))
+                .collect(Collectors.toList());
+        return new EmailIdentityGrant(
+                restoreEmailOtpGeneration(snapshot.getGeneration()),
+                snapshot.getAccessToken(),
+                projects
+        );
     }
 
     ProjectSessionCookie createEmailOtpProjectSession(
@@ -768,70 +815,22 @@ public class NoonSessionGateway {
         );
     }
 
-    private static String cookieFingerprint(String cookie) {
-        if (!StringUtils.hasText(cookie)){ return "missing"; }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return Base64.getUrlEncoder().withoutPadding().encodeToString(
-                    digest.digest(cookie.getBytes(StandardCharsets.UTF_8))
-            );
-        } catch (Exception exception) {
-            throw new IllegalStateException("无法计算 Noon Cookie 指纹。", exception);
-        }
+    private static String cookieFingerprint(String cookie) { return NoonCookieAuthSupport.fingerprint(cookie); }
+    private static String safeCookieFailureReason(Throwable failure) {
+        return NoonCookieAuthSupport.safeFailureReason(failure);
     }
-
-    private static String safeCookieFailureReason(Throwable throwable) {
-        if (throwable == null || !StringUtils.hasText(throwable.getMessage())){ return "cookie_rejected"; }
-        String normalized = throwable.getMessage().replace('\r', ' ').replace('\n', ' ').trim();
-        return normalized.length() <= 180 ? normalized : normalized.substring(0, 180);
-    }
-
     private static NoonCookieAuthRequiredException cookieAuthRequired(
-            String projectCode,
-            String storeCode,
-            String reason
-    ) {
-        return cookieAuthRequired(projectCode, storeCode, reason, null);
-    }
-
+            String projectCode, String storeCode, String reason
+    ) { return NoonCookieAuthSupport.authRequired(projectCode, storeCode, reason, null); }
     private static NoonCookieAuthRequiredException cookieAuthRequired(
-            String projectCode,
-            String storeCode,
-            String reason,
-            Throwable cause
-    ) {
-        String message = "auth_required: Noon Cookie 无效或已过期，任务将进入统一授权等待"
-                + "; project=" + firstNonBlank(normalize(projectCode), "unknown")
-                + "; store=" + firstNonBlank(normalize(storeCode), "unknown")
-                + "; reason=" + firstNonBlank(reason, "cookie_rejected");
-        return cause == null
-                ? new NoonCookieAuthRequiredException(message)
-                : new NoonCookieAuthRequiredException(message, cause);
-    }
-
+            String projectCode, String storeCode, String reason, Throwable cause
+    ) { return NoonCookieAuthSupport.authRequired(projectCode, storeCode, reason, cause); }
     private void enqueueIfAuthenticationFailure(
-            Long ownerUserId,
-            String projectCode,
-            String storeCode,
-            RuntimeException failure
-    ) {
-        if (!NoonAuthenticationFailureClassifier.isAuthenticationFailure(failure)
-                || NoonAuthenticationFailureClassifier
-                        .hasPermanentAuthenticationFailureEvidence(failure)) {
-            return;
-        }
-        enqueueAuthorizationBinding(ownerUserId, projectCode, storeCode);
-    }
-
+            Long ownerUserId, String projectCode, String storeCode, RuntimeException failure
+    ) { authQueueSignal.enqueueIfAuthenticationFailure(ownerUserId, projectCode, storeCode, failure); }
     private void enqueueAuthorizationBinding(Long ownerUserId, String projectCode, String storeCode) {
-        try {
-            accountSessionAttention.requireManualLogin();
-        } catch (RuntimeException ignored) {
-            // Preserve the original Noon failure. Durable task callers may still attach their exact
-            // source identity to the same recovery after this source-less binding request.
-        }
+        authQueueSignal.enqueue(ownerUserId, projectCode, storeCode);
     }
-
     private PartnerIdentityUser lookupPartnerIdentityEmailOtpUser(AuthSessionState state, String noonEmail) {
         ObjectNode body = objectMapper.createObjectNode();
         body.put("channelIdentifier", noonEmail);
@@ -2253,11 +2252,11 @@ public class NoonSessionGateway {
     }
 
     public static final class NoonCookieAuthRequiredException extends IllegalStateException {
-        private NoonCookieAuthRequiredException(String message) {
+        NoonCookieAuthRequiredException(String message) {
             super(message);
         }
 
-        private NoonCookieAuthRequiredException(String message, Throwable cause) {
+        NoonCookieAuthRequiredException(String message, Throwable cause) {
             super(message, cause);
         }
     }

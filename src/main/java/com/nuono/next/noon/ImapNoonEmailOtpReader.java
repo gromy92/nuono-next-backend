@@ -1,5 +1,4 @@
 package com.nuono.next.noon;
-
 import com.nuono.next.noonauth.NoonAuthRecoveryProperties;
 import com.sun.mail.imap.IMAPStore;
 import java.time.Duration;
@@ -32,11 +31,12 @@ import javax.mail.internet.AddressException;
 import javax.mail.internet.InternetAddress;
 import org.jsoup.Jsoup;
 import org.springframework.context.annotation.Profile;
+import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+@Component
 @Profile("local-db")
 public class ImapNoonEmailOtpReader implements NoonEmailOtpReader {
-
     private static final Pattern OTP_PATTERN = Pattern.compile(">\\s*(\\d{6})\\s*<|\\b(\\d{6})\\b");
     private static final Duration RECENT_WINDOW = Duration.ofMinutes(3);
     private static final Duration DELIVERY_CLOCK_SKEW = Duration.ofSeconds(30);

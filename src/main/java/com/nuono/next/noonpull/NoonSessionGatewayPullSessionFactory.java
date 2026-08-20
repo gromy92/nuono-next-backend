@@ -57,7 +57,7 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
     private void requireProjectAvailable(NoonPullStoreBinding binding) {
         if (accountSessionAttention != null && accountSessionAttention.blocksProviderCalls()) {
             throw new NoonAuthenticationRequiredException(
-                    "Noon shared account requires manual login before provider calls."
+                    "Noon shared account authorization is not currently available."
             );
         }
     }
