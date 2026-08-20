@@ -23,6 +23,7 @@ SUCCESSOR_KEYS = {
     247: "247_dp_pull_schedule_core.sql",
     248: "248_dp_pull_dp08_member_retention.sql",
     250: "250_dp_pull_advertising_campaign_pagination.sql",
+    256: "256_dp02_snapshot_operation_contract.sql",
 }
 SUCCESSOR_TABLES = (
     "dp_pull_dp08_task_member_progress",

@@ -125,10 +125,11 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
             "247_dp_pull_schedule_core.sql",
             "248_dp_pull_dp08_member_retention.sql",
             "250_dp_pull_advertising_campaign_pagination.sql",
+            "256_dp02_snapshot_operation_contract.sql",
         ):
             self.assertIn(migration, script)
         self.assertNotIn("247_dp_pull_schedule_bounded.sql", script)
-        self.assertIn("schema_binding.migration_count=7", script)
+        self.assertIn("schema_binding.migration_count=8", script)
         self.assertIn("ORDER BY BINARY h.migration_key", script)
         self.assertIn("[ \"$DP_RUNTIME_CUTOVER_OPERATION_COUNT\" = 11 ]", script)
 

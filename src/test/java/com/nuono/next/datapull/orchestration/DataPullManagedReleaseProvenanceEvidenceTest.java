@@ -71,8 +71,9 @@ class DataPullManagedReleaseProvenanceEvidenceTest {
         assertTrue(sql.contains("'247_dp_pull_schedule_core.sql'"));
         assertTrue(sql.contains("'248_dp_pull_dp08_member_retention.sql'"));
         assertTrue(sql.contains("'250_dp_pull_advertising_campaign_pagination.sql'"));
+        assertTrue(sql.contains("'256_dp02_snapshot_operation_contract.sql'"));
         assertFalse(sql.contains("'247_dp_pull_schedule_bounded.sql'"));
-        assertTrue(sql.contains("schema_binding.migration_count = 7"));
+        assertTrue(sql.contains("schema_binding.migration_count = 8"));
         assertTrue(sql.contains("ORDER BY BINARY h.migration_key"));
         assertTrue(sql.contains("h.state = 'APPLIED' AND a.state = 'APPLIED'"));
         assertTrue(sql.contains("a.attempt_no = h.attempt_no"));
