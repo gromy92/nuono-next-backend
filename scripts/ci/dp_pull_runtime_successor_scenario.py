@@ -23,6 +23,7 @@ SUCCESSOR_KEYS = {
     247: "247_dp_pull_schedule_core.sql",
     248: "248_dp_pull_dp08_member_retention.sql",
     250: "250_dp_pull_advertising_campaign_pagination.sql",
+    256: "256_dp02_snapshot_operation_contract.sql",
 }
 SUCCESSOR_TABLES = (
     "dp_pull_dp08_task_member_progress",
@@ -100,9 +101,10 @@ def run_successor_schema_scenario(
 def _load_migrations(resources):
     migrations = {}
     for order, key in SUCCESSOR_KEYS.items():
+        livecheck_directory = "postcheck" if order == 256 else "livecheck"
         migrations[order] = tuple(
             (resources / directory / key).read_text(encoding="utf-8")
-            for directory in ("init", "postcheck", "livecheck")
+            for directory in ("init", "postcheck", livecheck_directory)
         )
     return migrations
 

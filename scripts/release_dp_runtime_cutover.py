@@ -87,7 +87,8 @@ dp_runtime_database_binding() {
       SELECT '246_dp_pull_advertising_generation.sql' UNION ALL
       SELECT '247_dp_pull_schedule_core.sql' UNION ALL
       SELECT '248_dp_pull_dp08_member_retention.sql' UNION ALL
-      SELECT '250_dp_pull_advertising_campaign_pagination.sql'
+      SELECT '250_dp_pull_advertising_campaign_pagination.sql' UNION ALL
+      SELECT '256_dp02_snapshot_operation_contract.sql'
     ), schema_binding AS (
       SELECT COUNT(*) AS migration_count,
         SHA2(GROUP_CONCAT(SHA2(CONCAT_WS('|', h.migration_key,
@@ -112,7 +113,7 @@ dp_runtime_database_binding() {
           ORDER BY BINARY operation_code SEPARATOR ''), 256) AS binding_sha256
       FROM dp_pull_schedule_cutover WHERE state = 'ACTIVE'
     ) cutover
-    WHERE schema_binding.migration_count=7;"
+    WHERE schema_binding.migration_count=8;"
 }
 dp_runtime_schema_binding() {
   dp_runtime_db_scalar "
@@ -123,7 +124,8 @@ dp_runtime_schema_binding() {
       SELECT '246_dp_pull_advertising_generation.sql' UNION ALL
       SELECT '247_dp_pull_schedule_core.sql' UNION ALL
       SELECT '248_dp_pull_dp08_member_retention.sql' UNION ALL
-      SELECT '250_dp_pull_advertising_campaign_pagination.sql'
+      SELECT '250_dp_pull_advertising_campaign_pagination.sql' UNION ALL
+      SELECT '256_dp02_snapshot_operation_contract.sql'
     ), schema_binding AS (
       SELECT COUNT(*) AS migration_count,
         SHA2(GROUP_CONCAT(SHA2(CONCAT_WS('|', h.migration_key,
@@ -136,7 +138,7 @@ dp_runtime_schema_binding() {
         ON a.migration_key=h.migration_key AND a.attempt_no=h.attempt_no
       WHERE h.state='APPLIED' AND a.state='APPLIED'
     )
-    SELECT binding_sha256 FROM schema_binding WHERE migration_count=7;"
+    SELECT binding_sha256 FROM schema_binding WHERE migration_count=8;"
 }
 capture_dp_runtime_schema_binding() {
   DP_RUNTIME_SCHEMA_BINDING_SHA256="$(dp_runtime_schema_binding)"
