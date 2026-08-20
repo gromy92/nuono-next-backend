@@ -49,7 +49,8 @@ public final class NoonAuthenticationFailureClassifier {
         while (current != null) {
             if (includeTypedSignals
                     && (current instanceof NoonSessionGateway.NoonCookieAuthRequiredException
-                    || current instanceof NoonAuthenticationRequiredException)) {
+                    || current instanceof NoonAuthenticationRequiredException
+                    || current instanceof SessionExpiredException)) {
                 authenticationEvidence = true;
             }
             if (current instanceof NoonHttpException) {

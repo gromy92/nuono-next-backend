@@ -21,6 +21,12 @@ class NoonAuthenticationFailureClassifierTest {
                         new NoonAuthenticationRequiredException("Project authorization recovery is pending.")
                 )
         ));
+        assertTrue(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
+                new IllegalStateException(
+                        "wrapped",
+                        new SessionExpiredException(403, "auth_required", "/whoami")
+                )
+        ));
         assertTrue(NoonAuthenticationFailureClassifier
                 .isExplicitAuthenticationRejection(
                         new NoonHttpException(401, "", "/offer/list/noon")
@@ -55,6 +61,13 @@ class NoonAuthenticationFailureClassifierTest {
                 .isAuthenticationFailure(projectMismatch));
         assertFalse(NoonAuthenticationFailureClassifier
                 .isExplicitAuthenticationRejection(projectMismatch));
+        assertFalse(NoonAuthenticationFailureClassifier.isAuthenticationFailure(
+                new SessionExpiredException(
+                        403,
+                        "account does not contain current project",
+                        "/whoami"
+                )
+        ));
     }
 
     @Test
