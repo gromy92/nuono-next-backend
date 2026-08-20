@@ -208,6 +208,11 @@ dp_runtime_new_work_count() {
 }
 rollback_managed_release_data() {
   assert_no_backend_jvms || return 1
+  if [ "$DP_RUNTIME_BOOTSTRAPPED" = 0 ]; then
+    rollback_dp_runtime_legacy_cohort || return 1
+    require_legacy_cutover_ready
+    return
+  fi
   [ "$(dp_runtime_new_work_count)" = 0 ] || return 1
   local cutover_count=""
   cutover_count="$(dp_runtime_db_scalar "SELECT COUNT(*) FROM dp_pull_schedule_cutover;")"

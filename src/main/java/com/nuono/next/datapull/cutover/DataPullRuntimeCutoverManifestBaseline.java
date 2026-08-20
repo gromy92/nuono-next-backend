@@ -3,6 +3,7 @@ package com.nuono.next.datapull.cutover;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.datapull.runtime.OperationCode;
+import com.nuono.next.datapull.scope.DataPullScopeBindingCandidate;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -14,13 +15,16 @@ import java.util.Map;
 final class DataPullRuntimeCutoverManifestBaseline {
     private final String cohortSha;
     private final Map<OperationCode, Map<String, LocalDateTime>> boundaries;
+    private final Map<OperationCode, Map<String, DataPullScopeBindingCandidate>> bindings;
 
     private DataPullRuntimeCutoverManifestBaseline(
             String cohortSha,
-            Map<OperationCode, Map<String, LocalDateTime>> boundaries
+            Map<OperationCode, Map<String, LocalDateTime>> boundaries,
+            Map<OperationCode, Map<String, DataPullScopeBindingCandidate>> bindings
     ) {
         this.cohortSha = cohortSha;
         this.boundaries = boundaries;
+        this.bindings = bindings;
     }
 
     static DataPullRuntimeCutoverManifestBaseline load(
@@ -53,25 +57,48 @@ final class DataPullRuntimeCutoverManifestBaseline {
         }
         EnumMap<OperationCode, Map<String, LocalDateTime>> values =
                 new EnumMap<>(OperationCode.class);
+        EnumMap<OperationCode, Map<String, DataPullScopeBindingCandidate>> bindingValues =
+                new EnumMap<>(OperationCode.class);
         for (JsonNode operation : root.withArray("operations")) {
             OperationCode code = OperationCode.valueOf(text(operation, "operationCode"));
             Map<String, LocalDateTime> scopes = new HashMap<>();
+            Map<String, DataPullScopeBindingCandidate> operationBindings = new HashMap<>();
             for (JsonNode scope : operation.withArray("scopes")) {
+                String scopeKey = text(scope, "scopeKey");
                 LocalDateTime previous = scopes.put(
-                        text(scope, "scopeKey"), time(scope, "reconcileAfterUtc")
+                        scopeKey, time(scope, "reconcileAfterUtc")
                 );
                 if (previous != null) {
                     throw new IllegalStateException("DP_CUTOVER_BASELINE_DUPLICATE_SCOPE");
                 }
+                JsonNode binding = scope.get("binding");
+                if (binding != null && !binding.isNull()) {
+                    DataPullScopeBindingCandidate candidate = binding(
+                            code, scopeKey, binding
+                    );
+                    if (operationBindings.put(scopeKey, candidate) != null) {
+                        throw new IllegalStateException(
+                                "DP_CUTOVER_BASELINE_DUPLICATE_BINDING"
+                        );
+                    }
+                }
+            }
+            boolean dp08 = code == OperationCode.DP08A || code == OperationCode.DP08B;
+            if ((dp08 && operationBindings.size() != scopes.size())
+                    || (!dp08 && !operationBindings.isEmpty())) {
+                throw new IllegalStateException("DP_CUTOVER_BASELINE_BINDING_GAP");
             }
             if (values.putIfAbsent(code, Map.copyOf(scopes)) != null) {
                 throw new IllegalStateException("DP_CUTOVER_BASELINE_DUPLICATE_OPERATION");
             }
+            bindingValues.put(code, Map.copyOf(operationBindings));
         }
         if (values.size() != OperationCode.values().length) {
             throw new IllegalStateException("DP_CUTOVER_BASELINE_OPERATION_GAP");
         }
-        return new DataPullRuntimeCutoverManifestBaseline(expected, Map.copyOf(values));
+        return new DataPullRuntimeCutoverManifestBaseline(
+                expected, Map.copyOf(values), Map.copyOf(bindingValues)
+        );
     }
 
     LocalDateTime boundary(OperationCode operation, String scopeKey) {
@@ -80,6 +107,26 @@ final class DataPullRuntimeCutoverManifestBaseline {
             throw new IllegalStateException("DP_CUTOVER_SCOPE_COHORT_DRIFT");
         }
         return value;
+    }
+
+    DataPullScopeBindingCandidate binding(
+            OperationCode operation,
+            String scopeKey,
+            DataPullScopeBindingCandidate current
+    ) {
+        DataPullScopeBindingCandidate frozen = bindings
+                .getOrDefault(operation, Map.of()).get(scopeKey);
+        if (frozen == null && current == null) return null;
+        if (frozen == null || current == null
+                || current.getOperationCode() != operation
+                || !scopeKey.equals(current.getScopeKey())
+                || !frozen.getPayloadType().equals(current.getPayloadType())
+                || !frozen.getPayloadSha256().equals(current.getPayloadSha256())
+                || !frozen.getPayload().equals(current.getPayload())
+                || current.getEffectiveFromUtc().isBefore(frozen.getEffectiveFromUtc())) {
+            throw new IllegalStateException("DP_CUTOVER_BINDING_COHORT_DRIFT");
+        }
+        return frozen;
     }
 
     void requireSameCohort(String actual) {
@@ -102,5 +149,24 @@ final class DataPullRuntimeCutoverManifestBaseline {
             throw new IllegalStateException("DP_CUTOVER_TIME_INVALID");
         }
         return LocalDateTime.parse(value.substring(0, value.length() - 1));
+    }
+
+    private static DataPullScopeBindingCandidate binding(
+            OperationCode operation,
+            String scopeKey,
+            JsonNode node
+    ) {
+        DataPullScopeBindingCandidate candidate = new DataPullScopeBindingCandidate(
+                operation,
+                scopeKey,
+                text(node, "payloadType"),
+                text(node, "payload"),
+                time(node, "effectiveFromUtc")
+        );
+        if (!candidate.getBindingId().equals(text(node, "bindingId"))
+                || !candidate.getPayloadSha256().equals(text(node, "payloadSha256"))) {
+            throw new IllegalStateException("DP_CUTOVER_BASELINE_BINDING_DIGEST_MISMATCH");
+        }
+        return candidate;
     }
 }

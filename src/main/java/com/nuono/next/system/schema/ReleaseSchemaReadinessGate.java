@@ -6,7 +6,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeSet;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
@@ -20,6 +22,9 @@ import org.springframework.stereotype.Component;
         matchIfMissing = true
 )
 public class ReleaseSchemaReadinessGate implements InitializingBean {
+    private static final Pattern MIGRATION_KEY = Pattern.compile(
+            "^(\\d{3})_[a-z0-9_]+\\.sql$"
+    );
     private final ReleaseSchemaMigrationMapper mapper;
     private final ReleaseSchemaCatalogLoader catalogLoader;
 
@@ -53,10 +58,10 @@ public class ReleaseSchemaReadinessGate implements InitializingBean {
             );
         }
         Map<String, ReleaseSchemaMigrationRow> rows = index(history);
-        rejectUnknownHistoryRows(catalog, rows.keySet());
         for (int index = 0; index < catalog.size(); index++) {
             verify(catalog.get(index), rows.get(catalog.get(index).getKey()), index);
         }
+        verifyFutureHistorySuffix(catalog, rows);
     }
 
     private static Map<String, ReleaseSchemaMigrationRow> index(
@@ -75,21 +80,35 @@ public class ReleaseSchemaReadinessGate implements InitializingBean {
         return indexed;
     }
 
-    private static void rejectUnknownHistoryRows(
+    private static void verifyFutureHistorySuffix(
             List<ReleaseSchemaMigrationDescriptor> catalog,
-            Set<String> historyKeys
+            Map<String, ReleaseSchemaMigrationRow> history
     ) {
         Set<String> catalogKeys = new HashSet<>();
         for (ReleaseSchemaMigrationDescriptor migration : catalog) {
             catalogKeys.add(migration.getKey());
         }
-        Set<String> unknown = new TreeSet<>(historyKeys);
-        unknown.removeAll(catalogKeys);
-        if (!unknown.isEmpty()) {
-            throw blocked(
-                    "database history migration(s) not present in this Jar catalog: "
-                            + String.join(", ", unknown)
-            );
+        int expectedOrder = catalog.get(catalog.size() - 1).getOrder() + 1;
+        Map<Integer, ReleaseSchemaMigrationRow> suffix = new TreeMap<>();
+        for (Map.Entry<String, ReleaseSchemaMigrationRow> entry : history.entrySet()) {
+            if (catalogKeys.contains(entry.getKey())) continue;
+            Matcher matcher = MIGRATION_KEY.matcher(entry.getKey());
+            if (!matcher.matches()) {
+                throw blocked("database history contains an invalid future migration key");
+            }
+            int order = Integer.parseInt(matcher.group(1));
+            if (order < expectedOrder || suffix.put(order, entry.getValue()) != null) {
+                throw blocked(
+                        "database history migration is not a future catalog suffix: "
+                                + entry.getKey()
+                );
+            }
+        }
+        for (Map.Entry<Integer, ReleaseSchemaMigrationRow> entry : suffix.entrySet()) {
+            if (entry.getKey() != expectedOrder || !validAppliedAudit(entry.getValue())) {
+                throw blocked("database future migration history suffix is invalid");
+            }
+            expectedOrder++;
         }
     }
 
@@ -118,18 +137,32 @@ public class ReleaseSchemaReadinessGate implements InitializingBean {
         )) {
             throw blocked(expected.getKey() + " checksum differs from this Jar");
         }
-        if (actual.getAttemptNo() == null
-                || actual.getAttemptNo() < 1
-                || !actual.getAttemptNo().equals(actual.getJoinedAttemptNo())
-                || !actual.getChecksum().equals(actual.getAttemptChecksum())
-                || !actual.getPostcheckChecksum().equals(
-                actual.getAttemptPostcheckChecksum()
-        )
-                || !actual.getState().equals(actual.getAttemptState())) {
+        if (!validAudit(actual)) {
             throw blocked(
                     expected.getKey() + " history/attempt audit rows disagree"
             );
         }
+    }
+
+    private static boolean validAppliedAudit(ReleaseSchemaMigrationRow row) {
+        return "APPLIED".equals(row.getState())
+                && row.getChecksum() != null
+                && row.getChecksum().matches("[0-9a-f]{64}")
+                && row.getPostcheckChecksum() != null
+                && row.getPostcheckChecksum().matches("[0-9a-f]{64}")
+                && validAudit(row);
+    }
+
+    private static boolean validAudit(ReleaseSchemaMigrationRow row) {
+        return row.getAttemptNo() != null
+                && row.getAttemptNo() >= 1
+                && row.getAttemptNo().equals(row.getJoinedAttemptNo())
+                && row.getChecksum() != null
+                && row.getChecksum().equals(row.getAttemptChecksum())
+                && row.getPostcheckChecksum() != null
+                && row.getPostcheckChecksum().equals(row.getAttemptPostcheckChecksum())
+                && row.getState() != null
+                && row.getState().equals(row.getAttemptState());
     }
 
     private static IllegalStateException blocked(String detail) {

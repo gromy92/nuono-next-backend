@@ -134,9 +134,17 @@ final class DataPullRuntimeCutoverManifest {
             anchors.add(DataPullScheduleAnchor.cutover(
                     operation, admission, boundary, observed, anchorEvidence
             ));
+            DataPullScopeBindingCandidate binding = bindingsByScope.remove(
+                    scope.getStableScopeKey()
+            );
+            if (baseline != null) {
+                binding = baseline.binding(
+                        operation, scope.getStableScopeKey(), binding
+                );
+            }
             scopeNodes.add(scope(
                     scope, admission, boundary, boundaryProof, anchorEvidence,
-                    bindingsByScope.remove(scope.getStableScopeKey())
+                    binding
             ));
         }
         if (!bindingsByScope.isEmpty()) {

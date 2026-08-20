@@ -183,6 +183,11 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         self.assertIn('"$(dp_runtime_new_work_count)" = 0', hook)
         self.assertIn("verify_dp_runtime_database_binding", hook)
         self.assertIn("rollback_dp_runtime_legacy_cohort", hook)
+        no_bootstrap = hook.index('[ "$DP_RUNTIME_BOOTSTRAPPED" = 0 ]')
+        restore_legacy = hook.index("rollback_dp_runtime_legacy_cohort", no_bootstrap)
+        historical_work_fence = hook.index("dp_runtime_new_work_count", restore_legacy)
+        self.assertLess(no_bootstrap, restore_legacy)
+        self.assertLess(restore_legacy, historical_work_fence)
         self.assertIn("DP_RUNTIME_NOON_SUPERSEDED_IDS", script)
         self.assertIn("DP_RUNTIME_DP10_SUPERSEDED_IDS", script)
         self.assertIn("status='running'", script)
@@ -202,6 +207,20 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
         )
         for table in tables:
             self.assertEqual(1, hook.count(f"(SELECT COUNT(*) FROM {table})"), table)
+
+    def test_prebootstrap_failure_restores_legacy_without_historical_work_fence(self):
+        result = run_fragment(r'''
+assert_no_backend_jvms() { :; }
+rollback_dp_runtime_legacy_cohort() { printf 'LEGACY_RESTORED\n'; }
+require_legacy_cutover_ready() { :; }
+dp_runtime_new_work_count() { printf 'HISTORICAL_FENCE_CALLED\n'; return 1; }
+DP_RUNTIME_BOOTSTRAPPED=0
+rollback_managed_release_data
+''')
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("LEGACY_RESTORED", result.stdout)
+        self.assertNotIn("HISTORICAL_FENCE_CALLED", result.stdout)
 
     def test_provenance_markers_are_inside_the_attested_target_environment(self):
         script = build_script()
