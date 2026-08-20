@@ -101,9 +101,10 @@ def run_successor_schema_scenario(
 def _load_migrations(resources):
     migrations = {}
     for order, key in SUCCESSOR_KEYS.items():
+        livecheck_directory = "postcheck" if order == 256 else "livecheck"
         migrations[order] = tuple(
             (resources / directory / key).read_text(encoding="utf-8")
-            for directory in ("init", "postcheck", "livecheck")
+            for directory in ("init", "postcheck", livecheck_directory)
         )
     return migrations
 

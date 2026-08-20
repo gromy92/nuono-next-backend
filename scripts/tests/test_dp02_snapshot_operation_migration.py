@@ -11,6 +11,7 @@ if str(SCRIPT_DIR) not in sys.path:
 
 from schema_migrations.catalog import load_catalog  # noqa: E402
 from schema_migrations.sql_text import code_outside_literals_and_comments  # noqa: E402
+from ci.dp_pull_runtime_successor_scenario import _load_migrations  # noqa: E402
 
 
 class Dp02SnapshotOperationMigrationTest(unittest.TestCase):
@@ -53,6 +54,13 @@ class Dp02SnapshotOperationMigrationTest(unittest.TestCase):
                     re.IGNORECASE,
                 ),
             )
+
+    def test_mysql_successor_scenario_reuses_the_exact_postcheck(self):
+        migration = self.migration()
+        _, exact, live = _load_migrations(self.ROOT / "db")[256]
+
+        self.assertEqual(migration.postcheck_sql, exact)
+        self.assertEqual(exact, live)
 
 
 if __name__ == "__main__":
