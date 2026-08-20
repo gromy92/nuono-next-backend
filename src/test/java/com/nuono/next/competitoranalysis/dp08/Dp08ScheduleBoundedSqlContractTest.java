@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.Dp08BoundedScheduleScopeMapper;
 import com.nuono.next.infrastructure.mapper.Dp08MemberSetMapper;
+import com.nuono.next.infrastructure.mapper.Dp08ScopeMapper;
 import com.nuono.next.infrastructure.mapper.Dp08ScheduleEvidenceMapper;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -26,7 +27,23 @@ class Dp08ScheduleBoundedSqlContractTest {
                 Select.class
         );
         for (String source : new String[]{keywordMembers, targetMembers}) {
-            assertThat(source).contains("LIMIT #{limit}").doesNotContain("OFFSET");
+            assertThat(source)
+                    .contains("LIMIT #{limit}")
+                    .contains("CONVERT_TZ")
+                    .contains("'+08:00','+00:00'")
+                    .doesNotContain("OFFSET");
+        }
+
+        String completeKeywords = sql(
+                Dp08ScopeMapper.class, "listActiveKeywordScopes", Select.class
+        );
+        String completeTargets = sql(
+                Dp08ScopeMapper.class, "listActiveListTargetRows", Select.class
+        );
+        for (String source : new String[]{completeKeywords, completeTargets}) {
+            assertThat(source)
+                    .contains("CONVERT_TZ")
+                    .contains("'+08:00', '+00:00'");
         }
 
         String evidence = sql(

@@ -7,7 +7,7 @@ import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
-/** Read-only active-scope Adapter for DP-08-A/B task reconciliation. */
+/** Read-only active-scope Adapter; legacy gmt_* values are stored in Asia/Shanghai. */
 public interface Dp08ScopeMapper {
 
     @Select({
@@ -22,7 +22,8 @@ public interface Dp08ScopeMapper {
             "         kw.keyword, kw.locale, 'SELF' AS trackedProductType,",
             "         NULL AS competitorProductId,",
             "         UPPER(TRIM(wp.self_noon_product_code)) AS trackedNoonProductCode,",
-            "         GREATEST(wp.gmt_updated, kw.gmt_updated) AS sourceUpdatedAtUtc",
+            "         CONVERT_TZ(GREATEST(wp.gmt_updated, kw.gmt_updated),",
+            "                    '+08:00', '+00:00') AS sourceUpdatedAtUtc",
             "  FROM operations_competitor_watch_product wp",
             "  JOIN operations_competitor_keyword kw",
             "    ON kw.watch_product_id = wp.id",
@@ -33,7 +34,9 @@ public interface Dp08ScopeMapper {
             "  SELECT wp.owner_user_id, wp.logical_store_id, wp.id, kw.id,",
             "         wp.store_code, UPPER(wp.site_code), kw.keyword, kw.locale,",
             "         'COMPETITOR', cp.id, UPPER(TRIM(cp.noon_product_code)),",
-            "         GREATEST(wp.gmt_updated, kw.gmt_updated, kp.gmt_updated, cp.gmt_updated)",
+            "         CONVERT_TZ(GREATEST(wp.gmt_updated, kw.gmt_updated,",
+            "                             kp.gmt_updated, cp.gmt_updated),",
+            "                    '+08:00', '+00:00')",
             "  FROM operations_competitor_watch_product wp",
             "  JOIN operations_competitor_keyword kw",
             "    ON kw.watch_product_id = wp.id",
@@ -65,7 +68,8 @@ public interface Dp08ScopeMapper {
             "           AND rf.fact_date = #{factDate} AND rf.rank_status = 'RANKED'",
             "           AND rf.scan_depth = 200 AND rf.is_deleted = b'0'",
             "       ) THEN TRUE ELSE FALSE END AS rankedToday,",
-            "       (SELECT MAX(rf.gmt_updated) FROM operations_competitor_rank_fact rf",
+            "       (SELECT CONVERT_TZ(MAX(rf.gmt_updated), '+08:00', '+00:00')",
+            "        FROM operations_competitor_rank_fact rf",
             "        WHERE rf.watch_product_id = target.watchProductId",
             "          AND UPPER(rf.noon_product_code) = target.noonProductCode",
             "          AND rf.fact_date = #{factDate} AND rf.rank_status = 'RANKED'",
@@ -79,7 +83,8 @@ public interface Dp08ScopeMapper {
             "           AND NULLIF(TRIM(snap.title_ar), '') IS NOT NULL",
             "           AND snap.is_deleted = b'0'",
             "       ) THEN TRUE ELSE FALSE END AS completeTitlesToday,",
-            "       (SELECT MAX(snap.gmt_updated) FROM operations_competitor_product_snapshot snap",
+            "       (SELECT CONVERT_TZ(MAX(snap.gmt_updated), '+08:00', '+00:00')",
+            "        FROM operations_competitor_product_snapshot snap",
             "        WHERE snap.watch_product_id = target.watchProductId",
             "          AND UPPER(snap.noon_product_code) = target.noonProductCode",
             "          AND snap.fact_date = #{factDate}",
@@ -91,14 +96,15 @@ public interface Dp08ScopeMapper {
             "         wp.store_code AS storeCode, UPPER(wp.site_code) AS siteCode,",
             "         UPPER(TRIM(wp.self_noon_product_code)) AS noonProductCode,",
             "         wp.id AS watchProductId, NULL AS competitorProductId,",
-            "         wp.gmt_updated AS sourceUpdatedAtUtc",
+            "         CONVERT_TZ(wp.gmt_updated, '+08:00', '+00:00') AS sourceUpdatedAtUtc",
             "  FROM operations_competitor_watch_product wp",
             "  WHERE wp.status = 'ACTIVE' AND wp.is_deleted = b'0'",
             "    AND NULLIF(TRIM(wp.self_noon_product_code), '') IS NOT NULL",
             "  UNION ALL",
             "  SELECT wp.owner_user_id, wp.logical_store_id, wp.store_code, UPPER(wp.site_code),",
             "         UPPER(TRIM(cp.noon_product_code)), wp.id, cp.id,",
-            "         GREATEST(wp.gmt_updated, cp.gmt_updated)",
+            "         CONVERT_TZ(GREATEST(wp.gmt_updated, cp.gmt_updated),",
+            "                    '+08:00', '+00:00')",
             "  FROM operations_competitor_watch_product wp",
             "  JOIN operations_competitor_product cp",
             "    ON cp.watch_product_id = wp.id",
