@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.datapull.orchestration.DataPullJob;
@@ -12,10 +13,10 @@ import com.nuono.next.datapull.orchestration.DataPullScope;
 import com.nuono.next.datapull.orchestration.ExecutionContext;
 import com.nuono.next.datapull.runtime.AdvanceResult;
 import com.nuono.next.datapull.runtime.OperationCode;
+import com.nuono.next.datapull.scope.DataPullScopeBindingCandidate;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -81,6 +82,102 @@ class DataPullRuntimeCutoverManifestTest {
     }
 
     @Test
+    void stoppedJvmRecheckFreezesSamePayloadWhenDp08FreshnessAdvances()
+            throws Exception {
+        DataPullRuntimeCutoverManifest manifest = new DataPullRuntimeCutoverManifest();
+        DataPullScope dp08Scope = scope("a");
+        Map<OperationCode, List<DataPullScope>> scopes = Map.of(
+                OperationCode.DP08A, List.of(dp08Scope)
+        );
+        ObjectNode baseline = manifest.build(
+                COMMIT,
+                JAR_SHA,
+                cohort(
+                        LocalDateTime.parse("2026-08-03T12:34:56.789"),
+                        scopes,
+                        Map.of(),
+                        Map.of(OperationCode.DP08A, List.of(binding(
+                                OperationCode.DP08A, dp08Scope,
+                                "same-payload", "2026-08-03T12:30:00.000"
+                        )))
+                ),
+                null
+        );
+        Path baselinePath = temporary.resolve("baseline-dp08.json");
+        new ObjectMapper().writeValue(baselinePath.toFile(), baseline);
+
+        ObjectNode recheck = manifest.build(
+                COMMIT,
+                JAR_SHA,
+                cohort(
+                        LocalDateTime.parse("2026-08-03T12:40:00.000"),
+                        scopes,
+                        Map.of(),
+                        Map.of(OperationCode.DP08A, List.of(binding(
+                                OperationCode.DP08A, dp08Scope,
+                                "same-payload", "2026-08-03T12:39:59.000"
+                        )))
+                ),
+                baselinePath
+        );
+
+        assertEquals(baseline.get("cohortSha256"), recheck.get("cohortSha256"));
+        assertEquals(
+                "2026-08-03T12:30:00.000Z",
+                operation(recheck, OperationCode.DP08A)
+                        .withArray("scopes").get(0).get("binding")
+                        .get("effectiveFromUtc").textValue()
+        );
+    }
+
+    @Test
+    void stoppedJvmRecheckRejectsDp08PayloadChange() throws Exception {
+        DataPullRuntimeCutoverManifest manifest = new DataPullRuntimeCutoverManifest();
+        DataPullScope dp08Scope = scope("b");
+        Map<OperationCode, List<DataPullScope>> scopes = Map.of(
+                OperationCode.DP08B, List.of(dp08Scope)
+        );
+        ObjectNode baseline = manifest.build(
+                COMMIT,
+                JAR_SHA,
+                cohort(
+                        LocalDateTime.parse("2026-08-03T12:34:56.789"),
+                        scopes,
+                        Map.of(),
+                        Map.of(OperationCode.DP08B, List.of(binding(
+                                OperationCode.DP08B, dp08Scope,
+                                "baseline-payload", "2026-08-03T12:30:00.000"
+                        )))
+                ),
+                null
+        );
+        Path baselinePath = temporary.resolve("baseline-dp08-drift.json");
+        new ObjectMapper().writeValue(baselinePath.toFile(), baseline);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> manifest.build(
+                        COMMIT,
+                        JAR_SHA,
+                        cohort(
+                                LocalDateTime.parse("2026-08-03T12:40:00.000"),
+                                scopes,
+                                Map.of(),
+                                Map.of(OperationCode.DP08B, List.of(binding(
+                                        OperationCode.DP08B,
+                                        dp08Scope,
+                                        "changed-payload",
+                                        "2026-08-03T12:39:59.000"
+                                )))
+                        ),
+                        baselinePath
+                )
+        );
+
+        assertTrue(failure.getMessage().contains("BINDING_COHORT_DRIFT"));
+    }
+
+    @Test
     void initialManifestKeepsTheEarliestSupersededLegacyWindow() throws Exception {
         DataPullScope scope = scope("a");
         LocalDateTime retainedBoundary = LocalDateTime.parse("2026-07-16T16:00:00");
@@ -133,13 +230,22 @@ class DataPullRuntimeCutoverManifestTest {
             Map<OperationCode, List<DataPullScope>> overrides,
             Map<OperationCode, Map<String, LocalDateTime>> boundaries
     ) {
+        return cohort(observed, overrides, boundaries, Map.of());
+    }
+
+    private static DataPullRuntimeCutoverSourceCohort cohort(
+            LocalDateTime observed,
+            Map<OperationCode, List<DataPullScope>> overrides,
+            Map<OperationCode, Map<String, LocalDateTime>> boundaries,
+            Map<OperationCode, List<DataPullScopeBindingCandidate>> bindings
+    ) {
         List<DataPullJob> jobs = new ArrayList<>();
         for (OperationCode operation : OperationCode.values()) {
             jobs.add(job(operation, overrides.getOrDefault(operation, List.of())));
         }
         return new DataPullRuntimeCutoverSourceCohort(
                 observed, new DataPullJobRegistry(jobs),
-                new EnumMap<>(OperationCode.class), boundaries
+                bindings, boundaries
         );
     }
 
@@ -158,6 +264,27 @@ class DataPullRuntimeCutoverManifestTest {
                 "TEST", 307L, null, "account", null, null, null,
                 "TEST-" + digestCharacter.repeat(64)
         );
+    }
+
+    private static DataPullScopeBindingCandidate binding(
+            OperationCode operation,
+            DataPullScope scope,
+            String payload,
+            String effectiveFrom
+    ) {
+        return new DataPullScopeBindingCandidate(
+                operation, scope.getStableScopeKey(), "TEST_PAYLOAD", payload,
+                LocalDateTime.parse(effectiveFrom)
+        );
+    }
+
+    private static JsonNode operation(ObjectNode manifest, OperationCode code) {
+        for (JsonNode operation : manifest.withArray("operations")) {
+            if (code.name().equals(operation.get("operationCode").textValue())) {
+                return operation;
+            }
+        }
+        throw new AssertionError("missing operation " + code);
     }
 
     private static String[] arguments() {

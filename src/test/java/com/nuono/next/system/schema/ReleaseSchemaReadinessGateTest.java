@@ -69,8 +69,31 @@ class ReleaseSchemaReadinessGateTest {
                 gate()::afterPropertiesSet
         );
 
-        assertTrue(error.getMessage().contains("not present in this Jar catalog"));
+        assertTrue(error.getMessage().contains("not a future catalog suffix"));
         assertTrue(error.getMessage().contains("231_future_migration.sql"));
+    }
+
+    @Test
+    void acceptsAContinuousAppliedFutureMigrationSuffixForCodeRollback() {
+        List<ReleaseSchemaMigrationRow> rows = validRows();
+        rows.add(futureRow(1));
+        when(mapper.selectMigrationHistory()).thenReturn(rows);
+
+        assertDoesNotThrow(gate()::afterPropertiesSet);
+    }
+
+    @Test
+    void rejectsAGappedOrUnauditedFutureMigrationSuffix() {
+        List<ReleaseSchemaMigrationRow> rows = validRows();
+        rows.add(futureRow(2));
+        when(mapper.selectMigrationHistory()).thenReturn(rows);
+
+        IllegalStateException error = assertThrows(
+                IllegalStateException.class,
+                gate()::afterPropertiesSet
+        );
+
+        assertTrue(error.getMessage().contains("future migration history suffix"));
     }
 
     @Test
@@ -152,6 +175,22 @@ class ReleaseSchemaReadinessGateTest {
             rows.add(row);
         }
         return rows;
+    }
+
+    private ReleaseSchemaMigrationRow futureRow(int offset) {
+        List<ReleaseSchemaMigrationDescriptor> catalog = loader.load();
+        int order = catalog.get(catalog.size() - 1).getOrder() + offset;
+        ReleaseSchemaMigrationRow row = new ReleaseSchemaMigrationRow();
+        row.setMigrationKey(order + "_future_additive.sql");
+        row.setChecksum("a".repeat(64));
+        row.setPostcheckChecksum("b".repeat(64));
+        row.setState("APPLIED");
+        row.setAttemptNo(1);
+        row.setAttemptChecksum(row.getChecksum());
+        row.setAttemptPostcheckChecksum(row.getPostcheckChecksum());
+        row.setAttemptState(row.getState());
+        row.setJoinedAttemptNo(1);
+        return row;
     }
 
     @Configuration(proxyBeanMethods = false)
