@@ -25,7 +25,8 @@ class NoonAuthRecoveryConfigurationValidatorTest {
         assertDoesNotThrow(() -> validate(properties, gateway));
 
         properties.setProjectAllowlist("PRJ100");
-        assertThrows(IllegalStateException.class, () -> validate(properties, gateway));
+        assertDoesNotThrow(() -> validate(properties, gateway));
+        assertTrue(properties.allowsProject("PRJ200"));
     }
 
     @Test
