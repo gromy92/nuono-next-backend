@@ -24,6 +24,9 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
     for marker, (expected, error) in markers.items():
         if archive.read(marker) != expected:
             raise SystemExit(error)
+    if "BOOT-INF/classes/com/nuono/next/noonpull/NoonReportDownloadProbeSourceCommand.class" \
+            not in archive.namelist():
+        raise SystemExit("candidate Jar report source command is missing")
 PY
 }
 verify_dp_report_probe_json() {
@@ -95,11 +98,15 @@ verify_dp_report_probe_state() {
   verify_dp_report_probe_json
 }
 run_dp_report_download_probe() {
-  DP_REPORT_PROBE_SOURCE_FILE="$APP_DIR/.dp-report-download-probe-url"
-  DP_REPORT_PROBE_SOURCE_SHA256="$(secure_file_operation verify \
-    "$DP_REPORT_PROBE_SOURCE_FILE" 600 -)"
   assert_dp_report_probe_marker
   secure_file_operation directory "$DP_REPORT_PROBE_DIR" 700 700 create-new
+  DP_REPORT_PROBE_SOURCE_FILE="$DP_REPORT_PROBE_DIR/source-url"
+  /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C LC_ALL=C timeout --signal=TERM --kill-after=5s 95s java -jar \
+    "$STAGED_JAR" dp-report-download-probe-source \
+    --env-file "$APP_DIR/.env" --output-file "$DP_REPORT_PROBE_SOURCE_FILE"
+  DP_REPORT_PROBE_SOURCE_SHA256="$(secure_file_operation verify \
+    "$DP_REPORT_PROBE_SOURCE_FILE" 600 -)"
   DP_REPORT_PROBE_NONCE="$(python3 - <<'PY'
 import secrets
 print(secrets.token_hex(32))
