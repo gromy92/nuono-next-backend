@@ -4,6 +4,8 @@ import static com.nuono.next.auth.RoleAccessSupport.isSystemAdmin;
 
 import com.nuono.next.auth.AuthSessionTokenService;
 import com.nuono.next.auth.AuthenticatedSession;
+import com.nuono.next.noon.NoonAccountSessionAuditResult;
+import com.nuono.next.noon.NoonAccountSessionDailyVerifier;
 import javax.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
@@ -21,17 +23,20 @@ public final class NoonAuthRecoveryStatusController {
     private final NoonAuthRecoveryRepository repository;
     private final NoonAuthRecoveryProperties properties;
     private final AuthSessionTokenService sessionTokenService;
+    private final NoonAccountSessionDailyVerifier sessionVerifier;
     private final String configuredEmail;
 
     public NoonAuthRecoveryStatusController(
             NoonAuthRecoveryRepository repository,
             NoonAuthRecoveryProperties properties,
             AuthSessionTokenService sessionTokenService,
+            NoonAccountSessionDailyVerifier sessionVerifier,
             @Value("${nuono.noon.auth.email-otp.email:}") String configuredEmail
     ) {
         this.repository = repository;
         this.properties = properties;
         this.sessionTokenService = sessionTokenService;
+        this.sessionVerifier = sessionVerifier;
         this.configuredEmail = configuredEmail;
     }
 
@@ -65,6 +70,7 @@ public final class NoonAuthRecoveryStatusController {
             String status,
             NoonAuthIdentityRecoveryRecord active
     ) {
+        NoonAccountSessionAuditResult audit = sessionVerifier.latestResult();
         return new NoonAuthRecoveryStatusView(
                 enabled,
                 status,
@@ -72,7 +78,18 @@ public final class NoonAuthRecoveryStatusController {
                 active == null ? null : active.getGenerationNo(),
                 active == null ? null : active.getSendAttemptCount(),
                 active == null ? null : active.getNextAttemptAt(),
-                active == null ? null : active.getFailureCode()
+                active == null ? null : active.getFailureCode(),
+                properties.isAllProjectsEnabled(),
+                properties.isSessionAuditEnabled(),
+                properties.isStartupAuditEnabled(),
+                audit.isReady(),
+                audit.getScopeMode(),
+                audit.getStatus(),
+                audit.getTotalProjects(),
+                audit.getScopedProjects(),
+                audit.getVerifiedProjects(),
+                audit.getExcludedProjects(),
+                audit.getUnverifiedProjects()
         );
     }
 }

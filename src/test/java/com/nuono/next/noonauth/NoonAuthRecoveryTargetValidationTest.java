@@ -28,6 +28,8 @@ class NoonAuthRecoveryTargetValidationTest {
         storeSyncMapper = mock(StoreSyncMapper.class);
         NoonAuthRecoveryProperties properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
+        properties.setAllProjectsEnabled(true);
+        properties.setStartupAuditEnabled(true);
         properties.setTrustedSenderDomains("noon.com");
         coordinator = new NoonAuthRecoveryCoordinator(
                 recoveryRepository,

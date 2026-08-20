@@ -11,6 +11,7 @@ import com.nuono.next.noonauth.gateway.NoonAuthRecoveryAttemptResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureCode;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryGateway;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
+import com.nuono.next.noon.NoonAccountSessionDailyVerifier;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -48,6 +49,7 @@ public class NoonAuthRecoveryWorker {
     private final String workerId;
     private final String configuredIdentityKey;
     private final String configuredFingerprint;
+    private NoonAccountSessionDailyVerifier sessionVerifier;
 
     @Autowired
     public NoonAuthRecoveryWorker(
@@ -55,6 +57,7 @@ public class NoonAuthRecoveryWorker {
             NoonAuthRecoveryProperties properties,
             ObjectProvider<NoonAuthRecoveryGateway> gatewayProvider,
             NoonAuthTransientBackoffGuard transientBackoffGuard,
+            ObjectProvider<NoonAccountSessionDailyVerifier> sessionVerifierProvider,
             @Value("${nuono.noon.auth.email-otp.email:}") String configuredEmail,
             @Value("${nuono.noon.auth.email-otp.mail-auth-code:}") String configuredMailboxAuthCode
     ) {
@@ -68,6 +71,9 @@ public class NoonAuthRecoveryWorker {
                 configuredEmail,
                 configuredMailboxAuthCode
         );
+        this.sessionVerifier = sessionVerifierProvider == null
+                ? null
+                : sessionVerifierProvider.getIfAvailable();
     }
 
     NoonAuthRecoveryWorker(
@@ -223,6 +229,17 @@ public class NoonAuthRecoveryWorker {
     }
     private void processClaimed(NoonAuthIdentityRecoveryRecord candidate, ExecutionFence fence) {
         attemptProcessor.process(candidate, fence, this);
+        publishCompletedSessionAudit(candidate.getId());
+    }
+
+    private void publishCompletedSessionAudit(Long recoveryId) {
+        if (sessionVerifier == null || recoveryId == null) {
+            return;
+        }
+        NoonAuthIdentityRecoveryRecord recovery = repository.selectRecovery(recoveryId);
+        if (recovery != null && recovery.getStatus() == NoonAuthRecoveryStatus.COMPLETED) {
+            sessionVerifier.recordRecoveryCompletion(repository.listRecoveryItems(recoveryId));
+        }
     }
 
     void handleIdentityFailure(

@@ -32,6 +32,8 @@ class NoonAuthRecoveryRenewalAdmissionTest {
         StoreSyncMapper storeSyncMapper = mock(StoreSyncMapper.class);
         properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
+        properties.setAllProjectsEnabled(true);
+        properties.setStartupAuditEnabled(true);
         properties.setCoalesceSeconds(15);
         properties.setTrustedSenderDomains("noon.com");
         coordinator = new NoonAuthRecoveryCoordinator(

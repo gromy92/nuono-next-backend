@@ -35,6 +35,8 @@ class NoonAuthRecoveryOwner308PersistenceIsolationTest {
         gateway = mock(NoonAuthRecoveryGateway.class);
         NoonAuthRecoveryProperties properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
+        properties.setAllProjectsEnabled(true);
+        properties.setStartupAuditEnabled(true);
         properties.setCoalesceSeconds(0);
         properties.setTrustedSenderDomains("noon.com");
         worker = new NoonAuthRecoveryWorker(

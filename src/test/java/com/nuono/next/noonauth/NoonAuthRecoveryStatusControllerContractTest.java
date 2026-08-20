@@ -25,5 +25,14 @@ class NoonAuthRecoveryStatusControllerContractTest {
                         || name.contains("challenge")
                         || name.contains("cookie")
                         || name.contains("token")));
+        assertTrue(Arrays.stream(NoonAuthRecoveryStatusView.class.getDeclaredFields())
+                .map(field -> field.getName())
+                .anyMatch("allProjectsEnabled"::equals));
+        assertTrue(Arrays.stream(NoonAuthRecoveryStatusView.class.getDeclaredFields())
+                .map(field -> field.getName())
+                .anyMatch("verifiedProjects"::equals));
+        assertTrue(Arrays.stream(NoonAuthRecoveryStatusView.class.getDeclaredFields())
+                .map(field -> field.getName())
+                .anyMatch("unverifiedProjects"::equals));
     }
 }
