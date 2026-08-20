@@ -23,7 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** Spring transaction boundary for one bounded DP08-B fact advance. */
 @Service
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.RUNTIME)
-final class Dp08ListFactTransaction {
+public class Dp08ListFactTransaction {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
 
     private final Dp08FactFence fence;
@@ -31,7 +31,7 @@ final class Dp08ListFactTransaction {
     private final Dp08ListMemberFactApplier memberApplier;
 
     @Autowired
-    Dp08ListFactTransaction(
+    public Dp08ListFactTransaction(
             Dp08RuntimeMapper runtimeMapper,
             CompetitorListingObservationMapper observationMapper,
             CompetitorProductSnapshotService snapshotService,
@@ -58,7 +58,7 @@ final class Dp08ListFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult applyFound(
+    public Dp08FactWriter.ApplyResult applyFound(
             DataPullTask task,
             Dp08ListTarget target,
             NoonProductDetail detail
@@ -70,7 +70,7 @@ final class Dp08ListFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult applyNotFound(
+    public Dp08FactWriter.ApplyResult applyNotFound(
             DataPullTask task,
             Dp08ListTarget target,
             NoonSearchPage evidence
@@ -82,7 +82,7 @@ final class Dp08ListFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult applyFound(
+    public Dp08FactWriter.ApplyResult applyFound(
             DataPullTask task,
             Dp08MemberSetHandle handle,
             LocalDate factDate,
@@ -92,7 +92,7 @@ final class Dp08ListFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult applyNotFound(
+    public Dp08FactWriter.ApplyResult applyNotFound(
             DataPullTask task,
             Dp08MemberSetHandle handle,
             LocalDate factDate,

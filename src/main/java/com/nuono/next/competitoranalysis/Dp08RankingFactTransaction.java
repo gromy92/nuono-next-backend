@@ -27,7 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 /** Atomic rank page application with schedule-slot idempotency. */
 @Service
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.RUNTIME)
-final class Dp08RankingFactTransaction {
+public class Dp08RankingFactTransaction {
     private static final ZoneId SHANGHAI = ZoneId.of("Asia/Shanghai");
     private static final String TRIGGER_MODE = "DP08_RUNTIME_RANK";
     private final Dp08RuntimeMapper runtimeMapper;
@@ -37,7 +37,7 @@ final class Dp08RankingFactTransaction {
     private final Dp08MemberSetMapper members;
 
     @Autowired
-    Dp08RankingFactTransaction(
+    public Dp08RankingFactTransaction(
             Dp08RuntimeMapper runtimeMapper,
             CompetitorAnalysisMapper mapper,
             Dp08ImmutableRankingPageWriter pageWriter,
@@ -56,7 +56,7 @@ final class Dp08RankingFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult apply(
+    public Dp08FactWriter.ApplyResult apply(
             DataPullTask task,
             Dp08KeywordScope scope,
             NoonSearchPage page
@@ -102,7 +102,7 @@ final class Dp08RankingFactTransaction {
     }
 
     @Transactional(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
-    Dp08FactWriter.ApplyResult apply(
+    public Dp08FactWriter.ApplyResult apply(
             DataPullTask task,Dp08MemberSetHandle handle,NoonSearchPage page
     ) {
         if(members==null)throw new IllegalStateException("DP08 member-set mapper is unavailable");

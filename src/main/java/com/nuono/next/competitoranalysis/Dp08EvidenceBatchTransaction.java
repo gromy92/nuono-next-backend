@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 /** Fenced, restart-safe DP08B evidence scan; every query and commit covers at most 64 members. */
 @Service
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.RUNTIME)
-public final class Dp08EvidenceBatchTransaction implements Dp08EvidenceBatchEvaluator {
+public class Dp08EvidenceBatchTransaction implements Dp08EvidenceBatchEvaluator {
     private static final int LIMIT=64;
     private final Dp08MemberSetMapper members;
     private final Dp08ScheduleEvidenceMapper evidence;

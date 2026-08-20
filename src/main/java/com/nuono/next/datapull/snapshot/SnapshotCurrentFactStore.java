@@ -9,7 +9,7 @@ import java.util.Optional;
 import org.springframework.transaction.annotation.Transactional;
 
 /** Typed bounded query Seam over the current sealed snapshot head. */
-public final class SnapshotCurrentFactStore<T> {
+public class SnapshotCurrentFactStore<T> {
     private final SnapshotCurrentFactMapper mapper;
     private final SnapshotItemDescriptor<T> descriptor;
     private final SnapshotPayloadCodec<T> codec;

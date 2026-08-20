@@ -19,7 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Component
 @Profile("local-db")
 @ConditionalOnDataPullExecutionMode(DataPullExecutionMode.RUNTIME)
-public final class MyBatisDataPullScopeBindingStore implements DataPullScopeBindingStore {
+public class MyBatisDataPullScopeBindingStore implements DataPullScopeBindingStore {
     private final DataPullScopeBindingMapper mapper;
 
     public MyBatisDataPullScopeBindingStore(DataPullScopeBindingMapper mapper) {
