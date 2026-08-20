@@ -72,7 +72,11 @@ class ReleaseDpReportDownloadProbeTest(unittest.TestCase):
 
         self.assertIn("candidate Jar report download probe marker mismatch", script)
         self.assertIn("candidate Jar validator rejection marker mismatch", script)
-        self.assertIn('"$APP_DIR/.dp-report-download-probe-url"', script)
+        self.assertIn("candidate Jar report source command is missing", script)
+        self.assertIn('dp-report-download-probe-source', script)
+        self.assertIn('DP_REPORT_PROBE_SOURCE_FILE="$DP_REPORT_PROBE_DIR/source-url"', script)
+        self.assertIn('--env-file "$APP_DIR/.env"', script)
+        self.assertNotIn('"$APP_DIR/.dp-report-download-probe-url"', script)
         self.assertIn(
             'secure_file_operation verify "$DP_REPORT_PROBE_SOURCE_FILE" 600',
             script,
