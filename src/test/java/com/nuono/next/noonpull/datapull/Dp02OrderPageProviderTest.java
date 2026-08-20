@@ -81,12 +81,16 @@ class Dp02OrderPageProviderTest {
 
         ProviderOutcome<SnapshotPage<NoonOrderLineFact>> outcome =
                 provider(page(1, 100, 1, false, List.of(row))).fetchPage(request());
+        ProviderOutcome<SnapshotPage<NoonOrderLineFact>> repeated =
+                provider(page(1, 100, 1, false, List.of(row))).fetchPage(request());
 
         assertThat(outcome.getType()).isEqualTo(ProviderOutcomeType.SUCCESS);
         assertThat(outcome.getValue().getItems()).isEmpty();
         assertThat(outcome.getValue().getBusinessSkippedItemCount()).isEqualTo(1);
         assertThat(outcome.getValue().getBusinessSkippedComparisonFingerprints())
                 .singleElement().satisfies(fingerprint -> assertThat(fingerprint).hasSize(64));
+        assertThat(repeated.getValue().getBusinessSkippedComparisonFingerprints())
+                .isEqualTo(outcome.getValue().getBusinessSkippedComparisonFingerprints());
     }
 
     @Test
