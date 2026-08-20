@@ -23,6 +23,11 @@ public class NoonAuthRecoveryProperties {
     private int minSendIntervalSeconds = 300;
     private int rateLimitRetrySeconds = 1_800;
     private int maxSendAttemptsPerRecovery = 2;
+    private boolean allProjectsEnabled;
+    private boolean sessionAuditEnabled = true;
+    private boolean startupAuditEnabled;
+    private long startupAuditDelayMs = 30_000L;
+    private long startupAuditPollMs = 10_000L;
     private String projectAllowlist;
     private String trustedSenderDomains;
     private String checkpointCipherSecret;
@@ -121,6 +126,53 @@ public class NoonAuthRecoveryProperties {
         this.maxSendAttemptsPerRecovery = maxSendAttemptsPerRecovery;
     }
 
+    public boolean isAllProjectsEnabled() {
+        return allProjectsEnabled;
+    }
+
+    public void setAllProjectsEnabled(boolean allProjectsEnabled) {
+        this.allProjectsEnabled = allProjectsEnabled;
+    }
+
+    public boolean isSessionAuditEnabled() {
+        return sessionAuditEnabled;
+    }
+
+    public void setSessionAuditEnabled(boolean sessionAuditEnabled) {
+        this.sessionAuditEnabled = sessionAuditEnabled;
+    }
+
+    public boolean isStartupAuditEnabled() {
+        return startupAuditEnabled;
+    }
+
+    public void setStartupAuditEnabled(boolean startupAuditEnabled) {
+        this.startupAuditEnabled = startupAuditEnabled;
+    }
+
+    public long getStartupAuditDelayMs() {
+        return Math.max(1_000L, startupAuditDelayMs);
+    }
+
+    public void setStartupAuditDelayMs(long startupAuditDelayMs) {
+        this.startupAuditDelayMs = startupAuditDelayMs;
+    }
+
+    public long getStartupAuditPollMs() {
+        return Math.max(1_000L, startupAuditPollMs);
+    }
+
+    public void setStartupAuditPollMs(long startupAuditPollMs) {
+        this.startupAuditPollMs = startupAuditPollMs;
+    }
+
+    public String projectScopeMode() {
+        if (allProjectsEnabled) {
+            return "ALL";
+        }
+        return normalizedProjectAllowlist().isEmpty() ? "NONE" : "ALLOWLIST";
+    }
+
     public String getProjectAllowlist() {
         return projectAllowlist;
     }
@@ -130,10 +182,10 @@ public class NoonAuthRecoveryProperties {
     }
 
     public boolean allowsProject(String projectCode) {
-        Set<String> allowlist = normalizedProjectAllowlist();
-        if (allowlist.isEmpty()) {
-            return true;
+        if (allProjectsEnabled) {
+            return StringUtils.hasText(projectCode);
         }
+        Set<String> allowlist = normalizedProjectAllowlist();
         return StringUtils.hasText(projectCode)
                 && allowlist.contains(projectCode.trim().toUpperCase(Locale.ROOT));
     }

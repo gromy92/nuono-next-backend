@@ -32,6 +32,8 @@ abstract class AbstractNoonAuthRecoveryWorkerTestSupport {
         gateway = mock(NoonAuthRecoveryGateway.class);
         properties = new NoonAuthRecoveryProperties();
         properties.setEnabled(true);
+        properties.setAllProjectsEnabled(true);
+        properties.setStartupAuditEnabled(true);
         properties.setCoalesceSeconds(0);
         properties.setMinResendSeconds(60);
         properties.setTrustedSenderDomains("noon.com");
