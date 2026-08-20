@@ -80,6 +80,26 @@ class Ali1688Dp10OpenApiProbeCommandTest {
         ));
     }
 
+    @Test
+    void exposesOnlySanitizedProbeDiagnosticCodes() {
+        assertEquals(
+                "PROBE_REQUIRED_CONFIG_MISSING",
+                Ali1688Dp10OpenApiProbeCommand.diagnosticCode(
+                        new IllegalStateException("PROBE_REQUIRED_CONFIG_MISSING")
+                )
+        );
+        assertEquals(
+                "PROBE_EXECUTION_FAILED",
+                Ali1688Dp10OpenApiProbeCommand.diagnosticCode(
+                        new IllegalStateException("Access denied for secret account")
+                )
+        );
+        assertEquals(
+                "PROBE_EXECUTION_FAILED",
+                Ali1688Dp10OpenApiProbeCommand.diagnosticCode(null)
+        );
+    }
+
     private String[] validArgs() {
         return new String[]{
                 Ali1688Dp10OpenApiProbeCommand.COMMAND,

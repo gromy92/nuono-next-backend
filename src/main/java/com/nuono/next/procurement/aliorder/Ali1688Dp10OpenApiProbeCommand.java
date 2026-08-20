@@ -122,8 +122,16 @@ public final class Ali1688Dp10OpenApiProbeCommand {
         } catch (Ali1688Dp10OpenApiProbeRunner.ProbeFailure failure) {
             return fail(failure.code());
         } catch (Exception failure) {
-            return fail("PROBE_EXECUTION_FAILED");
+            return fail(diagnosticCode(failure));
         }
+    }
+
+    static String diagnosticCode(Exception failure) {
+        if (failure == null) return "PROBE_EXECUTION_FAILED";
+        String message = failure.getMessage();
+        return message != null && message.matches("PROBE_[A-Z0-9_]+")
+                ? message
+                : "PROBE_EXECUTION_FAILED";
     }
 
     static Map<String, String> parse(String[] args) {
@@ -175,7 +183,7 @@ public final class Ali1688Dp10OpenApiProbeCommand {
     }
 
     private static int fail(String code) {
-        String sanitized = code != null && code.matches("[A-Z0-9_]+")
+        String sanitized = code != null && code.matches("PROBE_[A-Z0-9_]+")
                 ? code
                 : "PROBE_EXECUTION_FAILED";
         System.err.println("DP10_OPEN_API_EXECUTION_CONTRACT=FAIL:" + sanitized);
