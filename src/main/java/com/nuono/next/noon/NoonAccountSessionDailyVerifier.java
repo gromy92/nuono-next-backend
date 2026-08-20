@@ -89,6 +89,11 @@ public final class NoonAccountSessionDailyVerifier {
                 if (NoonAuthenticationFailureClassifier.isAuthenticationFailure(exception)) {
                     return recoveryResult(target, totalProjects, scopedTargets.size(), verifiedProjects);
                 }
+                LOGGER.warn(
+                        "Noon Project session audit probe failed verified={} failureType={}",
+                        verifiedProjects,
+                        safeFailureType(exception)
+                );
                 return record(
                         "PROBE_FAILED", totalProjects, scopedTargets.size(), verifiedProjects
                 );
@@ -190,6 +195,23 @@ public final class NoonAccountSessionDailyVerifier {
                 && StringUtils.hasText(target.getProjectCode())
                 && StringUtils.hasText(target.getStoreCode())
                 && StringUtils.hasText(target.getSessionCookie());
+    }
+
+    private static String safeFailureType(Throwable failure) {
+        Throwable current = failure;
+        String type = failure == null ? "Unknown" : failure.getClass().getSimpleName();
+        while (current != null) {
+            type = current.getClass().getSimpleName();
+            if (current instanceof NoonHttpException) {
+                return type + ":" + ((NoonHttpException) current).getStatusCode();
+            }
+            Throwable cause = current.getCause();
+            if (cause == current) {
+                break;
+            }
+            current = cause;
+        }
+        return type;
     }
 
     private static String projectKey(Long ownerUserId, String projectCode) {

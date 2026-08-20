@@ -148,7 +148,7 @@ final class NoonAccountSessionStartupVerifier implements SmartLifecycle {
         if (result.isReady()) {
             return;
         }
-        if ("NOT_RUN".equals(result.getStatus())) {
+        if ("NOT_RUN".equals(result.getStatus()) || "PROBE_FAILED".equals(result.getStatus())) {
             verifier.verifyNow();
             return;
         }

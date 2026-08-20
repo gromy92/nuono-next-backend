@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -87,6 +88,36 @@ class NoonAccountSessionDailyVerifierTest {
         ).verifyNow();
 
         org.junit.jupiter.api.Assertions.assertEquals("PROBE_FAILED", result.getStatus());
+        verify(authWaitQueue, never()).enqueue(any());
+    }
+
+    @Test
+    void startupAuditRetriesTransientProbeFailureWithoutQueueingOtp() throws Exception {
+        NoonAccountSessionMapper mapper = mock(NoonAccountSessionMapper.class);
+        NoonSessionGateway gateway = mock(NoonSessionGateway.class);
+        NoonAuthWaitQueue authWaitQueue = mock(NoonAuthWaitQueue.class);
+        NoonAuthRecoveryRepository repository = mock(NoonAuthRecoveryRepository.class);
+        when(mapper.listBoundProjects()).thenReturn(List.of(target("PRJ307", "STR307", "sid=current")));
+        when(gateway.configuredMerchantLoginEmail()).thenReturn("merchant@example.com");
+        when(gateway.whoamiWithCookie(anyString(), anyString(), anyString())).thenReturn(
+                objectMapper.readTree("{\"projectCode\":\"PRJ307\"}")
+        );
+        doThrow(new NoonHttpException(503, "temporary", "/offer/list/noon"))
+                .doNothing()
+                .when(gateway).validateCatalogSessionWithCookie(
+                        anyString(), anyString(), anyString(), anyString()
+                );
+        NoonAccountSessionDailyVerifier verifier = verifier(
+                mapper, gateway, authWaitQueue, allProjects()
+        );
+        org.junit.jupiter.api.Assertions.assertEquals("PROBE_FAILED", verifier.verifyNow().getStatus());
+
+        NoonAccountSessionStartupVerifier.audit(verifier, repository);
+
+        org.junit.jupiter.api.Assertions.assertTrue(verifier.latestResult().isReady());
+        verify(gateway, times(2)).validateCatalogSessionWithCookie(
+                "sid=current", "PRJ307", "STR307", "merchant@example.com"
+        );
         verify(authWaitQueue, never()).enqueue(any());
     }
 
