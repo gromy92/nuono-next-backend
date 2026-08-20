@@ -223,13 +223,23 @@ class ReleaseDpRuntimeCutoverTest(unittest.TestCase):
             "dp_pull_snapshot_fingerprint_count", "dp_pull_snapshot_verify_page", "dp_pull_snapshot_apply_progress",
             "dp_pull_snapshot_effective_item", "dp_pull_snapshot_current_head", "dp_pull_advertising_generation",
             "dp_pull_advertising_campaign_fact", "dp_pull_advertising_query_fact", "dp_pull_advertising_current_head",
-            "dp_pull_schedule_rotation", "dp_pull_schedule_epoch_sequence", "dp_pull_schedule_manifest_seal",
+            "dp_pull_schedule_manifest_seal",
             "dp_pull_schedule_source_epoch", "dp_pull_schedule_source_scope", "dp_pull_schedule_dp08_member_stage_head",
             "dp_pull_schedule_dp08_member_stage_item", "dp_pull_dp08_member_set", "dp_pull_dp08_member_set_item",
             "dp_pull_dp08_task_member_progress",
         )
         for table in tables:
             self.assertEqual(1, hook.count(f"(SELECT COUNT(*) FROM {table})"), table)
+        self.assertIn(
+            "(SELECT COUNT(*) FROM dp_pull_schedule_rotation\n"
+            "      WHERE next_operation_ordinal<>0 OR version_no<>0 OR gmt_updated<>gmt_create)",
+            hook,
+        )
+        self.assertIn(
+            "(SELECT COUNT(*) FROM dp_pull_schedule_epoch_sequence\n"
+            "      WHERE last_epoch_no<>0 OR version_no<>0 OR gmt_updated<>gmt_create)",
+            hook,
+        )
 
     def test_prebootstrap_failure_restores_legacy_without_historical_work_fence(self):
         result = run_fragment(r'''
