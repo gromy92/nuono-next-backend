@@ -19,12 +19,12 @@ import org.springframework.web.server.ResponseStatusException;
 public class Ali1688HistoricalOrderManualSyncController {
 
     private final Ali1688HistoricalOrderMapper mapper;
-    private final LegacyAli1688HistoricalOrderWeeklySyncService syncService;
+    private final Ali1688HistoricalOrderManualSync syncService;
     private final BusinessAccessResolver accessResolver;
 
     public Ali1688HistoricalOrderManualSyncController(
             Ali1688HistoricalOrderMapper mapper,
-            LegacyAli1688HistoricalOrderWeeklySyncService syncService,
+            Ali1688HistoricalOrderManualSync syncService,
             BusinessAccessResolver accessResolver
     ) {
         this.mapper = mapper;
@@ -47,7 +47,7 @@ public class Ali1688HistoricalOrderManualSyncController {
         if (authorization == null || authorization.getId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前没有可补拉的 1688 授权账号。");
         }
-        if (syncService.runScheduledWeekly(ownerUserId, authorization.getId(), context.getSessionUserId()) == null) {
+        if (!syncService.request(ownerUserId, authorization.getId(), context.getSessionUserId())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前授权账号不能执行 1688 补拉。");
         }
         return ResponseEntity.accepted().build();
