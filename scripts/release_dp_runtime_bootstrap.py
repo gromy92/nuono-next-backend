@@ -145,7 +145,7 @@ dp_runtime_bootstrap_counts() {
     (SELECT COUNT(*) FROM dp_pull_scope_admission),
     (SELECT COUNT(*) FROM dp_pull_scope_binding_epoch),
     (SELECT COUNT(*) FROM dp_pull_schedule_anchor),
-    (SELECT COUNT(*) FROM dp_pull_schedule_cutover);"
+    (SELECT COUNT(*) FROM dp_pull_schedule_cutover));"
 }
 bootstrap_dp_runtime_cutover() {
   assert_no_backend_jvms
@@ -158,6 +158,9 @@ bootstrap_dp_runtime_cutover() {
   DP_RUNTIME_BOOTSTRAP_SQL_SHA256="$(secure_file_operation verify \
     "$DP_RUNTIME_BOOTSTRAP_SQL" 600 -)"
   dp_runtime_mysql --batch --raw < "$DP_RUNTIME_BOOTSTRAP_SQL"
+  # The transaction has committed. Arm repair-forward rollback before any
+  # attestation or count postcheck can fail and leave managed rows behind.
+  DP_RUNTIME_BOOTSTRAPPED=1
   capture_dp_runtime_database_binding
   actual="$(dp_runtime_bootstrap_counts)"
   IFS=$'\t' read -r admissions bindings anchors cutovers <<<"$actual"
@@ -165,7 +168,6 @@ bootstrap_dp_runtime_cutover() {
   [ "$bindings" = "$DP_RUNTIME_EXPECTED_BINDING_COUNT" ]
   [ "$anchors" = "$DP_RUNTIME_EXPECTED_ANCHOR_COUNT" ]
   [ "$cutovers" = 11 ]
-  DP_RUNTIME_BOOTSTRAPPED=1
 }
 dp_runtime_new_work_count() {
   dp_runtime_db_scalar "SELECT

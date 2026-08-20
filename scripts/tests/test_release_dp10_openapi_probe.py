@@ -222,13 +222,13 @@ class ReleaseDp10OpenApiProbeTest(unittest.TestCase):
 
     def test_rollback_restarts_predecessor_with_its_own_slot_environment(self):
         script = self.build_script()
-        restart = script[
-            script.index("restart_old_runtime()"):
-            script.index("restore_nginx_to_active()")
-        ]
+        restart = script[script.index("restart_old_runtime()"):script.index("restore_nginx_to_active()")]
+        legacy_start = script[script.index("start_legacy_runtime()"):script.index("restart_old_runtime()")]
 
-        self.assertIn('start_runtime "$ACTIVE_RUN_DIR" "$ACTIVE_PORT"', restart)
+        self.assertIn('start_legacy_runtime "$ACTIVE_RUN_DIR" "$ACTIVE_PORT"', restart)
         self.assertNotIn("DP10_SLOT_EVIDENCE_FILE", restart)
+        self.assertIn("/usr/bin/env -i", legacy_start)
+        self.assertNotIn("NUONO_MANAGED_DP_RELEASE=1", legacy_start)
 
     def test_one_shot_dispatches_before_spring_web_or_scheduler_start(self):
         source = (SOURCE_ROOT / "src/main/java/com/nuono/next/NuonoNextApplication.java").read_text()

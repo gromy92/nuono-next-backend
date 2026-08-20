@@ -5,7 +5,15 @@ from release_runtime_identity import build_runtime_identity_shell
 
 
 def build_predecessor_rollback_shell() -> str:
-    return build_runtime_identity_shell() + r'''restart_old_runtime() {
+    return build_runtime_identity_shell() + r'''start_legacy_runtime() {
+  require_real_runtime_directory "$1"
+  runtime_env_has_forbidden_injection "$1/.env"
+  cd "$1"
+  /usr/bin/env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    LANG=C LC_ALL=C NUONO_NEXT_APP_DIR="$1" NUONO_NEXT_PORT="$2" \
+    /bin/bash --noprofile --norc "$1/start-nuono-next-test.sh"
+}
+restart_old_runtime() {
   reverify_active_runtime_payloads || return 1
   local listener_pid="" java_pids="" count=""
   listener_pid="$(pid_for_port "$ACTIVE_PORT")"
@@ -22,7 +30,7 @@ def build_predecessor_rollback_shell() -> str:
     return
   fi
   [ "$count" = 0 ] && assert_no_backend_jvms || return 1
-  start_runtime "$ACTIVE_RUN_DIR" "$ACTIVE_PORT"
+  start_legacy_runtime "$ACTIVE_RUN_DIR" "$ACTIVE_PORT"
 }
 restore_nginx_to_active() {
   local pid=""
