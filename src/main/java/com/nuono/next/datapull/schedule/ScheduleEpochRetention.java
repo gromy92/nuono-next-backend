@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Objects;
 import java.util.function.LongSupplier;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -30,6 +31,7 @@ public final class ScheduleEpochRetention implements DataPullRuntimeMaintenance 
     private final LongSupplier nanoTime;
     private int nextOperationOrdinal;
 
+    @Autowired
     public ScheduleEpochRetention(DataPullScheduleEpochRetentionMapper mapper) {
         this(mapper, System::nanoTime);
     }
