@@ -1,31 +1,24 @@
 package com.nuono.next.noon;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noonauth.NoonAuthWaitRequest;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class NoonSessionGatewaySharedAuthQueueTest {
 
     @Test
-    void missingProjectCookieShouldRequireOneSharedManualLoginBeforeFailing() {
+    void missingProjectCookieShouldJoinOneSharedAutomaticRecoveryBeforeFailing() {
         NoonSessionGateway gateway = gateway();
-        AtomicReference<Boolean> manualLoginRequired = new AtomicReference<>(false);
-        gateway.setAccountSessionAttention(new NoonAccountSessionAttentionPort() {
-            @Override
-            public void requireManualLogin() {
-                manualLoginRequired.set(true);
-            }
-
-            @Override
-            public boolean blocksProviderCalls() {
-                return false;
-            }
+        AtomicReference<NoonAuthWaitRequest> queued = new AtomicReference<>();
+        gateway.setAuthWaitQueue(request -> {
+            queued.set(request);
+            return java.util.Optional.of(91L);
         });
 
         NoonSessionGateway.NoonCookieAuthRequiredException failure = assertThrows(
@@ -40,7 +33,9 @@ class NoonSessionGatewaySharedAuthQueueTest {
         );
 
         assertTrue(failure.getMessage().contains("auth_required"));
-        assertTrue(manualLoginRequired.get());
+        assertTrue(NoonAuthWaitRequest.binding(
+                307L, "PRJ245027", "STR245027-NAE"
+        ).equals(queued.get()));
     }
 
     private NoonSessionGateway gateway() {

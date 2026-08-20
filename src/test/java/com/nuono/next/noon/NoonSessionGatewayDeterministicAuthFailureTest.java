@@ -101,16 +101,9 @@ class NoonSessionGatewayDeterministicAuthFailureTest {
                 );
         sessionConstructor.setAccessible(true);
         NoonSessionGateway gateway = gateway();
-        gateway.setAccountSessionAttention(new NoonAccountSessionAttentionPort() {
-            @Override
-            public void requireManualLogin() {
+        gateway.setAuthWaitQueue(request -> {
             sourceLessAuthWaitCount.incrementAndGet();
-            }
-
-            @Override
-            public boolean blocksProviderCalls() {
-                return false;
-            }
+            return java.util.Optional.of(91L);
         });
         NoonSessionGateway.NoonSession session = sessionConstructor.newInstance(
                 gateway,

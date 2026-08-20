@@ -13,6 +13,7 @@ import org.springframework.util.StringUtils;
  */
 public final class NoonAuthWaitRequest {
     public static final String STORE_BINDING_DOMAIN = "STORE_BINDING";
+    public static final String IDENTITY_BATCH_DOMAIN = "ACCOUNT_SESSION_REFRESH";
 
     private final Long ownerUserId;
     private final String projectCode;
@@ -60,6 +61,24 @@ public final class NoonAuthWaitRequest {
                 STORE_BINDING_DOMAIN,
                 null,
                 "PROJECT_BINDING",
+                NoonAuthResumePolicy.NONE,
+                null
+        );
+    }
+
+    static NoonAuthWaitRequest identityBatch(
+            Long ownerUserId,
+            String projectCode,
+            String storeCode
+    ) {
+        return new NoonAuthWaitRequest(
+                ownerUserId,
+                projectCode,
+                storeCode,
+                null,
+                IDENTITY_BATCH_DOMAIN,
+                null,
+                "IDENTITY_BATCH",
                 NoonAuthResumePolicy.NONE,
                 null
         );
@@ -117,7 +136,8 @@ public final class NoonAuthWaitRequest {
             throw new IllegalArgumentException("Noon auth wait request requires owner and storeCode.");
         }
         if (sourceTaskId == null) {
-            if (!STORE_BINDING_DOMAIN.equals(sourceDomain)
+            if ((!STORE_BINDING_DOMAIN.equals(sourceDomain)
+                    && !IDENTITY_BATCH_DOMAIN.equals(sourceDomain))
                     || resumePolicy != NoonAuthResumePolicy.NONE) {
                 throw new IllegalArgumentException(
                         "A source-less Noon auth wait request must be a STORE_BINDING request."
@@ -173,6 +193,10 @@ public final class NoonAuthWaitRequest {
 
     public boolean hasSourceTask() {
         return sourceTaskId != null;
+    }
+
+    boolean isIdentityBatch() {
+        return IDENTITY_BATCH_DOMAIN.equals(sourceDomain);
     }
 
     @Override

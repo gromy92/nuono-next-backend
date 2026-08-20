@@ -6,9 +6,10 @@ import static org.mockito.Mockito.mock;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonSessionGateway;
-import com.nuono.next.noon.NoonAccountSessionAttentionPort;
 import com.nuono.next.noonlog.NoonHttpCallLogService;
+import com.nuono.next.noonauth.NoonAuthWaitQueue;
 import com.nuono.next.noonpull.NoonPullFailurePolicy;
+import com.nuono.next.noonpull.NoonPullProjectAuthGate;
 import com.nuono.next.noonpull.NoonRiskBackoffGuard;
 import com.nuono.next.sales.NoonSalesReportBindingResolver;
 import org.junit.jupiter.api.Test;
@@ -31,8 +32,9 @@ class OfficialWarehouseAppointmentAuthRecoverySpringWiringTest {
                 .withBean(ObjectMapper.class, ObjectMapper::new)
                 .withBean(NoonRiskBackoffGuard.class, NoonRiskBackoffGuard::disabled)
                 .withBean(NoonPullFailurePolicy.class, NoonPullFailurePolicy::new)
-                .withBean(NoonAccountSessionAttentionPort.class,
-                        () -> mock(NoonAccountSessionAttentionPort.class))
+                .withBean(NoonAuthWaitQueue.class, () -> mock(NoonAuthWaitQueue.class))
+                .withBean(NoonPullProjectAuthGate.class,
+                        () -> mock(NoonPullProjectAuthGate.class))
                 .withUserConfiguration(WiringConfig.class)
                 .run(context -> {
                     assertThat(context).hasNotFailed();
