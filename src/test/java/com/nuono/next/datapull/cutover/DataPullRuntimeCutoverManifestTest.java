@@ -273,10 +273,7 @@ class DataPullRuntimeCutoverManifestTest {
             String effectiveFrom
     ) {
         return new DataPullScopeBindingCandidate(
-                operation,
-                scope.getStableScopeKey(),
-                "TEST_PAYLOAD",
-                payload,
+                operation, scope.getStableScopeKey(), "TEST_PAYLOAD", payload,
                 LocalDateTime.parse(effectiveFrom)
         );
     }
