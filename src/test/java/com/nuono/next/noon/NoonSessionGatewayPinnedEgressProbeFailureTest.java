@@ -58,6 +58,24 @@ class NoonSessionGatewayPinnedEgressProbeFailureTest {
         }
     }
 
+    @Test
+    void doesNotRetryDeterministicProxyProviderRejection() throws Exception {
+        try (ProxyProvider provider = ProxyProvider.failure(400, 205)) {
+            NoonSessionGateway gateway = gateway(provider.url(), true);
+            gateway.setProxyMode("PROVIDER");
+
+            NoonEgressUnavailableException failure = assertThrows(
+                    NoonEgressUnavailableException.class,
+                    () -> openPinned(gateway)
+            );
+
+            assertEquals(1, provider.requestCount());
+            assertEquals(1, failure.getAttempts());
+            assertEquals(java.util.List.of("PROVIDER_HTTP_400_205"),
+                    failure.getEvidenceCodes());
+        }
+    }
+
     private NoonSessionGateway.NoonSession openPinned(NoonSessionGateway gateway) {
         return gateway.loginWithPersistedCookiePinnedEgress(
                 307L,
@@ -83,13 +101,29 @@ class NoonSessionGatewayPinnedEgressProbeFailureTest {
         private final Deque<Integer> ports = new ArrayDeque<>();
         private final AtomicInteger requestCount = new AtomicInteger();
         private final int fallbackPort;
+        private final int responseStatus;
+        private final byte[] failureBody;
 
         private ProxyProvider(int... proxyPorts) throws IOException {
+            this(200, null, proxyPorts);
+        }
+
+        private ProxyProvider(int responseStatus, byte[] failureBody, int... proxyPorts)
+                throws IOException {
             Arrays.stream(proxyPorts).forEach(ports::addLast);
-            fallbackPort = proxyPorts[proxyPorts.length - 1];
+            fallbackPort = proxyPorts.length == 0 ? 0 : proxyPorts[proxyPorts.length - 1];
+            this.responseStatus = responseStatus;
+            this.failureBody = failureBody;
             server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
             server.createContext("/proxy", exchange -> {
                 requestCount.incrementAndGet();
+                if (this.failureBody != null) {
+                    exchange.sendResponseHeaders(this.responseStatus, this.failureBody.length);
+                    try (OutputStream response = exchange.getResponseBody()) {
+                        response.write(this.failureBody);
+                    }
+                    return;
+                }
                 Integer port = ports.pollFirst();
                 byte[] body = ("{\"data\":[{\"ip\":\"127.0.0.1\",\"port\":\""
                         + (port == null ? fallbackPort : port) + "\"}]}")
@@ -100,6 +134,14 @@ class NoonSessionGatewayPinnedEgressProbeFailureTest {
                 }
             });
             server.start();
+        }
+
+        private static ProxyProvider failure(int status, int code) throws IOException {
+            return new ProxyProvider(
+                    status,
+                    ("{\"code\":" + code + ",\"msg\":\"secret account detail\"}")
+                            .getBytes(StandardCharsets.UTF_8)
+            );
         }
 
         private String url() {

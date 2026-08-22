@@ -162,6 +162,21 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
+    void proxyProviderDiagnosticFindsOnlySafeStatusAndBusinessCode() {
+        IllegalStateException provider = new IllegalStateException(
+                "Noon proxy provider unavailable: HTTP 400 CODE 205"
+        );
+        IllegalStateException command = new IllegalStateException(
+                "fresh Noon report URL unavailable", provider
+        );
+
+        assertEquals(
+                "PROXY_PROVIDER_HTTP_400_205",
+                NoonReportDownloadProbeSourceSupport.safeMessage(command)
+        );
+    }
+
+    @Test
     void isolatedProbeContextResolvesEveryFreshSourceDependency() {
         new ApplicationContextRunner()
                 .withUserConfiguration(ProbeDependencyGraph.class)

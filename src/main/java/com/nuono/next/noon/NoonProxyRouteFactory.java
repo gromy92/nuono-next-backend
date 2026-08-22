@@ -104,8 +104,8 @@ final class NoonProxyRouteFactory {
                     HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)
             );
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalStateException(
-                        "Noon proxy provider returned HTTP " + response.statusCode()
+                throw new ProviderUnavailableException(
+                        response.statusCode(), providerCode(response.body())
                 );
             }
             JsonNode root = objectMapper.readTree(response.body());
@@ -121,6 +121,8 @@ final class NoonProxyRouteFactory {
                     configuredProxyType(),
                     new InetSocketAddress(host, Integer.parseInt(portText))
             );
+        } catch (ProviderUnavailableException failure) {
+            throw failure;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Noon proxy provider request interrupted", exception);
@@ -130,6 +132,35 @@ final class NoonProxyRouteFactory {
                             + exception.getClass().getSimpleName(),
                     exception
             );
+        }
+    }
+
+    String providerCode(String body) {
+        try {
+            JsonNode code = objectMapper.readTree(body).path("code");
+            return code.isIntegralNumber() ? " CODE " + code.asLong() : "";
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    static final class ProviderUnavailableException extends IllegalStateException {
+        private final String evidenceCode;
+        private final boolean retryable;
+
+        ProviderUnavailableException(int httpStatus, String numericCode) {
+            super("Noon proxy provider unavailable: HTTP " + httpStatus + numericCode);
+            this.evidenceCode = ("PROVIDER_HTTP_" + httpStatus + numericCode)
+                    .replace(" CODE ", "_");
+            this.retryable = httpStatus >= 500;
+        }
+
+        String evidenceCode() {
+            return evidenceCode;
+        }
+
+        boolean retryable() {
+            return retryable;
         }
     }
 

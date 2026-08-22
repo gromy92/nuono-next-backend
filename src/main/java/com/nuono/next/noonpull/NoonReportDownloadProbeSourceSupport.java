@@ -127,11 +127,26 @@ final class NoonReportDownloadProbeSourceSupport {
     }
 
     static String safeMessage(Throwable failure) {
-        if (failure instanceof NoSuchBeanDefinitionException) {
-            Class<?> missing = ((NoSuchBeanDefinitionException) failure).getBeanType();
-            if (missing != null) {
-                return "NoSuchBeanDefinitionException." + missing.getSimpleName();
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof NoSuchBeanDefinitionException) {
+                Class<?> missing = ((NoSuchBeanDefinitionException) current).getBeanType();
+                if (missing != null) {
+                    return "NoSuchBeanDefinitionException." + missing.getSimpleName();
+                }
             }
+            String message = current.getMessage();
+            if (message != null && message.startsWith("Noon proxy provider unavailable: HTTP ")) {
+                String status = message.substring("Noon proxy provider unavailable: HTTP ".length())
+                        .replaceAll("[^0-9 ]", "")
+                        .trim()
+                        .replaceAll(" +", "_");
+                return status.isEmpty() ? "PROXY_PROVIDER_UNAVAILABLE"
+                        : "PROXY_PROVIDER_HTTP_" + status;
+            }
+            Throwable next = current.getCause();
+            if (next == current) break;
+            current = next;
         }
         String name = failure == null ? "unknown" : failure.getClass().getSimpleName();
         return name.replaceAll("[^A-Za-z0-9_.-]", "_");

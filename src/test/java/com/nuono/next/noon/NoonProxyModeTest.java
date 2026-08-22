@@ -1,6 +1,7 @@
 package com.nuono.next.noon;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -54,6 +55,28 @@ class NoonProxyModeTest {
         );
 
         assertTrue(failure.getMessage().contains("PROVIDER"));
+    }
+
+    @Test
+    void providerFailureKeepsOnlyNumericBusinessCode() {
+        NoonProxyRouteFactory factory = new NoonProxyRouteFactory(
+                new ObjectMapper(), true, "HTTP", "", 0, "http://provider.test"
+        );
+
+        assertEquals(" CODE 205", factory.providerCode(
+                "{\"code\":205,\"msg\":\"account detail must stay secret\"}"
+        ));
+        assertEquals("", factory.providerCode(
+                "{\"code\":\"credential-text-must-not-be-printed\"}"
+        ));
+        assertEquals("", factory.providerCode("not-json"));
+
+        NoonProxyRouteFactory.ProviderUnavailableException rejected =
+                new NoonProxyRouteFactory.ProviderUnavailableException(400, " CODE 205");
+        NoonProxyRouteFactory.ProviderUnavailableException unavailable =
+                new NoonProxyRouteFactory.ProviderUnavailableException(503, "");
+        assertFalse(rejected.retryable());
+        assertTrue(unavailable.retryable());
     }
 
     private NoonSessionGateway gateway(String proxyHost, int proxyPort, String providerUrl) {

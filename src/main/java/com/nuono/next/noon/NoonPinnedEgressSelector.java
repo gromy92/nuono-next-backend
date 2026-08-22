@@ -55,6 +55,20 @@ final class NoonPinnedEgressSelector {
                         projectCode, storeCode, failure.fingerprint(), failure.evidenceCode(), attempt, attempts
                 );
                 continue;
+            } catch (NoonProxyRouteFactory.ProviderUnavailableException failure) {
+                evidenceCodes.add(failure.evidenceCode());
+                if (failure.retryable() && attempt < attempts) {
+                    LOGGER.warn(
+                            "Noon egress provider selection failed project={} store={} stage={} attempt={}/{}",
+                            projectCode, storeCode, failure.evidenceCode(), attempt, attempts
+                    );
+                    continue;
+                }
+                LOGGER.warn(
+                        "Noon egress provider unavailable project={} store={} stage={} attempt={}/{}",
+                        projectCode, storeCode, failure.evidenceCode(), attempt, attempt
+                );
+                throw new NoonEgressUnavailableException(attempt, evidenceCodes);
             } catch (IllegalStateException failure) {
                 if (mode != NoonProxyMode.PROVIDER) {
                     throw failure;
