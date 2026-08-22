@@ -214,7 +214,6 @@ public final class NoonReportDownloadProbeSourceCommand {
     @Configuration(proxyBeanMethods = false)
     @Import({
             NoonPullStoreBindingResolver.class,
-            NoonSessionGatewayPullSessionFactory.class,
             com.nuono.next.noon.NoonSessionGateway.class
     })
     static class ProbeConfiguration {
@@ -242,6 +241,18 @@ public final class NoonReportDownloadProbeSourceCommand {
         @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper();
+        }
+
+        @Bean
+        JdbcTemplate jdbcTemplate(HikariDataSource dataSource) {
+            return new JdbcTemplate(dataSource);
+        }
+
+        @Bean
+        NoonPullGatewaySessionFactory noonPullGatewaySessionFactory(
+                com.nuono.next.noon.NoonSessionGateway gateway
+        ) {
+            return new NoonSessionGatewayPullSessionFactory(gateway);
         }
 
         @Bean
