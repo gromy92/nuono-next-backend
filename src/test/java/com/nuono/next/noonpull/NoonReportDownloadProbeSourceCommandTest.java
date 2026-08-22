@@ -14,6 +14,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
@@ -31,6 +32,7 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.annotation.Bean;
@@ -94,24 +96,31 @@ class NoonReportDownloadProbeSourceCommandTest {
         );
         NoonReportPullRequest request = NoonReportPullRequest.builder()
                 .ownerUserId(307L).storeCode("STR108065-NSA").siteCode("SA")
-                .dataDomain(NoonPullDataDomain.ORDER).reportType("ORDER")
-                .dateFrom(java.time.LocalDate.of(2026, 8, 19))
-                .dateTo(java.time.LocalDate.of(2026, 8, 19)).build();
+                .dataDomain(NoonPullDataDomain.SALES).reportType("RELEASE_PROBE").build();
         ObjectMapper json = new ObjectMapper();
-        ObjectNode response = json.createObjectNode().put("status", "Success");
-        response.putObject("export_attachment").put("url", PREFIX + "Expires=1787254201");
+        ObjectNode response = json.createObjectNode();
+        response.putObject("export")
+                .put("status_code", "COMPLETE")
+                .put("download_url", PREFIX + "Expires=1787254201");
         when(resolver.resolve(request)).thenReturn(binding);
         when(sessions.openOneShot(binding)).thenReturn(session);
-        when(session.postJsonOnce(anyString(), any(), eq(false), anyMap()))
+        when(session.postJsonOnce(anyString(), any(), eq(true), anyMap()))
                 .thenReturn(response);
 
         assertEquals(PREFIX + "Expires=1787254201",
-                NoonReportDownloadProbeSourceCommand.pollLatestOnce(
-                        json, resolver, sessions, "https://reports.noon.partners/latest", request
+                NoonReportDownloadProbeSourceCommand.pollExistingExportOnce(
+                        json, resolver, sessions, "https://noon-catalog.noon.partners/status",
+                        request, "EXP4CP4RTOQO"
                 ));
+        ArgumentCaptor<JsonNode> body = ArgumentCaptor.forClass(JsonNode.class);
         verify(sessions).openOneShot(binding);
         verify(sessions, never()).login(any());
-        verify(session).postJsonOnce(anyString(), any(), eq(false), anyMap());
+        verify(session).postJsonOnce(
+                eq("https://noon-catalog.noon.partners/status"),
+                body.capture(), eq(true), anyMap()
+        );
+        assertEquals("EXP4CP4RTOQO", body.getValue().path("exportCode").asText());
+        assertFalse(body.getValue().path("log").asBoolean(true));
     }
 
     @Test

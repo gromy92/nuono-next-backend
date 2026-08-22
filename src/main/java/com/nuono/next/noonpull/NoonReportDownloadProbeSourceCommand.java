@@ -4,12 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import org.apache.ibatis.session.SqlSessionFactory;
@@ -30,9 +30,7 @@ import org.springframework.util.StringUtils;
 /** Release-only command that obtains one fresh, secret report URL without starting schedulers. */
 public final class NoonReportDownloadProbeSourceCommand {
     private static final String COMMAND = "dp-report-download-probe-source";
-    private static final String DEFAULT_LATEST_URL =
-            "https://reports.noon.partners/_vs/mp/"
-                    + "mp-inventory-health-api-sales-dashboard/export/latest";
+    private static final String DEFAULT_STATUS_URL = NoonCatalogApiRoutes.EXPORT_STATUS;
     private NoonReportDownloadProbeSourceCommand() {
     }
 
@@ -83,31 +81,31 @@ public final class NoonReportDownloadProbeSourceCommand {
         NoonPullGatewaySessionFactory sessions =
                 context.getBean(NoonPullGatewaySessionFactory.class);
         Environment environment = context.getEnvironment();
-        String latestUrl = environment.getProperty(
-                "nuono.noon.pull.real-provider.sales-dashboard-export.latest-url",
-                DEFAULT_LATEST_URL
+        String statusUrl = environment.getProperty(
+                "nuono.noon.pull.real-provider.report.export-status-url",
+                DEFAULT_STATUS_URL
         );
         List<Scope> scopes = jdbc.query(
-                "SELECT owner_user_id, store_code, site_code, target_date_from, target_date_to "
+                "SELECT owner_user_id, store_code, site_code, report_export_id "
                         + "FROM noon_pull_task WHERE is_deleted=b'0' "
-                        + "AND pull_type='REPORT' AND target_date_from IS NOT NULL "
-                        + "AND target_date_to IS NOT NULL AND report_export_id IS NOT NULL "
-                        + "GROUP BY owner_user_id, store_code, site_code, "
-                        + "target_date_from, target_date_to "
-                        + "ORDER BY MAX(gmt_updated) DESC LIMIT 5",
+                        + "AND pull_type='REPORT' AND report_export_status='READY' "
+                        + "AND data_domain IN ('SALES','FINANCE_TRANSACTION') "
+                        + "AND report_export_id IS NOT NULL "
+                        + "GROUP BY owner_user_id, store_code, site_code, report_export_id "
+                        + "ORDER BY MAX(gmt_updated) DESC LIMIT 10",
                 (row, ignored) -> new Scope(
                         row.getLong("owner_user_id"),
                         row.getString("store_code"),
                         row.getString("site_code"),
-                        row.getDate("target_date_from").toLocalDate(),
-                        row.getDate("target_date_to").toLocalDate()
+                        row.getString("report_export_id")
                 )
         );
         RuntimeException lastFailure = null;
         for (Scope scope : scopes) {
             try {
-                String source = pollLatestOnce(
-                        json, resolver, sessions, latestUrl, scope.request()
+                String source = pollExistingExportOnce(
+                        json, resolver, sessions, statusUrl,
+                        scope.request(), scope.exportId
                 );
                 if (NoonReportDownloadProbeSourceSupport.freshNoonUrl(source, clock)) {
                     return source;
@@ -122,34 +120,34 @@ public final class NoonReportDownloadProbeSourceCommand {
         throw new IllegalStateException("fresh Noon report URL unavailable");
     }
 
-    static String pollLatestOnce(
+    static String pollExistingExportOnce(
             ObjectMapper json,
             NoonPullStoreBindingResolver resolver,
             NoonPullGatewaySessionFactory sessions,
-            String latestUrl,
-            NoonReportPullRequest request
+            String statusUrl,
+            NoonReportPullRequest request,
+            String exportId
     ) {
         NoonPullStoreBinding binding = resolver.resolve(request);
         ObjectNode body = json.createObjectNode();
-        body.put("country_code", binding.getSiteCode());
-        body.set("filters", json.createObjectNode());
-        body.put("search", "");
-        body.put("from_date", request.getDateFrom().toString());
-        body.put("to_date", request.getDateTo().toString());
+        body.put("exportCode", exportId);
+        body.put("log", false);
         String site = binding.getSiteCode().toLowerCase(java.util.Locale.ROOT);
         JsonNode root = sessions.openOneShot(binding).postJsonOnce(
-                latestUrl,
+                statusUrl,
                 body,
-                false,
+                true,
                 Map.of("X-Project", binding.getProjectCode(),
                         "X-Locale", "en-" + site, "X-Lang", "en")
         );
-        if (!"Success".equalsIgnoreCase(root.path("status").asText())) {
+        JsonNode export = root.path("export");
+        String status = export.path("status_code").asText();
+        if (!"COMPLETE".equalsIgnoreCase(status)
+                && !"COMPLETED".equalsIgnoreCase(status)) {
             return null;
         }
-        JsonNode attachment = root.path("export_attachment");
-        for (String name : List.of("url", "download_url", "downloadUrl")) {
-            String value = attachment.path(name).asText(null);
+        for (String name : List.of("download_url", "downloadUrl", "download")) {
+            String value = export.path(name).asText(null);
             if (StringUtils.hasText(value)) {
                 return value.trim();
             }
@@ -161,21 +159,18 @@ public final class NoonReportDownloadProbeSourceCommand {
         private final long ownerUserId;
         private final String storeCode;
         private final String siteCode;
-        private final LocalDate from;
-        private final LocalDate to;
+        private final String exportId;
 
         private Scope(
                 long ownerUserId,
                 String storeCode,
                 String siteCode,
-                LocalDate from,
-                LocalDate to
+                String exportId
         ) {
             this.ownerUserId = ownerUserId;
             this.storeCode = storeCode;
             this.siteCode = siteCode;
-            this.from = from;
-            this.to = to;
+            this.exportId = exportId;
         }
 
         NoonReportPullRequest request() {
@@ -183,10 +178,8 @@ public final class NoonReportDownloadProbeSourceCommand {
                     .ownerUserId(ownerUserId)
                     .storeCode(storeCode)
                     .siteCode(siteCode)
-                    .dataDomain(NoonPullDataDomain.ORDER)
-                    .reportType("ORDER")
-                    .dateFrom(from)
-                    .dateTo(to)
+                    .dataDomain(NoonPullDataDomain.SALES)
+                    .reportType("RELEASE_PROBE")
                     .build();
         }
     }
