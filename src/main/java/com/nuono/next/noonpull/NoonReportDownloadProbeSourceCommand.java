@@ -86,13 +86,25 @@ public final class NoonReportDownloadProbeSourceCommand {
                 DEFAULT_STATUS_URL
         );
         List<Scope> scopes = jdbc.query(
-                "SELECT owner_user_id, store_code, site_code, report_export_id "
-                        + "FROM noon_pull_task WHERE is_deleted=b'0' "
-                        + "AND pull_type='REPORT' AND report_export_status='READY' "
-                        + "AND data_domain IN ('SALES','FINANCE_TRANSACTION') "
-                        + "AND report_export_id IS NOT NULL "
-                        + "GROUP BY owner_user_id, store_code, site_code, report_export_id "
-                        + "ORDER BY MAX(gmt_updated) DESC LIMIT 10",
+                "SELECT owner_user_id, store_code, site_code, report_export_id FROM ("
+                        + "SELECT t.owner_user_id, t.store_code, t.site_code, "
+                        + "t.report_export_id, t.gmt_updated, "
+                        + "ROW_NUMBER() OVER (PARTITION BY t.owner_user_id, us.project_code "
+                        + "ORDER BY t.gmt_updated DESC, t.id DESC) AS scope_rank "
+                        + "FROM noon_pull_task t JOIN user_store us "
+                        + "ON us.user_id=t.owner_user_id "
+                        + "AND BINARY us.store_code=BINARY t.store_code "
+                        + "AND us.is_deleted=b'0' JOIN user_project up "
+                        + "ON up.user_id=t.owner_user_id "
+                        + "AND BINARY up.project_code=BINARY us.project_code "
+                        + "AND up.is_deleted=b'0' "
+                        + "WHERE t.is_deleted=b'0' AND t.pull_type='REPORT' "
+                        + "AND t.report_export_status='READY' "
+                        + "AND t.data_domain IN ('SALES','FINANCE_TRANSACTION') "
+                        + "AND NULLIF(t.report_export_id, '') IS NOT NULL "
+                        + "AND NULLIF(up.noon_partner_cookie, '') IS NOT NULL"
+                        + ") candidates WHERE scope_rank=1 "
+                        + "ORDER BY gmt_updated DESC LIMIT 10",
                 (row, ignored) -> new Scope(
                         row.getLong("owner_user_id"),
                         row.getString("store_code"),
