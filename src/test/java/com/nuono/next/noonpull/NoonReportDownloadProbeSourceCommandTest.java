@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -16,6 +17,8 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonSessionGateway;
+import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -28,6 +31,11 @@ import org.apache.ibatis.session.SqlSessionFactory;
 import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 class NoonReportDownloadProbeSourceCommandTest {
     @TempDir
@@ -124,6 +132,42 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
+    void exposesTheJdbcTemplateRequiredByFreshSourceResolution() {
+        com.zaxxer.hikari.HikariDataSource dataSource =
+                mock(com.zaxxer.hikari.HikariDataSource.class);
+
+        JdbcTemplate jdbc = new NoonReportDownloadProbeSourceCommand
+                .ProbeConfiguration().jdbcTemplate(dataSource);
+
+        assertEquals(dataSource, jdbc.getDataSource());
+    }
+
+    @Test
+    void missingDependencyDiagnosticNamesOnlyTheBeanType() {
+        assertEquals(
+                "NoSuchBeanDefinitionException.JdbcTemplate",
+                NoonReportDownloadProbeSourceSupport.safeMessage(
+                        new NoSuchBeanDefinitionException(JdbcTemplate.class)
+                )
+        );
+    }
+
+    @Test
+    void isolatedProbeContextResolvesEveryFreshSourceDependency() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(ProbeDependencyGraph.class)
+                .withInitializer(context ->
+                        context.getEnvironment().setActiveProfiles("local-db"))
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context).hasSingleBean(JdbcTemplate.class);
+                    assertThat(context).hasSingleBean(ObjectMapper.class);
+                    assertThat(context).hasSingleBean(NoonPullStoreBindingResolver.class);
+                    assertThat(context).hasSingleBean(NoonPullGatewaySessionFactory.class);
+                });
+    }
+
+    @Test
     void rejectsDuplicateEnvironmentAndCreatesANewOwnerOnlySourceFile() throws Exception {
         Path env = directory.resolve("duplicate.env");
         Files.writeString(env, "NUONO_NEXT_DB_URL=first\nNUONO_NEXT_DB_URL=second\n");
@@ -138,5 +182,41 @@ class NoonReportDownloadProbeSourceCommandTest {
         ));
         assertThrows(IllegalArgumentException.class,
                 () -> NoonReportDownloadProbeSourceSupport.writeSecret(source, "replacement"));
+    }
+
+    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
+    @Import({
+            NoonPullStoreBindingResolver.class,
+            NoonSessionGateway.class
+    })
+    static class ProbeDependencyGraph {
+        @Bean
+        HikariDataSource dataSource() {
+            return mock(HikariDataSource.class);
+        }
+
+        @Bean
+        StoreSyncMapper storeSyncMapper() {
+            return mock(StoreSyncMapper.class);
+        }
+
+        @Bean
+        ObjectMapper objectMapper() {
+            return new ObjectMapper();
+        }
+
+        @Bean
+        JdbcTemplate jdbcTemplate(HikariDataSource dataSource) {
+            return new NoonReportDownloadProbeSourceCommand.ProbeConfiguration()
+                    .jdbcTemplate(dataSource);
+        }
+
+        @Bean
+        NoonPullGatewaySessionFactory noonPullGatewaySessionFactory(
+                NoonSessionGateway gateway
+        ) {
+            return new NoonReportDownloadProbeSourceCommand.ProbeConfiguration()
+                    .noonPullGatewaySessionFactory(gateway);
+        }
     }
 }

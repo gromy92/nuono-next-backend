@@ -14,6 +14,7 @@ import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.util.StringUtils;
 
 /** Strict secret-file, environment, and expiry rules for the ephemeral report probe source. */
@@ -126,6 +127,12 @@ final class NoonReportDownloadProbeSourceSupport {
     }
 
     static String safeMessage(Throwable failure) {
+        if (failure instanceof NoSuchBeanDefinitionException) {
+            Class<?> missing = ((NoSuchBeanDefinitionException) failure).getBeanType();
+            if (missing != null) {
+                return "NoSuchBeanDefinitionException." + missing.getSimpleName();
+            }
+        }
         String name = failure == null ? "unknown" : failure.getClass().getSimpleName();
         return name.replaceAll("[^A-Za-z0-9_.-]", "_");
     }
