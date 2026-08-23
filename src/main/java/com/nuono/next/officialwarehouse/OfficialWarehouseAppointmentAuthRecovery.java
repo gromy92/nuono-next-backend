@@ -15,7 +15,7 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 public class OfficialWarehouseAppointmentAuthRecovery {
-    private static final int RETRY_SECONDS = 60;
+    private static final int RETRY_SECONDS = 5;
     private static final String ERROR_STAGE = "AUTH_RECOVERY";
     private static final String FAILURE_TYPE = "AUTH_RECOVERY_PENDING";
 

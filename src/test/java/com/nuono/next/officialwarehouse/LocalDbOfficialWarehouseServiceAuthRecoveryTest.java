@@ -85,7 +85,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 eq(308L),
                 eq(611402L),
                 eq(1L),
-                eq(60),
+                eq(5),
                 eq("AUTH_RECOVERY"),
                 eq("AUTH_RECOVERY_PENDING"),
                 contains("恢复后将自动继续原约仓"),
@@ -108,7 +108,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
                 eq(308L),
                 eq(611402L),
                 eq(1L),
-                eq(60),
+                eq(5),
                 eq("AUTH_RECOVERY"),
                 eq("AUTH_RECOVERY_PENDING"),
                 contains("恢复后将自动继续原约仓"),
@@ -117,7 +117,7 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
     }
 
     @Test
-    void projectAccessMismatchDoesNotQueueAutomaticRecovery() {
+    void projectAccessMismatchBeforeTheAppointmentDeadlineStaysPending() {
         when(sessionGateway.loginWithPersistedCookiePinnedEgress(
                 any(), any(), any(), any(), any(), any(), anyInt()
         )).thenThrow(new IllegalStateException(
@@ -127,10 +127,11 @@ class LocalDbOfficialWarehouseServiceAuthRecoveryTest {
         service.runAppointmentOnce(access(), "611402");
 
         verify(recoveryQueue, never()).enqueue(any());
-        verify(mapper).markAppointmentFailed(
+        verify(mapper).markAppointmentPendingRetry(
                 eq(308L),
                 eq(611402L),
                 eq(1L),
+                eq(5),
                 eq("NOON_CALL"),
                 eq("IllegalStateException"),
                 contains("does not contain current project"),

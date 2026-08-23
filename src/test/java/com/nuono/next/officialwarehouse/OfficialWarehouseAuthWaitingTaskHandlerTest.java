@@ -31,9 +31,9 @@ class OfficialWarehouseAuthWaitingTaskHandlerTest {
     }
 
     @Test
-    void failedAuthorizationLeavesTheAppointmentForManualReview() {
+    void failedAuthorizationKeepsTheAppointmentWaitingUntilItsWindowExpires() {
         NoonAuthRecoveryItemRecord item = item();
-        when(mapper.failAuthorizationRecovery(
+        when(mapper.deferAuthorizationRecovery(
                 603L,
                 993L,
                 NoonAuthRecoveryStatus.RECOVERING_PULLS,
@@ -66,4 +66,3 @@ class OfficialWarehouseAuthWaitingTaskHandlerTest {
         return item;
     }
 }
-
