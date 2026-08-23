@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.noon.NoonAuthenticationRequiredException;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noonpull.NoonInterfacePullRequest;
 import com.nuono.next.noonpull.NoonPullDataDomain;
 import com.nuono.next.noonpull.NoonPullGatewaySession;
@@ -810,8 +811,8 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 ProductListingImageDownload download = imageDownloader.download(sourceImage.trim());
                 providerCallStarted = true;
                 JsonNode response = ProductListingNoonCallGuard.requireAuthorized(session.postMultipartFile(
-                        imageUploadUrl(endpoints.getUploadImageUrl()),
-                        "file",
+                        NoonAssetUploadContract.URL,
+                        NoonAssetUploadContract.FILE_FIELD,
                         uploadFileName(download),
                         uploadContentType(download),
                         download.content,
@@ -822,16 +823,7 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
                 if (StringUtils.hasText(failureMessage)) {
                     throw new IllegalStateException(failureMessage);
                 }
-                String uploadPath = firstNonBlank(
-                        text(response, "upload_path"),
-                        text(response, "uploadPath"),
-                        text(response, "path"),
-                        text(response, "url")
-                );
-                if (!StringUtils.hasText(uploadPath)) {
-                    throw new IllegalStateException("Noon image upload response missing upload_path.");
-                }
-                uploadedPaths.add(uploadPath);
+                uploadedPaths.add(NoonAssetUploadContract.requireUploadPath(response));
             }
             step.setStatus("succeeded");
             step.setExternalReference(uploadedImagesReference(uploadedPaths));
@@ -849,12 +841,6 @@ public class RealProductListingNoonWriteAdapter implements ProductListingNoonWri
             steps.add(step);
             throw exception;
         }
-    }
-
-    private String imageUploadUrl(String baseUrl) {
-        return StringUtils.hasText(baseUrl)
-                ? baseUrl.trim()
-                : ProductListingRealWriteProperties.Endpoints.DEFAULT_UPLOAD_IMAGE_URL;
     }
 
     private String uploadFileName(ProductListingImageDownload download) {

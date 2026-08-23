@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.io.IOException;
@@ -14,8 +15,6 @@ import org.springframework.util.StringUtils;
 
 final class ProductPublishLocalImageAssetResolver {
 
-    private static final String NOON_ASSET_UPLOAD_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
     private static final String LOCAL_PRODUCT_IMAGE_ASSET_PREFIX = "/api/product-master/image-assets/";
     private static final int MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -83,24 +82,15 @@ final class ProductPublishLocalImageAssetResolver {
         try {
             JsonNode response = productNoonAdapter.postMultipartFile(
                     session,
-                    NOON_ASSET_UPLOAD_URL,
-                    "file",
+                    NoonAssetUploadContract.URL,
+                    NoonAssetUploadContract.FILE_FIELD,
                     uploadFileName(image),
                     uploadContentType(image),
                     image.content,
                     true,
                     null
             );
-            String uploadPath = firstNonBlank(
-                    jsonText(response, "upload_path"),
-                    jsonText(response, "uploadPath"),
-                    jsonText(response, "path"),
-                    jsonText(response, "url")
-            );
-            if (!StringUtils.hasText(uploadPath)) {
-                throw new IllegalStateException("Noon 图片上传响应缺少 upload_path。");
-            }
-            return uploadPath;
+            return NoonAssetUploadContract.requireUploadPath(response);
         } catch (ProductWriteAuthRequiredException exception) {
             throw exception;
         } catch (ProductPublishWriteOutcomeUnknownException exception) {
@@ -183,18 +173,6 @@ final class ProductPublishLocalImageAssetResolver {
         return "png".equals(supportedUploadFileType(image)) ? "image/png" : "image/jpeg";
     }
 
-    private String jsonText(JsonNode node, String fieldName) {
-        if (node == null || !StringUtils.hasText(fieldName)) {
-            return null;
-        }
-        JsonNode value = node.get(fieldName);
-        if (value == null || value.isNull()) {
-            return null;
-        }
-        String text = value.isTextual() ? value.asText() : value.toString();
-        return StringUtils.hasText(text) ? text.trim() : null;
-    }
-
     private String stripKnownImageExtension(String fileName) {
         String normalized = textValue(fileName);
         String lower = normalized.toLowerCase(Locale.ROOT);
@@ -242,18 +220,6 @@ final class ProductPublishLocalImageAssetResolver {
         }
         String text = String.valueOf(value).trim();
         return StringUtils.hasText(text) ? text : null;
-    }
-
-    private String firstNonBlank(String... values) {
-        if (values == null) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value;
-            }
-        }
-        return null;
     }
 
     private static final class ProductImageAssetContent {
