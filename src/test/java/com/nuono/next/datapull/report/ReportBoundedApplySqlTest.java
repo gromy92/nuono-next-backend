@@ -49,6 +49,44 @@ class ReportBoundedApplySqlTest {
     }
 
     @Test
+    void legacyFactProofsKeepNaturalKeyColumnsIndexable() {
+        for (String methodName : List.of(
+                "countAppliedSalesFacts",
+                "countAppliedOrderFacts",
+                "countAppliedFinanceFacts"
+        )) {
+            assertThat(selectSql(LegacyReportFactBulkMapper.class, methodName))
+                    .as(methodName)
+                    .doesNotContain("BINARY target.");
+        }
+        assertThat(selectSql(LegacyReportFactBulkMapper.class, "countAppliedSalesFacts"))
+                .contains(
+                        "target.source_system='noon_productviewsandsalesdata'",
+                        "target.owner_user_id=fact.ownerUserId",
+                        "target.store_code=fact.storeCode",
+                        "target.site_code=fact.siteCode",
+                        "target.fact_date=fact.salesDate",
+                        "target.partner_sku=fact.skuParent",
+                        "target.sku=fact.sku"
+                );
+        assertThat(selectSql(LegacyReportFactBulkMapper.class, "countAppliedOrderFacts"))
+                .contains(
+                        "target.source_system='noon_order_report'",
+                        "target.id_partner=fact.idPartner",
+                        "target.country_code=fact.countryCode",
+                        "target.item_nr=fact.orderLineIdentity"
+                );
+        assertThat(selectSql(LegacyReportFactBulkMapper.class, "countAppliedFinanceFacts"))
+                .contains(
+                        "target.source_system='noon_finance_transaction_report'",
+                        "target.owner_user_id=fact.ownerUserId",
+                        "target.store_code=fact.storeCode",
+                        "target.site_code=fact.siteCode",
+                        "target.row_hash=fact.rowHash"
+                );
+    }
+
+    @Test
     void dp07bUsesBoundedSourceOnlyWritesAndExistingReceiptStatuses() throws Exception {
         for (String sql : List.of(
                 FbnReportApplySql.insertReportRows(),
