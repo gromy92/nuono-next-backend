@@ -193,6 +193,7 @@ require_legacy_cutover_empty
 start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
 NEW_PID="$(wait_for_unique_target_jvm)"
 wait_for_health "$TARGET_PORT"
+wait_for_dp_runtime_health
 assert_target_release_ready
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 verify_dp10_probe_state

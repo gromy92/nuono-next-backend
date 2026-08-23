@@ -23,6 +23,16 @@ PY
 )" || { printf UNAVAILABLE; return 0; }
   printf '%s' "$status"
 }
+wait_for_dp_runtime_health() {
+  local attempt=""
+  for attempt in {1..30}; do
+    if [ "$(dp_runtime_health_status)" = UP ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
 assert_target_release_ready() {
   [ "$(health_status "$TARGET_PORT")" = UP ] &&
     assert_target_runtime_identity &&
