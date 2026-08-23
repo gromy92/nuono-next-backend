@@ -49,25 +49,6 @@ public class NoonSessionGatewayPullSessionFactory implements NoonPullGatewaySess
         return new GatewaySessionAdapter(session);
     }
 
-    @Override
-    public NoonPullGatewaySession openPinnedReadOnly(
-            NoonPullStoreBinding binding,
-            String targetHost,
-            int targetPort
-    ) {
-        requireProjectAvailable(binding);
-        NoonSession session = noonSessionGateway.loginWithPersistedCookiePinnedEgress(
-                binding.getOwnerUserId(),
-                binding.getSessionProjectUser(),
-                binding.getPersistedCookie(),
-                binding.getProjectCode(),
-                binding.getStoreCode(),
-                targetHost,
-                targetPort
-        );
-        return new GatewaySessionAdapter(session);
-    }
-
     @Autowired(required = false)
     void setAccountSessionAttention(NoonAccountSessionAttentionPort accountSessionAttention) {
         this.accountSessionAttention = accountSessionAttention;

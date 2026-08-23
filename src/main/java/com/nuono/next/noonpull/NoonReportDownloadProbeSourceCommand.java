@@ -2,25 +2,19 @@ package com.nuono.next.noonpull;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
 import com.nuono.next.noon.NoonCatalogApiRoutes;
+import com.nuono.next.noon.NoonReportStatusProbeTransport;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
-import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.mybatis.spring.SqlSessionFactoryBean;
-import org.mybatis.spring.mapper.MapperFactoryBean;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.env.Environment;
 import org.springframework.core.env.MapPropertySource;
@@ -76,20 +70,19 @@ public final class NoonReportDownloadProbeSourceCommand {
 
     static String resolveFreshSource(ConfigurableApplicationContext context, Clock clock) {
         JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-        ObjectMapper json = context.getBean(ObjectMapper.class);
-        NoonPullStoreBindingResolver resolver =
-                context.getBean(NoonPullStoreBindingResolver.class);
-        NoonPullGatewaySessionFactory sessions =
-                context.getBean(NoonPullGatewaySessionFactory.class);
+        NoonReportStatusProbeTransport transport =
+                context.getBean(NoonReportStatusProbeTransport.class);
         Environment environment = context.getEnvironment();
         String statusUrl = environment.getProperty(
-                "nuono.noon.pull.real-provider.report.export-status-url",
+                "NUONO_NOON_PULL_REAL_PROVIDER_REPORT_EXPORT_STATUS_URL",
                 DEFAULT_STATUS_URL
         );
         List<Scope> scopes = jdbc.query(
-                "SELECT owner_user_id, store_code, site_code, report_export_id FROM ("
+                "SELECT store_code, site_code, project_code, "
+                        + "report_export_id, noon_partner_cookie FROM ("
                         + "SELECT t.owner_user_id, t.store_code, t.site_code, "
-                        + "t.report_export_id, t.gmt_updated, "
+                        + "us.project_code, t.report_export_id, up.noon_partner_cookie, "
+                        + "t.gmt_updated, "
                         + "ROW_NUMBER() OVER (PARTITION BY t.owner_user_id, us.project_code "
                         + "ORDER BY t.gmt_updated DESC, t.id DESC) AS scope_rank "
                         + "FROM noon_pull_task t JOIN user_store us "
@@ -107,18 +100,20 @@ public final class NoonReportDownloadProbeSourceCommand {
                         + ") candidates WHERE scope_rank=1 "
                         + "ORDER BY gmt_updated DESC LIMIT 10",
                 (row, ignored) -> new Scope(
-                        row.getLong("owner_user_id"),
                         row.getString("store_code"),
                         row.getString("site_code"),
-                        row.getString("report_export_id")
+                        row.getString("project_code"),
+                        row.getString("report_export_id"),
+                        row.getString("noon_partner_cookie")
                 )
         );
         RuntimeException lastFailure = null;
         for (Scope scope : scopes) {
             try {
                 String source = pollExistingExportOnce(
-                        json, resolver, sessions, statusUrl,
-                        scope.request(), scope.exportId
+                        transport, statusUrl,
+                        scope.projectCode, scope.storeCode, scope.siteCode,
+                        scope.exportId, scope.persistedCookie
                 );
                 if (NoonReportDownloadProbeSourceSupport.freshNoonUrl(source, clock)) {
                     return source;
@@ -134,34 +129,21 @@ public final class NoonReportDownloadProbeSourceCommand {
     }
 
     static String pollExistingExportOnce(
-            ObjectMapper json,
-            NoonPullStoreBindingResolver resolver,
-            NoonPullGatewaySessionFactory sessions,
+            NoonReportStatusProbeTransport transport,
             String statusUrl,
-            NoonReportPullRequest request,
-            String exportId
+            String projectCode,
+            String storeCode,
+            String siteCode,
+            String exportId,
+            String persistedCookie
     ) {
-        NoonPullStoreBinding binding = resolver.resolve(request);
-        ObjectNode body = json.createObjectNode();
-        body.put("exportCode", exportId);
-        body.put("log", false);
-        String site = binding.getSiteCode().toLowerCase(java.util.Locale.ROOT);
-        URI endpoint = URI.create(statusUrl);
-        String targetHost = endpoint.getHost();
-        int targetPort = endpoint.getPort() > 0
-                ? endpoint.getPort()
-                : "https".equalsIgnoreCase(endpoint.getScheme()) ? 443 : 80;
-        if (!StringUtils.hasText(targetHost)) {
-            throw new IllegalArgumentException("report status endpoint host is missing");
-        }
-        JsonNode root = sessions.openPinnedReadOnly(
-                binding, targetHost, targetPort
-        ).postJsonOnce(
+        JsonNode root = transport.poll(
                 statusUrl,
-                body,
-                true,
-                Map.of("X-Project", binding.getProjectCode(),
-                        "X-Locale", "en-" + site, "X-Lang", "en")
+                projectCode,
+                storeCode,
+                siteCode,
+                exportId,
+                persistedCookie
         );
         JsonNode export = root.path("export");
         String status = export.path("status_code").asText();
@@ -179,31 +161,24 @@ public final class NoonReportDownloadProbeSourceCommand {
     }
 
     private static final class Scope {
-        private final long ownerUserId;
         private final String storeCode;
         private final String siteCode;
+        private final String projectCode;
         private final String exportId;
+        private final String persistedCookie;
 
         private Scope(
-                long ownerUserId,
                 String storeCode,
                 String siteCode,
-                String exportId
+                String projectCode,
+                String exportId,
+                String persistedCookie
         ) {
-            this.ownerUserId = ownerUserId;
             this.storeCode = storeCode;
             this.siteCode = siteCode;
+            this.projectCode = projectCode;
             this.exportId = exportId;
-        }
-
-        NoonReportPullRequest request() {
-            return NoonReportPullRequest.builder()
-                    .ownerUserId(ownerUserId)
-                    .storeCode(storeCode)
-                    .siteCode(siteCode)
-                    .dataDomain(NoonPullDataDomain.SALES)
-                    .reportType("RELEASE_PROBE")
-                    .build();
+            this.persistedCookie = persistedCookie;
         }
     }
 
@@ -228,10 +203,6 @@ public final class NoonReportDownloadProbeSourceCommand {
     }
 
     @Configuration(proxyBeanMethods = false)
-    @Import({
-            NoonPullStoreBindingResolver.class,
-            com.nuono.next.noon.NoonSessionGateway.class
-    })
     static class ProbeConfiguration {
         @Bean(destroyMethod = "close")
         HikariDataSource dataSource(Environment environment) {
@@ -248,13 +219,6 @@ public final class NoonReportDownloadProbeSourceCommand {
         }
 
         @Bean
-        SqlSessionFactory sqlSessionFactory(HikariDataSource dataSource) throws Exception {
-            SqlSessionFactoryBean factory = new SqlSessionFactoryBean();
-            factory.setDataSource(dataSource);
-            return factory.getObject();
-        }
-
-        @Bean
         ObjectMapper objectMapper() {
             return new ObjectMapper();
         }
@@ -265,21 +229,22 @@ public final class NoonReportDownloadProbeSourceCommand {
         }
 
         @Bean
-        NoonPullGatewaySessionFactory noonPullGatewaySessionFactory(
-                com.nuono.next.noon.NoonSessionGateway gateway
+        NoonReportStatusProbeTransport reportStatusProbeTransport(
+                ObjectMapper json,
+                Environment environment
         ) {
-            return new NoonSessionGatewayPullSessionFactory(gateway);
-        }
-
-        @Bean
-        StoreSyncMapper storeSyncMapper(
-                SqlSessionFactory sqlSessionFactory
-        ) throws Exception {
-            MapperFactoryBean<StoreSyncMapper> mapper =
-                    new MapperFactoryBean<>(StoreSyncMapper.class);
-            mapper.setSqlSessionFactory(sqlSessionFactory);
-            mapper.afterPropertiesSet();
-            return mapper.getObject();
+            return new NoonReportStatusProbeTransport(
+                    json,
+                    Boolean.parseBoolean(environment.getProperty(
+                            "NUONO_NOON_PROXY_ENABLED", "false")),
+                    environment.getProperty("NUONO_NOON_PROXY_TYPE", "HTTP"),
+                    environment.getProperty("NUONO_NOON_PROXY_HOST", ""),
+                    environment.getProperty("NUONO_NOON_PROXY_PORT", Integer.class, 0),
+                    environment.getProperty("NUONO_NOON_PROXY_PROVIDER_URL", ""),
+                    environment.getProperty("NUONO_NOON_PROXY_MODE", "AUTO"),
+                    environment.getProperty("NUONO_NOON_USER_AGENT", ""),
+                    environment.getProperty("NUONO_NOON_ACCEPT_LANGUAGE", "")
+            );
         }
 
         private static String required(Environment environment, String name) {
