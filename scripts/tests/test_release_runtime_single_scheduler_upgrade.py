@@ -52,6 +52,9 @@ class ReleaseRuntimeSingleSchedulerUpgradeTest(unittest.TestCase):
         self.assertIn("run_dp10_openapi_probe", execution)
         self.assertIn("persist_dp10_probe_for_target", execution)
         self.assertIn("prepare_dp10_probe_runtime_environment", execution)
+        self.assertIn("NUONO_DP10_OPEN_API_EXECUTION_EXPECTED_COMMIT=%s", script)
+        self.assertIn("NUONO_DP_RUNTIME_RELEASE_SCHEMA_BINDING_SHA256=%s", script)
+        self.assertIn("NUONO_DP_RUNTIME_RELEASE_CUTOVER_BINDING_SHA256=%s", script)
         self.assertNotIn("prepare_legacy_base_env", execution)
 
     def test_script_is_valid_bash_and_preserves_existing_dp_data(self):
