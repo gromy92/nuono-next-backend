@@ -86,12 +86,9 @@ class ProductImageNoonPublisherTest {
 
     @Test
     void shouldRejectMoreThanTwentyImagesBeforeLoadingStoreOrCallingProvider() {
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
-        List<String> imageUrls = IntStream.rangeClosed(
-                        1,
-                        ProductImagePublishCheckpoint.MAX_IMAGES + 1
-                )
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        List<String> imageUrls = IntStream
+                .rangeClosed(1, ProductImagePublishCheckpoint.MAX_IMAGES + 1)
                 .mapToObj(index -> "/api/product-images/assets/STR108065-NAE/image-" + index + ".png")
                 .collect(Collectors.toList());
 
@@ -173,8 +170,7 @@ class ProductImageNoonPublisherTest {
                 + "\"sha256\":\"" + sha256(new byte[] {1, 2, 3}) + "\","
                 + "\"noonUrl\":\"https://noon.example/image-1.png\"}]}";
         List<String> savedCheckpoints = new ArrayList<>();
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
 
         List<String> result = publisher.publish(
                 307L,
@@ -216,8 +212,7 @@ class ProductImageNoonPublisherTest {
                 + "\"localImageUrl\":\"" + firstUrl + "\","
                 + "\"sha256\":\"" + sha256(new byte[] {1, 2, 3}) + "\","
                 + "\"noonUrl\":\"https://noon.example/image-1.png\"}]}";
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
 
         List<String> result = publisher.publish(
                 307L,
