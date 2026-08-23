@@ -210,9 +210,10 @@ public final class ScheduleReconciler implements DataPullRuntimeReconciler {
 
     private static void logFailure(OperationCode operation, RuntimeException failure) {
         LOGGER.error(
-                "DP schedule reconciliation failed: operation={}, failure={}",
+                "DP schedule reconciliation failed: operation={}, failure={}, location={}",
                 operation,
-                failureSignature(failure)
+                failureSignature(failure),
+                failureLocation(failure)
         );
     }
 
@@ -232,6 +233,24 @@ public final class ScheduleReconciler implements DataPullRuntimeReconciler {
             current = current.getCause();
         }
         return String.join(">", types);
+    }
+
+    static String failureLocation(Throwable failure) {
+        Set<Throwable> seen = new HashSet<>();
+        Throwable current = Objects.requireNonNull(failure, "failure");
+        while (current != null && seen.add(current)) {
+            for (StackTraceElement frame : current.getStackTrace()) {
+                String className = frame.getClassName();
+                if (!className.startsWith("com.nuono.next.datapull.schedule.")) continue;
+                String simpleClass = className.substring(className.lastIndexOf('.') + 1);
+                String method = frame.getMethodName();
+                if (!simpleClass.matches("[A-Za-z0-9_$]+")
+                        || !method.matches("[A-Za-z0-9_$]+")) continue;
+                return simpleClass + "#" + method + ":" + Math.max(frame.getLineNumber(), 0);
+            }
+            current = current.getCause();
+        }
+        return "UNAVAILABLE";
     }
 
     @FunctionalInterface
