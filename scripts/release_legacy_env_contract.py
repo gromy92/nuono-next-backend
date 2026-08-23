@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed LEGACY environment filtering for governed backend cutovers."""
+"""Fail-closed environment preservation for governed backend cutovers."""
 from __future__ import annotations
 
 
@@ -23,10 +23,10 @@ for raw in open(sys.argv[1], encoding="utf-8"):
     values.append(value)
 if not values:
     print("LEGACY_DEFAULT", end="")
-elif values == ["LEGACY"]:
-    print("LEGACY", end="")
+elif values in (["LEGACY"], ["RUNTIME"]):
+    print(values[0], end="")
 else:
-    raise SystemExit("runtime env is not unambiguously LEGACY")
+    raise SystemExit("runtime env mode is ambiguous or unsupported")
 PY
 }
 legacy_process_mode() {
@@ -40,16 +40,16 @@ values = [item.split(b"=", 1)[1].decode() for item in
           if item.startswith(b"NUONO_DATA_PULL_EXECUTION_MODE=")]
 if not values:
     print("LEGACY_DEFAULT", end="")
-elif values == ["LEGACY"]:
-    print("LEGACY", end="")
+elif values in (["LEGACY"], ["RUNTIME"]):
+    print(values[0], end="")
 else:
-    raise SystemExit("runtime process is not unambiguously LEGACY")
+    raise SystemExit("runtime process mode is ambiguous or unsupported")
 PY
 }
 legacy_env_contract() {
-  python3 - "$1" "$2" <<'PY' || return 1
+  python3 - "$1" "$2" "$EXPECTED_DP_EXECUTION_MODE" <<'PY' || return 1
 import re, sys
-path, policy = sys.argv[1:]
+path, policy, expected_mode = sys.argv[1:]
 allowed = {
     "NUONO_DP10_OPEN_API_PROBE_CANARY_OWNER_USER_ID",
     "NUONO_DP10_OPEN_API_PROBE_CANARY_PROVIDER_ACCOUNT_ID",
@@ -66,14 +66,15 @@ for raw in open(path, encoding="utf-8"):
     key = match.group(1)
     if key in allowed:
         counts[key] += 1
-        if policy != "source":
+        if policy != "source" and expected_mode != "RUNTIME":
             raise SystemExit("LEGACY target contains a DP10 canary")
     elif (key.startswith("NUONO_DP10_") or key.startswith("NUONO_DP_RUNTIME_")
-          or key in {"NUONO_MANAGED_DP_RELEASE", "NUONO_DATA_PULL_RUNTIME_ENABLED"}):
+          or key in {"NUONO_MANAGED_DP_RELEASE", "NUONO_DATA_PULL_RUNTIME_ENABLED"}) \
+          and expected_mode != "RUNTIME":
         raise SystemExit("LEGACY environment contains a runtime-only key")
 if policy not in {"source", "target"}:
     raise SystemExit("LEGACY environment policy invalid")
-if policy == "source" and sorted(counts.values()) not in ([0, 0], [1, 1]):
+if sorted(counts.values()) not in ([0, 0], [1, 1]):
     raise SystemExit("LEGACY source DP10 canary pair is partial or duplicated")
 PY
   [ "$(legacy_env_mode "$1")" = "$EXPECTED_DP_EXECUTION_MODE" ]
@@ -82,11 +83,12 @@ assert_legacy_source_env_contract() { legacy_env_contract "$1" source; }
 assert_legacy_target_env_contract() { legacy_env_contract "$1" target; }
 prepare_legacy_base_env() {
   local result=""
-  result="$(python3 - "$1" "$2" "$3" <<'PY'
+  result="$(python3 - "$1" "$2" "$3" "$EXPECTED_DP_EXECUTION_MODE" <<'PY'
 import hashlib, os, pathlib, re, stat, sys
 source = pathlib.Path(sys.argv[1])
 expected_sha = sys.argv[2]
 target = pathlib.Path(sys.argv[3])
+expected_mode = sys.argv[4]
 read_flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
 write_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW
 allowed = {
@@ -118,7 +120,8 @@ for line in text.splitlines(keepends=True):
     key = match.group(1) if match else None
     if key in allowed:
         counts[key] += 1
-        continue
+        if expected_mode != "RUNTIME":
+            continue
     kept.append(line)
 if sorted(counts.values()) not in ([0, 0], [1, 1]):
     raise SystemExit("LEGACY source DP10 canary pair is partial or duplicated")
@@ -141,7 +144,10 @@ try:
 finally:
     os.close(output)
 digest = hashlib.sha256(payload).hexdigest()
-disposition = "STRIPPED_EXACT_DP10_CANARY_PAIR" if counts[next(iter(allowed))] else "NO_DP10_CANARY"
+if expected_mode == "RUNTIME":
+    disposition = "PRESERVED_RUNTIME_ENVIRONMENT"
+else:
+    disposition = "STRIPPED_EXACT_DP10_CANARY_PAIR" if counts[next(iter(allowed))] else "NO_DP10_CANARY"
 print(digest, disposition)
 PY
 )"
@@ -149,7 +155,8 @@ PY
   LEGACY_CANARY_DISPOSITION="${result#* }"
   [[ "$LEGACY_BASE_ENV_SHA256" =~ ^[0-9a-f]{64}$ ]]
   [ "$LEGACY_CANARY_DISPOSITION" = NO_DP10_CANARY ] ||
-    [ "$LEGACY_CANARY_DISPOSITION" = STRIPPED_EXACT_DP10_CANARY_PAIR ]
+    [ "$LEGACY_CANARY_DISPOSITION" = STRIPPED_EXACT_DP10_CANARY_PAIR ] ||
+    [ "$LEGACY_CANARY_DISPOSITION" = PRESERVED_RUNTIME_ENVIRONMENT ]
 }
 '''
 

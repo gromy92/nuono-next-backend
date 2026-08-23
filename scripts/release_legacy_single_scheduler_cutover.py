@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a single-scheduler backend cutover that preserves DP LEGACY mode."""
+"""Generate a single-scheduler backend cutover that preserves an active DP mode."""
 from __future__ import annotations
 import shlex
 from urllib.parse import urlsplit
@@ -10,6 +10,7 @@ from release_nginx_upstream import build_nginx_upstream_shell
 from release_predecessor_rollback import build_predecessor_rollback_shell
 from release_secure_slot_files import build_secure_file_shell
 LEGACY_EXECUTION_MODES = frozenset({"LEGACY", "LEGACY_DEFAULT"})
+RUNTIME_EXECUTION_MODE = "RUNTIME"
 def _q(value: str | int) -> str:
     return shlex.quote(str(value))
 def _validated_external_health_url(value: str) -> str:
@@ -51,6 +52,58 @@ def build_legacy_single_scheduler_cutover_script(
 ) -> str:
     if expected_dp_execution_mode not in LEGACY_EXECUTION_MODES:
         raise ValueError("LEGACY-preserving cutover requires an observed LEGACY mode")
+    return _build_mode_preserving_single_scheduler_cutover_script(
+        staged_jar=staged_jar,
+        expected_jar_sha256=expected_jar_sha256,
+        expected_commit=expected_commit,
+        expected_active_jar_sha256=expected_active_jar_sha256,
+        expected_active_pid=expected_active_pid,
+        expected_nginx_upstream_sha256=expected_nginx_upstream_sha256,
+        expected_topology_cas_sha256=expected_topology_cas_sha256,
+        expected_dp_execution_mode=expected_dp_execution_mode,
+        active_slot=active_slot,
+        target_slot=target_slot,
+        active_port=active_port,
+        target_port=target_port,
+        maintenance_port=maintenance_port,
+        nginx_upstream_file=nginx_upstream_file,
+        release_name=release_name,
+        external_health_url=external_health_url,
+        app_dir=app_dir,
+        allow_unhealthy_active=allow_unhealthy_active,
+    )
+
+
+def build_runtime_single_scheduler_upgrade_script(**arguments) -> str:
+    if arguments.get("expected_dp_execution_mode") != RUNTIME_EXECUTION_MODE:
+        raise ValueError("RUNTIME-preserving cutover requires an observed RUNTIME mode")
+    return _build_mode_preserving_single_scheduler_cutover_script(**arguments)
+
+
+def _build_mode_preserving_single_scheduler_cutover_script(
+    *,
+    staged_jar: str,
+    expected_jar_sha256: str,
+    expected_commit: str,
+    expected_active_jar_sha256: str,
+    expected_active_pid: int,
+    expected_nginx_upstream_sha256: str,
+    expected_topology_cas_sha256: str,
+    expected_dp_execution_mode: str,
+    active_slot: str,
+    target_slot: str,
+    active_port: int,
+    target_port: int,
+    maintenance_port: int,
+    nginx_upstream_file: str,
+    release_name: str,
+    external_health_url: str,
+    app_dir: str,
+    allow_unhealthy_active: bool = False,
+) -> str:
+    preserve_runtime = expected_dp_execution_mode == RUNTIME_EXECUTION_MODE
+    if not preserve_runtime and expected_dp_execution_mode not in LEGACY_EXECUTION_MODES:
+        raise ValueError("mode-preserving cutover requires an observed DP execution mode")
     values = {
         "APP_DIR": app_dir,
         "STAGED_JAR": staged_jar,
@@ -72,10 +125,13 @@ def build_legacy_single_scheduler_cutover_script(
         "ALLOW_UNHEALTHY_ACTIVE": "1" if allow_unhealthy_active else "0",
     }
     assignments = "\n".join(f"{key}={_q(value)}" for key, value in values.items())
+    release_mode = "PRESERVE_RUNTIME" if preserve_runtime else "PRESERVE_LEGACY"
+    runtime_health = "UP" if preserve_runtime else "NOT_ACTIVATED"
     return f"""#!/usr/bin/env bash
 set -Eeuo pipefail
 {assignments}
-PRESERVE_DP_LEGACY=1
+PRESERVE_DP_MODE=1
+PRESERVE_DP_LEGACY={"0" if preserve_runtime else "1"}
 JAR_NAME=nuono-next-backend-0.0.1-SNAPSHOT.jar
 ACTIVE_SLOT_DIR="$APP_DIR/blue-green/$ACTIVE_SLOT"
 TARGET_SLOT_DIR="$APP_DIR/blue-green/$TARGET_SLOT"
@@ -99,6 +155,23 @@ wait_for_health() {{
     sleep 1
   done
   return 1
+}}
+dp_runtime_health_status() {{
+  local body=""
+  body="$(curl -fsS --max-time 5 -- \
+    "http://127.0.0.1:$TARGET_PORT/actuator/health/dpRuntime" 2>/dev/null)" || {{
+      printf UNAVAILABLE; return 0;
+    }}
+  python3 - "$body" <<'PY' || {{ printf UNAVAILABLE; return 0; }}
+import json, sys
+try:
+    payload = json.loads(sys.argv[1])
+except (json.JSONDecodeError, TypeError):
+    raise SystemExit(1)
+if not isinstance(payload, dict) or payload.get("status") != "UP":
+    raise SystemExit(1)
+print("UP", end="")
+PY
 }}
 {build_nginx_upstream_shell()}
 switch_nginx_to_port() {{
@@ -166,7 +239,9 @@ assert_target_release_ready() {{
       "$TARGET_ENV_SHA256")" = "$TARGET_ENV_SHA256" ] &&
     [ "$(secure_file_operation verify "$TARGET_SLOT_DIR/start-nuono-next-test.sh" \
       700 "$SOURCE_START_SCRIPT_SHA256")" = "$SOURCE_START_SCRIPT_SHA256" ] &&
-    assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
+    assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env" &&
+    {{ [ "$EXPECTED_DP_EXECUTION_MODE" != RUNTIME ] ||
+      [ "$(dp_runtime_health_status)" = UP ]; }}
 }}
 validate_cutover() {{
   [ "$ACTIVE_SLOT" != "$TARGET_SLOT" ]
@@ -174,7 +249,8 @@ validate_cutover() {{
   [ "$MAINTENANCE_PORT" != "$ACTIVE_PORT" ]
   [ "$MAINTENANCE_PORT" != "$TARGET_PORT" ]
   [ "$EXPECTED_DP_EXECUTION_MODE" = LEGACY_DEFAULT ] ||
-    [ "$EXPECTED_DP_EXECUTION_MODE" = LEGACY ]
+    [ "$EXPECTED_DP_EXECUTION_MODE" = LEGACY ] ||
+    [ "$EXPECTED_DP_EXECUTION_MODE" = RUNTIME ]
   bind_trusted_lsof
   bind_nginx_upstream "$ACTIVE_PORT"
   [ "$NGINX_UPSTREAM_ORIGINAL_SHA256" = "$EXPECTED_NGINX_UPSTREAM_SHA256" ]
@@ -248,12 +324,15 @@ FINAL_TOPOLOGY_CAS_SHA256="$(topology_cas_sha256 "$NGINX_UPSTREAM_SHA256" \
 stop_maintenance_responder
 trap - ERR
 emit CUTOVER_RESULT PASS; emit SINGLE_SCHEDULER_GUARD PASS
-emit DP_RELEASE_MODE PRESERVE_LEGACY; emit DP_EXECUTION_MODE "$EXPECTED_DP_EXECUTION_MODE"
+emit DP_RELEASE_MODE {release_mode}; emit DP_EXECUTION_MODE "$EXPECTED_DP_EXECUTION_MODE"
 emit DP_LEGACY_CANARY_DISPOSITION "$LEGACY_CANARY_DISPOSITION"
 emit DP_DATA_WRITE_COUNT 0; emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"; emit TARGET_PID "$NEW_PID"
-emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH NOT_ACTIVATED
+emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH {runtime_health}
 emit ACTIVE_PORT "$TARGET_PORT"; emit NGINX_CURRENT_PORT "$TARGET_PORT"
 emit ACTIVE_SLOT "$TARGET_SLOT"; emit ACTIVE_JAR_PATH "$TARGET_SLOT_DIR/$JAR_NAME"; emit ACTIVE_RUNTIME_KIND slot
 emit TOPOLOGY_CAS_SHA256 "$FINAL_TOPOLOGY_CAS_SHA256"; emit EXTERNAL_HEALTH "$external_health"
 """
-__all__ = ["build_legacy_single_scheduler_cutover_script"]
+__all__ = [
+    "build_legacy_single_scheduler_cutover_script",
+    "build_runtime_single_scheduler_upgrade_script",
+]
