@@ -51,7 +51,7 @@ public class OfficialWarehouseAuthWaitingTaskHandler implements NoonAuthWaitingT
             String diagnostic,
             LocalDateTime now
     ) {
-        return mapper.failAuthorizationRecovery(
+        return mapper.deferAuthorizationRecovery(
                 item.getId(),
                 item.getRecoveryId(),
                 recoveryStatus,

@@ -3,6 +3,7 @@ package com.nuono.next.officialwarehouse;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
+import com.nuono.next.infrastructure.mapper.NoonAuthOfficialWarehouseTaskMapper;
 import com.nuono.next.noon.NoonEgressUnavailableException;
 import java.lang.reflect.Method;
 import java.util.List;
@@ -120,6 +121,28 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
 
         assertThat(sql).contains("INTERVAL #{retrySeconds} SECOND");
         assertThat(sql).doesNotContain("INTERVAL #{retryMinutes} MINUTE");
+    }
+
+    @Test
+    void failedAuthorizationKeepsTheAppointmentPendingBeforeItsWindowExpires() throws Exception {
+        Method method = NoonAuthOfficialWarehouseTaskMapper.class.getMethod(
+                "deferAuthorizationRecovery",
+                Long.class,
+                Long.class,
+                com.nuono.next.noonauth.NoonAuthRecoveryStatus.class,
+                Long.class,
+                String.class,
+                String.class,
+                java.time.LocalDateTime.class
+        );
+        String sql = String.join(" ", method.getAnnotation(Update.class).value())
+                .replaceAll("\\s+", " ");
+
+        assertThat(sql).contains("appointment.ap_end_date < DATE(#{now}) THEN 'FAILED' ELSE 'PENDING'");
+        assertThat(sql).contains("DATE_ADD(#{now}, INTERVAL 5 SECOND)");
+        assertThat(sql).contains("'APPOINTMENT_WINDOW_EXPIRED'");
+        assertThat(sql).contains("'AUTH_RECOVERY_PENDING'");
+        assertThat(sql).doesNotContain("'AUTH_RECOVERY_FAILED'");
     }
 
     @Test

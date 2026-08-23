@@ -36,9 +36,11 @@ public interface NoonAuthOfficialWarehouseTaskMapper {
             "UPDATE official_warehouse_appointment appointment",
             "JOIN noon_auth_identity_recovery_item item ON item.source_task_id = appointment.id",
             "JOIN noon_auth_identity_recovery recovery ON recovery.id = item.recovery_id",
-            "SET appointment.status = 'FAILED', appointment.next_attempt_at = NULL,",
-            "appointment.error_stage = 'AUTH_RECOVERY', appointment.failure_type = 'AUTH_RECOVERY_FAILED',",
-            "appointment.error_message = #{diagnostic},",
+            "SET appointment.status = CASE WHEN appointment.ap_end_date < DATE(#{now}) THEN 'FAILED' ELSE 'PENDING' END,",
+            "appointment.next_attempt_at = CASE WHEN appointment.ap_end_date < DATE(#{now}) THEN NULL ELSE DATE_ADD(#{now}, INTERVAL 5 SECOND) END,",
+            "appointment.error_stage = CASE WHEN appointment.ap_end_date < DATE(#{now}) THEN 'SCHEDULE' ELSE 'AUTH_RECOVERY' END,",
+            "appointment.failure_type = CASE WHEN appointment.ap_end_date < DATE(#{now}) THEN 'APPOINTMENT_WINDOW_EXPIRED' ELSE 'AUTH_RECOVERY_PENDING' END,",
+            "appointment.error_message = CASE WHEN appointment.ap_end_date < DATE(#{now}) THEN CONCAT('约仓截止时间已过；', #{diagnostic}) ELSE #{diagnostic} END,",
             "appointment.execution_version = appointment.execution_version + 1,",
             "appointment.gmt_updated = #{now}",
             "WHERE item.id = #{itemId} AND item.recovery_id = #{recoveryId}",
@@ -49,7 +51,7 @@ public interface NoonAuthOfficialWarehouseTaskMapper {
             "AND recovery.lease_token = #{expectedLeaseToken} AND recovery.lease_until > #{now}",
             "AND recovery.active_identity_slot IS NOT NULL"
     })
-    int failAuthorizationRecovery(
+    int deferAuthorizationRecovery(
             @Param("itemId") Long itemId, @Param("recoveryId") Long recoveryId,
             @Param("expectedRecoveryStatus") NoonAuthRecoveryStatus expectedRecoveryStatus,
             @Param("expectedRecoveryVersion") Long expectedRecoveryVersion,

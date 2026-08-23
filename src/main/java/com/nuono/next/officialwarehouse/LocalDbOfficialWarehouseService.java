@@ -1594,7 +1594,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 String retryErrorStage = appointmentRetryErrorStage("SCHEDULE", retryFailureType);
                 appointmentLifecycle.completePending(
                         claim,
-                        appointmentTemporaryBackoff.nextRetrySeconds(appointment, retryFailureType, result.errorMessage),
+                        appointmentRetrySeconds(appointment, retryFailureType, result.errorMessage),
                         retryErrorStage,
                         retryFailureType,
                         result.errorMessage,
@@ -1641,12 +1641,10 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     message
             );
             String retryErrorStage = appointmentRetryErrorStage("NOON_CALL", retryFailureType);
-            if (allowRetry
-                    && (isNoCapacityFailure(retryFailureType) || isRetryableNoonCallFailure(retryFailureType))
-                    && shouldRetryAppointment(appointment, retryFailureType)) {
+            if (allowRetry && shouldRetryAppointment(appointment, retryFailureType)) {
                 appointmentLifecycle.completePending(
                         claim,
-                        appointmentTemporaryBackoff.nextRetrySeconds(appointment, retryFailureType, message),
+                        appointmentRetrySeconds(appointment, retryFailureType, message),
                         retryErrorStage,
                         retryFailureType,
                         message,
@@ -1926,6 +1924,17 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
 
     private static boolean isNoCapacityFailure(String failureType) {
         return OfficialWarehouseAppointmentRetryPolicy.isNoCapacity(failureType);
+    }
+
+    private int appointmentRetrySeconds(
+            AppointmentRecord appointment,
+            String failureType,
+            String errorMessage
+    ) {
+        if (isNoCapacityFailure(failureType) || isRetryableNoonCallFailure(failureType)) {
+            return appointmentTemporaryBackoff.nextRetrySeconds(appointment, failureType, errorMessage);
+        }
+        return 5;
     }
 
     private Long schedulerOperatorUserId(AppointmentRecord appointment) {
