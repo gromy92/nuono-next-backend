@@ -46,7 +46,7 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
     }
 
     @Test
-    void appointmentExpiredCookieRequiresManualAuthorizationWithoutEmailOtpOrRiskBackoff() {
+    void appointmentExpiredCookieStaysPendingWithoutEmailOtpOrRiskBackoff() {
         OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
         NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
         NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
@@ -91,10 +91,11 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
                 NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA").getScopeKey()
         );
         assertThat(hold).isNull();
-        verify(mapper).markAppointmentFailed(
+        verify(mapper).markAppointmentPendingRetry(
                 eq(307L),
                 eq(611049L),
                 eq(1L),
+                eq(5),
                 eq("NOON_CALL"),
                 eq("IllegalStateException"),
                 contains("auth_required"),
