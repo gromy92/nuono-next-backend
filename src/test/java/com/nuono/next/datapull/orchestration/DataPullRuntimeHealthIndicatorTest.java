@@ -20,6 +20,7 @@ import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.health.Status;
 import org.springframework.boot.context.properties.bind.Binder;
 import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.context.annotation.Bean;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
@@ -36,10 +37,20 @@ class DataPullRuntimeHealthIndicatorTest {
         HealthEndpointProperties health = Binder.get(environment)
                 .bind("management.endpoint.health", HealthEndpointProperties.class)
                 .orElseThrow(IllegalStateException::new);
+        String indicatorBean = Arrays.stream(
+                        DataPullRuntimeHealthConfiguration.class.getDeclaredMethods()
+                )
+                .filter((method) -> method.getName().equals(
+                        "dataPullRuntimeHealthIndicator"
+                ))
+                .findFirst()
+                .map((method) -> method.getAnnotation(Bean.class).name()[0])
+                .orElseThrow(IllegalStateException::new);
 
         assertThat(health.getGroup()).containsKey("dpRuntime");
         assertThat(health.getGroup().get("dpRuntime").getInclude())
-                .containsExactly("dpRuntime");
+                .containsExactly(indicatorBean);
+        assertThat(indicatorBean).isNotEqualTo("dpRuntime");
     }
 
     @Test

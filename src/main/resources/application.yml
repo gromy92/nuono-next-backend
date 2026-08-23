@@ -21,7 +21,7 @@ management:
     health:
       group:
         dpRuntime:
-          include: dpRuntime
+          include: dpRuntimeIndicator
 
 nuono:
   stage: local-bootstrap

@@ -20,7 +20,7 @@ public class DataPullRuntimeHealthConfiguration {
         return new DataPullRuntimeTechnicalHealth();
     }
 
-    @Bean(name = "dpRuntime")
+    @Bean(name = "dpRuntimeIndicator")
     HealthIndicator dataPullRuntimeHealthIndicator(
             DataPullRuntimeScheduler scheduler,
             DataPullRuntimeProperties properties,
