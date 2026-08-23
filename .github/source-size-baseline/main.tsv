@@ -75,7 +75,7 @@ src/main/java/com/nuono/next/noonpull/NoonPullFoundationService.java	893
 src/main/java/com/nuono/next/noonpull/NoonPullTaskRecord.java	402
 src/main/java/com/nuono/next/noonpull/NoonReportPuller.java	406
 src/main/java/com/nuono/next/noonpull/RealNoonAdvertisingReportProvider.java	808
-src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	2939
+src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseService.java	2919
 src/main/java/com/nuono/next/officialwarehouse/LocalDbOfficialWarehouseStatisticsService.java	1157
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseController.java	335
 src/main/java/com/nuono/next/officialwarehouse/OfficialWarehouseFbnExportProvider.java	567

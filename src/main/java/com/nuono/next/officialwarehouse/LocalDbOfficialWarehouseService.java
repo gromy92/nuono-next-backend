@@ -64,9 +64,7 @@ import com.nuono.next.web.ApiProblemException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -95,7 +93,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private static final long DEFAULT_SEAL_CHECK_INTERVAL_MS = 1500L;
     private static final String APPOINTMENT_RISK_BACKOFF_STAGE = "NOON_RISK_BACKOFF";
     private static final String APPOINTMENT_RISK_BACKOFF_SOURCE = "OFFICIAL_WAREHOUSE_APPOINTMENT";
-    private static final String APPOINTMENT_TEMPORARY_BACKOFF_STAGE = "NOON_TEMPORARY_BACKOFF";
     private final OfficialWarehouseMapper mapper;
     private final NoonSessionGateway noonSessionGateway;
     private final NoonSalesReportBindingResolver bindingResolver;
@@ -109,6 +106,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     private final NoonPullFailurePolicy failurePolicy;
     private final OfficialWarehouseAppointmentAuthRecovery appointmentAuthRecovery;
     private final OfficialWarehouseAppointmentLifecycleModule appointmentLifecycle;
+    private final OfficialWarehouseAppointmentTemporaryBackoff appointmentTemporaryBackoff;
     private final OfficialWarehouseAsnListRemoteExecutor asnListRemoteExecutor;
     private ObjectProvider<OfficialWarehouseAsnListPullService> asnListPullServiceProvider;
     @Value("${nuono.official-warehouse.appointment.scheduler.enabled:false}")
@@ -173,6 +171,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 ? OfficialWarehouseAppointmentAuthRecovery.disabled()
                 : appointmentAuthRecovery;
         this.appointmentLifecycle = appointmentLifecycle;
+        this.appointmentTemporaryBackoff = new OfficialWarehouseAppointmentTemporaryBackoff(this.riskBackoffGuard);
         this.asnListRemoteExecutor = new OfficialWarehouseAsnListRemoteExecutor(
                 mapper, noonInboundClient, objectMapper, this.failurePolicy
         );
@@ -1538,7 +1537,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                 return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
             }
         }
-        NoonRiskBackoffHold temporaryHold = currentAppointmentTemporaryBackoff(appointment);
+        NoonRiskBackoffHold temporaryHold = appointmentTemporaryBackoff.activeHold(appointment);
         if (allowRetry && temporaryHold != null) {
             markAppointmentPendingTemporaryBackoff(claim, temporaryHold, operatorId);
             return toAppointmentView(requireAppointment(appointment.ownerUserId, appointment.id));
@@ -1588,14 +1587,14 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         result.appointmentTime,
                         operatorId
                 )) {
-                    resetAppointmentTemporaryBackoff(appointment);
+                    appointmentTemporaryBackoff.resetAfterSuccess(appointment);
                 }
             } else if (allowRetry && shouldRetryAppointment(appointment, result.failureType)) {
                 String retryFailureType = appointmentRetryFailureType("SCHEDULE", result.failureType, result.errorMessage);
                 String retryErrorStage = appointmentRetryErrorStage("SCHEDULE", retryFailureType);
                 appointmentLifecycle.completePending(
                         claim,
-                        appointmentRetrySeconds(appointment, retryFailureType, result.errorMessage),
+                        appointmentTemporaryBackoff.nextRetrySeconds(appointment, retryFailureType, result.errorMessage),
                         retryErrorStage,
                         retryFailureType,
                         result.errorMessage,
@@ -1647,7 +1646,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                     && shouldRetryAppointment(appointment, retryFailureType)) {
                 appointmentLifecycle.completePending(
                         claim,
-                        appointmentRetrySeconds(appointment, retryFailureType, message),
+                        appointmentTemporaryBackoff.nextRetrySeconds(appointment, retryFailureType, message),
                         retryErrorStage,
                         retryFailureType,
                         message,
@@ -1737,7 +1736,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
                         result.appointmentTime,
                         operatorId
                 )) {
-                    resetAppointmentTemporaryBackoff(appointment);
+                    appointmentTemporaryBackoff.resetAfterSuccess(appointment);
                 }
             } else {
                 appointmentLifecycle.completeFailed(
@@ -1784,16 +1783,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
         return riskBackoffGuard.currentHold(appointmentRiskBackoffScope(appointment)).orElse(null);
     }
 
-    private NoonRiskBackoffHold currentAppointmentTemporaryBackoff(AppointmentRecord appointment) {
-        String failureType = temporaryFailureType(appointment == null ? null : appointment.failureType);
-        if (!isRetryableNoonCallFailure(failureType)) {
-            return null;
-        }
-        return riskBackoffGuard.currentExactHold(
-                appointmentTemporaryBackoffScope(appointment, failureType)
-        ).orElse(null);
-    }
-
     private NoonRiskBackoffHold recordAppointmentRiskBackoffIfNeeded(AppointmentRecord appointment, String rawFailure) {
         NoonPullFailureType failureType = failurePolicy.classify(rawFailure);
         if (!isAppointmentRiskBackoffFailure(failureType)) {
@@ -1814,21 +1803,6 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             return NoonRiskBackoffScope.allNoon(null, null, null);
         }
         return NoonRiskBackoffScope.allNoon(appointment.ownerUserId, appointment.storeCode, appointment.siteCode);
-    }
-
-    private NoonRiskBackoffScope appointmentTemporaryBackoffScope(
-            AppointmentRecord appointment,
-            String failureType
-    ) {
-        if (appointment == null) {
-            return NoonRiskBackoffScope.officialWarehouseTemporaryFailure(null, null, null, failureType);
-        }
-        return NoonRiskBackoffScope.officialWarehouseTemporaryFailure(
-                appointment.ownerUserId,
-                appointment.storeCode,
-                appointment.siteCode,
-                failureType
-        );
     }
 
     private boolean isAppointmentRiskBackoffFailure(NoonPullFailureType failureType) {
@@ -1853,32 +1827,7 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
     }
 
     private int riskBackoffRetrySeconds(NoonRiskBackoffHold hold) {
-        if (hold == null || hold.getBlockedUntil() == null) {
-            return 120;
-        }
-        long milliseconds = Duration.between(LocalDateTime.now(Clock.systemUTC()), hold.getBlockedUntil()).toMillis();
-        if (milliseconds <= 0) {
-            return 1;
-        }
-        return (int) Math.min(Integer.MAX_VALUE, (milliseconds + 999L) / 1000L);
-    }
-
-    private int appointmentRetrySeconds(
-            AppointmentRecord appointment,
-            String failureType,
-            String errorMessage
-    ) {
-        if (isNoCapacityFailure(failureType)) {
-            return 0;
-        }
-        NoonRiskBackoffHold hold = riskBackoffGuard.recordScopedSignal(
-                appointmentTemporaryBackoffScope(appointment, failureType),
-                failureType,
-                APPOINTMENT_RISK_BACKOFF_SOURCE,
-                appointment == null ? null : appointment.id,
-                appointmentRiskBackoffDiagnostic(appointment, errorMessage)
-        );
-        return riskBackoffRetrySeconds(hold);
+        return appointmentTemporaryBackoff.retrySeconds(hold);
     }
 
     private void markAppointmentPendingTemporaryBackoff(
@@ -1887,29 +1836,15 @@ public class LocalDbOfficialWarehouseService implements OfficialWarehouseAsnNumb
             Long operatorUserId
     ) {
         AppointmentRecord appointment = claim.appointment();
-        String failureType = temporaryFailureType(appointment.failureType);
+        String failureType = appointmentTemporaryBackoff.failureType(appointment.failureType);
         appointmentLifecycle.completePending(
                 claim,
-                riskBackoffRetrySeconds(hold),
-                APPOINTMENT_TEMPORARY_BACKOFF_STAGE,
+                appointmentTemporaryBackoff.retrySeconds(hold),
+                OfficialWarehouseAppointmentTemporaryBackoff.STAGE,
                 failureType,
-                appointmentRiskBackoffMessage(hold),
+                appointmentTemporaryBackoff.message(hold),
                 operatorUserId
         );
-    }
-
-    private void resetAppointmentTemporaryBackoff(AppointmentRecord appointment) {
-        String failureType = temporaryFailureType(appointment == null ? null : appointment.failureType);
-        if (isRetryableNoonCallFailure(failureType)) {
-            riskBackoffGuard.recordScopedSuccess(
-                    appointmentTemporaryBackoffScope(appointment, failureType),
-                    APPOINTMENT_RISK_BACKOFF_SOURCE
-            );
-        }
-    }
-
-    private String temporaryFailureType(String failureType) {
-        return appointmentRetryFailureType("NOON_CALL", failureType, null);
     }
 
     private String appointmentRiskBackoffMessage(NoonRiskBackoffHold hold) {
