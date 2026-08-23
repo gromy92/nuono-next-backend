@@ -63,7 +63,7 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
             cases = (
                 ("NUONO_NEXT_PORT=18087\n", 0, "LEGACY_DEFAULT"),
                 ('NUONO_DATA_PULL_EXECUTION_MODE="LEGACY"\n', 0, "LEGACY"),
-                ("NUONO_DATA_PULL_EXECUTION_MODE=RUNTIME\n", 1, ""),
+                ("NUONO_DATA_PULL_EXECUTION_MODE=RUNTIME\n", 0, "RUNTIME"),
                 (
                     "NUONO_DATA_PULL_EXECUTION_MODE=LEGACY\n"
                     "NUONO_DATA_PULL_EXECUTION_MODE=LEGACY\n",
@@ -84,7 +84,7 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
                     self.assertEqual(stdout, result.stdout)
 
     @unittest.skipUnless(Path("/proc/self/environ").exists(), "requires Linux procfs")
-    def test_rendered_process_helper_executes_legacy_and_rejects_runtime(self):
+    def test_rendered_process_helper_reads_legacy_and_runtime_modes(self):
         script = build_script()
         helper = script[
             script.index("legacy_process_mode()"):
@@ -97,7 +97,7 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
         cases = (
             (None, 0, "LEGACY_DEFAULT"),
             ("LEGACY", 0, "LEGACY"),
-            ("RUNTIME", 1, ""),
+            ("RUNTIME", 0, "RUNTIME"),
         )
         for mode, returncode, stdout in cases:
             with self.subTest(mode=mode):
@@ -255,7 +255,6 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
     def test_non_legacy_observation_is_rejected_before_rendering(self):
         with self.assertRaisesRegex(ValueError, "observed LEGACY mode"):
             build_script("RUNTIME")
-
 
 if __name__ == "__main__":
     unittest.main()
