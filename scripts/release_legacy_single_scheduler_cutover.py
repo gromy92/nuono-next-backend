@@ -89,6 +89,11 @@ def _build_mode_preserving_single_scheduler_cutover_script(
     assignments = "\n".join(f"{key}={_q(value)}" for key, value in values.items())
     release_mode = "PRESERVE_RUNTIME" if preserve_runtime else "PRESERVE_LEGACY"
     runtime_health = "UP" if preserve_runtime else "NOT_ACTIVATED"
+    source_environment = (
+        'SOURCE_ENV_FILE="$ACTIVE_RUN_DIR/.env"\nSOURCE_ENV_SHA256="$ACTIVE_ENV_SHA256"'
+        if preserve_runtime
+        else 'SOURCE_ENV_FILE="$APP_DIR/.env"\nSOURCE_ENV_SHA256="$(secure_file_operation verify "$SOURCE_ENV_FILE" 600 -)"'
+    )
     return f"""#!/usr/bin/env bash
 set -Eeuo pipefail
 {assignments}
@@ -102,7 +107,7 @@ BACKUP_DIR="$APP_DIR/backups/$RELEASE_NAME-$STAMP"
 MAINTENANCE_DIR="$BACKUP_DIR/maintenance"
 MAINTENANCE_PID="" MAINTENANCE_PYTHON_EXE="" MAINTENANCE_SERVER_SHA256=""
 ACTIVE_PID="" NEW_PID="" ACTIVE_RUN_DIR="" ACTIVE_ENV_SHA256="" ACTIVE_START_SCRIPT_SHA256=""
-ACTIVE_RUNTIME_KIND="" UPSTREAM_BACKUP="" TARGET_ENV_SHA256="" SOURCE_ENV_SHA256=""
+ACTIVE_RUNTIME_KIND="" UPSTREAM_BACKUP="" TARGET_ENV_SHA256="" SOURCE_ENV_FILE="" SOURCE_ENV_SHA256=""
 SOURCE_START_SCRIPT_SHA256="" NGINX_UPSTREAM_SHA256="" NGINX_UPSTREAM_ORIGINAL_SHA256=""
 NGINX_UPSTREAM_BACKUP_SHA256="" LSOF_BIN="" READY_ATTEMPT=""
 LEGACY_BASE_ENV_FILE="" LEGACY_BASE_ENV_SHA256="" LEGACY_CANARY_DISPOSITION=""
@@ -170,12 +175,12 @@ prepare_target_runtime_payloads() {{
   assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
 }}
 assert_source_payloads() {{
-  [ "$(secure_file_operation verify "$APP_DIR/.env" 600 "$SOURCE_ENV_SHA256")" = \
+  [ "$(secure_file_operation verify "$SOURCE_ENV_FILE" 600 "$SOURCE_ENV_SHA256")" = \
     "$SOURCE_ENV_SHA256" ]
   [ "$(secure_file_operation verify "$APP_DIR/start-nuono-next-test.sh" \
     "700,750,755" "$SOURCE_START_SCRIPT_SHA256")" = "$SOURCE_START_SCRIPT_SHA256" ]
-  runtime_env_has_forbidden_injection "$APP_DIR/.env"
-  assert_legacy_source_env_contract "$APP_DIR/.env"
+  runtime_env_has_forbidden_injection "$SOURCE_ENV_FILE"
+  assert_legacy_source_env_contract "$SOURCE_ENV_FILE"
 }}
 assert_target_release_ready() {{
   [ "$(health_status "$TARGET_PORT")" = UP ] &&
@@ -204,14 +209,13 @@ validate_cutover() {{
   [ -z "$(pid_for_port "$MAINTENANCE_PORT")" ]
   [ "$(secure_file_operation verify "$STAGED_JAR" "600,640,644" \
     "$EXPECTED_JAR_SHA256")" = "$EXPECTED_JAR_SHA256" ]
-  SOURCE_ENV_SHA256="$(secure_file_operation verify "$APP_DIR/.env" 600 -)"
+  secure_file_operation verify "$APP_DIR/.env" 600 - >/dev/null
   SOURCE_START_SCRIPT_SHA256="$(secure_file_operation verify \
     "$APP_DIR/start-nuono-next-test.sh" "700,750,755" -)"
   [[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{{40}}$ ]]
   [[ "$EXPECTED_NGINX_UPSTREAM_SHA256" =~ ^[0-9a-f]{{64}}$ ]]
   [[ "$EXPECTED_TOPOLOGY_CAS_SHA256" =~ ^[0-9a-f]{{64}}$ ]]
   require_safe_pid "$EXPECTED_ACTIVE_PID"
-  assert_source_payloads
 }}
 validate_cutover
 ACTIVE_PID="$(pid_for_port "$ACTIVE_PORT")"
@@ -231,12 +235,14 @@ esac
   "$EXPECTED_TOPOLOGY_CAS_SHA256" ]
 [ "$(legacy_process_mode "$ACTIVE_PID")" = "$EXPECTED_DP_EXECUTION_MODE" ]
 freeze_active_runtime_payloads
+{source_environment}
+assert_source_payloads
 assert_legacy_target_env_contract "$ACTIVE_RUN_DIR/.env"
 assert_only_backend_jvm "$ACTIVE_PID"
 secure_file_operation directory "$APP_DIR/backups" "700,750,755" 700 accept
 secure_file_operation directory "$BACKUP_DIR" 700 700 create-new
 LEGACY_BASE_ENV_FILE="$BACKUP_DIR/legacy-base.env"
-prepare_legacy_base_env "$APP_DIR/.env" "$SOURCE_ENV_SHA256" "$LEGACY_BASE_ENV_FILE"
+prepare_legacy_base_env "$SOURCE_ENV_FILE" "$SOURCE_ENV_SHA256" "$LEGACY_BASE_ENV_FILE"
 secure_file_operation directory "$APP_DIR/blue-green" "700,750,755" 700 accept
 secure_file_operation directory "$TARGET_SLOT_DIR" "700,750,755" 700 accept
 prepare_target_runtime_payloads

@@ -41,6 +41,21 @@ def build_script():
 
 
 class ReleaseRuntimeSingleSchedulerUpgradeTest(unittest.TestCase):
+    def test_active_slot_environment_is_the_runtime_upgrade_source(self):
+        script = build_script()
+        execution = script.split("\nvalidate_cutover\n", 1)[1]
+
+        self.assertIn('SOURCE_ENV_FILE="$ACTIVE_RUN_DIR/.env"', execution)
+        self.assertIn('SOURCE_ENV_SHA256="$ACTIVE_ENV_SHA256"', execution)
+        self.assertIn(
+            'prepare_legacy_base_env "$SOURCE_ENV_FILE" "$SOURCE_ENV_SHA256"',
+            execution,
+        )
+        self.assertNotIn(
+            'prepare_legacy_base_env "$APP_DIR/.env"',
+            execution,
+        )
+
     def test_script_is_valid_bash_and_preserves_existing_dp_data(self):
         script = build_script()
         result = subprocess.run(

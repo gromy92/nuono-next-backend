@@ -160,7 +160,8 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
             script.count('legacy_process_mode "$ACTIVE_PID"'), 2
         )
         self.assertIn('legacy_process_mode "$NEW_PID"', script)
-        self.assertIn('assert_legacy_source_env_contract "$APP_DIR/.env"', script)
+        self.assertIn('SOURCE_ENV_FILE="$APP_DIR/.env"', script)
+        self.assertIn('assert_legacy_source_env_contract "$SOURCE_ENV_FILE"', script)
         self.assertIn('assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"', script)
         self.assertLess(
             execution.index('legacy_process_mode "$ACTIVE_PID"'),
@@ -180,6 +181,7 @@ class ReleaseLegacySingleSchedulerCutoverTest(unittest.TestCase):
         self.assertIn("NUONO_NEXT_PORT=%s", prepare)
         self.assertNotIn("NUONO_DATA_PULL_EXECUTION_MODE", prepare)
         self.assertNotIn("NUONO_DP_RUNTIME", prepare)
+        self.assertIn('SOURCE_ENV_FILE="$APP_DIR/.env"', script)
 
     def test_source_canary_pair_is_stripped_before_target_copy(self):
         script = build_script()
