@@ -13,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.product.noon.NoonProductGateway;
@@ -85,12 +86,9 @@ class ProductImageNoonPublisherTest {
 
     @Test
     void shouldRejectMoreThanTwentyImagesBeforeLoadingStoreOrCallingProvider() {
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
-        List<String> imageUrls = IntStream.rangeClosed(
-                        1,
-                        ProductImagePublishCheckpoint.MAX_IMAGES + 1
-                )
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        List<String> imageUrls = IntStream
+                .rangeClosed(1, ProductImagePublishCheckpoint.MAX_IMAGES + 1)
                 .mapToObj(index -> "/api/product-images/assets/STR108065-NAE/image-" + index + ".png")
                 .collect(Collectors.toList());
 
@@ -112,7 +110,8 @@ class ProductImageNoonPublisherTest {
     void shouldUploadWriteAndOnlyReturnAfterExactOrderedReadback() throws Exception {
         stubStoreSession();
         when(noonAdapter.postMultipartFile(
-                eq(session), any(String.class), eq("file"), eq("approval-publish-test.png"), eq("image/png"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
+                eq("approval-publish-test.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         )).thenReturn(objectMapper.readTree("{\"upload_path\":\"https://noon.example/image-1.png\"}"));
         when(noonAdapter.postWriteJson(eq(session), eq(NoonProductGateway.ZSKU_UPSERT_URL), any(JsonNode.class), eq(true)))
@@ -137,7 +136,7 @@ class ProductImageNoonPublisherTest {
                 "cookie",
                 "PRJ-1",
                 "STR108065-NAE",
-                "noon-catalog.noon.partners",
+                "catalog.noon.partners",
                 443
         );
         ArgumentCaptor<JsonNode> writeBody = ArgumentCaptor.forClass(JsonNode.class);
@@ -150,7 +149,8 @@ class ProductImageNoonPublisherTest {
     void shouldReuseUploadedCheckpointAndOnlyUploadMissingImage() throws Exception {
         stubStoreSession();
         when(noonAdapter.postMultipartFile(
-                eq(session), any(String.class), eq("file"), eq("approval-publish-test-2.png"), eq("image/png"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
+                eq("approval-publish-test-2.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         )).thenReturn(objectMapper.readTree("{\"upload_path\":\"https://noon.example/image-2.png\"}"));
         when(noonAdapter.postWriteJson(
@@ -170,8 +170,7 @@ class ProductImageNoonPublisherTest {
                 + "\"sha256\":\"" + sha256(new byte[] {1, 2, 3}) + "\","
                 + "\"noonUrl\":\"https://noon.example/image-1.png\"}]}";
         List<String> savedCheckpoints = new ArrayList<>();
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
 
         List<String> result = publisher.publish(
                 307L,
@@ -187,11 +186,13 @@ class ProductImageNoonPublisherTest {
                 result
         );
         verify(noonAdapter, never()).postMultipartFile(
-                eq(session), any(String.class), eq("file"), eq("approval-publish-test.png"), eq("image/png"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
+                eq("approval-publish-test.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         );
         verify(noonAdapter).postMultipartFile(
-                eq(session), any(String.class), eq("file"), eq("approval-publish-test-2.png"), eq("image/png"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
+                eq("approval-publish-test-2.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         );
         assertTrue(savedCheckpoints.stream().anyMatch(value -> value.contains("\"writeAttempted\":true")));
@@ -211,8 +212,7 @@ class ProductImageNoonPublisherTest {
                 + "\"localImageUrl\":\"" + firstUrl + "\","
                 + "\"sha256\":\"" + sha256(new byte[] {1, 2, 3}) + "\","
                 + "\"noonUrl\":\"https://noon.example/image-1.png\"}]}";
-        ProductImageNoonPublisher publisher =
-                new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
+        ProductImageNoonPublisher publisher = new ProductImageNoonPublisher(storeSyncMapper, noonAdapter, objectMapper);
 
         List<String> result = publisher.publish(
                 307L,
@@ -270,7 +270,7 @@ class ProductImageNoonPublisherTest {
                 "cookie",
                 "PRJ-1",
                 "STR108065-NAE",
-                "noon-catalog.noon.partners",
+                "catalog.noon.partners",
                 443
         )).thenReturn(session);
     }
