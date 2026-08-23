@@ -153,8 +153,8 @@ public interface DataPullScheduleTaskPlanMapper {
             " version_no = version_no + 1, gmt_updated = UTC_TIMESTAMP(3)",
             "WHERE operation_code = #{operationCode} AND epoch_no = #{epochNo}",
             " AND epoch_state = 'SCHEDULING' AND version_no = #{expectedVersion}",
-            " AND (schedule_cursor_scope_key &lt;=&gt; #{expectedCursor})",
-            " AND (#{nextState} &lt;&gt; 'COMPLETE' OR NOT EXISTS (",
+            " AND (schedule_cursor_scope_key <=> #{expectedCursor})",
+            " AND (#{nextState} <> 'COMPLETE' OR NOT EXISTS (",
             "  SELECT 1 FROM dp_pull_schedule_source_scope child",
             "  WHERE child.operation_code = #{operationCode}",
             "   AND child.epoch_no = #{epochNo}))"
