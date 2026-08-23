@@ -149,7 +149,7 @@ public interface DataPullReportArtifactChunkMapper {
             " AND downloaded_byte_count=#{expectedByteOffset}",
             " AND downloaded_chunk_count=#{expectedChunkNo}",
             " AND expected_content_length IS NOT NULL",
-            " AND #{nextByteOffset} &lt;= expected_content_length"
+            " AND #{nextByteOffset} <= expected_content_length"
     })
     @Options(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
     int advanceDownloadProgress(
@@ -170,7 +170,7 @@ public interface DataPullReportArtifactChunkMapper {
             "FROM dp_pull_report_artifact_chunk",
             "WHERE BINARY artifact_key=BINARY #{artifactKey}",
             " AND byte_offset < #{rangeEnd}",
-            " AND byte_offset + content_length &gt; #{rangeStart}",
+            " AND byte_offset + content_length > #{rangeStart}",
             "ORDER BY chunk_no LIMIT #{maximumChunks}"
     })
     @Options(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)

@@ -124,7 +124,7 @@ public interface DataPullScheduleApplyMapper {
             " version_no = version_no + 1, gmt_updated = UTC_TIMESTAMP(3)",
             "WHERE operation_code = #{operationCode} AND epoch_no = #{epochNo}",
             " AND epoch_state IN ('SEALED','ADMITTING') AND version_no = #{expectedVersion}",
-            " AND (admission_cursor_scope_key &lt;=&gt; #{expectedCursor})"
+            " AND (admission_cursor_scope_key <=> #{expectedCursor})"
     })
     int advanceAdmissionPhase(
             @Param("operationCode") OperationCode operationCode,
@@ -178,7 +178,7 @@ public interface DataPullScheduleApplyMapper {
             " version_no = version_no + 1, gmt_updated = UTC_TIMESTAMP(3)",
             "WHERE operation_code = #{operationCode} AND epoch_no = #{epochNo}",
             " AND epoch_state = 'BINDING_PRESENT' AND version_no = #{expectedVersion}",
-            " AND (binding_cursor_scope_key &lt;=&gt; #{expectedCursor})"
+            " AND (binding_cursor_scope_key <=> #{expectedCursor})"
     })
     int advanceBindingPresentPhase(
             @Param("operationCode") OperationCode operationCode,
@@ -198,7 +198,7 @@ public interface DataPullScheduleApplyMapper {
             "WHERE operation_code = #{operationCode} AND epoch_no = #{epochNo}",
             " AND epoch_state = 'BINDING_MISSING' AND binding_close_state = 'RUNNING'",
             " AND version_no = #{expectedVersion}",
-            " AND (missing_binding_cursor_scope_key &lt;=&gt; #{expectedCursor})"
+            " AND (missing_binding_cursor_scope_key <=> #{expectedCursor})"
     })
     int advanceBindingMissingPhase(
             @Param("operationCode") OperationCode operationCode,

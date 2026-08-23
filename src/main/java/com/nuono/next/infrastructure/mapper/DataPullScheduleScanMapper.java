@@ -155,7 +155,7 @@ public interface DataPullScheduleScanMapper {
             " AND epoch_state = 'PASS_ONE' AND version_no = #{expectedVersion}",
             " AND pass_one_scope_count = #{expectedCount}",
             " AND pass_one_ordered_sha256 = #{expectedDigest}",
-            " AND (pass_one_cursor &lt;=&gt; #{expectedCursor})"
+            " AND (pass_one_cursor <=> #{expectedCursor})"
     })
     int advancePassOne(
             @Param("operationCode") OperationCode operationCode,
@@ -185,7 +185,7 @@ public interface DataPullScheduleScanMapper {
             " AND epoch_state = 'PASS_TWO' AND version_no = #{expectedVersion}",
             " AND pass_two_scope_count = #{expectedCount}",
             " AND pass_two_ordered_sha256 = #{expectedDigest}",
-            " AND (pass_two_cursor &lt;=&gt; #{expectedCursor})"
+            " AND (pass_two_cursor <=> #{expectedCursor})"
     })
     int advancePassTwo(
             @Param("operationCode") OperationCode operationCode,
@@ -258,7 +258,7 @@ public interface DataPullScheduleScanMapper {
             "WHERE operation_code = #{operationCode} AND cutover_key = #{cutoverKey}",
             " AND seal_state = 'VERIFYING' AND version_no = #{expectedVersion}",
             " AND scanned_scope_count = #{expectedCount}",
-            " AND (next_scope_key &lt;=&gt; #{expectedScopeKey})"
+            " AND (next_scope_key <=> #{expectedScopeKey})"
     })
     int advanceManifestSeal(
             @Param("operationCode") OperationCode operationCode,
