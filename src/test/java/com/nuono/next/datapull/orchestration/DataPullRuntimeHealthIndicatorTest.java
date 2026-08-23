@@ -6,6 +6,7 @@ import static org.mockito.Mockito.mock;
 import com.nuono.next.datapull.leader.DataPullRuntimeLeaderTestFixtures;
 import com.nuono.next.datapull.leader.DataPullRuntimeLeadership;
 import com.nuono.next.datapull.runtime.OperationCode;
+import java.io.IOException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,11 +15,32 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.autoconfigure.health.HealthEndpointProperties;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.boot.actuate.health.Status;
+import org.springframework.boot.context.properties.bind.Binder;
+import org.springframework.boot.env.YamlPropertySourceLoader;
+import org.springframework.core.io.ClassPathResource;
+import org.springframework.core.env.StandardEnvironment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
 class DataPullRuntimeHealthIndicatorTest {
+
+    @Test
+    void actuatorExposesDedicatedDpRuntimeHealthGroup() throws IOException {
+        StandardEnvironment environment = new StandardEnvironment();
+        new YamlPropertySourceLoader()
+                .load("application", new ClassPathResource("application.yml"))
+                .forEach(environment.getPropertySources()::addLast);
+
+        HealthEndpointProperties health = Binder.get(environment)
+                .bind("management.endpoint.health", HealthEndpointProperties.class)
+                .orElseThrow(IllegalStateException::new);
+
+        assertThat(health.getGroup()).containsKey("dpRuntime");
+        assertThat(health.getGroup().get("dpRuntime").getInclude())
+                .containsExactly("dpRuntime");
+    }
 
     @Test
     void releaseHealthIsUpOnlyWhileTheVerifiedSchedulerIsRunning() {
