@@ -2,7 +2,11 @@ package com.nuono.next.officialwarehouse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.nuono.next.infrastructure.mapper.OfficialWarehouseShippingBatchDiagnosticMapper;
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseShippingBatchDiagnosticSqlProvider;
+import java.util.Map;
+import org.apache.ibatis.mapping.BoundSql;
+import org.apache.ibatis.session.Configuration;
 import org.junit.jupiter.api.Test;
 
 class OfficialWarehouseShippingBatchDiagnosticSqlProviderTest {
@@ -39,5 +43,26 @@ class OfficialWarehouseShippingBatchDiagnosticSqlProviderTest {
                 .contains("BINARY product.barcode = BINARY line.sku")
                 .contains("BINARY line.psku = BINARY product.partnerSku")
                 .contains("target_store_code = #{storeCode} AND target_site_code = #{siteCode}");
+    }
+
+    @Test
+    void rendersBarcodeComparatorsAsSqlInsteadOfXmlEntities() {
+        Configuration configuration = new Configuration();
+        configuration.addMapper(OfficialWarehouseShippingBatchDiagnosticMapper.class);
+
+        BoundSql boundSql = configuration.getMappedStatement(
+                        OfficialWarehouseShippingBatchDiagnosticMapper.class.getName()
+                                + ".selectExactBatchDiagnostic"
+                )
+                .getBoundSql(Map.of(
+                        "ownerUserId", 307L,
+                        "storeCode", "STR108065-NSA",
+                        "siteCode", "SA",
+                        "keyword", "BATCH-001"
+                ));
+
+        assertThat(boundSql.getSql())
+                .contains("COALESCE(pb.barcode_type, '') <> 'PARTNER_SKU_ALIAS'")
+                .doesNotContain("&lt;", "&gt;");
     }
 }
