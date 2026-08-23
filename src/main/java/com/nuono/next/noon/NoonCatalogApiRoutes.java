@@ -20,8 +20,6 @@ public final class NoonCatalogApiRoutes {
     public static final String GROUP_DETAIL = CONTENT_BASE_URL + "/catplat/group/get";
     public static final String GROUP_LIST = CONTENT_BASE_URL + "/catalog/groups/list";
     public static final String VARIANT_INFORMATION = CONTENT_BASE_URL + "/catplat/variants/information";
-    public static final String ASSET_UPLOAD =
-            "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
     public static final String PRICING_INFORMATION =
             "https://noon-catalog.noon.partners/_vs/mp/mp-pricing-api/pricing/info";
 

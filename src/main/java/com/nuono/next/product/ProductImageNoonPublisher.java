@@ -5,13 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noon.NoonCatalogApiRoutes;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -22,9 +21,6 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 class ProductImageNoonPublisher {
-    private static final URI ASSET_UPLOAD_URI = URI.create(NoonCatalogApiRoutes.ASSET_UPLOAD);
-    private static final int ASSET_UPLOAD_PORT =
-            ASSET_UPLOAD_URI.getPort() > 0 ? ASSET_UPLOAD_URI.getPort() : 443;
     private static final int MAX_NOON_IMAGES = ProductImagePublishCheckpoint.MAX_IMAGES;
     private final StoreSyncMapper storeSyncMapper;
     private final ProductNoonAdapter noonAdapter;
@@ -79,8 +75,8 @@ class ProductImageNoonPublisher {
                 store.getNoonPartnerCookie(),
                 projectCode,
                 storeCode,
-                ASSET_UPLOAD_URI.getHost(),
-                ASSET_UPLOAD_PORT
+                NoonAssetUploadContract.host(),
+                NoonAssetUploadContract.port()
         );
         if (checkpoint.isWriteAttempted() && checkpointUrls != null) {
             try {
@@ -151,19 +147,15 @@ class ProductImageNoonPublisher {
     ) {
         JsonNode response = noonAdapter.postMultipartFile(
                 session,
-                NoonCatalogApiRoutes.ASSET_UPLOAD,
-                "file",
+                NoonAssetUploadContract.URL,
+                NoonAssetUploadContract.FILE_FIELD,
                 image.fileName,
                 image.contentType,
                 image.content,
                 true,
                 null
         );
-        for (String key : List.of("upload_path", "uploadPath", "path", "url")) {
-            String value = response.path(key).asText("").trim();
-            if (StringUtils.hasText(value)) return value;
-        }
-        throw new IllegalStateException("Noon 图片上传响应缺少 upload_path。");
+        return NoonAssetUploadContract.requireUploadPath(response);
     }
 
     private List<String> checkpointUrls(

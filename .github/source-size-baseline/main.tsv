@@ -172,7 +172,7 @@ src/main/java/com/nuono/next/productlisting/LocalDbProductListingProjectionBackf
 src/main/java/com/nuono/next/productlisting/ProductListingDraftCommand.java	450
 src/main/java/com/nuono/next/productlisting/ProductListingDraftProjectionFields.java	329
 src/main/java/com/nuono/next/productlisting/ProductListingService.java	1691
-src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1529
+src/main/java/com/nuono/next/productlisting/RealProductListingNoonWriteAdapter.java	1515
 src/main/java/com/nuono/next/productlogisticscost/ProductLogisticsCostLedgerService.java	898
 src/main/java/com/nuono/next/productpublicdetail/ProductPublicDetailSyncService.java	447
 src/main/java/com/nuono/next/productpublicdetail/noon/HttpNoonPublicProductDetailAdapter.java	1061

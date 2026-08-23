@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noon.NoonCatalogApiRoutes;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.noon.NoonSessionGateway;
 import com.nuono.next.product.noon.NoonProductGateway;
@@ -110,7 +110,7 @@ class ProductImageNoonPublisherTest {
     void shouldUploadWriteAndOnlyReturnAfterExactOrderedReadback() throws Exception {
         stubStoreSession();
         when(noonAdapter.postMultipartFile(
-                eq(session), eq(NoonCatalogApiRoutes.ASSET_UPLOAD), eq("file"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
                 eq("approval-publish-test.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         )).thenReturn(objectMapper.readTree("{\"upload_path\":\"https://noon.example/image-1.png\"}"));
@@ -149,7 +149,7 @@ class ProductImageNoonPublisherTest {
     void shouldReuseUploadedCheckpointAndOnlyUploadMissingImage() throws Exception {
         stubStoreSession();
         when(noonAdapter.postMultipartFile(
-                eq(session), eq(NoonCatalogApiRoutes.ASSET_UPLOAD), eq("file"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
                 eq("approval-publish-test-2.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         )).thenReturn(objectMapper.readTree("{\"upload_path\":\"https://noon.example/image-2.png\"}"));
@@ -186,12 +186,12 @@ class ProductImageNoonPublisherTest {
                 result
         );
         verify(noonAdapter, never()).postMultipartFile(
-                eq(session), eq(NoonCatalogApiRoutes.ASSET_UPLOAD), eq("file"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
                 eq("approval-publish-test.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         );
         verify(noonAdapter).postMultipartFile(
-                eq(session), eq(NoonCatalogApiRoutes.ASSET_UPLOAD), eq("file"),
+                eq(session), eq(NoonAssetUploadContract.URL), eq(NoonAssetUploadContract.FILE_FIELD),
                 eq("approval-publish-test-2.png"), eq("image/png"),
                 any(byte[].class), eq(true), eq(null)
         );

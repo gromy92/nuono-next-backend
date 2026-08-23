@@ -13,7 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.noon.NoonCatalogApiRoutes;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
@@ -194,8 +194,8 @@ class ProductPublishSharedZskuWriterTest {
             uploadResponse.put("upload_path", "noon-uploaded/" + filename);
             when(productNoonAdapter.postMultipartFile(
                     nullable(NoonSession.class),
-                    eq(NoonCatalogApiRoutes.ASSET_UPLOAD),
-                    eq("file"),
+                    eq(NoonAssetUploadContract.URL),
+                    eq(NoonAssetUploadContract.FILE_FIELD),
                     eq(filename),
                     eq("image/jpeg"),
                     any(byte[].class),
