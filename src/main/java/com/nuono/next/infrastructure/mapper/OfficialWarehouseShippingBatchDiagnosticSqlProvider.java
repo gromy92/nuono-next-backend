@@ -7,6 +7,7 @@ public final class OfficialWarehouseShippingBatchDiagnosticSqlProvider {
 
     public static String selectExactBatchDiagnostic() {
         return String.join("\n",
+                "<script>",
                 OfficialWarehouseShippingBatchSqlProvider.strictBarcodeProductCtes(),
                 ", matchedBatch AS (",
                 "  SELECT b.id, b.owner_user_id, b.batch_reference_no, b.tracking_no, b.external_shipment_no,",
@@ -101,7 +102,8 @@ public final class OfficialWarehouseShippingBatchDiagnosticSqlProvider {
                 "       COALESCE((SELECT SUM(GREATEST(line.scopedQuantity - line.scheduledQuantity, 0))",
                 "                  FROM resolvedLines line WHERE line.batch_id = batch.id), 0) AS remainingQuantity",
                 "FROM matchedBatch batch",
-                "LIMIT 1"
+                "LIMIT 1",
+                "</script>"
         );
     }
 }
