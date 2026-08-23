@@ -1,5 +1,6 @@
 package com.nuono.next.noonpull;
 
+import com.nuono.next.noon.NoonHttpException;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -134,6 +135,10 @@ final class NoonReportDownloadProbeSourceSupport {
                 if (missing != null) {
                     return "NoSuchBeanDefinitionException." + missing.getSimpleName();
                 }
+            }
+            if (current instanceof NoonHttpException) {
+                return "REPORT_STATUS_HTTP_"
+                        + ((NoonHttpException) current).getStatusCode();
             }
             String message = current.getMessage();
             if (message != null && message.startsWith("Noon proxy provider unavailable: HTTP ")) {

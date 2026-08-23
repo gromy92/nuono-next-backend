@@ -140,13 +140,13 @@ class NoonSessionGatewayPinnedEgressTest {
         );
     }
 
-    private static final class ProxyProvider implements AutoCloseable {
+    static final class ProxyProvider implements AutoCloseable {
         private final HttpServer server;
         private final Deque<Integer> ports;
         private final AtomicInteger requestCount = new AtomicInteger();
         private final int fallbackPort;
 
-        private ProxyProvider(int... proxyPorts) throws IOException {
+        ProxyProvider(int... proxyPorts) throws IOException {
             ports = new ArrayDeque<>();
             Arrays.stream(proxyPorts).forEach(ports::addLast);
             fallbackPort = proxyPorts[proxyPorts.length - 1];
@@ -165,11 +165,11 @@ class NoonSessionGatewayPinnedEgressTest {
             server.start();
         }
 
-        private String url() {
+        String url() {
             return "http://127.0.0.1:" + server.getAddress().getPort() + "/proxy";
         }
 
-        private int requestCount() {
+        int requestCount() {
             return requestCount.get();
         }
 
@@ -179,7 +179,7 @@ class NoonSessionGatewayPinnedEgressTest {
         }
     }
 
-    private static final class ScriptedProxy implements AutoCloseable {
+    static final class ScriptedProxy implements AutoCloseable {
         private final ServerSocket server;
         private final int connectStatus;
         private final Integer httpFailureStatus;
@@ -196,7 +196,7 @@ class NoonSessionGatewayPinnedEgressTest {
             thread.start();
         }
 
-        private static ScriptedProxy connectStatus(int status) throws IOException {
+        static ScriptedProxy connectStatus(int status) throws IOException {
             return new ScriptedProxy(status, null);
         }
 
@@ -207,15 +207,15 @@ class NoonSessionGatewayPinnedEgressTest {
             return new ScriptedProxy(connectStatus, httpFailureStatus);
         }
 
-        private int port() {
+        int port() {
             return server.getLocalPort();
         }
 
-        private int connectCount() {
+        int connectCount() {
             return connectCount.get();
         }
 
-        private int httpCount() {
+        int httpCount() {
             return httpCount.get();
         }
 
@@ -243,7 +243,8 @@ class NoonSessionGatewayPinnedEgressTest {
                 int status = httpFailureStatus != null && currentHttpCount > 1
                         ? httpFailureStatus
                         : 200;
-                respond(accepted, status, status == 200 ? "{}" : "");
+                respond(accepted, status, status == 200
+                        ? "{\"export\":{\"status_code\":\"COMPLETE\"}}" : "");
             }
         }
 
