@@ -9,6 +9,7 @@ from release_legacy_env_contract import build_legacy_env_contract_shell
 from release_nginx_upstream import build_nginx_upstream_shell
 from release_predecessor_rollback import build_predecessor_rollback_shell
 from release_runtime_readiness import build_dp_runtime_health_shell
+from release_runtime_upgrade_attestation import build_runtime_upgrade_attestation
 from release_secure_slot_files import build_secure_file_shell
 LEGACY_EXECUTION_MODES = frozenset({"LEGACY", "LEGACY_DEFAULT"})
 RUNTIME_EXECUTION_MODE = "RUNTIME"
@@ -34,14 +35,10 @@ def build_legacy_single_scheduler_cutover_script(**arguments) -> str:
     if arguments.get("expected_dp_execution_mode") not in LEGACY_EXECUTION_MODES:
         raise ValueError("LEGACY-preserving cutover requires an observed LEGACY mode")
     return _build_mode_preserving_single_scheduler_cutover_script(**arguments)
-
-
 def build_runtime_single_scheduler_upgrade_script(**arguments) -> str:
     if arguments.get("expected_dp_execution_mode") != RUNTIME_EXECUTION_MODE:
         raise ValueError("RUNTIME-preserving cutover requires an observed RUNTIME mode")
     return _build_mode_preserving_single_scheduler_cutover_script(**arguments)
-
-
 def _build_mode_preserving_single_scheduler_cutover_script(
     *,
     staged_jar: str,
@@ -94,6 +91,16 @@ def _build_mode_preserving_single_scheduler_cutover_script(
         if preserve_runtime
         else 'SOURCE_ENV_FILE="$APP_DIR/.env"\nSOURCE_ENV_SHA256="$(secure_file_operation verify "$SOURCE_ENV_FILE" 600 -)"'
     )
+    runtime_upgrade = build_runtime_upgrade_attestation(preserve_runtime)
+    prepare_mode_target = runtime_upgrade.prepare_target or r'''
+secure_file_operation directory "$APP_DIR/backups" "700,750,755" 700 accept
+secure_file_operation directory "$BACKUP_DIR" 700 700 create-new
+LEGACY_BASE_ENV_FILE="$BACKUP_DIR/legacy-base.env"
+prepare_legacy_base_env "$SOURCE_ENV_FILE" "$SOURCE_ENV_SHA256" "$LEGACY_BASE_ENV_FILE"
+secure_file_operation directory "$APP_DIR/blue-green" "700,750,755" 700 accept
+secure_file_operation directory "$TARGET_SLOT_DIR" "700,750,755" 700 accept
+prepare_target_runtime_payloads
+'''
     return f"""#!/usr/bin/env bash
 set -Eeuo pipefail
 {assignments}
@@ -111,9 +118,11 @@ ACTIVE_RUNTIME_KIND="" UPSTREAM_BACKUP="" TARGET_ENV_SHA256="" SOURCE_ENV_FILE="
 SOURCE_START_SCRIPT_SHA256="" NGINX_UPSTREAM_SHA256="" NGINX_UPSTREAM_ORIGINAL_SHA256=""
 NGINX_UPSTREAM_BACKUP_SHA256="" LSOF_BIN="" READY_ATTEMPT=""
 LEGACY_BASE_ENV_FILE="" LEGACY_BASE_ENV_SHA256="" LEGACY_CANARY_DISPOSITION=""
+{runtime_upgrade.variables}
 MAINTENANCE_ROUTED=0 OLD_STOPPED=0 NEW_START_ATTEMPTED=0 ROLLBACK_RUNNING=0
 emit() {{ printf '%s=%s\\n' "$1" "$2"; }}
 {build_secure_file_shell()}
+{runtime_upgrade.probe_shell}
 {trap_safe_health_function()}
 wait_for_health() {{
   local attempt
@@ -174,6 +183,7 @@ prepare_target_runtime_payloads() {{
   runtime_env_has_forbidden_injection "$TARGET_SLOT_DIR/.env"
   assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
 }}
+{runtime_upgrade.target_payload_override}
 assert_source_payloads() {{
   [ "$(secure_file_operation verify "$SOURCE_ENV_FILE" 600 "$SOURCE_ENV_SHA256")" = \
     "$SOURCE_ENV_SHA256" ]
@@ -239,22 +249,18 @@ freeze_active_runtime_payloads
 assert_source_payloads
 assert_legacy_target_env_contract "$ACTIVE_RUN_DIR/.env"
 assert_only_backend_jvm "$ACTIVE_PID"
-secure_file_operation directory "$APP_DIR/backups" "700,750,755" 700 accept
-secure_file_operation directory "$BACKUP_DIR" 700 700 create-new
-LEGACY_BASE_ENV_FILE="$BACKUP_DIR/legacy-base.env"
-prepare_legacy_base_env "$SOURCE_ENV_FILE" "$SOURCE_ENV_SHA256" "$LEGACY_BASE_ENV_FILE"
-secure_file_operation directory "$APP_DIR/blue-green" "700,750,755" 700 accept
-secure_file_operation directory "$TARGET_SLOT_DIR" "700,750,755" 700 accept
-prepare_target_runtime_payloads
+{prepare_mode_target}
 UPSTREAM_BACKUP="$BACKUP_DIR/$(basename "$NGINX_UPSTREAM_FILE").before"
 backup_nginx_upstream "$UPSTREAM_BACKUP"
 trap rollback_cutover ERR
+{runtime_upgrade.recheck}
 start_maintenance_responder
 switch_nginx_to_maintenance
 reverify_active_runtime_payloads
 assert_source_payloads
 [ "$(legacy_process_mode "$ACTIVE_PID")" = "$EXPECTED_DP_EXECUTION_MODE" ]
 assert_only_backend_jvm "$ACTIVE_PID"
+{runtime_upgrade.recheck}
 stop_pid "$ACTIVE_PID"
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 assert_no_backend_jvms
@@ -265,9 +271,11 @@ start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
 NEW_PID="$(wait_for_unique_target_jvm)"
 wait_for_health "$TARGET_PORT"
 assert_target_release_ready
+{runtime_upgrade.recheck}
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 switch_nginx_to_port "$TARGET_PORT"
 assert_target_release_ready
+{runtime_upgrade.recheck}
 external_health=""; capture_status external_health post_switch_external_health
 [ "$external_health" = UP ]
 assert_target_release_ready
