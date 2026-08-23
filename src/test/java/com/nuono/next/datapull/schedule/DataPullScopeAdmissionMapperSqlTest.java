@@ -45,7 +45,7 @@ class DataPullScopeAdmissionMapperSqlTest {
                 "FROM dp_pull_schedule_cutover cutover",
                 "cutover.state = 'ACTIVE'",
                 "cutover.cutover_key = BINARY #{admission.cutoverKey}",
-                "ON DUPLICATE KEY UPDATE scope_key = scope_key"
+                "ON DUPLICATE KEY UPDATE scope_key = dp_pull_scope_admission.scope_key"
         );
         assertThat(sql).doesNotContain("source_binding_sha256 = VALUES");
     }

@@ -17,7 +17,8 @@ class DataPullScopeProgressMapperSqlTest {
     void initializationNeverOverwritesCommittedProgress() {
         String sql = sql("insertIfAbsent", Insert.class);
 
-        assertTrue(sql.contains("ON DUPLICATE KEY UPDATE operation_code = operation_code"));
+        assertTrue(sql.contains("ON DUPLICATE KEY UPDATE operation_code = "
+                + "dp_pull_scope_progress.operation_code"));
         assertFalse(sql.contains("initial_full_completed = VALUES"));
         assertFalse(sql.contains("official_modified_high_water_utc = VALUES"));
     }

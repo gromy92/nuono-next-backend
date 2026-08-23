@@ -30,7 +30,8 @@ class DataPullScopeBindingMapperSqlTest {
         assertThat(insert).contains(
                 "open_scope_slot", "CONCAT(#{operationCode}, ':', #{scopeKey})"
         );
-        assertThat(insert).contains("ON DUPLICATE KEY UPDATE binding_id = binding_id");
+        assertThat(insert).contains("ON DUPLICATE KEY UPDATE binding_id = "
+                + "dp_pull_scope_binding_epoch.binding_id");
         assertThat(close).contains("payload_sha256 = BINARY #{payloadSha256}");
         assertThat(close).contains("effective_until_utc IS NULL");
         assertThat(close).contains("open_scope_slot = NULL");
