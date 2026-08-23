@@ -70,8 +70,6 @@ public class ProductListingRealWriteProperties {
                 "https://catalog.noon.partners/_svc/mp-noon-catalog-api-content/catplat/zsku/upsert";
         public static final String DEFAULT_RETRIEVE_ZSKU_URL =
                 NoonCatalogApiRoutes.ZSKU_RETRIEVE;
-        public static final String DEFAULT_UPLOAD_IMAGE_URL =
-                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
         public static final String DEFAULT_PRODUCT_FULLTYPE_SUGGEST_URL =
                 "https://noon-catalog.noon.partners/_svc/partners-catalogmd-v2/api/product-fulltypes/suggest-taxonomy/";
         public static final String DEFAULT_PRODUCT_FULLTYPE_TAXONOMY_URL =
@@ -97,7 +95,6 @@ public class ProductListingRealWriteProperties {
         private String skuCacheUrl = DEFAULT_SKU_CACHE_URL;
         private String upsertZskuUrl = DEFAULT_UPSERT_ZSKU_URL;
         private String retrieveZskuUrl = DEFAULT_RETRIEVE_ZSKU_URL;
-        private String uploadImageUrl = DEFAULT_UPLOAD_IMAGE_URL;
         private String productFulltypeSuggestUrl = DEFAULT_PRODUCT_FULLTYPE_SUGGEST_URL;
         private String productFulltypeTaxonomyUrl = DEFAULT_PRODUCT_FULLTYPE_TAXONOMY_URL;
         private String warehouseListUrl = DEFAULT_WAREHOUSE_LIST_URL;
@@ -139,14 +136,6 @@ public class ProductListingRealWriteProperties {
 
         public void setRetrieveZskuUrl(String retrieveZskuUrl) {
             this.retrieveZskuUrl = retrieveZskuUrl;
-        }
-
-        public String getUploadImageUrl() {
-            return uploadImageUrl;
-        }
-
-        public void setUploadImageUrl(String uploadImageUrl) {
-            this.uploadImageUrl = uploadImageUrl;
         }
 
         public String getProductFulltypeSuggestUrl() {

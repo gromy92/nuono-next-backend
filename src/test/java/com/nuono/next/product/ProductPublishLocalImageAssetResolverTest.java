@@ -5,12 +5,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.nuono.next.noon.NoonAssetUploadContract;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.nio.file.Files;
@@ -38,8 +40,8 @@ class ProductPublishLocalImageAssetResolverTest {
             uploadResponse.put("upload_path", "uploaded/first.jpg");
             when(adapter.postMultipartFile(
                     nullable(NoonSession.class),
-                    anyString(),
-                    anyString(),
+                    eq(NoonAssetUploadContract.URL),
+                    eq(NoonAssetUploadContract.FILE_FIELD),
                     anyString(),
                     anyString(),
                     any(byte[].class),
