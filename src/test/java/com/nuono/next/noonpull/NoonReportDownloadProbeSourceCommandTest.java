@@ -12,18 +12,16 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.noon.NoonHttpException;
 import com.nuono.next.noon.NoonReportStatusProbeTransport;
-import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
-import org.springframework.context.annotation.Bean;
-import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -98,27 +96,24 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
-    void exposesTheJdbcTemplateRequiredByFreshSourceResolution() {
-        com.zaxxer.hikari.HikariDataSource dataSource =
-                mock(com.zaxxer.hikari.HikariDataSource.class);
-
-        JdbcTemplate jdbc = new NoonReportDownloadProbeSourceCommand
-                .ProbeConfiguration().jdbcTemplate(dataSource);
-
-        assertEquals(dataSource, jdbc.getDataSource());
+    void releaseCommandContainsNoConfigurationCandidateForProductionScanning() {
+        assertFalse(Arrays.stream(NoonReportDownloadProbeSourceCommand.class
+                        .getDeclaredClasses())
+                .anyMatch(type -> type.isAnnotationPresent(
+                        org.springframework.context.annotation.Configuration.class)));
     }
 
     @Test
     void isolatedTransportReadsTheExactUppercaseEnvironmentKeys() {
-        MockEnvironment environment = new MockEnvironment()
-                .withProperty("NUONO_NOON_PROXY_ENABLED", "true")
-                .withProperty("NUONO_NOON_PROXY_TYPE", "HTTP")
-                .withProperty("NUONO_NOON_PROXY_PROVIDER_URL", "https://provider.test/route")
-                .withProperty("NUONO_NOON_PROXY_MODE", "PROVIDER");
-
-        NoonReportStatusProbeTransport transport = new NoonReportDownloadProbeSourceCommand
-                .ProbeConfiguration().reportStatusProbeTransport(
-                        new ObjectMapper(), environment);
+        NoonReportStatusProbeTransport transport =
+                NoonReportDownloadProbeSourceCommand.transport(
+                        new ObjectMapper(),
+                        Map.of(
+                                "NUONO_NOON_PROXY_ENABLED", "true",
+                                "NUONO_NOON_PROXY_TYPE", "HTTP",
+                                "NUONO_NOON_PROXY_PROVIDER_URL", "https://provider.test/route",
+                                "NUONO_NOON_PROXY_MODE", "PROVIDER"
+                        ));
 
         assertEquals("PROVIDER", ReflectionTestUtils.getField(transport, "proxyMode"));
         Object routes = ReflectionTestUtils.getField(transport, "routes");
@@ -166,21 +161,6 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
-    void isolatedProbeContextResolvesEveryFreshSourceDependency() {
-        new ApplicationContextRunner()
-                .withUserConfiguration(ProbeDependencyGraph.class)
-                .run(context -> {
-                    assertFalse(context.getStartupFailure() != null);
-                    assertEquals(1, context.getBeansOfType(JdbcTemplate.class).size());
-                    assertEquals(1, context.getBeansOfType(ObjectMapper.class).size());
-                    assertEquals(1, context.getBeansOfType(
-                            NoonReportStatusProbeTransport.class).size());
-                    assertTrue(context.getBeansOfType(
-                            org.apache.ibatis.session.SqlSessionFactory.class).isEmpty());
-                });
-    }
-
-    @Test
     void rejectsDuplicateEnvironmentAndCreatesANewOwnerOnlySourceFile() throws Exception {
         Path env = directory.resolve("duplicate.env");
         Files.writeString(env, "NUONO_NEXT_DB_URL=first\nNUONO_NEXT_DB_URL=second\n");
@@ -195,28 +175,5 @@ class NoonReportDownloadProbeSourceCommandTest {
         ));
         assertThrows(IllegalArgumentException.class,
                 () -> NoonReportDownloadProbeSourceSupport.writeSecret(source, "replacement"));
-    }
-
-    @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
-    static class ProbeDependencyGraph {
-        @Bean
-        HikariDataSource dataSource() {
-            return mock(HikariDataSource.class);
-        }
-
-        @Bean
-        ObjectMapper objectMapper() {
-            return new ObjectMapper();
-        }
-
-        @Bean
-        JdbcTemplate jdbcTemplate(HikariDataSource dataSource) {
-            return new JdbcTemplate(dataSource);
-        }
-
-        @Bean
-        NoonReportStatusProbeTransport reportStatusProbeTransport() {
-            return mock(NoonReportStatusProbeTransport.class);
-        }
     }
 }

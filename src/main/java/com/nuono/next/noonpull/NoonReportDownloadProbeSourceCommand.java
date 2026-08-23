@@ -11,14 +11,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
-import org.springframework.boot.SpringApplication;
-import org.springframework.boot.WebApplicationType;
-import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.core.env.Environment;
-import org.springframework.core.env.MapPropertySource;
-import org.springframework.core.env.StandardEnvironment;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.util.StringUtils;
 
@@ -38,21 +30,15 @@ public final class NoonReportDownloadProbeSourceCommand {
             Arguments command = Arguments.parse(args);
             Map<String, Object> values = NoonReportDownloadProbeSourceSupport
                     .loadEnvironment(command.envFile);
-            values.put("logging.level.root", "ERROR");
-            values.put("spring.main.banner-mode", "off");
-            values.put("spring.jmx.enabled", "false");
-            StandardEnvironment environment = new StandardEnvironment();
-            environment.setActiveProfiles("local-db");
-            environment.getPropertySources().addFirst(
-                    new MapPropertySource("probe-env", values)
-            );
-            SpringApplication application = new SpringApplication(ProbeConfiguration.class);
-            application.setEnvironment(environment);
-            application.setWebApplicationType(WebApplicationType.NONE);
-            application.setRegisterShutdownHook(false);
-            application.setLogStartupInfo(false);
-            try (ConfigurableApplicationContext context = application.run()) {
-                String source = resolveFreshSource(context, Clock.systemUTC());
+            try (HikariDataSource dataSource = dataSource(values)) {
+                String source = resolveFreshSource(
+                        new JdbcTemplate(dataSource),
+                        transport(new ObjectMapper(), values),
+                        value(values,
+                                "NUONO_NOON_PULL_REAL_PROVIDER_REPORT_EXPORT_STATUS_URL",
+                                DEFAULT_STATUS_URL),
+                        Clock.systemUTC()
+                );
                 NoonReportDownloadProbeSourceSupport.writeSecret(
                         command.outputFile, source
                 );
@@ -68,15 +54,12 @@ public final class NoonReportDownloadProbeSourceCommand {
         }
     }
 
-    static String resolveFreshSource(ConfigurableApplicationContext context, Clock clock) {
-        JdbcTemplate jdbc = context.getBean(JdbcTemplate.class);
-        NoonReportStatusProbeTransport transport =
-                context.getBean(NoonReportStatusProbeTransport.class);
-        Environment environment = context.getEnvironment();
-        String statusUrl = environment.getProperty(
-                "NUONO_NOON_PULL_REAL_PROVIDER_REPORT_EXPORT_STATUS_URL",
-                DEFAULT_STATUS_URL
-        );
+    static String resolveFreshSource(
+            JdbcTemplate jdbc,
+            NoonReportStatusProbeTransport transport,
+            String statusUrl,
+            Clock clock
+    ) {
         List<Scope> scopes = jdbc.query(
                 "SELECT store_code, site_code, project_code, "
                         + "report_export_id, noon_partner_cookie FROM ("
@@ -126,6 +109,54 @@ public final class NoonReportDownloadProbeSourceCommand {
             throw new IllegalStateException("fresh Noon report URL unavailable", lastFailure);
         }
         throw new IllegalStateException("fresh Noon report URL unavailable");
+    }
+
+    static NoonReportStatusProbeTransport transport(
+            ObjectMapper json,
+            Map<String, Object> values
+    ) {
+        return new NoonReportStatusProbeTransport(
+                json,
+                Boolean.parseBoolean(value(values, "NUONO_NOON_PROXY_ENABLED", "false")),
+                value(values, "NUONO_NOON_PROXY_TYPE", "HTTP"),
+                value(values, "NUONO_NOON_PROXY_HOST", ""),
+                integer(values, "NUONO_NOON_PROXY_PORT", 0),
+                value(values, "NUONO_NOON_PROXY_PROVIDER_URL", ""),
+                value(values, "NUONO_NOON_PROXY_MODE", "AUTO"),
+                value(values, "NUONO_NOON_USER_AGENT", ""),
+                value(values, "NUONO_NOON_ACCEPT_LANGUAGE", "")
+        );
+    }
+
+    private static HikariDataSource dataSource(Map<String, Object> values) {
+        HikariConfig hikari = new HikariConfig();
+        hikari.setJdbcUrl(required(values, "NUONO_NEXT_DB_URL"));
+        hikari.setUsername(required(values, "NUONO_NEXT_DB_USERNAME"));
+        hikari.setPassword(required(values, "NUONO_NEXT_DB_PASSWORD"));
+        hikari.setMaximumPoolSize(2);
+        hikari.setMinimumIdle(0);
+        hikari.setConnectionTimeout(10_000L);
+        hikari.addDataSourceProperty("connectTimeout", "10000");
+        hikari.addDataSourceProperty("socketTimeout", "30000");
+        return new HikariDataSource(hikari);
+    }
+
+    private static String required(Map<String, Object> values, String name) {
+        String result = value(values, name, "");
+        if (!StringUtils.hasText(result)) {
+            throw new IllegalArgumentException("required probe database setting is missing");
+        }
+        return result;
+    }
+
+    private static String value(Map<String, Object> values, String name, String fallback) {
+        Object raw = values.get(name);
+        return raw == null ? fallback : String.valueOf(raw).trim();
+    }
+
+    private static int integer(Map<String, Object> values, String name, int fallback) {
+        String raw = value(values, name, "");
+        return raw.isEmpty() ? fallback : Integer.parseInt(raw);
     }
 
     static String pollExistingExportOnce(
@@ -202,57 +233,4 @@ public final class NoonReportDownloadProbeSourceCommand {
         }
     }
 
-    @Configuration(proxyBeanMethods = false)
-    static class ProbeConfiguration {
-        @Bean(destroyMethod = "close")
-        HikariDataSource dataSource(Environment environment) {
-            HikariConfig hikari = new HikariConfig();
-            hikari.setJdbcUrl(required(environment, "NUONO_NEXT_DB_URL"));
-            hikari.setUsername(required(environment, "NUONO_NEXT_DB_USERNAME"));
-            hikari.setPassword(required(environment, "NUONO_NEXT_DB_PASSWORD"));
-            hikari.setMaximumPoolSize(2);
-            hikari.setMinimumIdle(0);
-            hikari.setConnectionTimeout(10_000L);
-            hikari.addDataSourceProperty("connectTimeout", "10000");
-            hikari.addDataSourceProperty("socketTimeout", "30000");
-            return new HikariDataSource(hikari);
-        }
-
-        @Bean
-        ObjectMapper objectMapper() {
-            return new ObjectMapper();
-        }
-
-        @Bean
-        JdbcTemplate jdbcTemplate(HikariDataSource dataSource) {
-            return new JdbcTemplate(dataSource);
-        }
-
-        @Bean
-        NoonReportStatusProbeTransport reportStatusProbeTransport(
-                ObjectMapper json,
-                Environment environment
-        ) {
-            return new NoonReportStatusProbeTransport(
-                    json,
-                    Boolean.parseBoolean(environment.getProperty(
-                            "NUONO_NOON_PROXY_ENABLED", "false")),
-                    environment.getProperty("NUONO_NOON_PROXY_TYPE", "HTTP"),
-                    environment.getProperty("NUONO_NOON_PROXY_HOST", ""),
-                    environment.getProperty("NUONO_NOON_PROXY_PORT", Integer.class, 0),
-                    environment.getProperty("NUONO_NOON_PROXY_PROVIDER_URL", ""),
-                    environment.getProperty("NUONO_NOON_PROXY_MODE", "AUTO"),
-                    environment.getProperty("NUONO_NOON_USER_AGENT", ""),
-                    environment.getProperty("NUONO_NOON_ACCEPT_LANGUAGE", "")
-            );
-        }
-
-        private static String required(Environment environment, String name) {
-            String value = environment.getProperty(name);
-            if (!StringUtils.hasText(value)) {
-                throw new IllegalArgumentException("required probe database setting is missing");
-            }
-            return value.trim();
-        }
-    }
 }
