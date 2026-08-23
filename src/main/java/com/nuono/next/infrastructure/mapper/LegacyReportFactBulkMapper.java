@@ -73,9 +73,9 @@ public interface LegacyReportFactBulkMapper {
             " siteCode VARCHAR(20) PATH '$.siteCode',salesDate DATE PATH '$.salesDate',",
             " skuParent VARCHAR(160) PATH '$.skuParent',sku VARCHAR(160) PATH '$.sku')) fact",
             "JOIN daily_sales_fact target ON target.source_system='noon_productviewsandsalesdata'",
-            " AND target.owner_user_id=fact.ownerUserId AND BINARY target.store_code=BINARY fact.storeCode",
-            " AND BINARY target.site_code=BINARY fact.siteCode AND target.fact_date=fact.salesDate",
-            " AND BINARY target.partner_sku=BINARY fact.skuParent AND BINARY target.sku=BINARY fact.sku",
+            " AND target.owner_user_id=fact.ownerUserId AND target.store_code=fact.storeCode",
+            " AND target.site_code=fact.siteCode AND target.fact_date=fact.salesDate",
+            " AND target.partner_sku=fact.skuParent AND target.sku=fact.sku",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
             " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })
@@ -137,8 +137,8 @@ public interface LegacyReportFactBulkMapper {
             "JOIN JSON_TABLE(staged.payload_json,'$' COLUMNS(idPartner VARCHAR(80) PATH '$.idPartner',",
             "countryCode VARCHAR(20) PATH '$.countryCode',orderLineIdentity VARCHAR(160) PATH '$.orderLineIdentity')) fact",
             "JOIN noon_order_line_fact target ON target.source_system='noon_order_report'",
-            " AND BINARY target.id_partner=BINARY fact.idPartner AND BINARY target.country_code=BINARY fact.countryCode",
-            " AND BINARY target.item_nr=BINARY fact.orderLineIdentity",
+            " AND target.id_partner=fact.idPartner AND target.country_code=fact.countryCode",
+            " AND target.item_nr=fact.orderLineIdentity",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
             " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })
@@ -213,8 +213,8 @@ public interface LegacyReportFactBulkMapper {
             "storeCode VARCHAR(100) PATH '$.storeCode',siteCode VARCHAR(20) PATH '$.siteCode',",
             "rowHash VARCHAR(128) PATH '$.rowHash')) fact",
             "JOIN noon_finance_transaction_fact target ON target.source_system='noon_finance_transaction_report'",
-            " AND target.owner_user_id=fact.ownerUserId AND BINARY target.store_code=BINARY fact.storeCode",
-            " AND BINARY target.site_code=BINARY fact.siteCode AND BINARY target.row_hash=BINARY fact.rowHash",
+            " AND target.owner_user_id=fact.ownerUserId AND target.store_code=fact.storeCode",
+            " AND target.site_code=fact.siteCode AND target.row_hash=fact.rowHash",
             "WHERE staged.task_id=#{taskId} AND staged.decision='ACCEPTED'",
             " AND staged.`row_number`>#{afterRowNumber} AND staged.`row_number`<=#{throughRowNumber}"
     })

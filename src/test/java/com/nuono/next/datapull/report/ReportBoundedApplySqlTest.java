@@ -49,6 +49,19 @@ class ReportBoundedApplySqlTest {
     }
 
     @Test
+    void legacyFactProofsKeepNaturalKeyColumnsIndexable() {
+        for (String methodName : List.of(
+                "countAppliedSalesFacts",
+                "countAppliedOrderFacts",
+                "countAppliedFinanceFacts"
+        )) {
+            assertThat(selectSql(LegacyReportFactBulkMapper.class, methodName))
+                    .as(methodName)
+                    .doesNotContain("BINARY target.");
+        }
+    }
+
+    @Test
     void dp07bUsesBoundedSourceOnlyWritesAndExistingReceiptStatuses() throws Exception {
         for (String sql : List.of(
                 FbnReportApplySql.insertReportRows(),
