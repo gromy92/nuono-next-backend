@@ -69,6 +69,7 @@ jobs:
           scripts/tests/test_file_parse_retirement_cutover.py
           scripts/tests/test_release_dp_runtime_cutover.py
           scripts/tests/test_release_legacy_single_scheduler_cutover.py
+          scripts/tests/test_release_runtime_single_scheduler_upgrade.py
 
       - name: Verify competitor business-date correction contracts
         env:

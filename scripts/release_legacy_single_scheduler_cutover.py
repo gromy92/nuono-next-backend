@@ -8,6 +8,7 @@ from release_maintenance_responder import build_maintenance_responder_shell
 from release_legacy_env_contract import build_legacy_env_contract_shell
 from release_nginx_upstream import build_nginx_upstream_shell
 from release_predecessor_rollback import build_predecessor_rollback_shell
+from release_runtime_readiness import build_dp_runtime_health_shell
 from release_secure_slot_files import build_secure_file_shell
 LEGACY_EXECUTION_MODES = frozenset({"LEGACY", "LEGACY_DEFAULT"})
 RUNTIME_EXECUTION_MODE = "RUNTIME"
@@ -29,49 +30,10 @@ def _validated_external_health_url(value: str) -> str:
     ):
         raise ValueError("external health URL is outside the governed allowlist")
     return value
-def build_legacy_single_scheduler_cutover_script(
-    *,
-    staged_jar: str,
-    expected_jar_sha256: str,
-    expected_commit: str,
-    expected_active_jar_sha256: str,
-    expected_active_pid: int,
-    expected_nginx_upstream_sha256: str,
-    expected_topology_cas_sha256: str,
-    expected_dp_execution_mode: str,
-    active_slot: str,
-    target_slot: str,
-    active_port: int,
-    target_port: int,
-    maintenance_port: int,
-    nginx_upstream_file: str,
-    release_name: str,
-    external_health_url: str,
-    app_dir: str,
-    allow_unhealthy_active: bool = False,
-) -> str:
-    if expected_dp_execution_mode not in LEGACY_EXECUTION_MODES:
+def build_legacy_single_scheduler_cutover_script(**arguments) -> str:
+    if arguments.get("expected_dp_execution_mode") not in LEGACY_EXECUTION_MODES:
         raise ValueError("LEGACY-preserving cutover requires an observed LEGACY mode")
-    return _build_mode_preserving_single_scheduler_cutover_script(
-        staged_jar=staged_jar,
-        expected_jar_sha256=expected_jar_sha256,
-        expected_commit=expected_commit,
-        expected_active_jar_sha256=expected_active_jar_sha256,
-        expected_active_pid=expected_active_pid,
-        expected_nginx_upstream_sha256=expected_nginx_upstream_sha256,
-        expected_topology_cas_sha256=expected_topology_cas_sha256,
-        expected_dp_execution_mode=expected_dp_execution_mode,
-        active_slot=active_slot,
-        target_slot=target_slot,
-        active_port=active_port,
-        target_port=target_port,
-        maintenance_port=maintenance_port,
-        nginx_upstream_file=nginx_upstream_file,
-        release_name=release_name,
-        external_health_url=external_health_url,
-        app_dir=app_dir,
-        allow_unhealthy_active=allow_unhealthy_active,
-    )
+    return _build_mode_preserving_single_scheduler_cutover_script(**arguments)
 
 
 def build_runtime_single_scheduler_upgrade_script(**arguments) -> str:
@@ -156,23 +118,7 @@ wait_for_health() {{
   done
   return 1
 }}
-dp_runtime_health_status() {{
-  local body=""
-  body="$(curl -fsS --max-time 5 -- \
-    "http://127.0.0.1:$TARGET_PORT/actuator/health/dpRuntime" 2>/dev/null)" || {{
-      printf UNAVAILABLE; return 0;
-    }}
-  python3 - "$body" <<'PY' || {{ printf UNAVAILABLE; return 0; }}
-import json, sys
-try:
-    payload = json.loads(sys.argv[1])
-except (json.JSONDecodeError, TypeError):
-    raise SystemExit(1)
-if not isinstance(payload, dict) or payload.get("status") != "UP":
-    raise SystemExit(1)
-print("UP", end="")
-PY
-}}
+{build_dp_runtime_health_shell()}
 {build_nginx_upstream_shell()}
 switch_nginx_to_port() {{
   write_upstream_port "$1"

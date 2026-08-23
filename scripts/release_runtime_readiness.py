@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 
-def build_runtime_readiness_shell() -> str:
+def build_dp_runtime_health_shell() -> str:
     return r'''dp_runtime_health_status() {
   local body="" status=""
   body="$(curl -fsS --max-time 5 -- \
@@ -23,6 +23,11 @@ PY
 )" || { printf UNAVAILABLE; return 0; }
   printf '%s' "$status"
 }
+'''
+
+
+def build_runtime_readiness_shell() -> str:
+    return build_dp_runtime_health_shell() + r'''
 wait_for_dp_runtime_health() {
   local attempt=""
   for attempt in {1..30}; do
@@ -41,4 +46,4 @@ assert_target_release_ready() {
 '''
 
 
-__all__ = ["build_runtime_readiness_shell"]
+__all__ = ["build_dp_runtime_health_shell", "build_runtime_readiness_shell"]
