@@ -4,39 +4,27 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyMap;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
-import com.nuono.next.noon.NoonSessionGateway;
+import com.nuono.next.noon.NoonHttpException;
+import com.nuono.next.noon.NoonReportStatusProbeTransport;
 import com.zaxxer.hikari.HikariDataSource;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import javax.sql.DataSource;
-import org.apache.ibatis.mapping.Environment;
-import org.apache.ibatis.session.Configuration;
-import org.apache.ibatis.session.SqlSessionFactory;
-import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.mockito.ArgumentCaptor;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
+import org.springframework.mock.env.MockEnvironment;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 class NoonReportDownloadProbeSourceCommandTest {
@@ -86,60 +74,27 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
-    void obtainsTheSourceThroughAReachablePinnedReadOnlySession() {
-        NoonPullStoreBindingResolver resolver = mock(NoonPullStoreBindingResolver.class);
-        NoonPullGatewaySessionFactory sessions = mock(NoonPullGatewaySessionFactory.class);
-        NoonPullGatewaySession session = mock(NoonPullGatewaySession.class);
-        NoonPullStoreBinding binding = new NoonPullStoreBinding(
-                307L, "PRJ108065", "STR108065-NSA", "SA",
-                "108065", "merchant", "cookie"
-        );
-        NoonReportPullRequest request = NoonReportPullRequest.builder()
-                .ownerUserId(307L).storeCode("STR108065-NSA").siteCode("SA")
-                .dataDomain(NoonPullDataDomain.SALES).reportType("RELEASE_PROBE").build();
+    void obtainsTheSourceThroughTheMinimalReadOnlyTransport() {
+        NoonReportStatusProbeTransport transport = mock(NoonReportStatusProbeTransport.class);
         ObjectMapper json = new ObjectMapper();
         ObjectNode response = json.createObjectNode();
         response.putObject("export")
                 .put("status_code", "COMPLETE")
                 .put("download_url", PREFIX + "Expires=1787254201");
-        when(resolver.resolve(request)).thenReturn(binding);
-        when(sessions.openPinnedReadOnly(binding, "noon-catalog.noon.partners", 443))
-                .thenReturn(session);
-        when(session.postJsonOnce(anyString(), any(), eq(true), anyMap()))
-                .thenReturn(response);
+        when(transport.poll(
+                "https://noon-catalog.noon.partners/status",
+                "PRJ108065", "STR108065-NSA", "SA", "EXP4CP4RTOQO", "sid=persisted"
+        )).thenReturn(response);
 
         assertEquals(PREFIX + "Expires=1787254201",
                 NoonReportDownloadProbeSourceCommand.pollExistingExportOnce(
-                        json, resolver, sessions, "https://noon-catalog.noon.partners/status",
-                        request, "EXP4CP4RTOQO"
+                        transport, "https://noon-catalog.noon.partners/status",
+                        "PRJ108065", "STR108065-NSA", "SA", "EXP4CP4RTOQO", "sid=persisted"
                 ));
-        ArgumentCaptor<JsonNode> body = ArgumentCaptor.forClass(JsonNode.class);
-        verify(sessions).openPinnedReadOnly(binding, "noon-catalog.noon.partners", 443);
-        verify(sessions, never()).openOneShot(any());
-        verify(sessions, never()).login(any());
-        verify(session).postJsonOnce(
-                eq("https://noon-catalog.noon.partners/status"),
-                body.capture(), eq(true), anyMap()
+        verify(transport).poll(
+                "https://noon-catalog.noon.partners/status",
+                "PRJ108065", "STR108065-NSA", "SA", "EXP4CP4RTOQO", "sid=persisted"
         );
-        assertEquals("EXP4CP4RTOQO", body.getValue().path("exportCode").asText());
-        assertFalse(body.getValue().path("log").asBoolean(true));
-    }
-
-    @Test
-    void exposesTheExplicitMapperBeanAsItsInterfaceType() throws Exception {
-        Environment environment = new Environment(
-                "probe-test",
-                new JdbcTransactionFactory(),
-                mock(DataSource.class)
-        );
-        SqlSessionFactory sqlSessionFactory = mock(SqlSessionFactory.class);
-        when(sqlSessionFactory.getConfiguration())
-                .thenReturn(new Configuration(environment));
-
-        StoreSyncMapper mapper = new NoonReportDownloadProbeSourceCommand
-                .ProbeConfiguration().storeSyncMapper(sqlSessionFactory);
-
-        assertTrue(StoreSyncMapper.class.isInstance(mapper));
     }
 
     @Test
@@ -151,6 +106,25 @@ class NoonReportDownloadProbeSourceCommandTest {
                 .ProbeConfiguration().jdbcTemplate(dataSource);
 
         assertEquals(dataSource, jdbc.getDataSource());
+    }
+
+    @Test
+    void isolatedTransportReadsTheExactUppercaseEnvironmentKeys() {
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("NUONO_NOON_PROXY_ENABLED", "true")
+                .withProperty("NUONO_NOON_PROXY_TYPE", "HTTP")
+                .withProperty("NUONO_NOON_PROXY_PROVIDER_URL", "https://provider.test/route")
+                .withProperty("NUONO_NOON_PROXY_MODE", "PROVIDER");
+
+        NoonReportStatusProbeTransport transport = new NoonReportDownloadProbeSourceCommand
+                .ProbeConfiguration().reportStatusProbeTransport(
+                        new ObjectMapper(), environment);
+
+        assertEquals("PROVIDER", ReflectionTestUtils.getField(transport, "proxyMode"));
+        Object routes = ReflectionTestUtils.getField(transport, "routes");
+        assertEquals(true, ReflectionTestUtils.getField(routes, "proxyEnabled"));
+        assertEquals("https://provider.test/route",
+                ReflectionTestUtils.getField(routes, "proxyProviderUrl"));
     }
 
     @Test
@@ -179,17 +153,30 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
+    void reportStatusDiagnosticExposesOnlyTheHttpCode() {
+        IllegalStateException command = new IllegalStateException(
+                "fresh Noon report URL unavailable",
+                new NoonHttpException(403, "secret edge response", "/status")
+        );
+
+        assertEquals(
+                "REPORT_STATUS_HTTP_403",
+                NoonReportDownloadProbeSourceSupport.safeMessage(command)
+        );
+    }
+
+    @Test
     void isolatedProbeContextResolvesEveryFreshSourceDependency() {
         new ApplicationContextRunner()
                 .withUserConfiguration(ProbeDependencyGraph.class)
-                .withInitializer(context ->
-                        context.getEnvironment().setActiveProfiles("local-db"))
                 .run(context -> {
-                    assertThat(context).hasNotFailed();
-                    assertThat(context).hasSingleBean(JdbcTemplate.class);
-                    assertThat(context).hasSingleBean(ObjectMapper.class);
-                    assertThat(context).hasSingleBean(NoonPullStoreBindingResolver.class);
-                    assertThat(context).hasSingleBean(NoonPullGatewaySessionFactory.class);
+                    assertFalse(context.getStartupFailure() != null);
+                    assertEquals(1, context.getBeansOfType(JdbcTemplate.class).size());
+                    assertEquals(1, context.getBeansOfType(ObjectMapper.class).size());
+                    assertEquals(1, context.getBeansOfType(
+                            NoonReportStatusProbeTransport.class).size());
+                    assertTrue(context.getBeansOfType(
+                            org.apache.ibatis.session.SqlSessionFactory.class).isEmpty());
                 });
     }
 
@@ -211,19 +198,10 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @org.springframework.context.annotation.Configuration(proxyBeanMethods = false)
-    @Import({
-            NoonPullStoreBindingResolver.class,
-            NoonSessionGateway.class
-    })
     static class ProbeDependencyGraph {
         @Bean
         HikariDataSource dataSource() {
             return mock(HikariDataSource.class);
-        }
-
-        @Bean
-        StoreSyncMapper storeSyncMapper() {
-            return mock(StoreSyncMapper.class);
         }
 
         @Bean
@@ -233,16 +211,12 @@ class NoonReportDownloadProbeSourceCommandTest {
 
         @Bean
         JdbcTemplate jdbcTemplate(HikariDataSource dataSource) {
-            return new NoonReportDownloadProbeSourceCommand.ProbeConfiguration()
-                    .jdbcTemplate(dataSource);
+            return new JdbcTemplate(dataSource);
         }
 
         @Bean
-        NoonPullGatewaySessionFactory noonPullGatewaySessionFactory(
-                NoonSessionGateway gateway
-        ) {
-            return new NoonReportDownloadProbeSourceCommand.ProbeConfiguration()
-                    .noonPullGatewaySessionFactory(gateway);
+        NoonReportStatusProbeTransport reportStatusProbeTransport() {
+            return mock(NoonReportStatusProbeTransport.class);
         }
     }
 }

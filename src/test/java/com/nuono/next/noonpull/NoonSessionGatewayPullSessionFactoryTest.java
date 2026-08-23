@@ -98,32 +98,4 @@ class NoonSessionGatewayPullSessionFactoryTest {
         );
     }
 
-    @Test
-    void pinnedReadOnlySessionRotatesForAReachableTargetBeforeUse() {
-        NoonSessionGateway gateway = mock(NoonSessionGateway.class);
-        NoonSessionGatewayPullSessionFactory factory =
-                new NoonSessionGatewayPullSessionFactory(gateway);
-        NoonPullStoreBinding binding = new NoonPullStoreBinding(
-                308L,
-                "PRJ313934",
-                "STR313934-NAE",
-                "AE",
-                "313934",
-                "merchant@example.com",
-                "project-session-user",
-                "sid=persisted"
-        );
-
-        factory.openPinnedReadOnly(binding, "noon-catalog.noon.partners", 443);
-
-        verify(gateway).loginWithPersistedCookiePinnedEgress(
-                308L,
-                "project-session-user",
-                "sid=persisted",
-                "PRJ313934",
-                "STR313934-NAE",
-                "noon-catalog.noon.partners",
-                443
-        );
-    }
 }
