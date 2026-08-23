@@ -2,6 +2,7 @@ package com.nuono.next.product;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import java.io.IOException;
@@ -14,8 +15,6 @@ import org.springframework.util.StringUtils;
 
 final class ProductPublishLocalImageAssetResolver {
 
-    private static final String NOON_ASSET_UPLOAD_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
     private static final String LOCAL_PRODUCT_IMAGE_ASSET_PREFIX = "/api/product-master/image-assets/";
     private static final int MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
 
@@ -83,7 +82,7 @@ final class ProductPublishLocalImageAssetResolver {
         try {
             JsonNode response = productNoonAdapter.postMultipartFile(
                     session,
-                    NOON_ASSET_UPLOAD_URL,
+                    NoonCatalogApiRoutes.ASSET_UPLOAD,
                     "file",
                     uploadFileName(image),
                     uploadContentType(image),

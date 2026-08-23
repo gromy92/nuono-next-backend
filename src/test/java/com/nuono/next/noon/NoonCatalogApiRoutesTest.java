@@ -39,6 +39,10 @@ class NoonCatalogApiRoutesTest {
                 NoonCatalogApiRoutes.VARIANT_INFORMATION
         );
         assertEquals(
+                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload",
+                NoonCatalogApiRoutes.ASSET_UPLOAD
+        );
+        assertEquals(
                 "https://noon-catalog.noon.partners/_vs/mp/mp-pricing-api/pricing/info",
                 NoonCatalogApiRoutes.PRICING_INFORMATION
         );

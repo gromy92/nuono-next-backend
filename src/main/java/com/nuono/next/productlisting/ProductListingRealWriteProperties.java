@@ -71,7 +71,7 @@ public class ProductListingRealWriteProperties {
         public static final String DEFAULT_RETRIEVE_ZSKU_URL =
                 NoonCatalogApiRoutes.ZSKU_RETRIEVE;
         public static final String DEFAULT_UPLOAD_IMAGE_URL =
-                "https://catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
+                NoonCatalogApiRoutes.ASSET_UPLOAD;
         public static final String DEFAULT_PRODUCT_FULLTYPE_SUGGEST_URL =
                 "https://noon-catalog.noon.partners/_svc/partners-catalogmd-v2/api/product-fulltypes/suggest-taxonomy/";
         public static final String DEFAULT_PRODUCT_FULLTYPE_TAXONOMY_URL =

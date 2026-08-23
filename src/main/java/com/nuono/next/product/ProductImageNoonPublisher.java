@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.nuono.next.infrastructure.mapper.StoreSyncMapper;
+import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.nuono.next.noon.NoonSessionGateway.NoonSession;
 import com.nuono.next.product.noon.NoonProductGateway;
 import com.nuono.next.product.noon.ProductNoonAdapter;
 import com.nuono.next.store.StoreSyncOwnerContext;
 import com.nuono.next.store.StoreSyncStoreRecord;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -20,9 +22,7 @@ import org.springframework.util.StringUtils;
 @Component
 @Profile("local-db")
 class ProductImageNoonPublisher {
-    private static final String ASSET_UPLOAD_URL =
-            "https://noon-catalog.noon.partners/_svc/mp-partner-catalog/catalog/asset/upload";
-    private static final String ASSET_UPLOAD_HOST = "noon-catalog.noon.partners";
+    private static final URI ASSET_UPLOAD_URI = URI.create(NoonCatalogApiRoutes.ASSET_UPLOAD);
     private static final int ASSET_UPLOAD_PORT = 443;
     private static final int MAX_NOON_IMAGES = ProductImagePublishCheckpoint.MAX_IMAGES;
     private final StoreSyncMapper storeSyncMapper;
@@ -78,7 +78,7 @@ class ProductImageNoonPublisher {
                 store.getNoonPartnerCookie(),
                 projectCode,
                 storeCode,
-                ASSET_UPLOAD_HOST,
+                ASSET_UPLOAD_URI.getHost(),
                 ASSET_UPLOAD_PORT
         );
         if (checkpoint.isWriteAttempted() && checkpointUrls != null) {
@@ -150,7 +150,7 @@ class ProductImageNoonPublisher {
     ) {
         JsonNode response = noonAdapter.postMultipartFile(
                 session,
-                ASSET_UPLOAD_URL,
+                NoonCatalogApiRoutes.ASSET_UPLOAD,
                 "file",
                 image.fileName,
                 image.contentType,
