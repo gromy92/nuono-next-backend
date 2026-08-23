@@ -75,6 +75,14 @@ public class NoonRiskBackoffGuard {
         return Optional.ofNullable(hold == null ? null : hold.copy());
     }
 
+    public Optional<NoonRiskBackoffHold> currentExactHold(NoonRiskBackoffScope scope) {
+        if (!enabled || scope == null || !StringUtils.hasText(scope.getScopeKey())) {
+            return Optional.empty();
+        }
+        NoonRiskBackoffHold hold = repository.selectActiveHold(scope.getScopeKey(), now());
+        return Optional.ofNullable(hold == null ? null : hold.copy());
+    }
+
     public NoonRiskBackoffHold recordRiskSignal(
             NoonRiskBackoffScope scope,
             String riskType,
@@ -112,6 +120,30 @@ public class NoonRiskBackoffGuard {
         return moreRestrictive(hold, accountWideHold).copy();
     }
 
+    /**
+     * Records a bounded retry without expanding it into the Partner account-wide risk scope.
+     */
+    public NoonRiskBackoffHold recordScopedSignal(
+            NoonRiskBackoffScope scope,
+            String failureType,
+            String sourceDomain,
+            Long sourceTaskId,
+            String diagnosticSummary
+    ) {
+        if (scope == null || !StringUtils.hasText(scope.getScopeKey())) {
+            throw new IllegalArgumentException("Noon retry scope is required.");
+        }
+        return buildHold(
+                scope,
+                failureType,
+                sourceDomain,
+                sourceTaskId,
+                null,
+                diagnosticSummary,
+                now()
+        ).copy();
+    }
+
     @Transactional
     public void recordSuccess(NoonRiskBackoffScope scope, String sourceDomain) {
         if (!enabled || scope == null || !StringUtils.hasText(scope.getScopeKey())) {
@@ -127,6 +159,18 @@ public class NoonRiskBackoffGuard {
         if (accountWideScope != null && !scope.getScopeKey().equals(accountWideScope.getScopeKey())) {
             repository.resetAfterSuccess(accountWideScope.getScopeKey(), normalizedDomain, resetAt);
         }
+    }
+
+    @Transactional
+    public void recordScopedSuccess(NoonRiskBackoffScope scope, String sourceDomain) {
+        if (!enabled || scope == null || !StringUtils.hasText(scope.getScopeKey())) {
+            return;
+        }
+        String normalizedDomain = normalizeDomain(sourceDomain);
+        if (!StringUtils.hasText(normalizedDomain)) {
+            return;
+        }
+        repository.resetAfterSuccess(scope.getScopeKey(), normalizedDomain, now());
     }
 
     private NoonRiskBackoffHold buildHold(
