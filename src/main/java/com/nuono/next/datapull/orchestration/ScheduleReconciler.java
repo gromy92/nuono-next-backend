@@ -7,19 +7,25 @@ import com.nuono.next.datapull.schedule.DataPullSchedule;
 import com.nuono.next.datapull.schedule.DataPullScheduleAnchorStore;
 import com.nuono.next.datapull.schedule.DataPullScheduleRegistry;
 import com.nuono.next.datapull.schedule.DataPullScopeAdmissionStore;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BiConsumer;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Fair facade that advances at most three persisted schedule operations per runtime tick. */
 public final class ScheduleReconciler implements DataPullRuntimeReconciler {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(ScheduleReconciler.class);
     private static final BiConsumer<ScheduleReconciliationOutcome, Instant> NO_OBSERVER =
             (outcome, observedAt) -> { };
 
@@ -157,6 +163,7 @@ public final class ScheduleReconciler implements DataPullRuntimeReconciler {
                 ));
             } catch (RuntimeException invalidOperationCohort) {
                 DataPullRuntimeCancellation.rethrowIfCancellation(invalidOperationCohort);
+                logFailure(job.operationCode(), invalidOperationCohort);
                 outcomes.add(ScheduleReconciliationOutcome.OperationOutcome.failed(
                         job.operationCode()
                 ));
@@ -194,10 +201,37 @@ public final class ScheduleReconciler implements DataPullRuntimeReconciler {
                 ));
             } catch (RuntimeException failedOperation) {
                 DataPullRuntimeCancellation.rethrowIfCancellation(failedOperation);
+                logFailure(operation, failedOperation);
                 outcomes.add(ScheduleReconciliationOutcome.OperationOutcome.failed(operation));
             }
         }
         return new ScheduleReconciliationOutcome(outcomes, reconciled);
+    }
+
+    private static void logFailure(OperationCode operation, RuntimeException failure) {
+        LOGGER.error(
+                "DP schedule reconciliation failed: operation={}, failure={}",
+                operation,
+                failureSignature(failure)
+        );
+    }
+
+    static String failureSignature(Throwable failure) {
+        List<String> types = new ArrayList<>();
+        Set<Throwable> seen = new HashSet<>();
+        Throwable current = Objects.requireNonNull(failure, "failure");
+        while (current != null && types.size() < 8 && seen.add(current)) {
+            String type = current.getClass().getSimpleName();
+            if (current instanceof SQLException) {
+                SQLException sql = (SQLException) current;
+                String state = sql.getSQLState();
+                type += "[" + (state != null && state.matches("[A-Z0-9]{5}")
+                        ? state : "UNKNOWN") + ":" + sql.getErrorCode() + "]";
+            }
+            types.add(type);
+            current = current.getCause();
+        }
+        return String.join(">", types);
     }
 
     @FunctionalInterface
