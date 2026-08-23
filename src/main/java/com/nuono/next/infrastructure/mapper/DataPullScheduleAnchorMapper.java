@@ -159,7 +159,7 @@ public interface DataPullScheduleAnchorMapper {
             "  AND BINARY cutover.cutover_key = BINARY #{cutoverKey}",
             "  AND cutover.state = 'ACTIVE'",
             "  AND admission.first_eligible_at_utc >= cutover.activated_at_utc",
-            "ON DUPLICATE KEY UPDATE operation_code = operation_code"
+            "ON DUPLICATE KEY UPDATE operation_code = dp_pull_schedule_anchor.operation_code"
     })
     int insertPostCutoverAnchorIfActive(
             @Param("operationCode") OperationCode operationCode,

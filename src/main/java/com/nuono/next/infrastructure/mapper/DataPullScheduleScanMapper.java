@@ -238,7 +238,7 @@ public interface DataPullScheduleScanMapper {
             " gmt_create, gmt_updated) VALUES (",
             " #{operationCode},#{cutoverKey},#{expectedCount},#{expectedDigest},",
             " 'VERIFYING',0,#{initialState},0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
-            "ON DUPLICATE KEY UPDATE operation_code = operation_code"
+            "ON DUPLICATE KEY UPDATE operation_code = dp_pull_schedule_manifest_seal.operation_code"
     })
     int insertManifestSeal(
             @Param("operationCode") OperationCode operationCode,

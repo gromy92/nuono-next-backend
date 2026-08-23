@@ -85,14 +85,14 @@ public interface Dp08MemberSetMapper {
             "set_state,copy_cursor,copied_member_count,version_no,gmt_create,gmt_updated) VALUES (#{memberSetId},",
             "#{operationCode},#{scopeKey},#{memberCount},#{memberOrderedSha256},#{handlePayloadType},",
             "#{handlePayloadSha256},#{handlePayload},#{effectiveFromUtc},'BUILDING',NULL,0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3))",
-            "ON DUPLICATE KEY UPDATE member_set_id=member_set_id"})
+            "ON DUPLICATE KEY UPDATE member_set_id=dp_pull_dp08_member_set.member_set_id"})
     int insertMemberSet(Dp08MemberSetRecord record);
 
     @Insert({"<script>","INSERT INTO dp_pull_dp08_member_set_item (member_set_id,member_key,member_kind,",
             "watch_product_id,competitor_product_id,noon_product_code,source_updated_at_utc,gmt_create) VALUES",
             "<foreach collection='items' item='i' separator=','>","(#{i.memberSetId},#{i.memberKey},#{i.memberKind},",
             "#{i.watchProductId},#{i.competitorProductId},#{i.noonProductCode},#{i.sourceUpdatedAtUtc},UTC_TIMESTAMP(3))",
-            "</foreach>","ON DUPLICATE KEY UPDATE member_key=member_key","</script>"})
+            "</foreach>","ON DUPLICATE KEY UPDATE member_key=dp_pull_dp08_member_set_item.member_key","</script>"})
     int insertMemberItems(@Param("items") List<Dp08MemberSetItem> items);
 
     @Update({"UPDATE dp_pull_dp08_member_set SET copy_cursor=#{nextCursor},copied_member_count=#{nextCount},",
@@ -115,7 +115,7 @@ public interface Dp08MemberSetMapper {
             "evidence_member_count,evidence_complete,exact_search_required,applied_member_count,",
             "apply_complete,rank_fact_count,version_no,gmt_create,gmt_updated) VALUES (#{taskId},",
             "#{operationCode},#{memberSetId},0,CASE WHEN #{operationCode}='DP08A' THEN b'1' ELSE b'0' END,",
-            "b'0',0,b'0',0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE task_id=task_id"})
+            "b'0',0,b'0',0,0,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3)) ON DUPLICATE KEY UPDATE task_id=dp_pull_dp08_task_member_progress.task_id"})
     int insertTaskProgress(@Param("taskId") long taskId,@Param("operationCode") OperationCode operation,
             @Param("memberSetId") String memberSetId);
 

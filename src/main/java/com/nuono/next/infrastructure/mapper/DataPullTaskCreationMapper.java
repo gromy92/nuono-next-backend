@@ -70,7 +70,7 @@ public interface DataPullTaskCreationMapper {
             "       AND (duplicate.effective_until_utc IS NULL",
             "            OR #{scheduleSlot} < duplicate.effective_until_utc)",
             "       AND BINARY duplicate.binding_id <> BINARY binding.binding_id",
-            "   )) ON DUPLICATE KEY UPDATE id = id"
+            "   )) ON DUPLICATE KEY UPDATE id = dp_pull_task.id"
     })
     int insertTaskIfAbsent(DataPullTask task);
 

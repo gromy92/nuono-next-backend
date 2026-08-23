@@ -39,7 +39,7 @@ public interface ReportStageMapper {
             "VALUES(#{intent.taskId},#{intent.operationCode},#{artifactKey},#{artifactSha256},",
             "#{intent.fenceEpoch},'VALIDATING',#{headerJson},#{initialByteOffset},#{declaredRowCount},",
             "0,0,0,0,0,0,0,NULL,NULL,0,#{nowUtc},#{nowUtc})",
-            "ON DUPLICATE KEY UPDATE task_id=task_id"
+            "ON DUPLICATE KEY UPDATE task_id=dp_pull_report_stage.task_id"
     })
     int insertStageIfAbsent(
             @Param("intent") ExportReportIntent intent,

@@ -82,7 +82,7 @@ public interface DataPullScopeAdmissionMapper {
             "  AND cutover.state = 'ACTIVE'",
             "  AND BINARY cutover.cutover_key = BINARY #{admission.cutoverKey}",
             "  AND cutover.activated_at_utc <= #{admission.firstEligibleAtUtc}",
-            "ON DUPLICATE KEY UPDATE scope_key = scope_key"
+            "ON DUPLICATE KEY UPDATE scope_key = dp_pull_scope_admission.scope_key"
     })
     int insertPostCutoverAdmission(
             @Param("operationCode") OperationCode operationCode,
