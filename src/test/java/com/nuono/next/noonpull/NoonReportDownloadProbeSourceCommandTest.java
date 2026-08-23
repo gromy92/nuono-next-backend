@@ -86,7 +86,7 @@ class NoonReportDownloadProbeSourceCommandTest {
     }
 
     @Test
-    void obtainsTheSourceWithExactlyOneUnverifiedReadRequest() {
+    void obtainsTheSourceThroughAReachablePinnedReadOnlySession() {
         NoonPullStoreBindingResolver resolver = mock(NoonPullStoreBindingResolver.class);
         NoonPullGatewaySessionFactory sessions = mock(NoonPullGatewaySessionFactory.class);
         NoonPullGatewaySession session = mock(NoonPullGatewaySession.class);
@@ -103,7 +103,8 @@ class NoonReportDownloadProbeSourceCommandTest {
                 .put("status_code", "COMPLETE")
                 .put("download_url", PREFIX + "Expires=1787254201");
         when(resolver.resolve(request)).thenReturn(binding);
-        when(sessions.openOneShot(binding)).thenReturn(session);
+        when(sessions.openPinnedReadOnly(binding, "noon-catalog.noon.partners", 443))
+                .thenReturn(session);
         when(session.postJsonOnce(anyString(), any(), eq(true), anyMap()))
                 .thenReturn(response);
 
@@ -113,7 +114,8 @@ class NoonReportDownloadProbeSourceCommandTest {
                         request, "EXP4CP4RTOQO"
                 ));
         ArgumentCaptor<JsonNode> body = ArgumentCaptor.forClass(JsonNode.class);
-        verify(sessions).openOneShot(binding);
+        verify(sessions).openPinnedReadOnly(binding, "noon-catalog.noon.partners", 443);
+        verify(sessions, never()).openOneShot(any());
         verify(sessions, never()).login(any());
         verify(session).postJsonOnce(
                 eq("https://noon-catalog.noon.partners/status"),
