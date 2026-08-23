@@ -23,7 +23,8 @@ import org.springframework.util.StringUtils;
 @Profile("local-db")
 class ProductImageNoonPublisher {
     private static final URI ASSET_UPLOAD_URI = URI.create(NoonCatalogApiRoutes.ASSET_UPLOAD);
-    private static final int ASSET_UPLOAD_PORT = 443;
+    private static final int ASSET_UPLOAD_PORT =
+            ASSET_UPLOAD_URI.getPort() > 0 ? ASSET_UPLOAD_URI.getPort() : 443;
     private static final int MAX_NOON_IMAGES = ProductImagePublishCheckpoint.MAX_IMAGES;
     private final StoreSyncMapper storeSyncMapper;
     private final ProductNoonAdapter noonAdapter;
