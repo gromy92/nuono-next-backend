@@ -4,7 +4,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.nuono.next.infrastructure.mapper.OfficialWarehouseMapper;
 import com.nuono.next.noon.NoonEgressUnavailableException;
-import com.nuono.next.officialwarehouse.OfficialWarehouseRecords.AppointmentRecord;
 import java.lang.reflect.Method;
 import java.util.List;
 import org.apache.ibatis.annotations.Select;
@@ -142,85 +141,6 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
     }
 
     @Test
-    void retryBackoffDoublesPerAppointmentFailure() throws Exception {
-        Method method = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
-                "nextAppointmentRetrySeconds",
-                int.class,
-                AppointmentRecord.class,
-                String.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(null), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
-                .isEqualTo(10);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(0), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
-                .isEqualTo(10);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(1), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
-                .isEqualTo(20);
-        assertThat(method.invoke(null, 5, appointmentWithAttemptCount(2), "SCHEDULE", "SCHEDULE_APPOINTMENT", null))
-                .isEqualTo(40);
-    }
-
-    @Test
-    void noCapacityRetryIsImmediatelyEligibleEvenAfterManyAttempts() throws Exception {
-        Method method = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
-                "nextAppointmentRetrySeconds",
-                int.class,
-                AppointmentRecord.class,
-                String.class,
-                String.class,
-                String.class
-        );
-        method.setAccessible(true);
-
-        assertThat(method.invoke(
-                null,
-                5,
-                appointmentWithAttemptCount(32),
-                "SCHEDULE",
-                "NO_CAPACITY",
-                "没有匹配的 Noon 可约仓日期或时段。"
-        ))
-                .isEqualTo(0);
-    }
-
-    @Test
-    void noonAccessFailureRetryIsCappedAndClassified() throws Exception {
-        Method retryMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
-                "nextAppointmentRetrySeconds",
-                int.class,
-                AppointmentRecord.class,
-                String.class,
-                String.class,
-                String.class
-        );
-        retryMethod.setAccessible(true);
-        Method failureTypeMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
-                "appointmentRetryFailureType",
-                String.class,
-                String.class,
-                String.class
-        );
-        failureTypeMethod.setAccessible(true);
-
-        assertThat(failureTypeMethod.invoke(null, "NOON_CALL", "IllegalStateException", "HTTP 407 empty response"))
-                .isEqualTo("NOON_ACCESS_BLOCKED");
-        assertThat(LocalDbOfficialWarehouseService.isRetryableNoonCallFailure("NOON_ACCESS_BLOCKED"))
-                .isTrue();
-        assertThat(retryMethod.invoke(
-                null,
-                5,
-                appointmentWithAttemptCount(32),
-                "NOON_CALL",
-                "NOON_ACCESS_BLOCKED",
-                "HTTP 407 empty response"
-        ))
-                .isEqualTo(1800);
-    }
-
-    @Test
     void transientHttpServerErrorIsRetryableNoonAccessFailure() throws Exception {
         Method failureTypeMethod = LocalDbOfficialWarehouseService.class.getDeclaredMethod(
                 "appointmentRetryFailureType",
@@ -291,9 +211,4 @@ class OfficialWarehouseAppointmentSchedulerSqlTest {
                 .isFalse();
     }
 
-    private AppointmentRecord appointmentWithAttemptCount(Integer attemptCount) {
-        AppointmentRecord record = new AppointmentRecord();
-        record.attemptCount = attemptCount;
-        return record;
-    }
 }

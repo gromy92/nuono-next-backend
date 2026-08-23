@@ -120,6 +120,25 @@ public class NoonRiskBackoffScope {
         );
     }
 
+    /**
+     * A transport retry is isolated to one official-warehouse store and error type. It must not
+     * create an account-wide risk hold: those are reserved for explicit Noon risk signals.
+     */
+    public static NoonRiskBackoffScope officialWarehouseTemporaryFailure(
+            Long ownerUserId,
+            String storeCode,
+            String siteCode,
+            String failureType
+    ) {
+        return new NoonRiskBackoffScope(
+                "OWNER_STORE_SITE",
+                ownerUserId,
+                storeCode,
+                siteCode,
+                "OFFICIAL_WAREHOUSE_TEMPORARY_" + value(normalize(failureType))
+        );
+    }
+
     NoonRiskBackoffScope accountWide() {
         return isPublicOperation()
                 ? allPublicNoon(ownerUserId, storeCode, siteCode)

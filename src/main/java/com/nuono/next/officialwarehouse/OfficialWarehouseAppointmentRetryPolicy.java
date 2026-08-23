@@ -8,7 +8,6 @@ import java.util.Locale;
 import org.springframework.util.StringUtils;
 
 final class OfficialWarehouseAppointmentRetryPolicy {
-    private static final int RETRY_CAP_SECONDS = 1800;
 
     private OfficialWarehouseAppointmentRetryPolicy() {
     }
@@ -18,36 +17,6 @@ final class OfficialWarehouseAppointmentRetryPolicy {
             return false;
         }
         return appointment.apEndDateValue == null || !today.isAfter(appointment.apEndDateValue);
-    }
-
-    static int nextRetrySeconds(int baseRetrySeconds, AppointmentRecord appointment) {
-        return nextRetrySeconds(
-                baseRetrySeconds,
-                appointment,
-                "SCHEDULE",
-                "SCHEDULE_APPOINTMENT",
-                null
-        );
-    }
-
-    static int nextRetrySeconds(
-            int baseRetrySeconds,
-            AppointmentRecord appointment,
-            String errorStage,
-            String failureType,
-            String errorMessage
-    ) {
-        if (isNoCapacity(failureType)) {
-            return 0;
-        }
-        int safeBase = baseRetrySeconds <= 0 ? 5 : baseRetrySeconds;
-        int previousAttemptCount = appointment == null || appointment.attemptCount == null
-                ? 0
-                : Math.max(0, appointment.attemptCount);
-        int failedAttemptsAfterCurrentRun = previousAttemptCount + 1;
-        long multiplier = 1L << Math.min(30, failedAttemptsAfterCurrentRun);
-        long seconds = (long) safeBase * multiplier;
-        return (int) Math.min(seconds, RETRY_CAP_SECONDS);
     }
 
     static String failureType(String errorStage, String failureType, String errorMessage) {

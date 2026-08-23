@@ -46,6 +46,61 @@ class LocalDbOfficialWarehouseServiceRiskBackoffTest {
     }
 
     @Test
+    void firstEofAfterManyCapacityPollsUsesTwoMinuteStoreAndFailureTypeBackoff() {
+        OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
+        NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);
+        NoonSalesReportBindingResolver bindingResolver = mock(NoonSalesReportBindingResolver.class);
+        NoonHttpCallLogService noonHttpCallLogService = mock(NoonHttpCallLogService.class);
+        OfficialWarehouseNoonInboundClient noonInboundClient = mock(OfficialWarehouseNoonInboundClient.class);
+        InMemoryNoonRiskBackoffRepository riskRepository = new InMemoryNoonRiskBackoffRepository();
+        LocalDbOfficialWarehouseService service = new LocalDbOfficialWarehouseService(
+                mapper,
+                noonSessionGateway,
+                bindingResolver,
+                noonHttpCallLogService,
+                noonInboundClient,
+                new ObjectMapper(),
+                new NoonRiskBackoffGuard(riskRepository),
+                new NoonPullFailurePolicy(),
+                OfficialWarehouseAppointmentAuthRecovery.disabled()
+        );
+        AppointmentRecord appointment = appointment();
+        appointment.attemptCount = 22;
+        AppointmentRecord running = runningAppointment();
+        running.attemptCount = 23;
+        OfficialWarehouseAppointmentRunner.NoonAppointmentClient client = mock(
+                OfficialWarehouseAppointmentRunner.NoonAppointmentClient.class
+        );
+        when(mapper.selectAuthorizedAppointment(Map.of("STR108065-NSA", 307L), 611049L))
+                .thenReturn(appointment);
+        when(mapper.selectAppointment(307L, 611049L)).thenReturn(running);
+        when(mapper.markAppointmentRunning(307L, 611049L, 0L, 901L)).thenReturn(1);
+        when(bindingResolver.resolve(any())).thenReturn(binding());
+        when(noonInboundClient.appointmentClient(any(), any(), any(), any(), any())).thenReturn(client);
+        when(client.queryAsnDetail(any())).thenThrow(new IllegalStateException(
+                "HTTP/1.1 header parser received no bytes"
+        ));
+
+        service.runAppointmentOnce(access(), "611049");
+
+        verify(mapper).markAppointmentPendingRetry(
+                eq(307L),
+                eq(611049L),
+                eq(1L),
+                eq(120),
+                eq("NOON_ACCESS"),
+                eq("NOON_ACCESS_FAILURE"),
+                contains("header parser received no bytes"),
+                eq(901L)
+        );
+        assertThat(riskRepository.selectLatestHold(
+                NoonRiskBackoffScope.officialWarehouseTemporaryFailure(
+                        307L, "STR108065-NSA", "SA", "NOON_ACCESS_FAILURE"
+                ).getScopeKey()
+        ).getAttemptCount()).isEqualTo(1);
+    }
+
+    @Test
     void appointmentExpiredCookieRequiresManualAuthorizationWithoutEmailOtpOrRiskBackoff() {
         OfficialWarehouseMapper mapper = mock(OfficialWarehouseMapper.class);
         NoonSessionGateway noonSessionGateway = mock(NoonSessionGateway.class);

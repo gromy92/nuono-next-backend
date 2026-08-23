@@ -118,6 +118,49 @@ class NoonRiskBackoffGuardTest {
         ));
     }
 
+    @Test
+    void scopedTemporaryFailuresUseTwoFourEightSixteenMinutesWithoutAccountWideHold() {
+        InMemoryNoonRiskBackoffRepository repository = new InMemoryNoonRiskBackoffRepository();
+        NoonRiskBackoffGuard guard = new NoonRiskBackoffGuard(repository, CLOCK);
+        NoonRiskBackoffScope unavailable = NoonRiskBackoffScope.officialWarehouseTemporaryFailure(
+                307L, "STR108065-NSA", "SA", "NOON_ACCESS_FAILURE"
+        );
+        NoonRiskBackoffScope timeout = NoonRiskBackoffScope.officialWarehouseTemporaryFailure(
+                307L, "STR108065-NSA", "SA", "TIMEOUT"
+        );
+
+        assertEquals(2, minutesUntil(guard.recordScopedSignal(
+                unavailable, "NOON_ACCESS_FAILURE", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "EOF"
+        )));
+        assertEquals(4, minutesUntil(guard.recordScopedSignal(
+                unavailable, "NOON_ACCESS_FAILURE", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "EOF"
+        )));
+        assertEquals(8, minutesUntil(guard.recordScopedSignal(
+                unavailable, "NOON_ACCESS_FAILURE", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "EOF"
+        )));
+        assertEquals(16, minutesUntil(guard.recordScopedSignal(
+                unavailable, "NOON_ACCESS_FAILURE", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "EOF"
+        )));
+        assertEquals(2, minutesUntil(guard.recordScopedSignal(
+                timeout, "TIMEOUT", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "timeout"
+        )));
+        assertNull(repository.selectLatestHold(
+                NoonRiskBackoffScope.allNoon(307L, "STR108065-NSA", "SA").getScopeKey()
+        ));
+
+        guard.recordScopedSuccess(unavailable, "OFFICIAL_WAREHOUSE_APPOINTMENT");
+        assertEquals(2, minutesUntil(guard.recordScopedSignal(
+                unavailable, "NOON_ACCESS_FAILURE", "OFFICIAL_WAREHOUSE_APPOINTMENT", 611548L, "EOF"
+        )));
+    }
+
+    private int minutesUntil(NoonRiskBackoffHold hold) {
+        return (int) java.time.Duration.between(
+                LocalDateTime.ofInstant(CLOCK.instant(), CLOCK.getZone()),
+                hold.getBlockedUntil()
+        ).toMinutes();
+    }
+
     private NoonReportPullRequest report(NoonPullDataDomain domain) {
         return NoonReportPullRequest.builder()
                 .ownerUserId(307L)
