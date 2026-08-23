@@ -66,7 +66,7 @@ public interface DataPullScheduleTaskBatchMapper {
             "        OR #{task.scheduleSlot} &lt; duplicate.effective_until_utc)",
             "   AND BINARY duplicate.binding_id &lt;&gt; BINARY binding.binding_id))",
             "</foreach>",
-            "ON DUPLICATE KEY UPDATE id = id",
+            "ON DUPLICATE KEY UPDATE id = dp_pull_task.id",
             "</script>"
     })
     int insertTasks(@Param("tasks") List<DataPullTask> tasks);

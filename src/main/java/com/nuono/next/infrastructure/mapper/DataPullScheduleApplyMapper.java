@@ -69,7 +69,7 @@ public interface DataPullScheduleApplyMapper {
             "JOIN dp_pull_schedule_cutover cutover ON cutover.operation_code = #{operationCode}",
             " AND cutover.state = 'ACTIVE' AND BINARY cutover.cutover_key = BINARY #{cutoverKey}",
             " AND cutover.activated_at_utc &lt;= #{observedAtUtc}",
-            "ON DUPLICATE KEY UPDATE scope_key = scope_key",
+            "ON DUPLICATE KEY UPDATE scope_key = dp_pull_scope_admission.scope_key",
             "</script>"
     })
     int insertPostCutoverAdmissions(
@@ -89,7 +89,7 @@ public interface DataPullScheduleApplyMapper {
             " #{anchor.anchorKind},#{anchor.reconcileAfterUtc},",
             " #{anchor.anchorEvidenceSha256},#{anchor.createdAtUtc})",
             "</foreach>",
-            "ON DUPLICATE KEY UPDATE operation_code = operation_code",
+            "ON DUPLICATE KEY UPDATE operation_code = dp_pull_schedule_anchor.operation_code",
             "</script>"
     })
     int insertPostCutoverAnchors(

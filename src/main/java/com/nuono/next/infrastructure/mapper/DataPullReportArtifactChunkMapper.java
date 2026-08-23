@@ -22,7 +22,7 @@ public interface DataPullReportArtifactChunkMapper {
             ") VALUES (",
             " #{row.artifactKey},#{row.taskId},#{row.stableRequestKey},#{row.remoteHandle},NULL,",
             " 0,NULL,#{row.createdAt},'DOWNLOADING',0,#{row.updatedAt}",
-            ") ON DUPLICATE KEY UPDATE artifact_key=artifact_key"
+            ") ON DUPLICATE KEY UPDATE artifact_key=dp_pull_report_artifact.artifact_key"
     })
     @Options(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
     int insertDownloadingIfAbsent(@Param("row") ReportArtifactRecord row);

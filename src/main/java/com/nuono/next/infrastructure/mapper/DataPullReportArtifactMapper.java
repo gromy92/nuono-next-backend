@@ -19,7 +19,7 @@ public interface DataPullReportArtifactMapper {
             ") VALUES (",
             "  #{row.artifactKey}, #{row.taskId}, #{row.stableRequestKey}, #{row.remoteHandle},",
             "  #{row.contentSha256}, #{row.contentLength}, #{row.contentBytes}, #{row.createdAt}",
-            ") ON DUPLICATE KEY UPDATE artifact_key = artifact_key"
+            ") ON DUPLICATE KEY UPDATE artifact_key = dp_pull_report_artifact.artifact_key"
     })
     @Options(timeout = DataPullRuntimeProperties.DATABASE_TRANSACTION_TIMEOUT_SECONDS)
     int insertIfAbsent(@Param("row") ReportArtifactRecord row);

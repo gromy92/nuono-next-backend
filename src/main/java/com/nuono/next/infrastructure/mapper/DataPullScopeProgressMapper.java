@@ -18,7 +18,7 @@ public interface DataPullScopeProgressMapper {
             "  version_no, gmt_create, gmt_updated",
             ") VALUES (",
             "  #{operationCode}, #{scopeKey}, b'0', NULL, NULL, 0, #{createdAt}, #{updatedAt}",
-            ") ON DUPLICATE KEY UPDATE operation_code = operation_code"
+            ") ON DUPLICATE KEY UPDATE operation_code = dp_pull_scope_progress.operation_code"
     })
     int insertIfAbsent(DataPullScopeProgress progress);
 

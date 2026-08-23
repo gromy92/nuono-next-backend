@@ -130,7 +130,7 @@ public interface DataPullScopeBindingMapper {
             "  #{bindingId}, #{operationCode}, #{scopeKey}, #{payloadType}, #{payloadSha256}, #{payload},",
             "  #{effectiveFromUtc}, NULL, #{sourceObservedAtUtc},",
             "  CONCAT(#{operationCode}, ':', #{scopeKey}), #{createdAtUtc}, #{updatedAtUtc}",
-            ") ON DUPLICATE KEY UPDATE binding_id = binding_id"
+            ") ON DUPLICATE KEY UPDATE binding_id = dp_pull_scope_binding_epoch.binding_id"
     })
     int insertOpenBinding(DataPullScopeBindingEpoch binding);
 
@@ -146,7 +146,7 @@ public interface DataPullScopeBindingMapper {
             " #{item.sourceObservedAtUtc},CONCAT(#{item.operationCode},':',#{item.scopeKey}),",
             " #{item.createdAtUtc},#{item.updatedAtUtc})",
             "</foreach>",
-            "ON DUPLICATE KEY UPDATE binding_id = binding_id",
+            "ON DUPLICATE KEY UPDATE binding_id = dp_pull_scope_binding_epoch.binding_id",
             "</script>"
     })
     int insertOpenBindings(@Param("bindings") List<DataPullScopeBindingEpoch> bindings);

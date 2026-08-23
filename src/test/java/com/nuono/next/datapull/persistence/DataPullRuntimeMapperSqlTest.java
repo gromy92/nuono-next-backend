@@ -38,7 +38,7 @@ class DataPullRuntimeMapperSqlTest {
         assertTrue(insert.contains("#{scheduleSlot} < binding.effective_until_utc"));
         assertTrue(insert.contains("NOT EXISTS"));
         assertTrue(insert.contains("dp_pull_scope_binding_epoch duplicate"));
-        assertTrue(insert.contains("ON DUPLICATE KEY UPDATE id = id"));
+        assertTrue(insert.contains("ON DUPLICATE KEY UPDATE id = dp_pull_task.id"));
         assertFalse(insert.contains("state = VALUES(state)"));
         assertTrue(lookup.contains("operation_code = #{operationCode}"));
         assertTrue(lookup.contains("BINARY scope_key = BINARY #{scopeKey}"));
