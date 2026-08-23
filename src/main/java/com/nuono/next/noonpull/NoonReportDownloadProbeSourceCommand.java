@@ -8,6 +8,7 @@ import com.nuono.next.noon.NoonCatalogApiRoutes;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.List;
@@ -145,7 +146,17 @@ public final class NoonReportDownloadProbeSourceCommand {
         body.put("exportCode", exportId);
         body.put("log", false);
         String site = binding.getSiteCode().toLowerCase(java.util.Locale.ROOT);
-        JsonNode root = sessions.openOneShot(binding).postJsonOnce(
+        URI endpoint = URI.create(statusUrl);
+        String targetHost = endpoint.getHost();
+        int targetPort = endpoint.getPort() > 0
+                ? endpoint.getPort()
+                : "https".equalsIgnoreCase(endpoint.getScheme()) ? 443 : 80;
+        if (!StringUtils.hasText(targetHost)) {
+            throw new IllegalArgumentException("report status endpoint host is missing");
+        }
+        JsonNode root = sessions.openPinnedReadOnly(
+                binding, targetHost, targetPort
+        ).postJsonOnce(
                 statusUrl,
                 body,
                 true,

@@ -10,4 +10,16 @@ public interface NoonPullGatewaySessionFactory {
     default NoonPullGatewaySession openOneShot(NoonPullStoreBinding binding) {
         return login(binding);
     }
+
+    /**
+     * Opens a read-only session after selecting an egress route that can reach the target.
+     * The gateway may use a read-only authentication probe while rotating unusable routes.
+     */
+    default NoonPullGatewaySession openPinnedReadOnly(
+            NoonPullStoreBinding binding,
+            String targetHost,
+            int targetPort
+    ) {
+        return login(binding);
+    }
 }
