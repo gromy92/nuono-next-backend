@@ -8,7 +8,10 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectKey;
 
-/** DP-01/02/03 bounded set-based Fact Writer mapper. */
+/**
+ * DP-01/02/03 bounded set-based Fact Writer mapper.
+ * Proof joins preserve raw natural-key columns so MySQL can use each fact table's unique index.
+ */
 public interface LegacyReportFactBulkMapper {
     @Insert({
             "INSERT INTO sales_data_id_sequence (sequence_name,next_id,gmt_create,gmt_updated)",
