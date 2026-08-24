@@ -22,6 +22,8 @@ management:
       group:
         dpRuntime:
           include: dpRuntimeIndicator
+        release:
+          include: db,diskSpace,ping
 
 nuono:
   stage: local-bootstrap

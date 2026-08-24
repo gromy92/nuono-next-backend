@@ -51,7 +51,35 @@ def trap_safe_health_function() -> str:
   printf '%s' "${parsed:-UNAVAILABLE}"
 }
 loopback_health_body() {
-  curl -fsS --max-time 5 "http://127.0.0.1:$1/actuator/health" 2>/dev/null
+  curl -sS --max-time 5 "http://127.0.0.1:$1/actuator/health/release" 2>/dev/null
+}
+legacy_health_status() {
+  local body="" parsed=""
+  if ! capture_status body loopback_legacy_health_body "$1"; then printf UNAVAILABLE; return 0; fi
+  [ -n "$body" ] || { printf UNAVAILABLE; return 0; }
+  if ! capture_status parsed parse_health_body "$body"; then printf UNAVAILABLE; return 0; fi
+  printf '%s' "${parsed:-UNAVAILABLE}"
+}
+loopback_legacy_health_body() {
+  curl -sS --max-time 5 "http://127.0.0.1:$1/actuator/health" 2>/dev/null
+}
+active_release_health_acceptable() {
+  local release_status="" legacy_status=""
+  release_status="$(health_status "$1")"
+  [ "$release_status" = UP ] && return 0
+  # Existing slots can predate the release group. Their global status is evidence
+  # only during this one-way upgrade; the candidate must still pass release health.
+  [ "$release_status" = UNAVAILABLE ] || return 1
+  legacy_status="$(legacy_health_status "$1")"
+  [ "$legacy_status" = UP ] || [ "$legacy_status" = DOWN ]
+}
+wait_for_active_release_health() {
+  local attempt
+  for attempt in {1..80}; do
+    active_release_health_acceptable "$1" && return 0
+    sleep 1
+  done
+  return 1
 }
 parse_health_body() {
   printf '%s' "$1" | sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1

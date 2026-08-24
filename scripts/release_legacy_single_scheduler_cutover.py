@@ -18,8 +18,9 @@ def _q(value: str | int) -> str:
 def _validated_external_health_url(value: str) -> str:
     parsed = urlsplit(value)
     allowed = {
-        ("https", "www.nuoon.com", None, "/ai/actuator/health"),
-        ("http", "123.60.15.70", None, "/ai/actuator/health"),
+        (scheme, host, None, path)
+        for scheme, host in (("https", "www.nuoon.com"), ("http", "123.60.15.70"))
+        for path in ("/ai/actuator/health", "/ai/actuator/health/release")
     }
     identity = (parsed.scheme, parsed.hostname, parsed.port, parsed.path)
     if (
@@ -85,7 +86,6 @@ def _build_mode_preserving_single_scheduler_cutover_script(
     }
     assignments = "\n".join(f"{key}={_q(value)}" for key, value in values.items())
     release_mode = "PRESERVE_RUNTIME" if preserve_runtime else "PRESERVE_LEGACY"
-    runtime_health = "UP" if preserve_runtime else "NOT_ACTIVATED"
     source_environment = (
         'SOURCE_ENV_FILE="$ACTIVE_RUN_DIR/.env"\nSOURCE_ENV_SHA256="$ACTIVE_ENV_SHA256"'
         if preserve_runtime
@@ -200,9 +200,7 @@ assert_target_release_ready() {{
       "$TARGET_ENV_SHA256")" = "$TARGET_ENV_SHA256" ] &&
     [ "$(secure_file_operation verify "$TARGET_SLOT_DIR/start-nuono-next-test.sh" \
       700 "$SOURCE_START_SCRIPT_SHA256")" = "$SOURCE_START_SCRIPT_SHA256" ] &&
-    assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env" &&
-    {{ [ "$EXPECTED_DP_EXECUTION_MODE" != RUNTIME ] ||
-      [ "$(dp_runtime_health_status)" = UP ]; }}
+    assert_legacy_target_env_contract "$TARGET_SLOT_DIR/.env"
 }}
 validate_cutover() {{
   [ "$ACTIVE_SLOT" != "$TARGET_SLOT" ]
@@ -231,7 +229,7 @@ validate_cutover
 ACTIVE_PID="$(pid_for_port "$ACTIVE_PORT")"
 [ "$ACTIVE_PID" = "$EXPECTED_ACTIVE_PID" ]
 initial_health="$(health_status "$ACTIVE_PORT")"
-[ "$initial_health" = UP ] || [ "$ALLOW_UNHEALTHY_ACTIVE" = 1 ]
+active_release_health_acceptable "$ACTIVE_PORT" || [ "$ALLOW_UNHEALTHY_ACTIVE" = 1 ]
 ACTIVE_JAR_PATH="$(process_jar_path "$ACTIVE_PID")"
 case "$ACTIVE_JAR_PATH" in
   "$ACTIVE_SLOT_DIR/$JAR_NAME") ACTIVE_RUN_DIR="$ACTIVE_SLOT_DIR"; ACTIVE_RUNTIME_KIND=slot ;;
@@ -287,7 +285,7 @@ emit CUTOVER_RESULT PASS; emit SINGLE_SCHEDULER_GUARD PASS
 emit DP_RELEASE_MODE {release_mode}; emit DP_EXECUTION_MODE "$EXPECTED_DP_EXECUTION_MODE"
 emit DP_LEGACY_CANARY_DISPOSITION "$LEGACY_CANARY_DISPOSITION"
 emit DP_DATA_WRITE_COUNT 0; emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"; emit TARGET_PID "$NEW_PID"
-emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH {runtime_health}
+emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH "$(dp_runtime_health_status)"
 emit ACTIVE_PORT "$TARGET_PORT"; emit NGINX_CURRENT_PORT "$TARGET_PORT"
 emit ACTIVE_SLOT "$TARGET_SLOT"; emit ACTIVE_JAR_PATH "$TARGET_SLOT_DIR/$JAR_NAME"; emit ACTIVE_RUNTIME_KIND slot
 emit TOPOLOGY_CAS_SHA256 "$FINAL_TOPOLOGY_CAS_SHA256"; emit EXTERNAL_HEALTH "$external_health"

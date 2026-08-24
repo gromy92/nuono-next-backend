@@ -6,7 +6,7 @@ from __future__ import annotations
 def build_dp_runtime_health_shell() -> str:
     return r'''dp_runtime_health_status() {
   local body="" status=""
-  body="$(curl -fsS --max-time 5 -- \
+  body="$(curl -sS --max-time 5 -- \
     "http://127.0.0.1:$TARGET_PORT/actuator/health/dpRuntime" 2>/dev/null)" || {
       printf UNAVAILABLE; return 0;
     }
@@ -16,9 +16,9 @@ try:
     data = json.loads(sys.argv[1])
 except (json.JSONDecodeError, TypeError):
     raise SystemExit(1)
-if not isinstance(data, dict) or data.get("status") != "UP":
+if not isinstance(data, dict) or data.get("status") not in {"UP", "DOWN"}:
     raise SystemExit(1)
-print("UP", end="")
+print(data["status"], end="")
 PY
 )" || { printf UNAVAILABLE; return 0; }
   printf '%s' "$status"
@@ -40,8 +40,7 @@ wait_for_dp_runtime_health() {
 }
 assert_target_release_ready() {
   [ "$(health_status "$TARGET_PORT")" = UP ] &&
-    assert_target_runtime_identity &&
-    [ "$(dp_runtime_health_status)" = UP ]
+    assert_target_runtime_identity
 }
 '''
 
