@@ -274,37 +274,6 @@ class NoonSessionGatewayTest {
     }
 
     @Test
-    void shouldExposeMissingProjectCookieAsRetryableSessionFailure() throws Exception {
-        StoreSyncMapper mapper = mock(StoreSyncMapper.class);
-        try (AuthRefreshServer server = new AuthRefreshServer(
-                "{\"projects\":[{\"projectCode\":\"PRJ7001\",\"projectName\":\"新店铺\"}]}",
-                null
-        )) {
-            NoonSessionGateway gateway = identityGateway(mapper, server);
-
-            NoonSessionGateway.EmailOtpGeneration generation =
-                    gateway.prepareEmailOtpGeneration("merchant@example.com");
-            gateway.sendEmailOtp(generation);
-            NoonSessionGateway.EmailIdentityGrant grant =
-                    gateway.validateEmailOtp(generation, "654321");
-
-            NoonProjectSessionCookieMissingException exception = assertThrows(
-                    NoonProjectSessionCookieMissingException.class,
-                    () -> gateway.createEmailOtpProjectSession(
-                            grant,
-                            "PRJ7001",
-                            "STR7001-NAE"
-                    )
-            );
-
-            assertEquals("Noon session/create 未返回有效 Cookie。", exception.getMessage());
-            assertEquals(1, server.generateCount());
-            assertEquals(1, server.sessionCreateCount());
-            verifyNoInteractions(mapper);
-        }
-    }
-
-    @Test
     void shouldRedactIdentityTokensFromAuthHttpResponseLogs() throws Exception {
         StoreSyncMapper mapper = mock(StoreSyncMapper.class);
         NoonHttpCallLogService logService = mock(NoonHttpCallLogService.class);

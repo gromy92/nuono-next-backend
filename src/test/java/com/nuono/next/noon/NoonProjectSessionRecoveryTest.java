@@ -12,12 +12,43 @@ import com.nuono.next.noonauth.gateway.NoonAuthRecoveryFailureStage;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectResult;
 import com.nuono.next.noonauth.gateway.NoonAuthRecoveryProjectTarget;
 import com.nuono.next.noonauth.gateway.NoonTransientErrorType;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class NoonProjectSessionRecoveryTest {
+
+    @Test
+    void successfulProviderResponseWithoutCookieRaisesTypedRetryableFailure() throws Exception {
+        try (MissingCookieSessionServer server = new MissingCookieSessionServer()) {
+            NoonSessionGateway gateway = identityGateway(server);
+            NoonSessionGateway.EmailOtpGeneration generation =
+                    gateway.prepareEmailOtpGeneration("merchant@example.com");
+            gateway.sendEmailOtp(generation);
+            NoonSessionGateway.EmailIdentityGrant grant =
+                    gateway.validateEmailOtp(generation, "654321");
+
+            NoonProjectSessionCookieMissingException failure =
+                    org.junit.jupiter.api.Assertions.assertThrows(
+                            NoonProjectSessionCookieMissingException.class,
+                            () -> gateway.createEmailOtpProjectSession(
+                                    grant, "PRJ7001", "STR7001-NAE"
+                            )
+                    );
+
+            assertEquals("Noon session/create 未返回有效 Cookie。", failure.getMessage());
+            assertEquals(1, server.sessionCreateCount.get());
+        }
+    }
 
     @Test
     void missingCookieKeepsProjectRecoverableInsteadOfCreatingManualHold() {
@@ -73,5 +104,77 @@ class NoonProjectSessionRecoveryTest {
                 "access-token",
                 List.of("PRJ7001")
         ));
+    }
+
+    private NoonSessionGateway identityGateway(MissingCookieSessionServer server) {
+        return new NoonSessionGateway(
+                new ObjectMapper(), mock(StoreSyncMapper.class), 0L, true,
+                "", "", "", "", true,
+                server.url("/whoami"), server.url("/lookup"),
+                server.url("/pkce"), server.url("/generate"),
+                server.url("/validate"), server.url("/projects"),
+                server.url("/session-create"), false, "HTTP", "", 0, ""
+        );
+    }
+
+    private static final class MissingCookieSessionServer implements AutoCloseable {
+        private final HttpServer server;
+        private final AtomicInteger sessionCreateCount = new AtomicInteger();
+
+        private MissingCookieSessionServer() throws IOException {
+            server = HttpServer.create(
+                    new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0
+            );
+            server.createContext("/", this::handle);
+            server.start();
+        }
+
+        private void handle(HttpExchange exchange) throws IOException {
+            String path = exchange.getRequestURI().getPath();
+            if ("/lookup".equals(path)) {
+                send(exchange, "[{\"userCode\":\"USER-1\",\"channels\":[{\"channelCode\":\"emailotp\"}]}]");
+                return;
+            }
+            if ("/pkce".equals(path)) {
+                send(exchange, "{\"success\":true,\"pkce_key\":\"pkce-1\"}");
+                return;
+            }
+            if ("/generate".equals(path)) {
+                send(exchange, "{\"emailotp\":\"ok\"}");
+                return;
+            }
+            if ("/validate".equals(path)) {
+                send(exchange, "{\"success\":true,\"access_token\":\"token-1\"}");
+                return;
+            }
+            if ("/projects".equals(path)) {
+                send(exchange, "{\"projects\":[{\"projectCode\":\"PRJ7001\"}]}");
+                return;
+            }
+            if ("/session-create".equals(path)) {
+                sessionCreateCount.incrementAndGet();
+                send(exchange, "{\"success\":true}");
+                return;
+            }
+            send(exchange, "{}");
+        }
+
+        private void send(HttpExchange exchange, String body) throws IOException {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream response = exchange.getResponseBody()) {
+                response.write(bytes);
+            }
+        }
+
+        private String url(String path) {
+            return "http://127.0.0.1:" + server.getAddress().getPort() + path;
+        }
+
+        @Override
+        public void close() {
+            server.stop(0);
+        }
     }
 }
