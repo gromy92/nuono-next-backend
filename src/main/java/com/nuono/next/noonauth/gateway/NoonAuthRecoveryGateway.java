@@ -8,6 +8,10 @@ public interface NoonAuthRecoveryGateway {
         return false;
     }
 
+    default boolean canResumeAuthenticatedIdentity(long recoveryId) {
+        return false;
+    }
+
     default boolean requiresCheckpointSecret() {
         return false;
     }

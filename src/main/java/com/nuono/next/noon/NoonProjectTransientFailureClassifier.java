@@ -15,6 +15,9 @@ final class NoonProjectTransientFailureClassifier {
     static Optional<NoonTransientErrorType> classify(Throwable throwable) {
         Throwable current = throwable;
         while (current != null) {
+            if (current instanceof NoonProjectSessionCookieMissingException) {
+                return Optional.of(NoonTransientErrorType.PROJECT_SESSION_COOKIE_MISSING);
+            }
             if (current instanceof NoonHttpException) {
                 NoonTransientErrorType httpType = classifyStatus(
                         ((NoonHttpException) current).getStatusCode()

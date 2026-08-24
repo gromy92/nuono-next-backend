@@ -106,9 +106,10 @@ final class NoonAuthRecoveryAttemptProcessor {
             return;
         }
 
-        boolean resumingCheckpoint = isInterruptedAttempt(candidate.getStatus())
-                && gateway != null
-                && gateway.canResume(candidate.getId());
+        boolean resumingCheckpoint = gateway != null
+                && (gateway.canResumeAuthenticatedIdentity(candidate.getId())
+                || (isInterruptedAttempt(candidate.getStatus())
+                && gateway.canResume(candidate.getId())));
         if (isInterruptedAttempt(candidate.getStatus()) && !resumingCheckpoint) {
             worker.holdInterruptedAttempt(
                     candidate,
