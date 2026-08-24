@@ -70,7 +70,7 @@ class ReleaseRuntimeSingleSchedulerUpgradeTest(unittest.TestCase):
         self.assertIn("DP_RELEASE_MODE PRESERVE_RUNTIME", script)
         self.assertIn("DP_DATA_WRITE_COUNT 0", script)
         self.assertIn("dp_runtime_health_status", script)
-        self.assertIn("DP_RUNTIME_HEALTH UP", script)
+        self.assertIn('DP_RUNTIME_HEALTH "$(dp_runtime_health_status)"', script)
         self.assertIn("run_dp10_openapi_probe", script)
         self.assertIn("capture_dp_runtime_database_binding", script)
         self.assertIn("verify_dp_runtime_database_binding", script)

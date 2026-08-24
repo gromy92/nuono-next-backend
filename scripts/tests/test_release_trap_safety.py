@@ -84,6 +84,8 @@ wait_for_health() {{ record wait-old; }}
 health_status() {{
   if [ "$1" = "$ACTIVE_PORT" ]; then printf '%s' "$ACTIVE_HEALTH"; else printf UNAVAILABLE; fi
 }}
+active_release_health_acceptable() {{ [ "$(health_status "$1")" = UP ]; }}
+wait_for_active_release_health() {{ wait_for_health "$1"; }}
 restore_nginx_to_active() {{ record restore-upstream; write_port "$ACTIVE_PORT"; }}
 stop_maintenance_responder() {{ record stop-maintenance; rm -f "$MAINTENANCE_LISTENER"; }}
 curl() {{
@@ -154,7 +156,7 @@ printf 'rc=%s\nvalue=%s\ntrap=%s\n' "$rc" "$value" "$(trap -p ERR)"
                 )
                 self.assertEqual(
                     result.stdout,
-                    "ROLLBACK_RESULT=PASS\nCUTOVER_RESULT=FAILED_ROLLED_BACK\n",
+                    "ROLLBACK_EXTERNAL_HEALTH=UP\nROLLBACK_RESULT=PASS\nCUTOVER_RESULT=FAILED_ROLLED_BACK\n",
                 )
                 self.assertTrue(state["active_listener"].exists())
                 self.assertFalse(state["target_listener"].exists())

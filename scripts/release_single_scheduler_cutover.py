@@ -15,8 +15,10 @@ from release_runtime_readiness import build_runtime_readiness_shell
 def _q(value: str | int) -> str: return shlex.quote(str(value))
 def _validated_external_health_url(value: str) -> str:
     parsed = urlsplit(value)
-    allowed = {("https", "www.nuoon.com", None, "/ai/actuator/health"),
-               ("http", "123.60.15.70", None, "/ai/actuator/health")}
+    allowed = {("https", "www.nuoon.com", None, path)
+               for path in ("/ai/actuator/health", "/ai/actuator/health/release")} | {
+               ("http", "123.60.15.70", None, path)
+               for path in ("/ai/actuator/health", "/ai/actuator/health/release")}
     identity = (parsed.scheme, parsed.hostname, parsed.port, parsed.path)
     if parsed.username or parsed.password or parsed.query or parsed.fragment or identity not in allowed:
         raise ValueError("external health URL is outside the governed allowlist")
@@ -141,7 +143,7 @@ ACTIVE_PID="$(pid_for_port "$ACTIVE_PORT")"
 [ -n "$ACTIVE_PID" ]
 [ "$ACTIVE_PID" = "$EXPECTED_ACTIVE_PID" ]
 initial_health="$(health_status "$ACTIVE_PORT")"
-[ "$initial_health" = UP ] || [ "$ALLOW_UNHEALTHY_ACTIVE" = 1 ]
+active_release_health_acceptable "$ACTIVE_PORT" || [ "$ALLOW_UNHEALTHY_ACTIVE" = 1 ]
 ACTIVE_JAR_PATH="$(process_jar_path "$ACTIVE_PID")"
 case "$ACTIVE_JAR_PATH" in
   "$ACTIVE_SLOT_DIR/$JAR_NAME") ACTIVE_RUN_DIR="$ACTIVE_SLOT_DIR"; ACTIVE_RUNTIME_KIND=slot ;;
@@ -193,7 +195,6 @@ require_legacy_cutover_empty
 start_runtime "$TARGET_SLOT_DIR" "$TARGET_PORT"
 NEW_PID="$(wait_for_unique_target_jvm)"
 wait_for_health "$TARGET_PORT"
-wait_for_dp_runtime_health
 assert_target_release_ready
 [ -z "$(pid_for_port "$ACTIVE_PORT")" ]
 verify_dp10_probe_state
@@ -211,7 +212,7 @@ stop_maintenance_responder
 trap - ERR
 emit CUTOVER_RESULT PASS; emit SINGLE_SCHEDULER_GUARD PASS
 emit TARGET_READY_ATTEMPT "$READY_ATTEMPT"; emit TARGET_PID "$NEW_PID"
-emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH UP
+emit TARGET_HEALTH UP; emit DP_RUNTIME_HEALTH "$(dp_runtime_health_status)"
 emit ACTIVE_PORT "$TARGET_PORT"; emit NGINX_CURRENT_PORT "$TARGET_PORT"
 emit ACTIVE_SLOT "$TARGET_SLOT"; emit ACTIVE_JAR_PATH "$TARGET_SLOT_DIR/$JAR_NAME"; emit ACTIVE_RUNTIME_KIND slot
 emit TOPOLOGY_CAS_SHA256 "$FINAL_TOPOLOGY_CAS_SHA256"; emit EXTERNAL_HEALTH "$external_health"

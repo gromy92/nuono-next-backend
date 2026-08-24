@@ -225,6 +225,8 @@ wait_for_health() {{
 health_status() {{
   if [ "$1" = "$ACTIVE_PORT" ]; then printf '%s' "$ACTIVE_HEALTH"; else printf UNAVAILABLE; fi
 }}
+active_release_health_acceptable() {{ [ "$(health_status "$1")" = UP ]; }}
+wait_for_active_release_health() {{ wait_for_health "$1"; }}
 restore_nginx_to_active() {{ record restore-upstream; CURRENT_PORT="$ACTIVE_PORT"; }}
 stop_maintenance_responder() {{ record stop-maintenance; }}
 curl() {{ record external-health; printf '{{"status":"UP"}}'; }}
@@ -250,7 +252,7 @@ trap rollback_cutover ERR
         )
         self.assertEqual(
             result.stdout,
-            "ROLLBACK_RESULT=PASS\nCUTOVER_RESULT=FAILED_ROLLED_BACK\n",
+            "ROLLBACK_EXTERNAL_HEALTH=UP\nROLLBACK_RESULT=PASS\nCUTOVER_RESULT=FAILED_ROLLED_BACK\n",
         )
 
 

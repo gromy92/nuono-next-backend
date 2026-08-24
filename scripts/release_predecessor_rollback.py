@@ -80,7 +80,7 @@ rollback_cutover() {
     exit "$original_status"
   fi
   if [ "$OLD_STOPPED" = 1 ] || [ -z "$predecessor_pid" ]; then
-    if ! restart_old_runtime || ! wait_for_health "$ACTIVE_PORT" >/dev/null; then
+    if ! restart_old_runtime || ! wait_for_active_release_health "$ACTIVE_PORT"; then
       emit ROLLBACK_RESULT BLOCKED_PREDECESSOR_RESTART_FAILED
       emit CUTOVER_RESULT FAILED_MAINTENANCE_PROTECTED
       exit "$original_status"
@@ -98,15 +98,16 @@ rollback_cutover() {
     exit "$original_status"
   }
   if [ -n "$UPSTREAM_BACKUP" ] && [ -f "$UPSTREAM_BACKUP" ] &&
-     [ "$(health_status "$ACTIVE_PORT")" = UP ] && restore_nginx_to_active; then
+     active_release_health_acceptable "$ACTIVE_PORT" && restore_nginx_to_active; then
     predecessor_restored=1
   fi
-  if [ "$predecessor_restored" = 1 ] && [ "$(health_status "$ACTIVE_PORT")" = UP ]; then
+  if [ "$predecessor_restored" = 1 ] && active_release_health_acceptable "$ACTIVE_PORT"; then
     stop_maintenance_responder || true
   fi
   rollback_external="$(curl -fsS --max-time 10 -- "$EXTERNAL_HEALTH_URL" 2>/dev/null |
     sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1 || true)"
-  if [ "$(health_status "$ACTIVE_PORT")" = UP ] && [ "$rollback_external" = UP ] &&
+  emit ROLLBACK_EXTERNAL_HEALTH "${rollback_external:-UNAVAILABLE}"
+  if active_release_health_acceptable "$ACTIVE_PORT" &&
      [ "$(current_upstream_port)" = "$ACTIVE_PORT" ] &&
      [ "$(exact_listener_pid_for_jar "$ACTIVE_PORT" "$ACTIVE_JAR_PATH" \
        "$EXPECTED_ACTIVE_JAR_SHA256")" = "$predecessor_pid" ] &&
