@@ -437,7 +437,7 @@ public class NoonSessionGateway {
         generation.state.applyContextCookies(selectedProject.getProjectCode(), normalize(storeCode));
         String cookie = generation.state.exportAuthCookieHeader();
         if (!StringUtils.hasText(cookie)) {
-            throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
+            throw new NoonProjectSessionCookieMissingException();
         }
         return new ProjectSessionCookie(
                 selectedProject,

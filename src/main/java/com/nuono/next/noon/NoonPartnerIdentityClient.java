@@ -152,7 +152,7 @@ final class NoonPartnerIdentityClient {
                 NoonJsonRequestPolicy.ONE_SHOT_AFTER_PACING
         );
         if (!StringUtils.hasText(state.exportAuthCookieHeader())) {
-            throw new IllegalStateException("Noon session/create 未返回有效 Cookie。");
+            throw new NoonProjectSessionCookieMissingException();
         }
     }
 

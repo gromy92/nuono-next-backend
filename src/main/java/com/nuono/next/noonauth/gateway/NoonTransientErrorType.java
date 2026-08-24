@@ -1,6 +1,7 @@
 package com.nuono.next.noonauth.gateway;
 
 public enum NoonTransientErrorType {
+    PROJECT_SESSION_COOKIE_MISSING,
     NETWORK_EOF,
     CONNECT_TIMEOUT,
     HTTP_407,

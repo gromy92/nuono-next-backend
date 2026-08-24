@@ -83,6 +83,18 @@ public class NoonSessionGatewayAuthRecoveryGateway implements NoonAuthRecoveryGa
     }
 
     @Override
+    public boolean canResumeAuthenticatedIdentity(long recoveryId) {
+        try {
+            return checkpointVault.load(recoveryId, clock.instant())
+                    .map(checkpoint -> checkpoint.getKind()
+                            == NoonAuthCheckpointVault.Kind.IDENTITY_GRANT)
+                    .orElse(false);
+        } catch (RuntimeException unreadableCheckpoint) {
+            return false;
+        }
+    }
+
+    @Override
     public boolean requiresCheckpointSecret() {
         return true;
     }

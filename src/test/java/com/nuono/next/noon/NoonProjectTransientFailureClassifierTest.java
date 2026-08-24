@@ -63,4 +63,14 @@ class NoonProjectTransientFailureClassifierTest {
                 new HttpTimeoutException("request timed out")
         ).isEmpty());
     }
+
+    @Test
+    void treatsSuccessfulSessionCreateWithoutCookieAsTransient() {
+        assertEquals(
+                NoonTransientErrorType.PROJECT_SESSION_COOKIE_MISSING,
+                NoonProjectTransientFailureClassifier.classify(
+                        new NoonProjectSessionCookieMissingException()
+                ).orElse(null)
+        );
+    }
 }

@@ -54,5 +54,42 @@ class NoonAuthRecoveryCheckpointResumeTest extends AbstractNoonAuthRecoveryWorke
         );
         verify(gateway).clearCheckpoint(62L);
     }
-}
 
+    @Test
+    void projectSessionCooldownReusesAuthenticatedIdentityWithoutSendingAnotherOtp() {
+        NoonAuthIdentityRecoveryRecord coolingDown = recovery(
+                63L, NoonAuthRecoveryStatus.WAITING_COOLDOWN, 4L, 1, 1
+        );
+        List<NoonAuthRecoveryItemRecord> items = List.of(
+                item(631L, 63L, 307L, "PRJ307", "STORE307", 6301L, 9L)
+        );
+        when(repository.listDueRecoveries(any(), anyInt())).thenReturn(List.of(coolingDown));
+        when(repository.listPendingItems(63L, Integer.MAX_VALUE)).thenReturn(items);
+        when(repository.selectProjectAuthState(307L, "PRJ307"))
+                .thenReturn(blockedState(307L, "PRJ307", 63L, 9L));
+        when(gateway.canResumeAuthenticatedIdentity(63L)).thenReturn(true);
+        when(gateway.attempt(any())).thenAnswer(invocation -> {
+            NoonAuthRecoveryAttemptCommand command = invocation.getArgument(0);
+            assertEquals(1, command.getGeneration());
+            return NoonAuthRecoveryAttemptResult.authenticated(
+                    "checkpoint-message",
+                    List.of(NoonAuthRecoveryProjectResult.recovered(
+                            command.getProjectTargets().get(0),
+                            "sid=project-session-retry",
+                            "user-checkpoint"
+                    ))
+            );
+        });
+
+        assertEquals(1, worker.runOnce());
+
+        verify(gateway).canResumeAuthenticatedIdentity(63L);
+        verify(repository, never()).recordSendIntent(
+                anyLong(), any(), anyLong(), anyString(), any(), any()
+        );
+        verify(repository).requeueBlockedTaskAfterRecoveryCas(
+                eq(6301L), eq(63L), eq(NoonAuthRecoveryStatus.RECOVERING_PULLS),
+                anyLong(), anyString(), any()
+        );
+    }
+}
