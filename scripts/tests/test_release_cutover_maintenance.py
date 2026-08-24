@@ -272,7 +272,7 @@ class ReleaseCutoverMaintenanceTest(unittest.TestCase):
         maintenance_switch = rollback.index("switch_nginx_to_maintenance")
         new_stop = rollback.index("stop_target_runtime")
         old_restart = rollback.index("restart_old_runtime")
-        old_ready = rollback.index('wait_for_health "$ACTIVE_PORT"')
+        old_ready = rollback.index('wait_for_active_release_health "$ACTIVE_PORT"')
         old_switch = rollback.index("restore_nginx_to_active")
         maintenance_stop = rollback.index("stop_maintenance_responder")
 

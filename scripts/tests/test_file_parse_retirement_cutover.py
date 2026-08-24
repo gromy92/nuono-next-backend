@@ -105,7 +105,7 @@ class FileParseRetirementCutoverTest(unittest.TestCase):
     def test_failure_after_migration_start_never_restarts_old_jar(self):
         script = self.script()
         guard = script.index('if [ "$DRAINED_RUNTIME_MIGRATION_STARTED" = 1 ]')
-        restart = script.index('if ! restart_old_runtime || ! wait_for_health', guard)
+        restart = script.index('if ! restart_old_runtime || ! wait_for_active_release_health', guard)
         forbidden = script.index('emit SAFE_OLD_JAR_ROLLBACK FORBIDDEN', guard)
 
         self.assertLess(forbidden, restart)
