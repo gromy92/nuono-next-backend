@@ -287,6 +287,48 @@ class YiteLogisticsProviderAdapterTest {
         }
     }
 
+    @Test
+    void freightBillFetchIsConfigurationBlockedUntilVerifiedPathIsProvided() {
+        LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+        properties.getYite().setEnabled(true);
+        YiteLogisticsProviderAdapter httpAdapter = new YiteLogisticsProviderAdapter(properties);
+        LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+        request.setLoginAccount("fake-user");
+        request.setPassword("fake-password");
+
+        FreightBillFetchResult result = httpAdapter.fetchFreightBills(request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getFailureCode()).isEqualTo(LogisticsProviderFailureCode.CONFIGURATION_ERROR);
+        assertThat(result.getFailureMessage()).contains("测试环境抓包确认");
+    }
+
+    @Test
+    void fetchesYiteFreightBillsFromVerifiedConfiguredPath() throws Exception {
+        try (StubHttpServer server = new StubHttpServer()) {
+            server.handle("/login", exchange -> sendJson(exchange, "{\"success\":1,\"data\":{\"token\":\"body-token\"}}"));
+            server.handle("/freight-bills", exchange -> {
+                assertThat(exchange.getRequestHeaders().getFirst("token")).isEqualTo("body-token");
+                sendJson(exchange, "{\"success\":1,\"data\":{\"invoice_number\":\"202605180063\",\"invoice_total\":100,\"rows\":[{\"shipment_no\":\"YT2603941446\",\"expense_name\":\"运费（A）\",\"amount\":100}]}}" );
+            });
+            LogisticsAutoSyncProperties properties = new LogisticsAutoSyncProperties();
+            properties.getYite().setEnabled(true);
+            properties.getYite().setBaseUrl(server.baseUrl());
+            properties.getYite().setLoginPath("/login");
+            properties.getYite().setFreightBillPath("/freight-bills");
+            YiteLogisticsProviderAdapter httpAdapter = new YiteLogisticsProviderAdapter(properties);
+            LogisticsProviderFetchRequest request = new LogisticsProviderFetchRequest();
+            request.setLoginAccount("fake-user");
+            request.setPassword("fake-password");
+
+            FreightBillFetchResult result = httpAdapter.fetchFreightBills(request);
+
+            assertThat(result.isSuccess()).isTrue();
+            assertThat(result.isSnapshotComplete()).isTrue();
+            assertThat(result.getCommand().getBills()).hasSize(1);
+        }
+    }
+
     private static String listJson() {
         return json(
                 "{",
